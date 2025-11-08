@@ -134,8 +134,9 @@ async function syncVendors() {
         do {
             const requestBody = {
                 filter: {
-                    statuses: ['ACTIVE', 'INACTIVE']
-                }
+                    status: ['ACTIVE', 'INACTIVE']  // ✅ CORRECT (singular, not plural)
+                },
+                limit: 100  // Add for better performance
             };
 
             if (cursor) {

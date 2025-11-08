@@ -591,7 +591,11 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
                 AND ic.state = 'IN_STOCK'
             WHERE v.discontinued = FALSE
-              AND sv.daily_avg_quantity > 0
+              AND (
+                  COALESCE(ic.quantity, 0) <= 0  -- Include out of stock items
+                  OR (v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min)  -- Below minimum
+                  OR (sv.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv.daily_avg_quantity < 14)  -- < 14 days stock
+              )
         `;
 
         const params = [supplyDaysNum];
