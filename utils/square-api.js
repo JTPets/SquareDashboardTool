@@ -387,6 +387,34 @@ async function syncVariation(obj) {
         data.image_ids ? JSON.stringify(data.image_ids) : null
     ]);
 
+    // Sync location-specific settings from location_overrides
+    if (data.location_overrides && Array.isArray(data.location_overrides)) {
+        for (const override of data.location_overrides) {
+            try {
+                await db.query(`
+                    INSERT INTO variation_location_settings (
+                        variation_id, location_id,
+                        stock_alert_min, stock_alert_max,
+                        active, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, true, CURRENT_TIMESTAMP)
+                    ON CONFLICT (variation_id, location_id) DO UPDATE SET
+                        stock_alert_min = EXCLUDED.stock_alert_min,
+                        stock_alert_max = EXCLUDED.stock_alert_max,
+                        active = EXCLUDED.active,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [
+                    obj.id,
+                    override.location_id,
+                    override.inventory_alert_threshold || null,
+                    null  // stock_alert_max not available in Square API
+                ]);
+            } catch (error) {
+                console.log(`Error syncing location override for variation ${obj.id}, location ${override.location_id}:`, error.message);
+            }
+        }
+    }
+
     // Sync vendor information
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {

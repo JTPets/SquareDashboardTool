@@ -451,24 +451,48 @@ REORDER_PRIORITY_MEDIUM_DAYS=14
 REORDER_PRIORITY_LOW_DAYS=30
 ```
 
-**Square Inventory Alert Threshold:**
+**Square Location-Specific Alert Thresholds:**
 
-If you set an `inventory_alert_threshold` in Square for a product variation, that threshold takes precedence:
+Square allows you to set location-specific low stock alerts for each product variation. These alerts are synced to the `variation_location_settings` table and take precedence in reorder calculations:
+
 - Any item below its Square alert threshold automatically gets **HIGH** priority
 - Suggested quantity is calculated to bring stock above the threshold
-- This ensures Square's business rules are respected
+- Alert thresholds are **location-specific** - different locations can have different thresholds
+- This ensures Square's business rules are respected per location
 
-To set alert thresholds in Square:
+To set location-specific alert thresholds in Square:
 1. Go to Items & Orders → Item Library
 2. Edit a variation
-3. Set "Low stock alert" under inventory settings
-4. The system will sync this as `inventory_alert_threshold`
+3. Click on a specific location
+4. Set "Low stock alert" for that location under inventory settings
+5. The system will sync this to `variation_location_settings.stock_alert_min`
+
+**How Syncing Works:**
+- During catalog sync, location overrides are extracted from Square API
+- Each location's alert threshold is stored in `variation_location_settings`
+- Reorder suggestions query JOINs with this table to get location-specific alerts
+- Multiple locations may have different alerts for the same product
 
 **Response Fields:**
 - `priority` - Priority level (URGENT, HIGH, MEDIUM, LOW)
-- `reorder_reason` - Human-readable explanation of why reorder is needed
-- `inventory_alert_threshold` - Square's low stock alert threshold (if set)
+- `reorder_reason` - Human-readable explanation including location name if applicable
+- `location_id` - ID of the location where stock needs reordering
+- `location_name` - Name of the location (e.g., "Main Store", "Warehouse")
+- `location_stock_alert_min` - Location-specific low stock alert threshold (if set)
 - All other fields remain the same
+
+**Example Response:**
+```json
+{
+  "priority": "HIGH",
+  "reorder_reason": "Below stock alert threshold (24 units) at Main Store",
+  "location_id": "LOC123",
+  "location_name": "Main Store",
+  "location_stock_alert_min": 24,
+  "current_stock": 18,
+  "final_suggested_qty": 30
+}
+```
 
 ### Purchase Orders
 

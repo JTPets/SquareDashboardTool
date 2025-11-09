@@ -968,6 +968,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 i.name as item_name,
                 v.name as variation_name,
                 v.sku,
+                ic.location_id as location_id,
+                l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
                 sv.daily_avg_quantity,
                 sv.weekly_avg_quantity,
@@ -978,7 +980,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.reorder_multiple,
                 v.stock_alert_min,
                 v.stock_alert_max,
-                v.inventory_alert_threshold,
+                vls.stock_alert_min as location_stock_alert_min,
                 ve.lead_time_days,
                 -- Calculate days until stockout
                 CASE
@@ -1002,13 +1004,16 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 AND sv.period_days = 91
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
                 AND ic.state = 'IN_STOCK'
+            LEFT JOIN locations l ON ic.location_id = l.id
+            LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
+                AND ic.location_id = vls.location_id
             WHERE v.discontinued = FALSE
               AND (
                   COALESCE(ic.quantity, 0) <= 0  -- Include out of stock items
                   OR (v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min)  -- Below minimum
-                  OR (v.inventory_alert_threshold IS NOT NULL
-                      AND v.inventory_alert_threshold > 0
-                      AND COALESCE(ic.quantity, 0) < v.inventory_alert_threshold)  -- Below Square alert threshold
+                  OR (vls.stock_alert_min IS NOT NULL
+                      AND vls.stock_alert_min > 0
+                      AND COALESCE(ic.quantity, 0) < vls.stock_alert_min)  -- Below location-specific alert threshold
                   OR (sv.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv.daily_avg_quantity < 14)  -- < 14 days stock
               )
         `;
@@ -1044,7 +1049,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 const reorderMultiple = parseInt(row.reorder_multiple) || 1;
                 const stockAlertMin = parseInt(row.stock_alert_min) || 0;
                 const stockAlertMax = parseInt(row.stock_alert_max) || 999999;
-                const inventoryAlertThreshold = parseInt(row.inventory_alert_threshold) || null;
+                const locationStockAlertMin = parseInt(row.location_stock_alert_min) || null;
+                const locationId = row.location_id || null;
+                const locationName = row.location_name || null;
                 const leadTime = parseInt(row.lead_time_days) || 7;
                 const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
@@ -1066,9 +1073,10 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 if (currentStock <= urgentDays) {
                     priority = 'URGENT';
                     reorder_reason = 'Out of stock with active sales';
-                } else if (inventoryAlertThreshold && inventoryAlertThreshold > 0 && currentStock < inventoryAlertThreshold) {
+                } else if (locationStockAlertMin && locationStockAlertMin > 0 && currentStock < locationStockAlertMin) {
                     priority = 'HIGH';
-                    reorder_reason = `Below stock alert threshold (${inventoryAlertThreshold} units)`;
+                    const locationInfo = locationName ? ` at ${locationName}` : '';
+                    reorder_reason = `Below stock alert threshold (${locationStockAlertMin} units)${locationInfo}`;
                 } else if (daysUntilStockout < highDays) {
                     priority = 'HIGH';
                     reorder_reason = `URGENT: Less than ${highDays} days of stock`;
@@ -1086,9 +1094,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 // Calculate quantity needed to reach supply_days worth of stock
                 let targetQty = baseSuggestedQty;
 
-                // When inventory_alert_threshold > 0, ensure we order enough to exceed it
-                if (inventoryAlertThreshold && inventoryAlertThreshold > 0) {
-                    targetQty = Math.max(inventoryAlertThreshold + 1, baseSuggestedQty);
+                // When location-specific stock_alert_min > 0, ensure we order enough to exceed it
+                if (locationStockAlertMin && locationStockAlertMin > 0) {
+                    targetQty = Math.max(locationStockAlertMin + 1, baseSuggestedQty);
                 }
 
                 let suggestedQty = Math.max(0, targetQty - currentStock);
@@ -1118,6 +1126,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     item_name: row.item_name,
                     variation_name: row.variation_name,
                     sku: row.sku,
+                    location_id: locationId,
+                    location_name: locationName,
                     current_stock: currentStock,
                     daily_avg_quantity: dailyAvg,
                     weekly_avg_quantity: parseFloat(row.weekly_avg_quantity) || 0,
@@ -1125,7 +1135,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     below_minimum: row.below_minimum,
                     stock_alert_min: stockAlertMin,
                     stock_alert_max: stockAlertMax,
-                    inventory_alert_threshold: inventoryAlertThreshold,
+                    location_stock_alert_min: locationStockAlertMin,
                     priority: priority,
                     reorder_reason: reorder_reason,
                     base_suggested_qty: baseSuggestedQty,
