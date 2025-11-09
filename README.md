@@ -172,6 +172,14 @@ SYNC_INVENTORY_INTERVAL_HOURS=3      # Inventory every 3 hours
 SYNC_VENDORS_INTERVAL_HOURS=24       # Vendors daily
 ```
 
+**Sync Order:**
+The smart sync follows a specific order to ensure data dependencies are met:
+1. **Locations** (synced first - required for inventory and sales)
+2. **Vendors**
+3. **Catalog**
+4. **Inventory** (requires locations)
+5. **Sales Velocity** (requires locations)
+
 **Important:** If there are no active locations in the database, the smart sync will **automatically force a location sync** regardless of interval. This ensures inventory and sales velocity syncs always have the required location data.
 
 **Response:**

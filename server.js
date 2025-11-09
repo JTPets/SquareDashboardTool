@@ -273,27 +273,9 @@ app.post('/api/sync-smart', async (req, res) => {
         const errors = [];
         const summary = {};
 
-        // Check and sync catalog
-        const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
-        if (catalogCheck.needed) {
-            try {
-                console.log('Syncing catalog...');
-                const result = await loggedSync('catalog', async () => {
-                    const stats = await squareApi.syncCatalog();
-                    return stats.items + stats.variations;
-                });
-                synced.push('catalog');
-                summary.catalog = result;
-            } catch (error) {
-                errors.push({ type: 'catalog', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
-            skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync locations (CRITICAL: locations must exist before inventory/sales sync)
+        // CRITICAL: Check and sync locations FIRST
         // Always sync if there are 0 active locations, regardless of interval
+        // Locations are required for inventory and sales velocity syncs
         const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE');
         const locationCount = parseInt(locationCountResult.rows[0].count);
         const locationsCheck = await isSyncNeeded('locations', intervals.locations);
@@ -330,6 +312,25 @@ app.post('/api/sync-smart', async (req, res) => {
         } else {
             const hoursRemaining = Math.max(0, intervals.vendors - parseFloat(vendorsCheck.hoursSince));
             skipped.vendors = `Last synced ${vendorsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync catalog
+        const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
+        if (catalogCheck.needed) {
+            try {
+                console.log('Syncing catalog...');
+                const result = await loggedSync('catalog', async () => {
+                    const stats = await squareApi.syncCatalog();
+                    return stats.items + stats.variations;
+                });
+                synced.push('catalog');
+                summary.catalog = result;
+            } catch (error) {
+                errors.push({ type: 'catalog', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
+            skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
         }
 
         // Check and sync inventory
