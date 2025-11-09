@@ -1199,8 +1199,10 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     return null;
                 }
 
-                // Only suggest if below minimum OR approaching stockout
-                const needsReorder = row.below_minimum || daysUntilStockout < (leadTime + safetyDays);
+                // Include all out-of-stock items (quantity <= 0) regardless of sales velocity
+                // Also include items below minimum OR approaching stockout
+                const isOutOfStock = currentStock <= 0;
+                const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < (leadTime + safetyDays);
                 if (!needsReorder) {
                     return null;
                 }
@@ -1209,9 +1211,15 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 let priority;
                 let reorder_reason;
 
+                // Handle out-of-stock items specially
                 if (currentStock <= urgentDays) {
-                    priority = 'URGENT';
-                    reorder_reason = 'Out of stock with active sales';
+                    if (dailyAvg > 0) {
+                        priority = 'URGENT';
+                        reorder_reason = 'Out of stock with active sales';
+                    } else {
+                        priority = 'MEDIUM';
+                        reorder_reason = 'Out of stock - no recent sales';
+                    }
                 } else if (locationStockAlertMin && locationStockAlertMin > 0 && currentStock < locationStockAlertMin) {
                     priority = 'HIGH';
                     const locationInfo = locationName ? ` at ${locationName}` : '';
@@ -1231,11 +1239,26 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 }
 
                 // Calculate quantity needed to reach supply_days worth of stock
-                let targetQty = baseSuggestedQty;
+                let targetQty;
+
+                // For items with no sales velocity, use minimum reorder quantities
+                if (dailyAvg <= 0 || baseSuggestedQty <= 0) {
+                    // No sales data - suggest minimum reorder based on case pack or reorder multiple
+                    if (casePack > 1) {
+                        targetQty = casePack; // Order at least 1 case
+                    } else if (reorderMultiple > 1) {
+                        targetQty = reorderMultiple;
+                    } else {
+                        targetQty = 2; // Default minimum order of 2 units for safety stock
+                    }
+                } else {
+                    // Use velocity-based calculation
+                    targetQty = baseSuggestedQty;
+                }
 
                 // When location-specific stock_alert_min > 0, ensure we order enough to exceed it
                 if (locationStockAlertMin && locationStockAlertMin > 0) {
-                    targetQty = Math.max(locationStockAlertMin + 1, baseSuggestedQty);
+                    targetQty = Math.max(locationStockAlertMin + 1, targetQty);
                 }
 
                 let suggestedQty = Math.max(0, targetQty - currentStock);
@@ -1297,13 +1320,21 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             filteredSuggestions = suggestions.filter(s => s.order_cost >= minCostNum);
         }
 
-        // Sort: by priority first (URGENT > HIGH > MEDIUM > LOW), then by days until stockout
+        // Sort: by priority first (URGENT > HIGH > MEDIUM > LOW),
+        // then by days until stockout,
+        // then by daily_avg_quantity (items with sales first)
         const priorityOrder = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
         filteredSuggestions.sort((a, b) => {
+            // First: Sort by priority
             if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
                 return priorityOrder[b.priority] - priorityOrder[a.priority];
             }
-            return a.days_until_stockout - b.days_until_stockout;
+            // Second: Sort by days until stockout
+            if (a.days_until_stockout !== b.days_until_stockout) {
+                return a.days_until_stockout - b.days_until_stockout;
+            }
+            // Third: Items with sales velocity come before items without sales
+            return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
         res.json({
