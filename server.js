@@ -1160,7 +1160,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                   OR (vls.stock_alert_min IS NOT NULL
                       AND vls.stock_alert_min > 0
                       AND COALESCE(ic.quantity, 0) < vls.stock_alert_min)  -- Below location-specific alert threshold
-                  OR (sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity < 14)  -- < 14 days stock
+                  OR (sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity < $1)  -- Less than supply_days stock
               )
         `;
 
