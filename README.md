@@ -432,7 +432,43 @@ curl "http://localhost:5001/api/reorder-suggestions?vendor_id=VENDOR_123&supply_
 4. Rounds up to case pack multiples
 5. Applies reorder multiple constraints
 6. Respects min/max stock thresholds
-7. Prioritizes items below minimum or approaching stockout
+7. Prioritizes items by urgency level
+
+**Priority System:**
+
+The system assigns priority levels to each reorder suggestion based on stock levels and Square's inventory alert thresholds:
+
+- **URGENT** - Stock ≤ 0 days (out of stock with active sales)
+- **HIGH** - Below Square alert threshold OR < 7 days of stock
+- **MEDIUM** - < 14 days of stock remaining
+- **LOW** - < 30 days of stock remaining
+
+Priority thresholds are configurable via environment variables:
+```env
+REORDER_PRIORITY_URGENT_DAYS=0
+REORDER_PRIORITY_HIGH_DAYS=7
+REORDER_PRIORITY_MEDIUM_DAYS=14
+REORDER_PRIORITY_LOW_DAYS=30
+```
+
+**Square Inventory Alert Threshold:**
+
+If you set an `inventory_alert_threshold` in Square for a product variation, that threshold takes precedence:
+- Any item below its Square alert threshold automatically gets **HIGH** priority
+- Suggested quantity is calculated to bring stock above the threshold
+- This ensures Square's business rules are respected
+
+To set alert thresholds in Square:
+1. Go to Items & Orders → Item Library
+2. Edit a variation
+3. Set "Low stock alert" under inventory settings
+4. The system will sync this as `inventory_alert_threshold`
+
+**Response Fields:**
+- `priority` - Priority level (URGENT, HIGH, MEDIUM, LOW)
+- `reorder_reason` - Human-readable explanation of why reorder is needed
+- `inventory_alert_threshold` - Square's low stock alert threshold (if set)
+- All other fields remain the same
 
 ### Purchase Orders
 

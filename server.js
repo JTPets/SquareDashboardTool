@@ -978,6 +978,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.reorder_multiple,
                 v.stock_alert_min,
                 v.stock_alert_max,
+                v.inventory_alert_threshold,
                 ve.lead_time_days,
                 -- Calculate days until stockout
                 CASE
@@ -1005,6 +1006,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
               AND (
                   COALESCE(ic.quantity, 0) <= 0  -- Include out of stock items
                   OR (v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min)  -- Below minimum
+                  OR (v.inventory_alert_threshold IS NOT NULL
+                      AND v.inventory_alert_threshold > 0
+                      AND COALESCE(ic.quantity, 0) < v.inventory_alert_threshold)  -- Below Square alert threshold
                   OR (sv.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv.daily_avg_quantity < 14)  -- < 14 days stock
               )
         `;
@@ -1024,6 +1028,12 @@ app.get('/api/reorder-suggestions', async (req, res) => {
 
         const result = await db.query(query, params);
 
+        // Get priority thresholds from environment
+        const urgentDays = parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0');
+        const highDays = parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7');
+        const mediumDays = parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14');
+        const lowDays = parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30');
+
         // Process suggestions with case pack and reorder multiple logic
         const suggestions = result.rows
             .map(row => {
@@ -1034,6 +1044,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 const reorderMultiple = parseInt(row.reorder_multiple) || 1;
                 const stockAlertMin = parseInt(row.stock_alert_min) || 0;
                 const stockAlertMax = parseInt(row.stock_alert_max) || 999999;
+                const inventoryAlertThreshold = parseInt(row.inventory_alert_threshold) || null;
                 const leadTime = parseInt(row.lead_time_days) || 7;
                 const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
@@ -1048,8 +1059,39 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     return null;
                 }
 
+                // Calculate priority and reorder reason
+                let priority;
+                let reorder_reason;
+
+                if (currentStock <= urgentDays) {
+                    priority = 'URGENT';
+                    reorder_reason = 'Out of stock with active sales';
+                } else if (inventoryAlertThreshold && inventoryAlertThreshold > 0 && currentStock < inventoryAlertThreshold) {
+                    priority = 'HIGH';
+                    reorder_reason = `Below stock alert threshold (${inventoryAlertThreshold} units)`;
+                } else if (daysUntilStockout < highDays) {
+                    priority = 'HIGH';
+                    reorder_reason = `URGENT: Less than ${highDays} days of stock`;
+                } else if (daysUntilStockout < mediumDays) {
+                    priority = 'MEDIUM';
+                    reorder_reason = `Less than ${mediumDays} days of stock remaining`;
+                } else if (daysUntilStockout < lowDays) {
+                    priority = 'LOW';
+                    reorder_reason = `Less than ${lowDays} days of stock remaining`;
+                } else {
+                    priority = 'LOW';
+                    reorder_reason = 'Below minimum stock level';
+                }
+
                 // Calculate quantity needed to reach supply_days worth of stock
-                let suggestedQty = Math.max(0, baseSuggestedQty - currentStock);
+                let targetQty = baseSuggestedQty;
+
+                // When inventory_alert_threshold > 0, ensure we order enough to exceed it
+                if (inventoryAlertThreshold && inventoryAlertThreshold > 0) {
+                    targetQty = Math.max(inventoryAlertThreshold + 1, baseSuggestedQty);
+                }
+
+                let suggestedQty = Math.max(0, targetQty - currentStock);
 
                 // Round up to case pack
                 if (casePack > 1) {
@@ -1083,6 +1125,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     below_minimum: row.below_minimum,
                     stock_alert_min: stockAlertMin,
                     stock_alert_max: stockAlertMax,
+                    inventory_alert_threshold: inventoryAlertThreshold,
+                    priority: priority,
+                    reorder_reason: reorder_reason,
                     base_suggested_qty: baseSuggestedQty,
                     case_pack_quantity: casePack,
                     case_pack_adjusted_qty: suggestedQty,
@@ -1103,10 +1148,11 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             filteredSuggestions = suggestions.filter(s => s.order_cost >= minCostNum);
         }
 
-        // Sort: urgent items first (below minimum), then by days until stockout
+        // Sort: by priority first (URGENT > HIGH > MEDIUM > LOW), then by days until stockout
+        const priorityOrder = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
         filteredSuggestions.sort((a, b) => {
-            if (a.below_minimum !== b.below_minimum) {
-                return b.below_minimum - a.below_minimum;
+            if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+                return priorityOrder[b.priority] - priorityOrder[a.priority];
             }
             return a.days_until_stockout - b.days_until_stockout;
         });
