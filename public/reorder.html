@@ -277,7 +277,6 @@
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
-    let velocityData = {}; // Store velocity data by variation_id
 
     // Load vendors on page load
     async function loadVendors() {
@@ -298,41 +297,6 @@
       } catch (error) {
         console.error('Failed to load vendors:', error);
         alert('Failed to load vendors: ' + error.message);
-      }
-    }
-
-    // Fetch velocity data for all periods (91d, 182d, 365d)
-    async function fetchVelocityData(variationIds) {
-      velocityData = {};
-
-      try {
-        // Fetch velocity for all periods in parallel
-        const periods = [91, 182, 365];
-        const promises = variationIds.map(async (id) => {
-          const velocities = {};
-
-          for (const period of periods) {
-            try {
-              const response = await fetch(`/api/sales-velocity?variation_id=${id}&period_days=${period}`);
-              const data = await response.json();
-
-              if (data && data.length > 0) {
-                velocities[period] = data[0].weekly_avg_quantity || 0;
-              } else {
-                velocities[period] = 0;
-              }
-            } catch (error) {
-              console.error(`Failed to fetch ${period}d velocity for ${id}:`, error);
-              velocities[period] = 0;
-            }
-          }
-
-          velocityData[id] = velocities;
-        });
-
-        await Promise.all(promises);
-      } catch (error) {
-        console.error('Failed to fetch velocity data:', error);
       }
     }
 
@@ -367,11 +331,6 @@
           updateFooter();
           return;
         }
-
-        // Fetch velocity data for all unique variation IDs
-        const variationIds = [...new Set(allSuggestions.map(s => s.variation_id))];
-        tbody.innerHTML = '<tr><td colspan="13" class="loading">Loading velocity data...</td></tr>';
-        await fetchVelocityData(variationIds);
 
         sortSuggestions();
         renderTable();
@@ -416,19 +375,27 @@
       const tbody = document.getElementById('suggestions-body');
 
       tbody.innerHTML = allSuggestions.map((item, index) => {
-        const daysClass = item.days_until_stockout < 7 ? 'days-critical' :
+        const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
+                         item.days_until_stockout < 7 ? 'days-critical' :
                          item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
-        const daysText = item.days_until_stockout < 999 ?
+        const daysText = item.days_until_stockout === 0 ? '0' :
+                        item.days_until_stockout < 999 ?
                         item.days_until_stockout.toFixed(1) : '∞';
         const isSelected = selectedItems.has(item.variation_id);
 
-        // Get velocity data for this variation
-        const velocity = velocityData[item.variation_id] || { 91: 0, 182: 0, 365: 0 };
-        const velocityText = `${velocity[91].toFixed(1)} / ${velocity[182].toFixed(1)} / ${velocity[365].toFixed(1)}`;
+        // Display velocity data from backend
+        const velocityText = item.has_velocity
+          ? `${item.weekly_avg_91d.toFixed(1)} / ${item.weekly_avg_182d.toFixed(1)} / ${item.weekly_avg_365d.toFixed(1)}`
+          : '<span style="color: #f59e0b;">No Sales</span>';
 
         // Always round up quantities
         const orderQty = Math.ceil(item.final_suggested_qty);
         const totalCost = (orderQty * item.unit_cost_cents / 100).toFixed(2);
+
+        // Add visual indicator for items without velocity
+        const priorityClass = !item.has_velocity && item.priority === 'MEDIUM'
+          ? 'priority-MEDIUM'
+          : `priority-${item.priority}`;
 
         return `
           <tr class="${isSelected ? 'selected' : ''}" data-id="${item.variation_id}">
@@ -438,7 +405,8 @@
                      onchange="toggleItem('${item.variation_id}', this.checked)">
             </td>
             <td>
-              <span class="priority-badge priority-${item.priority}">${item.priority}</span>
+              <span class="priority-badge ${priorityClass}">${item.priority}</span>
+              ${!item.has_velocity ? '<br><small style="color: #f59e0b;">⚠ No Data</small>' : ''}
             </td>
             <td>
               <div class="product-name">${escapeHtml(item.item_name)}</div>

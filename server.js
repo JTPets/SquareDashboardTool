@@ -1111,8 +1111,11 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
-                sv.daily_avg_quantity,
-                sv.weekly_avg_quantity,
+                sv91.daily_avg_quantity,
+                sv91.weekly_avg_quantity,
+                sv91.weekly_avg_quantity as weekly_avg_91d,
+                sv182.weekly_avg_quantity as weekly_avg_182d,
+                sv365.weekly_avg_quantity as weekly_avg_365d,
                 ve.name as vendor_name,
                 vv.vendor_code,
                 vv.unit_cost_money as unit_cost_cents,
@@ -1122,14 +1125,16 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.stock_alert_max,
                 vls.stock_alert_min as location_stock_alert_min,
                 ve.lead_time_days,
-                -- Calculate days until stockout
+                -- Calculate days until stockout (fixed to handle zero/negative stock)
                 CASE
-                    WHEN sv.daily_avg_quantity > 0
-                    THEN ROUND(COALESCE(ic.quantity, 0) / sv.daily_avg_quantity, 1)
+                    WHEN sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) > 0
+                    THEN ROUND(COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity, 1)
+                    WHEN COALESCE(ic.quantity, 0) <= 0
+                    THEN 0
                     ELSE 999
                 END as days_until_stockout,
                 -- Base suggested quantity (supply_days worth of inventory)
-                ROUND(sv.daily_avg_quantity * $1, 2) as base_suggested_qty,
+                ROUND(COALESCE(sv91.daily_avg_quantity, 0) * $1, 2) as base_suggested_qty,
                 -- Whether currently below minimum stock
                 CASE
                     WHEN v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min
@@ -1140,8 +1145,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             JOIN items i ON v.item_id = i.id
             JOIN variation_vendors vv ON v.id = vv.variation_id
             JOIN vendors ve ON vv.vendor_id = ve.id
-            LEFT JOIN sales_velocity sv ON v.id = sv.variation_id
-                AND sv.period_days = 91
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
                 AND ic.state = 'IN_STOCK'
             LEFT JOIN locations l ON ic.location_id = l.id
@@ -1154,7 +1160,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                   OR (vls.stock_alert_min IS NOT NULL
                       AND vls.stock_alert_min > 0
                       AND COALESCE(ic.quantity, 0) < vls.stock_alert_min)  -- Below location-specific alert threshold
-                  OR (sv.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv.daily_avg_quantity < 14)  -- < 14 days stock
+                  OR (sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity < 14)  -- < 14 days stock
               )
         `;
 
@@ -1168,7 +1174,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
         if (location_id) {
             params.push(location_id);
             query += ` AND (ic.location_id = $${params.length} OR ic.location_id IS NULL)`;
-            query += ` AND (sv.location_id = $${params.length} OR sv.location_id IS NULL)`;
+            query += ` AND (sv91.location_id = $${params.length} OR sv91.location_id IS NULL)`;
         }
 
         const result = await db.query(query, params);
@@ -1294,6 +1300,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     current_stock: currentStock,
                     daily_avg_quantity: dailyAvg,
                     weekly_avg_quantity: parseFloat(row.weekly_avg_quantity) || 0,
+                    weekly_avg_91d: parseFloat(row.weekly_avg_91d) || 0,
+                    weekly_avg_182d: parseFloat(row.weekly_avg_182d) || 0,
+                    weekly_avg_365d: parseFloat(row.weekly_avg_365d) || 0,
                     days_until_stockout: daysUntilStockout,
                     below_minimum: row.below_minimum,
                     stock_alert_min: stockAlertMin,
@@ -1309,7 +1318,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     order_cost: orderCost,
                     vendor_name: row.vendor_name,
                     vendor_code: row.vendor_code,
-                    lead_time_days: leadTime
+                    lead_time_days: leadTime,
+                    has_velocity: dailyAvg > 0
                 };
             })
             .filter(item => item !== null);
