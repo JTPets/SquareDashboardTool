@@ -272,18 +272,33 @@
         if (categoryFilter) url += `category=${categoryFilter}&`;
 
         const data = await fetch(url).then(r => r.json());
-        allItems = data;
+
+        // Defensive coding: ensure allItems is always an array
+        allItems = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
+
+        if (allItems.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="loading">No items found. Please run sync first or adjust filters.</td></tr>';
+          updateStats();
+          return;
+        }
+
         currentPage = 1;
         updateStats();
         renderTable();
         updatePagination();
 
       } catch (error) {
+        console.error('Failed to load items:', error);
         tbody.innerHTML = '<tr><td colspan="9" class="loading">Error: ' + error.message + '</td></tr>';
       }
     }
 
     function updateStats() {
+      // Defensive coding: ensure allItems is always an array
+      if (!Array.isArray(allItems)) {
+        allItems = [];
+      }
+
       const total = allItems.length;
       const inStock = allItems.filter(i => (i.quantity || 0) > 0).length;
       const noExpiry = allItems.filter(i => !i.expiration_date && !i.does_not_expire).length;
@@ -310,6 +325,11 @@
     }
 
     function renderTable() {
+      // Defensive coding: ensure allItems is always an array
+      if (!Array.isArray(allItems)) {
+        allItems = [];
+      }
+
       const tbody = document.getElementById('items-body');
       const start = (currentPage - 1) * itemsPerPage;
       const end = start + itemsPerPage;

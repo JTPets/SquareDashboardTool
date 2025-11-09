@@ -668,13 +668,14 @@ app.get('/api/items', async (req, res) => {
         query += ' ORDER BY i.name';
 
         const result = await db.query(query, params);
+        logger.info('API /api/items returning', { count: result.rows.length });
         res.json({
             count: result.rows.length,
-            items: result.rows
+            items: result.rows || []
         });
     } catch (error) {
-        console.error('Get items error:', error);
-        res.status(500).json({ error: error.message });
+        logger.error('Get items error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message, items: [] });
     }
 });
 
