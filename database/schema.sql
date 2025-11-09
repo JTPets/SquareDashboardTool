@@ -310,3 +310,34 @@ BEGIN
     RAISE NOTICE 'Tables created: 13';
     RAISE NOTICE 'Indexes created: 19';
 END $$;
+
+-- ========================================
+-- MIGRATION: Add soft delete tracking
+-- ========================================
+-- This migration adds support for soft deletes with automatic inventory zeroing
+
+-- Add deleted tracking columns to items table
+ALTER TABLE items ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+-- Add deleted tracking columns to variations table  
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+-- Create indexes for efficient filtering of non-deleted items
+CREATE INDEX IF NOT EXISTS idx_items_not_deleted ON items(is_deleted) WHERE is_deleted = FALSE;
+CREATE INDEX IF NOT EXISTS idx_variations_not_deleted ON variations(is_deleted) WHERE is_deleted = FALSE;
+
+-- Add comments
+COMMENT ON COLUMN items.is_deleted IS 'Soft delete flag - when TRUE, item is deleted in Square';
+COMMENT ON COLUMN items.deleted_at IS 'Timestamp when item was marked as deleted';
+COMMENT ON COLUMN variations.is_deleted IS 'Soft delete flag - when TRUE, variation is deleted in Square';
+COMMENT ON COLUMN variations.deleted_at IS 'Timestamp when variation was marked as deleted';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Soft delete migration completed successfully!';
+    RAISE NOTICE 'Added is_deleted and deleted_at columns to items and variations';
+    RAISE NOTICE 'Created indexes for non-deleted items filtering';
+END $$;

@@ -286,15 +286,22 @@ async function syncImage(obj) {
  */
 async function syncItem(obj) {
     const data = obj.item_data;
+    const isDeleted = obj.is_deleted || false;
+
+    // Check if item is transitioning from non-deleted to deleted
+    const existingItem = await db.query('SELECT is_deleted FROM items WHERE id = $1', [obj.id]);
+    const wasDeleted = existingItem.rows.length > 0 ? existingItem.rows[0].is_deleted : false;
+    const newlyDeleted = isDeleted && !wasDeleted;
 
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
             taxable, visibility, present_at_all_locations, present_at_location_ids,
             absent_at_location_ids, modifier_list_info, item_options, images,
-            available_online, available_for_pickup, updated_at
+            available_online, available_for_pickup, is_deleted, deleted_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                CASE WHEN $17 = TRUE THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             description = EXCLUDED.description,
@@ -311,6 +318,12 @@ async function syncItem(obj) {
             images = EXCLUDED.images,
             available_online = EXCLUDED.available_online,
             available_for_pickup = EXCLUDED.available_for_pickup,
+            is_deleted = EXCLUDED.is_deleted,
+            deleted_at = CASE
+                WHEN EXCLUDED.is_deleted = TRUE AND items.is_deleted = FALSE
+                THEN CURRENT_TIMESTAMP
+                ELSE items.deleted_at
+            END,
             updated_at = CURRENT_TIMESTAMP
     `, [
         obj.id,
@@ -328,8 +341,23 @@ async function syncItem(obj) {
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
         data.available_online || false,
-        data.available_for_pickup || false
+        data.available_for_pickup || false,
+        isDeleted
     ]);
+
+    // If item just got deleted, zero out all inventory for this item's variations
+    if (newlyDeleted) {
+        const inventoryResult = await db.query(`
+            UPDATE inventory_counts
+            SET quantity = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE catalog_object_id IN (
+                SELECT id FROM variations WHERE item_id = $1
+            )
+        `, [obj.id]);
+
+        const locationCount = inventoryResult.rowCount || 0;
+        console.log(`Item deleted: "${data.name}" (ID: ${obj.id}) - zeroed inventory at ${locationCount} location(s)`);
+    }
 }
 
 /**
@@ -339,6 +367,13 @@ async function syncItem(obj) {
 async function syncVariation(obj) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
+    const isDeleted = obj.is_deleted || false;
+
+    // Check if variation is transitioning from non-deleted to deleted
+    const existingVariation = await db.query('SELECT is_deleted, sku FROM variations WHERE id = $1', [obj.id]);
+    const wasDeleted = existingVariation.rows.length > 0 ? existingVariation.rows[0].is_deleted : false;
+    const newlyDeleted = isDeleted && !wasDeleted;
+    const sku = existingVariation.rows.length > 0 ? existingVariation.rows[0].sku : data.sku;
 
     // Insert/update variation
     await db.query(`
@@ -346,9 +381,10 @@ async function syncVariation(obj) {
             id, item_id, name, sku, upc, price_money, currency, pricing_type,
             track_inventory, inventory_alert_type, inventory_alert_threshold,
             present_at_all_locations, present_at_location_ids, absent_at_location_ids,
-            item_option_values, custom_attributes, images, updated_at
+            item_option_values, custom_attributes, images, is_deleted, deleted_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                CASE WHEN $18 = TRUE THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             item_id = EXCLUDED.item_id,
             name = EXCLUDED.name,
@@ -366,6 +402,12 @@ async function syncVariation(obj) {
             item_option_values = EXCLUDED.item_option_values,
             custom_attributes = EXCLUDED.custom_attributes,
             images = EXCLUDED.images,
+            is_deleted = EXCLUDED.is_deleted,
+            deleted_at = CASE
+                WHEN EXCLUDED.is_deleted = TRUE AND variations.is_deleted = FALSE
+                THEN CURRENT_TIMESTAMP
+                ELSE variations.deleted_at
+            END,
             updated_at = CURRENT_TIMESTAMP
     `, [
         obj.id,
@@ -384,8 +426,21 @@ async function syncVariation(obj) {
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,
         data.item_option_values ? JSON.stringify(data.item_option_values) : null,
         obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,
-        data.image_ids ? JSON.stringify(data.image_ids) : null
+        data.image_ids ? JSON.stringify(data.image_ids) : null,
+        isDeleted
     ]);
+
+    // If variation just got deleted, zero out its inventory at all locations
+    if (newlyDeleted) {
+        const inventoryResult = await db.query(`
+            UPDATE inventory_counts
+            SET quantity = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE catalog_object_id = $1
+        `, [obj.id]);
+
+        const locationCount = inventoryResult.rowCount || 0;
+        console.log(`Variation deleted: "${data.name || 'Regular'}" (SKU: ${sku || 'N/A'}) - zeroed inventory at ${locationCount} location(s)`);
+    }
 
     // Sync location-specific settings from location_overrides
     if (data.location_overrides && Array.isArray(data.location_overrides)) {
