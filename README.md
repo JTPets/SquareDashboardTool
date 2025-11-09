@@ -782,6 +782,129 @@ curl -X POST http://localhost:5001/api/purchase-orders/1/receive \
   }'
 ```
 
+## Error Logging & Notifications
+
+The system includes comprehensive error logging with automatic rotation and optional email notifications for critical errors.
+
+### Log File Management
+
+**Location:** `logs/` directory in project root
+
+**Log Files:**
+- `app-YYYY-MM-DD.log` - All application logs (info, warn, error, debug)
+- `error-YYYY-MM-DD.log` - Error-level logs only
+- Older logs are automatically compressed to `.gz` format
+
+**Automatic Rotation:**
+- Files rotate when they reach 20MB or daily (whichever comes first)
+- Old log files are automatically compressed to save disk space
+- Regular logs are kept for **14 days** before auto-deletion
+- Error logs are kept for **30 days** before auto-deletion
+
+**Estimated Disk Usage:**
+- Maximum: ~630MB (280MB regular logs + 300MB error logs + 50MB compressed)
+- The system automatically cleans up old logs - no manual intervention needed
+
+**Configuration** (in `.env`):
+```env
+LOG_LEVEL=info                    # debug, info, warn, error
+LOG_MAX_SIZE=20m                  # Max size before rotation
+LOG_MAX_FILES=14d                 # Keep logs for 14 days
+LOG_ERROR_MAX_FILES=30d           # Keep error logs for 30 days
+```
+
+### Email Notifications
+
+The system can send email alerts for critical errors to help you respond quickly to system issues.
+
+**Setup Instructions:**
+
+1. **Enable email notifications** in `.env`:
+```env
+EMAIL_ENABLED=true
+EMAIL_SERVICE=gmail
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+EMAIL_TO=alerts@jtpets.ca
+EMAIL_FROM=noreply@jtpets.ca
+EMAIL_THROTTLE_MINUTES=5
+```
+
+2. **Get Gmail App Password** (if using Gmail):
+   - Go to [Google Account Settings](https://myaccount.google.com/)
+   - Navigate to Security → 2-Step Verification (must be enabled)
+   - Scroll to bottom → App passwords
+   - Select app: "Mail", device: "Other (Custom name)"
+   - Enter "JTPets Inventory System"
+   - Copy the 16-character password
+   - Paste into `EMAIL_PASSWORD` in `.env`
+   - **Important:** Use the app password, NOT your regular Gmail password
+
+3. **Test email setup**:
+```bash
+curl -X POST http://localhost:5001/api/test-email
+```
+
+Or visit the logs page at http://localhost:5001/logs.html and click "Test Email"
+
+**Email Throttling:**
+To prevent spam during cascading errors, emails are throttled to a maximum of one every 5 minutes (configurable via `EMAIL_THROTTLE_MINUTES`).
+
+**Critical Alerts:**
+The system automatically sends email notifications for:
+- **Database connection failures** - PostgreSQL connection lost
+- **Square API authentication failures** - Invalid or expired access token
+- **Sync failures** - Failed catalog, inventory, or sales syncs
+- **Server startup errors** - Critical errors preventing server start
+- **Unhandled exceptions** - Unexpected runtime errors
+
+Each email includes:
+- Error message and stack trace
+- Timestamp and server information
+- Contextual data to help diagnose the issue
+
+### Viewing Logs
+
+**Browser Interface:**
+Visit http://localhost:5001/logs.html for a web-based log viewer with:
+- Recent logs display (last 100 by default)
+- Filter by log level (errors, warnings, info, debug)
+- Real-time statistics (error count, warning count, total logs)
+- Download logs button
+- Test email button
+- Auto-refresh every 30 seconds
+
+**API Endpoints:**
+
+```bash
+# View recent logs (default: last 100)
+curl http://localhost:5001/api/logs?limit=100
+
+# View error logs only
+curl http://localhost:5001/api/logs/errors
+
+# Get log statistics
+curl http://localhost:5001/api/logs/stats
+
+# Download today's log file
+curl http://localhost:5001/api/logs/download -o app-logs.log
+```
+
+**Direct File Access:**
+Log files are stored in the `logs/` directory and can be viewed with any text editor. Each log entry is in JSON format for easy parsing.
+
+Example log entry:
+```json
+{
+  "level": "error",
+  "message": "Failed to sync catalog",
+  "timestamp": "2024-01-15 10:30:45",
+  "service": "jtpets-inventory",
+  "error": "Request timeout",
+  "stack": "Error: Request timeout\n    at ..."
+}
+```
+
 ## Troubleshooting
 
 ### Database Connection Failed

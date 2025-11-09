@@ -8,6 +8,8 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
+const logger = require('./utils/logger');
+const emailNotifier = require('./utils/email-notifier');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -45,6 +47,143 @@ app.get('/api/health', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
+});
+
+// ==================== LOGGING ENDPOINTS ====================
+
+const fs = require('fs').promises;
+const path = require('path');
+
+/**
+ * GET /api/logs
+ * View recent logs
+ */
+app.get('/api/logs', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const logsDir = path.join(__dirname, 'logs');
+
+        // Get today's log file
+        const today = new Date().toISOString().split('T')[0];
+        const logFile = path.join(logsDir, `app-${today}.log`);
+
+        const content = await fs.readFile(logFile, 'utf-8');
+        const lines = content.trim().split('\n').slice(-limit);
+        const logs = lines.map(line => JSON.parse(line));
+
+        res.json({ logs, count: logs.length });
+
+    } catch (error) {
+        logger.error('Failed to read logs', { error: error.message });
+        res.status(500).json({ error: 'Failed to read logs' });
+    }
+});
+
+/**
+ * GET /api/logs/errors
+ * View errors only
+ */
+app.get('/api/logs/errors', async (req, res) => {
+    try {
+        const logsDir = path.join(__dirname, 'logs');
+        const today = new Date().toISOString().split('T')[0];
+        const errorFile = path.join(logsDir, `error-${today}.log`);
+
+        const content = await fs.readFile(errorFile, 'utf-8');
+        const lines = content.trim().split('\n');
+        const errors = lines.map(line => JSON.parse(line));
+
+        res.json({ errors, count: errors.length });
+
+    } catch (error) {
+        res.json({ errors: [], count: 0 }); // No errors is good!
+    }
+});
+
+/**
+ * GET /api/logs/download
+ * Download log file
+ */
+app.get('/api/logs/download', async (req, res) => {
+    try {
+        const logsDir = path.join(__dirname, 'logs');
+        const today = new Date().toISOString().split('T')[0];
+        const logFile = path.join(logsDir, `app-${today}.log`);
+
+        res.download(logFile, `jtpets-logs-${today}.log`);
+
+    } catch (error) {
+        res.status(404).json({ error: 'Log file not found' });
+    }
+});
+
+/**
+ * GET /api/logs/stats
+ * Log statistics
+ */
+app.get('/api/logs/stats', async (req, res) => {
+    try {
+        const logsDir = path.join(__dirname, 'logs');
+        const today = new Date().toISOString().split('T')[0];
+        const logFile = path.join(logsDir, `app-${today}.log`);
+        const errorFile = path.join(logsDir, `error-${today}.log`);
+
+        const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '');
+        const errorContent = await fs.readFile(errorFile, 'utf-8').catch(() => '');
+
+        const logLines = logContent.trim().split('\n').filter(Boolean);
+        const errorLines = errorContent.trim().split('\n').filter(Boolean);
+
+        const logs = logLines.map(line => JSON.parse(line));
+        const errors = errorLines.map(line => JSON.parse(line));
+
+        const warnCount = logs.filter(l => l.level === 'warn').length;
+        const infoCount = logs.filter(l => l.level === 'info').length;
+
+        res.json({
+            total: logs.length,
+            errors: errors.length,
+            warnings: warnCount,
+            info: infoCount,
+            today: today
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get stats' });
+    }
+});
+
+/**
+ * POST /api/test-email
+ * Test email notifications
+ */
+app.post('/api/test-email', async (req, res) => {
+    try {
+        await emailNotifier.testEmail();
+        res.json({ success: true, message: 'Test email sent' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/test-error
+ * Test error logging and email
+ */
+app.post('/api/test-error', async (req, res) => {
+    const testError = new Error('This is a test error');
+    logger.error('Test error triggered', {
+        error: testError.message,
+        stack: testError.stack,
+        endpoint: '/api/test-error'
+    });
+
+    await emailNotifier.sendCritical('Test Error', testError, {
+        endpoint: '/api/test-error',
+        details: 'This is a test to verify error logging and email notifications'
+    });
+
+    res.json({ message: 'Test error logged and email sent' });
 });
 
 // ==================== HELPER FUNCTIONS ====================
@@ -1565,12 +1704,35 @@ app.use((err, req, res, next) => {
 
 async function startServer() {
     try {
+        // Log system initialization
+        logger.info('Logging system initialized', {
+            logsDir: path.join(__dirname, 'logs'),
+            maxSize: '20m',
+            retention: '14 days (regular), 30 days (errors)',
+            compression: 'enabled',
+            emailEnabled: process.env.EMAIL_ENABLED === 'true'
+        });
+
         // Test database connection
         const dbConnected = await db.testConnection();
         if (!dbConnected) {
-            console.error('Failed to connect to database. Check your .env configuration.');
+            const dbError = new Error('Failed to connect to database. Check your .env configuration.');
+            logger.error('Database connection failed', {
+                error: dbError.message,
+                dbName: process.env.DB_NAME,
+                dbHost: process.env.DB_HOST
+            });
+            await emailNotifier.sendCritical('Database Connection Failed', dbError, {
+                details: {
+                    dbName: process.env.DB_NAME,
+                    dbHost: process.env.DB_HOST,
+                    dbPort: process.env.DB_PORT
+                }
+            });
             process.exit(1);
         }
+
+        logger.info('Database connection successful');
 
         // Start server
         app.listen(PORT, () => {
@@ -1583,6 +1745,12 @@ async function startServer() {
             console.log('='.repeat(60));
             console.log('API Endpoints:');
             console.log('  GET  /api/health');
+            console.log('  GET  /api/logs              (view recent logs)');
+            console.log('  GET  /api/logs/errors       (view error logs)');
+            console.log('  GET  /api/logs/stats        (log statistics)');
+            console.log('  GET  /api/logs/download     (download logs)');
+            console.log('  POST /api/test-email        (test email)');
+            console.log('  POST /api/test-error        (test error logging)');
             console.log('  POST /api/sync              (force full sync)');
             console.log('  POST /api/sync-smart        (smart interval-based sync)');
             console.log('  POST /api/sync-sales        (sync all sales periods)');
@@ -1600,9 +1768,29 @@ async function startServer() {
             console.log('  GET  /api/purchase-orders');
             console.log('  GET  /api/purchase-orders/:id');
             console.log('='.repeat(60));
+
+            logger.info('Server started successfully', {
+                port: PORT,
+                environment: process.env.NODE_ENV || 'development',
+                nodeVersion: process.version
+            });
         });
+
+        // Monitor database connection errors
+        db.pool.on('error', (err) => {
+            logger.error('Database connection error', {
+                error: err.message,
+                stack: err.stack
+            });
+            emailNotifier.sendCritical('Database Connection Lost', err);
+        });
+
     } catch (error) {
-        console.error('Failed to start server:', error);
+        logger.error('Failed to start server', {
+            error: error.message,
+            stack: error.stack
+        });
+        await emailNotifier.sendCritical('Server Startup Failed', error);
         process.exit(1);
     }
 }

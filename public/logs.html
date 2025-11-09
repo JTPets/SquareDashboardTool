@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Logs - JT Pets Inventory</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      color: #1f2937;
+    }
+
+    header {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      padding: 20px 30px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 600;
+    }
+
+    .back-link {
+      color: white;
+      text-decoration: none;
+      font-size: 14px;
+      opacity: 0.9;
+      display: inline-block;
+      margin-top: 8px;
+    }
+
+    .back-link:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 20px 30px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .stat-value.error { color: #ef4444; }
+    .stat-value.warning { color: #f59e0b; }
+    .stat-value.info { color: #3b82f6; }
+    .stat-value.total { color: #10b981; }
+
+    .stat-label {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.8;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #4b5563;
+      transform: translateY(-1px);
+    }
+
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #059669;
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 25px;
+      margin-bottom: 25px;
+    }
+
+    .card h2 {
+      font-size: 20px;
+      margin-bottom: 20px;
+      color: #1f2937;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .logs-table thead {
+      background: #f9fafb;
+      position: sticky;
+      top: 0;
+    }
+
+    .logs-table th {
+      text-align: left;
+      padding: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .logs-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f3f4f6;
+      vertical-align: top;
+    }
+
+    .logs-table tr:hover {
+      background: #f9fafb;
+    }
+
+    .log-level {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .log-level.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .log-level.warn {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .log-level.info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .log-level.debug {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .log-message {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      max-width: 600px;
+      word-wrap: break-word;
+    }
+
+    .log-timestamp {
+      color: #6b7280;
+      white-space: nowrap;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    .error-message {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .success-message {
+      background: #d1fae5;
+      color: #065f46;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      animation: fadeOut 3s forwards;
+    }
+
+    @keyframes fadeOut {
+      0%, 70% { opacity: 1; }
+      100% { opacity: 0; display: none; }
+    }
+
+    .auto-refresh {
+      font-size: 13px;
+      color: #6b7280;
+      margin-left: auto;
+    }
+
+    .filters {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filters label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .filters select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      background: white;
+      cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+      .stats-bar {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+        padding: 15px;
+      }
+
+      .stat-value {
+        font-size: 24px;
+      }
+
+      .logs-table {
+        font-size: 12px;
+      }
+
+      .logs-table th,
+      .logs-table td {
+        padding: 8px;
+      }
+
+      .log-message {
+        max-width: 200px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📋 System Logs</h1>
+    <a href="/" class="back-link">← Back to Dashboard</a>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="stat-value total" id="stat-total">--</div>
+      <div class="stat-label">Total Logs</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value error" id="stat-errors">--</div>
+      <div class="stat-label">Errors</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value warning" id="stat-warnings">--</div>
+      <div class="stat-label">Warnings</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value info" id="stat-info">--</div>
+      <div class="stat-label">Info</div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="actions">
+      <button class="btn btn-primary" onclick="refreshLogs()">🔄 Refresh Now</button>
+      <a href="/api/logs/download" class="btn btn-secondary" download>⬇️ Download Logs</a>
+      <button class="btn btn-success" onclick="testEmail()">✉️ Test Email</button>
+      <div class="auto-refresh">Auto-refresh: <span id="countdown">30</span>s</div>
+    </div>
+
+    <div id="message-container"></div>
+
+    <div class="card">
+      <h2>Recent Logs (Last 100)</h2>
+
+      <div class="filters">
+        <label for="level-filter">Filter by Level:</label>
+        <select id="level-filter" onchange="filterLogs()">
+          <option value="all">All Levels</option>
+          <option value="error">Errors Only</option>
+          <option value="warn">Warnings Only</option>
+          <option value="info">Info Only</option>
+          <option value="debug">Debug Only</option>
+        </select>
+
+        <label for="limit-select">Show:</label>
+        <select id="limit-select" onchange="refreshLogs()">
+          <option value="50">Last 50</option>
+          <option value="100" selected>Last 100</option>
+          <option value="250">Last 250</option>
+          <option value="500">Last 500</option>
+        </select>
+      </div>
+
+      <div id="logs-content">
+        <div class="loading">Loading logs...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allLogs = [];
+    let refreshInterval;
+    let countdownInterval;
+    let secondsRemaining = 30;
+
+    // Load logs and stats on page load
+    async function loadStats() {
+      try {
+        const response = await fetch('/api/logs/stats');
+        const data = await response.json();
+
+        document.getElementById('stat-total').textContent = data.total.toLocaleString();
+        document.getElementById('stat-errors').textContent = data.error.toLocaleString();
+        document.getElementById('stat-warnings').textContent = data.warn.toLocaleString();
+        document.getElementById('stat-info').textContent = data.info.toLocaleString();
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      }
+    }
+
+    async function loadLogs() {
+      try {
+        const limit = document.getElementById('limit-select').value;
+        const response = await fetch(`/api/logs?limit=${limit}`);
+        const data = await response.json();
+
+        allLogs = data.logs || [];
+        filterLogs();
+      } catch (error) {
+        document.getElementById('logs-content').innerHTML =
+          '<div class="error-message">Failed to load logs: ' + error.message + '</div>';
+      }
+    }
+
+    function filterLogs() {
+      const levelFilter = document.getElementById('level-filter').value;
+
+      let filteredLogs = allLogs;
+      if (levelFilter !== 'all') {
+        filteredLogs = allLogs.filter(log => log.level === levelFilter);
+      }
+
+      if (filteredLogs.length === 0) {
+        document.getElementById('logs-content').innerHTML =
+          '<div class="loading">No logs found matching the filter criteria.</div>';
+        return;
+      }
+
+      const tableHTML = `
+        <table class="logs-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Level</th>
+              <th>Message</th>
+              <th>Service</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredLogs.map(log => `
+              <tr>
+                <td class="log-timestamp">${log.timestamp || '--'}</td>
+                <td><span class="log-level ${log.level}">${log.level}</span></td>
+                <td class="log-message">${escapeHtml(log.message || '')}</td>
+                <td>${log.service || 'jtpets-inventory'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById('logs-content').innerHTML = tableHTML;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function refreshLogs() {
+      await Promise.all([loadStats(), loadLogs()]);
+      resetCountdown();
+    }
+
+    async function testEmail() {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '⏳ Sending...';
+
+      try {
+        const response = await fetch('/api/test-email', { method: 'POST' });
+        const data = await response.json();
+
+        if (response.ok) {
+          showMessage('success', data.message || 'Test email sent successfully!');
+        } else {
+          showMessage('error', data.error || 'Failed to send test email');
+        }
+      } catch (error) {
+        showMessage('error', 'Failed to send test email: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '✉️ Test Email';
+      }
+    }
+
+    function showMessage(type, text) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = type === 'success' ? 'success-message' : 'error-message';
+      messageDiv.textContent = text;
+
+      const container = document.getElementById('message-container');
+      container.innerHTML = '';
+      container.appendChild(messageDiv);
+
+      if (type === 'success') {
+        setTimeout(() => messageDiv.remove(), 3000);
+      }
+    }
+
+    function resetCountdown() {
+      secondsRemaining = 30;
+      document.getElementById('countdown').textContent = secondsRemaining;
+    }
+
+    function updateCountdown() {
+      secondsRemaining--;
+      document.getElementById('countdown').textContent = secondsRemaining;
+
+      if (secondsRemaining <= 0) {
+        refreshLogs();
+      }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      refreshLogs();
+
+      // Set up auto-refresh every 30 seconds
+      refreshInterval = setInterval(refreshLogs, 30000);
+
+      // Update countdown every second
+      countdownInterval = setInterval(updateCountdown, 1000);
+    });
+
+    // Cleanup intervals when page unloads
+    window.addEventListener('beforeunload', () => {
+      clearInterval(refreshInterval);
+      clearInterval(countdownInterval);
+    });
+  </script>
+</body>
+</html>
