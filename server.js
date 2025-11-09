@@ -6,6 +6,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
@@ -17,6 +18,7 @@ const PORT = process.env.PORT || 5001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging
 app.use((req, res, next) => {
