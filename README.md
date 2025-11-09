@@ -108,6 +108,46 @@ This will:
 
 **Note**: Initial sync can take 5-30 minutes depending on catalog size.
 
+## Dashboard
+
+Access the main dashboard at: http://localhost:5001/ or http://localhost:5001/index.html
+
+The dashboard provides:
+- **Real-time inventory statistics** - Live counts of items, variations, inventory records, and alerts
+- **Quick access to all tools** - Visual cards linking to all system features
+- **Smart sync status and controls** - View last sync times and trigger manual syncs
+- **API documentation** - Expandable list of all available API endpoints
+- **Responsive design** - Works on desktop, tablet, and mobile devices
+
+### Available Pages:
+- `/` or `/index.html` - Main dashboard with statistics and navigation
+- `/reorder.html` - Reorder suggestions (to be created)
+- `/expiry.html` - Expiration tracker (to be created)
+- `/inventory.html` - Full inventory view (to be created)
+- `/purchase-orders.html` - Purchase order management (to be created)
+- `/sales-velocity.html` - Sales velocity reports (to be created)
+- `/deleted-items.html` - Deleted items management (to be created)
+
+### Dashboard Features:
+
+**Statistics Bar:**
+- Total items in catalog
+- Total variations (SKUs)
+- Total inventory records
+- Active reorder alerts (color-coded: red when > 0)
+- Total inventory value
+
+**Sync Status:**
+- Last sync time for catalog, inventory, and sales data
+- Next sync due time
+- Manual sync button for on-demand updates
+- Auto-refresh every 5 minutes
+
+**Tool Cards:**
+- Color-coded by category (Critical, Inventory, Operations, API)
+- Priority tags (CRITICAL, HIGH VALUE, NEW)
+- Direct links to both HTML pages and raw API endpoints
+
 ## API Documentation
 
 ### Health & Status
@@ -795,6 +835,8 @@ JTPetsClaudeBuildTool/
 ├── utils/
 │   ├── database.js         # Database connection pool
 │   └── square-api.js       # Square API integration
+├── public/
+│   └── index.html          # Main dashboard (HTML/CSS/JS)
 ├── server.js               # Main Express server
 ├── package.json            # Dependencies
 ├── .env.example            # Environment template
