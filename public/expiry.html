@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expiration Tracker - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .stat { text-align: center; min-width: 100px; }
+    .stat-number { font-size: 24px; font-weight: bold; color: #10b981; }
+    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls select, .controls button {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 40px;
+    }
+    .controls button {
+      background: #059669;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .controls button:hover { background: #047857; }
+    .sync-button { background: #dc2626 !important; margin-left: auto; }
+    .sync-button:hover { background: #b91c1c !important; }
+    .table-container {
+      overflow-x: auto;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; }
+    .product-name { max-width: 300px; white-space: normal; font-weight: 500; }
+    .variation-name { font-size: 13px; color: #6b7280; font-style: italic; }
+    .gtin { font-family: monospace; font-size: 12px; color: #6b7280; }
+    .price { font-weight: 600; color: #059669; }
+    input[type="date"] {
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      min-height: 36px;
+    }
+    input[type="checkbox"] {
+      transform: scale(1.2);
+      cursor: pointer;
+    }
+    .row-changed { background-color: #fef3c7 !important; }
+    .date-input-container { position: relative; display: inline-block; }
+    .date-confirmation {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      z-index: 1000;
+      display: none;
+    }
+    .confirm-btn, .cancel-btn {
+      padding: 5px 10px;
+      margin: 0 2px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .confirm-btn { background: #10b981; color: white; }
+    .cancel-btn { background: #ef4444; color: white; }
+    .save-section {
+      padding: 20px;
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+    }
+    .pagination {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .pagination button {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .pagination button:disabled {
+      background: #f9fafb;
+      cursor: not-allowed;
+      color: #9ca3af;
+    }
+    .loading { text-align: center; padding: 40px; color: #6b7280; font-style: italic; }
+    @media (max-width: 900px) {
+      .gtin, .variation-name { display: none; }
+      .product-image { width: 40px; height: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📅 Expiration Tracker</h1>
+      <a href="/" class="back-button">← Back to Dashboard</a>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-number" id="stat-total">--</div>
+        <div class="stat-label">Total Products</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-in-stock">--</div>
+        <div class="stat-label">In Stock</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-no-expiry">--</div>
+        <div class="stat-label">No Expiry Set</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-expiring">--</div>
+        <div class="stat-label">Expiring < 120 Days</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-value">--</div>
+        <div class="stat-label">Inventory Value</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>Filter by expiry:</label>
+      <select id="expiry-filter" onchange="loadItems()">
+        <option value="">All items</option>
+        <option value="30">Expiring in 30 days</option>
+        <option value="60">Expiring in 60 days</option>
+        <option value="90">Expiring in 90 days</option>
+        <option value="120">Expiring in 120 days</option>
+        <option value="no-expiry">No expiry set</option>
+        <option value="never-expires">Never expires</option>
+      </select>
+
+      <label>Category:</label>
+      <select id="category-filter" onchange="loadItems()">
+        <option value="">All categories</option>
+      </select>
+
+      <button onclick="loadItems()">Refresh</button>
+      <button class="sync-button" onclick="syncFromSquare()">Sync from Square</button>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Product Name</th>
+            <th class="variation-col">Variation</th>
+            <th class="gtin-col">GTIN/UPC</th>
+            <th>Price</th>
+            <th>Stock</th>
+            <th>Current Expiry</th>
+            <th>New Expiry Date</th>
+            <th>Never Expires</th>
+          </tr>
+        </thead>
+        <tbody id="items-body">
+          <tr><td colspan="9" class="loading">Loading products...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="save-section">
+      <div class="pagination">
+        <button id="prev-page" onclick="changePage(-1)" disabled>Previous</button>
+        <span id="page-info">Page 1 of 1</span>
+        <button id="next-page" onclick="changePage(1)" disabled>Next</button>
+        <span> | Items per page:</span>
+        <select id="items-per-page" onchange="changeItemsPerPage()">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <p style="margin-top: 10px; color: #6b7280;">Changes are auto-saved after confirmation</p>
+    </div>
+  </div>
+
+  <script>
+    let allItems = [];
+    let currentPage = 1;
+    let itemsPerPage = 50;
+    let pendingChanges = new Map();
+
+    async function loadItems() {
+      const expiryFilter = document.getElementById('expiry-filter').value;
+      const categoryFilter = document.getElementById('category-filter').value;
+
+      const tbody = document.getElementById('items-body');
+      tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading...</td></tr>';
+
+      try {
+        let url = '/api/items?';
+        if (expiryFilter) url += `expiry=${expiryFilter}&`;
+        if (categoryFilter) url += `category=${categoryFilter}&`;
+
+        const data = await fetch(url).then(r => r.json());
+        allItems = data;
+        currentPage = 1;
+        updateStats();
+        renderTable();
+        updatePagination();
+
+      } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="9" class="loading">Error: ' + error.message + '</td></tr>';
+      }
+    }
+
+    function updateStats() {
+      const total = allItems.length;
+      const inStock = allItems.filter(i => (i.quantity || 0) > 0).length;
+      const noExpiry = allItems.filter(i => !i.expiration_date && !i.does_not_expire).length;
+
+      const today = new Date();
+      const in120Days = new Date(today.getTime() + 120*24*60*60*1000);
+      const expiring = allItems.filter(i => {
+        if (!i.expiration_date || i.does_not_expire) return false;
+        const expDate = new Date(i.expiration_date);
+        return expDate <= in120Days && expDate >= today;
+      }).length;
+
+      const totalValue = allItems.reduce((sum, i) => {
+        const qty = i.quantity || 0;
+        const price = i.price_money || 0;
+        return sum + (qty * price / 100);
+      }, 0);
+
+      document.getElementById('stat-total').textContent = total.toLocaleString();
+      document.getElementById('stat-in-stock').textContent = inStock.toLocaleString();
+      document.getElementById('stat-no-expiry').textContent = noExpiry.toLocaleString();
+      document.getElementById('stat-expiring').textContent = expiring.toLocaleString();
+      document.getElementById('stat-value').textContent = '$' + totalValue.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('items-body');
+      const start = (currentPage - 1) * itemsPerPage;
+      const end = start + itemsPerPage;
+      const pageItems = allItems.slice(start, end);
+
+      if (pageItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="loading">No products found</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = pageItems.map(item => {
+        const expiryValue = item.expiration_date ? item.expiration_date.split('T')[0] : '';
+        const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+
+        return `<tr data-id="${item.identifier}">
+          <td>
+            ${imageUrl ?
+              `<img src="${imageUrl}" class="product-image" onerror="this.style.display='none'">` :
+              '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}
+          </td>
+          <td class="product-name">${item.name || ''}</td>
+          <td class="variation-name variation-col">${item.variation || 'Regular'}</td>
+          <td class="gtin gtin-col">${item.gtin || 'N/A'}</td>
+          <td class="price">$${((item.price_money || 0) / 100).toFixed(2)}</td>
+          <td>${item.quantity || 0}</td>
+          <td>${formatDate(item.expiration_date)}</td>
+          <td>
+            <div class="date-input-container">
+              <input type="date" value="${expiryValue}"
+                     onchange="showDateConfirmation('${item.identifier}', this.value, this)"
+                     ${item.does_not_expire ? 'disabled' : ''}>
+              <div id="confirm-${item.identifier}" class="date-confirmation">
+                <button onclick="confirmDateChange('${item.identifier}')" class="confirm-btn">✓</button>
+                <button onclick="cancelDateChange('${item.identifier}')" class="cancel-btn">✕</button>
+              </div>
+            </div>
+          </td>
+          <td>
+            <input type="checkbox" ${item.does_not_expire ? 'checked' : ''}
+                   onchange="updateNeverExpires('${item.identifier}', this.checked)">
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return 'Not set';
+      return new Date(dateStr).toLocaleDateString();
+    }
+
+    function showDateConfirmation(id, newValue, input) {
+      if (!input.dataset.originalValue) {
+        input.dataset.originalValue = input.defaultValue;
+      }
+      pendingChanges.set(id, { newValue, oldValue: input.dataset.originalValue, inputElement: input });
+      document.getElementById(`confirm-${id}`).style.display = 'block';
+    }
+
+    function confirmDateChange(id) {
+      const pending = pendingChanges.get(id);
+      if (pending) {
+        updateExpiration(id, pending.newValue);
+        pending.inputElement.dataset.originalValue = pending.newValue;
+        pendingChanges.delete(id);
+        document.getElementById(`confirm-${id}`).style.display = 'none';
+      }
+    }
+
+    function cancelDateChange(id) {
+      const pending = pendingChanges.get(id);
+      if (pending) {
+        pending.inputElement.value = pending.oldValue;
+        pendingChanges.delete(id);
+        document.getElementById(`confirm-${id}`).style.display = 'none';
+      }
+    }
+
+    async function updateExpiration(id, value) {
+      try {
+        await fetch('/api/expirations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{
+            variation_id: id,
+            expiration_date: value || null,
+            does_not_expire: false
+          }])
+        });
+
+        const row = document.querySelector(`tr[data-id="${id}"]`);
+        if (row) row.classList.add('row-changed');
+
+      } catch (error) {
+        alert('Failed to save: ' + error.message);
+      }
+    }
+
+    async function updateNeverExpires(id, checked) {
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      const dateInput = row.querySelector('input[type="date"]');
+      dateInput.disabled = checked;
+      if (checked) dateInput.value = '';
+
+      try {
+        await fetch('/api/expirations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{
+            variation_id: id,
+            expiration_date: null,
+            does_not_expire: checked
+          }])
+        });
+
+        row.classList.add('row-changed');
+
+      } catch (error) {
+        alert('Failed to save: ' + error.message);
+      }
+    }
+
+    function changePage(direction) {
+      const totalPages = Math.ceil(allItems.length / itemsPerPage);
+      currentPage = Math.max(1, Math.min(totalPages, currentPage + direction));
+      renderTable();
+      updatePagination();
+    }
+
+    function changeItemsPerPage() {
+      itemsPerPage = parseInt(document.getElementById('items-per-page').value);
+      currentPage = 1;
+      renderTable();
+      updatePagination();
+    }
+
+    function updatePagination() {
+      const totalPages = Math.ceil(allItems.length / itemsPerPage);
+      document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+      document.getElementById('prev-page').disabled = currentPage <= 1;
+      document.getElementById('next-page').disabled = currentPage >= totalPages;
+    }
+
+    async function syncFromSquare() {
+      const btn = document.querySelector('.sync-button');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+
+      try {
+        await fetch('/api/sync-smart', { method: 'POST' });
+        alert('Sync complete!');
+        await loadItems();
+      } catch (error) {
+        alert('Sync failed: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sync from Square';
+      }
+    }
+
+    async function loadCategories() {
+      try {
+        const items = await fetch('/api/items').then(r => r.json());
+        const categories = [...new Set(items.map(i => i.category_name).filter(Boolean))];
+        const select = document.getElementById('category-filter');
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load categories:', error);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadCategories();
+      loadItems();
+    });
+  </script>
+</body>
+</html>

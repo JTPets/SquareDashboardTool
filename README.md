@@ -119,14 +119,42 @@ The dashboard provides:
 - **API documentation** - Expandable list of all available API endpoints
 - **Responsive design** - Works on desktop, tablet, and mobile devices
 
-### Available Pages:
-- `/` or `/index.html` - Main dashboard with statistics and navigation
-- `/reorder.html` - Reorder suggestions (to be created)
-- `/expiry.html` - Expiration tracker (to be created)
-- `/inventory.html` - Full inventory view (to be created)
-- `/purchase-orders.html` - Purchase order management (to be created)
-- `/sales-velocity.html` - Sales velocity reports (to be created)
-- `/deleted-items.html` - Deleted items management (to be created)
+### Available Pages
+
+Access all pages from the dashboard at http://localhost:5001/
+
+#### Implemented Pages ✅
+- **Dashboard** (`/` or `/index.html`) - Central hub with real-time stats and navigation
+- **Reorder Suggestions** (`/reorder.html`) - Priority-ranked reorder recommendations with:
+  - Supply days filtering (30/45/60/90 days)
+  - Priority filtering (Urgent/High/Medium/Low)
+  - Location filtering
+  - Sortable table with stock levels, alert thresholds, reorder reasons
+  - Add to PO draft functionality
+  - Export to CSV
+  - Auto-refresh every 5 minutes
+- **Expiration Tracker** (`/expiry.html`) - Manage product expiration dates with:
+  - Expiry filtering (30/60/90/120 days, no expiry, never expires)
+  - Category filtering
+  - In-line date editing with confirmation
+  - "Never expires" checkbox
+  - Pagination (25/50/100 items per page)
+  - Auto-save on confirmation
+  - Sync from Square button
+
+#### Coming Soon 🚧
+- **Full Inventory** (`/inventory.html`) - Complete inventory view across locations
+- **Purchase Orders** (`/purchase-orders.html`) - PO creation, submission, and receiving
+- **Sales Velocity** (`/sales-velocity.html`) - 91/182/365-day sales trend reports
+- **Deleted Items** (`/deleted-items.html`) - Soft-deleted items management and cleanup
+
+#### Page Features
+All implemented pages include:
+- Responsive design (mobile, tablet, desktop)
+- Real-time API integration
+- Consistent UI/UX matching dashboard design
+- Loading states and error handling
+- Stats bars showing key metrics
 
 ### Dashboard Features:
 

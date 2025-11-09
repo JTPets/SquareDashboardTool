@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reorder Suggestions - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .stat { text-align: center; min-width: 100px; }
+    .stat-number { font-size: 24px; font-weight: bold; color: #10b981; }
+    .stat-number.urgent { color: #ef4444; }
+    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls select, .controls button {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 40px;
+    }
+    .controls button {
+      background: #059669;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .controls button:hover { background: #047857; }
+    .table-container {
+      overflow-x: auto;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+    }
+    th:hover { background: #f3f4f6; }
+    .priority-badge {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .priority-urgent { background: #ef4444; color: white; }
+    .priority-high { background: #f59e0b; color: white; }
+    .priority-medium { background: #fbbf24; color: #78350f; }
+    .priority-low { background: #9ca3af; color: white; }
+    .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; }
+    .product-name { max-width: 250px; white-space: normal; font-weight: 500; }
+    .variation-name { font-size: 13px; color: #6b7280; font-style: italic; }
+    .reorder-reason { max-width: 200px; white-space: normal; font-size: 13px; }
+    .create-po-btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .create-po-btn:hover { background: #1d4ed8; }
+    .create-po-btn.added {
+      background: #10b981;
+      cursor: default;
+    }
+    .po-badge {
+      background: #ef4444;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    .export-btn {
+      background: #8b5cf6;
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-left: auto;
+    }
+    .export-btn:hover { background: #7c3aed; }
+    .loading { text-align: center; padding: 40px; color: #6b7280; font-style: italic; }
+    .status {
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      display: none;
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+    }
+    .status.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; display: block; }
+    .status.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; display: block; }
+    @media (max-width: 900px) {
+      .table-container { font-size: 12px; }
+      th, td { padding: 8px 6px; }
+      .reorder-reason, .variation-name { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔔 Reorder Suggestions</h1>
+      <a href="/" class="back-button">← Back to Dashboard</a>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-number" id="stat-total">--</div>
+        <div class="stat-label">Total Suggestions</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number urgent" id="stat-urgent">--</div>
+        <div class="stat-label">Urgent</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-high">--</div>
+        <div class="stat-label">High Priority</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-order-value">--</div>
+        <div class="stat-label">Total Order Value</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-po-items">0</div>
+        <div class="stat-label">Items in PO Draft</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>Supply Days:</label>
+      <select id="supply-days" onchange="loadSuggestions()">
+        <option value="30">30 Days</option>
+        <option value="45" selected>45 Days</option>
+        <option value="60">60 Days</option>
+        <option value="90">90 Days</option>
+      </select>
+
+      <label>Priority:</label>
+      <select id="priority-filter" onchange="filterTable()">
+        <option value="">All Priorities</option>
+        <option value="URGENT">Urgent Only</option>
+        <option value="HIGH">High Only</option>
+        <option value="MEDIUM">Medium Only</option>
+        <option value="LOW">Low Only</option>
+      </select>
+
+      <label>Location:</label>
+      <select id="location-filter" onchange="loadSuggestions()">
+        <option value="">All Locations</option>
+      </select>
+
+      <button onclick="loadSuggestions()">Refresh</button>
+      <button class="export-btn" onclick="exportToCSV()">Export to CSV</button>
+      <a href="purchase-orders.html" style="margin-left: auto;">
+        <button style="background: #2563eb;">View PO Draft<span id="po-badge" class="po-badge" style="display: none;">0</span></button>
+      </a>
+    </div>
+
+    <div class="table-container">
+      <table id="suggestions-table">
+        <thead>
+          <tr>
+            <th onclick="sortTable('priority')">Priority</th>
+            <th>Image</th>
+            <th onclick="sortTable('item_name')">Product</th>
+            <th onclick="sortTable('current_stock')">Stock</th>
+            <th>Alert Threshold</th>
+            <th>Reorder Reason</th>
+            <th onclick="sortTable('days_until_stockout')">Days Left</th>
+            <th onclick="sortTable('final_suggested_qty')">Qty Needed</th>
+            <th onclick="sortTable('order_cost')">Cost</th>
+            <th>Vendor</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="suggestions-body">
+          <tr><td colspan="11" class="loading">Loading reorder suggestions...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="status-message" class="status"></div>
+
+  <script>
+    let allSuggestions = [];
+    let poDraft = JSON.parse(localStorage.getItem('poDraft') || '[]');
+
+    async function loadSuggestions() {
+      const supplyDays = document.getElementById('supply-days').value;
+      const locationId = document.getElementById('location-filter').value;
+
+      const tbody = document.getElementById('suggestions-body');
+      tbody.innerHTML = '<tr><td colspan="11" class="loading">Loading...</td></tr>';
+
+      try {
+        let url = `/api/reorder-suggestions?supply_days=${supplyDays}`;
+        if (locationId) url += `&location_id=${locationId}`;
+
+        const data = await fetch(url).then(r => r.json());
+        allSuggestions = data.suggestions || [];
+
+        updateStats(data);
+        filterTable();
+
+      } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="11" class="loading">Error: ' + error.message + '</td></tr>';
+      }
+    }
+
+    function updateStats(data) {
+      const urgent = allSuggestions.filter(s => s.priority === 'URGENT').length;
+      const high = allSuggestions.filter(s => s.priority === 'HIGH').length;
+      const totalValue = allSuggestions.reduce((sum, s) => sum + (s.order_cost || 0), 0);
+
+      document.getElementById('stat-total').textContent = data.count || allSuggestions.length;
+      document.getElementById('stat-urgent').textContent = urgent;
+      document.getElementById('stat-high').textContent = high;
+      document.getElementById('stat-order-value').textContent = '$' + totalValue.toFixed(2);
+      updatePOBadge();
+    }
+
+    function filterTable() {
+      const priorityFilter = document.getElementById('priority-filter').value;
+      let filtered = allSuggestions;
+
+      if (priorityFilter) {
+        filtered = filtered.filter(s => s.priority === priorityFilter);
+      }
+
+      renderTable(filtered);
+    }
+
+    function renderTable(suggestions) {
+      const tbody = document.getElementById('suggestions-body');
+
+      if (suggestions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="loading">No suggestions match your filters</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = suggestions.map(s => `
+        <tr>
+          <td><span class="priority-badge priority-${s.priority.toLowerCase()}">${s.priority}</span></td>
+          <td>${s.image_urls && s.image_urls[0] ?
+            `<img src="${s.image_urls[0]}" class="product-image" onerror="this.style.display='none'">` :
+            '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}</td>
+          <td class="product-name">
+            ${s.item_name}<br>
+            <span class="variation-name">${s.variation_name || 'Regular'}</span>
+          </td>
+          <td style="font-weight: 600; color: ${s.current_stock === 0 ? '#ef4444' : '#059669'}">${s.current_stock || 0}</td>
+          <td>${s.location_stock_alert_min || s.inventory_alert_threshold || 'N/A'}</td>
+          <td class="reorder-reason">${formatReorderReason(s.reorder_reason)}</td>
+          <td style="font-weight: 600; color: ${s.days_until_stockout < 7 ? '#ef4444' : '#6b7280'}">${s.days_until_stockout?.toFixed(1) || 'N/A'}</td>
+          <td style="font-weight: 600;">${Math.ceil(s.final_suggested_qty || 0)}</td>
+          <td style="color: #059669; font-weight: 600;">$${(s.order_cost || 0).toFixed(2)}</td>
+          <td style="font-size: 12px;">${s.vendor_name || 'N/A'}</td>
+          <td>
+            <button class="create-po-btn ${isInPO(s.variation_id) ? 'added' : ''}"
+                    onclick="addToPO('${s.variation_id}', ${Math.ceil(s.final_suggested_qty || 0)}, '${s.item_name}', '${s.vendor_name || 'N/A'}', ${s.order_cost || 0})"
+                    ${isInPO(s.variation_id) ? 'disabled' : ''}>
+              ${isInPO(s.variation_id) ? '✓ Added' : '+ Add to PO'}
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function formatReorderReason(reason) {
+      if (!reason) return 'N/A';
+      if (reason.includes('Out of stock')) return '🚨 ' + reason;
+      if (reason.includes('Below stock alert')) return '⚠️ ' + reason;
+      return '📉 ' + reason;
+    }
+
+    function isInPO(variationId) {
+      return poDraft.some(item => item.variation_id === variationId);
+    }
+
+    function addToPO(variationId, quantity, itemName, vendor, cost) {
+      if (isInPO(variationId)) return;
+
+      poDraft.push({
+        variation_id: variationId,
+        item_name: itemName,
+        quantity: quantity,
+        vendor_name: vendor,
+        cost: cost
+      });
+
+      localStorage.setItem('poDraft', JSON.stringify(poDraft));
+      updatePOBadge();
+      filterTable(); // Re-render to update button
+      showStatus('Added to PO draft', 'success');
+    }
+
+    function updatePOBadge() {
+      document.getElementById('stat-po-items').textContent = poDraft.length;
+      const badge = document.getElementById('po-badge');
+      if (poDraft.length > 0) {
+        badge.textContent = poDraft.length;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    let sortDirection = {};
+    function sortTable(field) {
+      sortDirection[field] = !sortDirection[field];
+      allSuggestions.sort((a, b) => {
+        let aVal = a[field];
+        let bVal = b[field];
+        if (field === 'priority') {
+          const order = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+          aVal = order[a.priority];
+          bVal = order[b.priority];
+        }
+        return sortDirection[field] ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+      });
+      filterTable();
+    }
+
+    function exportToCSV() {
+      const csv = [
+        ['Priority', 'Product', 'Variation', 'Stock', 'Alert Threshold', 'Reason', 'Days Left', 'Qty Needed', 'Cost', 'Vendor'].join(','),
+        ...allSuggestions.map(s => [
+          s.priority,
+          `"${s.item_name}"`,
+          `"${s.variation_name || 'Regular'}"`,
+          s.current_stock,
+          s.location_stock_alert_min || s.inventory_alert_threshold || 'N/A',
+          `"${s.reorder_reason || 'N/A'}"`,
+          s.days_until_stockout?.toFixed(1) || 'N/A',
+          Math.ceil(s.final_suggested_qty || 0),
+          (s.order_cost || 0).toFixed(2),
+          `"${s.vendor_name || 'N/A'}"`
+        ].join(','))
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reorder-suggestions-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status-message');
+      status.textContent = message;
+      status.className = `status ${type}`;
+      setTimeout(() => status.className = 'status', 3000);
+    }
+
+    async function loadLocations() {
+      try {
+        const response = await fetch('/api/locations');
+        const locations = await response.json();
+        const select = document.getElementById('location-filter');
+        locations.forEach(loc => {
+          const option = document.createElement('option');
+          option.value = loc.id;
+          option.textContent = loc.name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load locations:', error);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadLocations();
+      loadSuggestions();
+      setInterval(loadSuggestions, 300000); // Refresh every 5 minutes
+    });
+  </script>
+</body>
+</html>
