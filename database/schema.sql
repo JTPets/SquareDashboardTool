@@ -14,10 +14,23 @@ DROP TABLE IF EXISTS images CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS vendors CASCADE;
 DROP TABLE IF EXISTS locations CASCADE;
+DROP TABLE IF EXISTS sync_history CASCADE;
 
 -- Create tables
 
--- 1. Store locations from Square
+-- 1. Sync history tracking for smart sync optimization
+CREATE TABLE sync_history (
+    id SERIAL PRIMARY KEY,
+    sync_type TEXT NOT NULL,  -- 'catalog', 'vendors', 'inventory', 'sales_91d', 'sales_182d', 'sales_365d'
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    status TEXT DEFAULT 'running',  -- 'running', 'success', 'failed'
+    records_synced INTEGER DEFAULT 0,
+    error_message TEXT,
+    duration_seconds INTEGER
+);
+
+-- 2. Store locations from Square
 CREATE TABLE locations (
     id TEXT PRIMARY KEY,
     name TEXT,
@@ -29,7 +42,7 @@ CREATE TABLE locations (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Vendor/supplier information
+-- 3. Vendor/supplier information
 CREATE TABLE vendors (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -46,14 +59,14 @@ CREATE TABLE vendors (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Product categories from Square
+-- 4. Product categories from Square
 CREATE TABLE categories (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Product images from Square
+-- 5. Product images from Square
 CREATE TABLE images (
     id TEXT PRIMARY KEY,
     name TEXT,
@@ -62,7 +75,7 @@ CREATE TABLE images (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Items (products) from Square catalog
+-- 6. Items (products) from Square catalog
 CREATE TABLE items (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -85,7 +98,7 @@ CREATE TABLE items (
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
--- 6. Item variations (SKUs) from Square catalog with JTPets extensions
+-- 7. Item variations (SKUs) from Square catalog with JTPets extensions
 CREATE TABLE variations (
     id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
@@ -125,7 +138,7 @@ CREATE TABLE variations (
     FOREIGN KEY (replacement_variation_id) REFERENCES variations(id) ON DELETE SET NULL
 );
 
--- 7. Vendor information for variations (pricing, vendor codes)
+-- 8. Vendor information for variations (pricing, vendor codes)
 CREATE TABLE variation_vendors (
     id SERIAL PRIMARY KEY,
     variation_id TEXT NOT NULL,
@@ -140,7 +153,7 @@ CREATE TABLE variation_vendors (
     UNIQUE(variation_id, vendor_id)
 );
 
--- 8. Current inventory counts from Square
+-- 9. Current inventory counts from Square
 CREATE TABLE inventory_counts (
     id SERIAL PRIMARY KEY,
     catalog_object_id TEXT NOT NULL,
@@ -153,7 +166,7 @@ CREATE TABLE inventory_counts (
     UNIQUE(catalog_object_id, location_id, state)
 );
 
--- 9. Sales velocity calculations for demand forecasting
+-- 10. Sales velocity calculations for demand forecasting
 CREATE TABLE sales_velocity (
     id SERIAL PRIMARY KEY,
     variation_id TEXT NOT NULL,
@@ -173,7 +186,7 @@ CREATE TABLE sales_velocity (
     UNIQUE(variation_id, location_id, period_days)
 );
 
--- 10. Location-specific settings for variations
+-- 11. Location-specific settings for variations
 CREATE TABLE variation_location_settings (
     id SERIAL PRIMARY KEY,
     variation_id TEXT NOT NULL,
@@ -190,7 +203,7 @@ CREATE TABLE variation_location_settings (
     UNIQUE(variation_id, location_id)
 );
 
--- 11. Purchase orders for inventory ordering
+-- 12. Purchase orders for inventory ordering
 CREATE TABLE purchase_orders (
     id SERIAL PRIMARY KEY,
     po_number TEXT UNIQUE NOT NULL,
@@ -213,7 +226,7 @@ CREATE TABLE purchase_orders (
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE RESTRICT
 );
 
--- 12. Line items for purchase orders
+-- 13. Line items for purchase orders
 CREATE TABLE purchase_order_items (
     id SERIAL PRIMARY KEY,
     purchase_order_id INTEGER NOT NULL,
@@ -230,6 +243,9 @@ CREATE TABLE purchase_order_items (
 );
 
 -- Create indexes for performance
+
+-- Sync history lookups
+CREATE INDEX idx_sync_history_type_completed ON sync_history(sync_type, completed_at DESC);
 
 -- Variations lookups
 CREATE INDEX idx_variations_sku ON variations(sku);
@@ -260,6 +276,7 @@ CREATE INDEX idx_purchase_order_items_variation ON purchase_order_items(variatio
 CREATE INDEX idx_items_category ON items(category_id);
 
 -- Comments for documentation
+COMMENT ON TABLE sync_history IS 'Tracks sync operations for smart sync optimization';
 COMMENT ON TABLE locations IS 'Store locations synchronized from Square';
 COMMENT ON TABLE vendors IS 'Suppliers and vendors for purchasing inventory';
 COMMENT ON TABLE categories IS 'Product categories from Square catalog';
@@ -290,6 +307,6 @@ COMMENT ON COLUMN purchase_orders.supply_days_override IS 'Override default supp
 DO $$
 BEGIN
     RAISE NOTICE 'JTPets Inventory System schema created successfully!';
-    RAISE NOTICE 'Tables created: 12';
-    RAISE NOTICE 'Indexes created: 18';
+    RAISE NOTICE 'Tables created: 13';
+    RAISE NOTICE 'Indexes created: 19';
 END $$;

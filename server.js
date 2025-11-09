@@ -47,11 +47,148 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Resolve image IDs to URLs
+ * @param {Array|null} imageIds - Array of image IDs from JSONB
+ * @returns {Promise<Array>} Array of image URLs
+ */
+async function resolveImageUrls(imageIds) {
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+        return [];
+    }
+
+    try {
+        // Query the images table to get URLs
+        const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
+        const result = await db.query(
+            `SELECT id, url FROM images WHERE id IN (${placeholders})`,
+            imageIds
+        );
+
+        // Create a map of id -> url
+        const urlMap = {};
+        result.rows.forEach(row => {
+            urlMap[row.id] = row.url;
+        });
+
+        // Return URLs in the same order as imageIds, with fallback format
+        return imageIds.map(id => {
+            if (urlMap[id]) {
+                return urlMap[id];
+            }
+            // Fallback: construct S3 URL
+            return `https://items-images-production.s3.us-west-2.amazonaws.com/files/${id}/original.jpeg`;
+        });
+    } catch (error) {
+        console.error('Error resolving image URLs:', error);
+        // Return fallback URLs
+        return imageIds.map(id =>
+            `https://items-images-production.s3.us-west-2.amazonaws.com/files/${id}/original.jpeg`
+        );
+    }
+}
+
+// ==================== SYNC HELPER FUNCTIONS ====================
+
+/**
+ * Log a sync operation to sync_history
+ * @param {string} syncType - Type of sync operation
+ * @param {Function} syncFunction - The sync function to execute
+ * @returns {Promise<Object>} Result with records synced
+ */
+async function loggedSync(syncType, syncFunction) {
+    const startTime = Date.now();
+    const startedAt = new Date();
+
+    try {
+        // Create sync history record
+        const insertResult = await db.query(`
+            INSERT INTO sync_history (sync_type, started_at, status)
+            VALUES ($1, $2, 'running')
+            RETURNING id
+        `, [syncType, startedAt]);
+
+        const syncId = insertResult.rows[0].id;
+
+        // Execute the sync function
+        const recordsSynced = await syncFunction();
+
+        // Calculate duration
+        const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+        // Update sync history with success
+        await db.query(`
+            UPDATE sync_history
+            SET status = 'success',
+                completed_at = CURRENT_TIMESTAMP,
+                records_synced = $1,
+                duration_seconds = $2
+            WHERE id = $3
+        `, [recordsSynced, durationSeconds, syncId]);
+
+        return { success: true, recordsSynced, durationSeconds };
+    } catch (error) {
+        // Calculate duration even on failure
+        const durationSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+        // Try to update sync history with failure
+        try {
+            await db.query(`
+                UPDATE sync_history
+                SET status = 'failed',
+                    completed_at = CURRENT_TIMESTAMP,
+                    error_message = $1,
+                    duration_seconds = $2
+                WHERE sync_type = $3 AND started_at = $4
+            `, [error.message, durationSeconds, syncType, startedAt]);
+        } catch (updateError) {
+            console.error('Failed to update sync history:', updateError);
+        }
+
+        throw error;
+    }
+}
+
+/**
+ * Check if a sync is needed based on interval
+ * @param {string} syncType - Type of sync to check
+ * @param {number} intervalHours - Required interval in hours
+ * @returns {Promise<Object>} {needed: boolean, lastSync: Date|null, nextDue: Date|null}
+ */
+async function isSyncNeeded(syncType, intervalHours) {
+    const result = await db.query(`
+        SELECT completed_at, status
+        FROM sync_history
+        WHERE sync_type = $1 AND status = 'success'
+        ORDER BY completed_at DESC
+        LIMIT 1
+    `, [syncType]);
+
+    if (result.rows.length === 0) {
+        // Never synced before, sync is needed
+        return { needed: true, lastSync: null, nextDue: null };
+    }
+
+    const lastSync = new Date(result.rows[0].completed_at);
+    const now = new Date();
+    const hoursSinceLastSync = (now - lastSync) / (1000 * 60 * 60);
+    const nextDue = new Date(lastSync.getTime() + intervalHours * 60 * 60 * 1000);
+
+    return {
+        needed: hoursSinceLastSync >= intervalHours,
+        lastSync,
+        nextDue,
+        hoursSince: hoursSinceLastSync.toFixed(1)
+    };
+}
+
 // ==================== SYNC ENDPOINTS ====================
 
 /**
  * POST /api/sync
- * Trigger full synchronization from Square
+ * Trigger full synchronization from Square (force sync, ignores intervals)
  */
 app.post('/api/sync', async (req, res) => {
     try {
@@ -108,6 +245,231 @@ app.post('/api/sync-sales', async (req, res) => {
             status: 'error',
             message: error.message
         });
+    }
+});
+
+/**
+ * POST /api/sync-smart
+ * Smart sync that only syncs data types whose interval has elapsed
+ * This is the recommended endpoint for scheduled/cron jobs
+ */
+app.post('/api/sync-smart', async (req, res) => {
+    try {
+        console.log('Smart sync requested');
+
+        // Get intervals from environment variables
+        const intervals = {
+            catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+            vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+            inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+            sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+            sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+            sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+        };
+
+        const synced = [];
+        const skipped = {};
+        const errors = [];
+        const summary = {};
+
+        // Check and sync catalog
+        const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
+        if (catalogCheck.needed) {
+            try {
+                console.log('Syncing catalog...');
+                const result = await loggedSync('catalog', async () => {
+                    const stats = await squareApi.syncCatalog();
+                    return stats.items + stats.variations;
+                });
+                synced.push('catalog');
+                summary.catalog = result;
+            } catch (error) {
+                errors.push({ type: 'catalog', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
+            skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync vendors
+        const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors);
+        if (vendorsCheck.needed) {
+            try {
+                console.log('Syncing vendors...');
+                const result = await loggedSync('vendors', () => squareApi.syncVendors());
+                synced.push('vendors');
+                summary.vendors = result;
+            } catch (error) {
+                errors.push({ type: 'vendors', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.vendors - parseFloat(vendorsCheck.hoursSince));
+            skipped.vendors = `Last synced ${vendorsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync inventory
+        const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory);
+        if (inventoryCheck.needed) {
+            try {
+                console.log('Syncing inventory...');
+                const result = await loggedSync('inventory', () => squareApi.syncInventory());
+                synced.push('inventory');
+                summary.inventory = result;
+            } catch (error) {
+                errors.push({ type: 'inventory', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.inventory - parseFloat(inventoryCheck.hoursSince));
+            skipped.inventory = `Last synced ${inventoryCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync sales_91d
+        const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d);
+        if (sales91Check.needed) {
+            try {
+                console.log('Syncing 91-day sales velocity...');
+                const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91));
+                synced.push('sales_91d');
+                summary.sales_91d = result;
+            } catch (error) {
+                errors.push({ type: 'sales_91d', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.sales_91d - parseFloat(sales91Check.hoursSince));
+            skipped.sales_91d = `Last synced ${sales91Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync sales_182d
+        const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d);
+        if (sales182Check.needed) {
+            try {
+                console.log('Syncing 182-day sales velocity...');
+                const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182));
+                synced.push('sales_182d');
+                summary.sales_182d = result;
+            } catch (error) {
+                errors.push({ type: 'sales_182d', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
+            skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync sales_365d
+        const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d);
+        if (sales365Check.needed) {
+            try {
+                console.log('Syncing 365-day sales velocity...');
+                const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365));
+                synced.push('sales_365d');
+                summary.sales_365d = result;
+            } catch (error) {
+                errors.push({ type: 'sales_365d', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
+            skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        res.json({
+            status: errors.length === 0 ? 'success' : 'partial',
+            synced,
+            skipped,
+            summary,
+            errors: errors.length > 0 ? errors : undefined
+        });
+    } catch (error) {
+        console.error('Smart sync error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/sync-history
+ * Get recent sync history
+ */
+app.get('/api/sync-history', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 20;
+
+        const result = await db.query(`
+            SELECT
+                id,
+                sync_type,
+                started_at,
+                completed_at,
+                status,
+                records_synced,
+                error_message,
+                duration_seconds
+            FROM sync_history
+            ORDER BY started_at DESC
+            LIMIT $1
+        `, [limit]);
+
+        res.json({
+            count: result.rows.length,
+            history: result.rows
+        });
+    } catch (error) {
+        console.error('Get sync history error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/sync-status
+ * Get current sync status for all sync types
+ */
+app.get('/api/sync-status', async (req, res) => {
+    try {
+        const intervals = {
+            catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+            vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+            inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+            sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+            sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+            sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+        };
+
+        const status = {};
+
+        for (const [syncType, intervalHours] of Object.entries(intervals)) {
+            const check = await isSyncNeeded(syncType, intervalHours);
+
+            status[syncType] = {
+                last_sync: check.lastSync,
+                next_sync_due: check.nextDue,
+                interval_hours: intervalHours,
+                needs_sync: check.needed,
+                hours_since_last_sync: check.hoursSince
+            };
+
+            // Get the last sync status
+            if (check.lastSync) {
+                const lastSyncResult = await db.query(`
+                    SELECT status, records_synced, duration_seconds
+                    FROM sync_history
+                    WHERE sync_type = $1 AND completed_at IS NOT NULL
+                    ORDER BY completed_at DESC
+                    LIMIT 1
+                `, [syncType]);
+
+                if (lastSyncResult.rows.length > 0) {
+                    status[syncType].last_status = lastSyncResult.rows[0].status;
+                    status[syncType].last_records_synced = lastSyncResult.rows[0].records_synced;
+                    status[syncType].last_duration_seconds = lastSyncResult.rows[0].duration_seconds;
+                }
+            }
+        }
+
+        res.json(status);
+    } catch (error) {
+        console.error('Get sync status error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -183,9 +545,20 @@ app.get('/api/variations', async (req, res) => {
         query += ' ORDER BY i.name, v.name';
 
         const result = await db.query(query, params);
+
+        // Resolve image URLs for each variation
+        const variations = await Promise.all(result.rows.map(async (variation) => {
+            const imageIds = variation.images;
+            const imageUrls = await resolveImageUrls(imageIds);
+            return {
+                ...variation,
+                image_urls: imageUrls
+            };
+        }));
+
         res.json({
-            count: result.rows.length,
-            variations: result.rows
+            count: variations.length,
+            variations
         });
     } catch (error) {
         console.error('Get variations error:', error);
@@ -203,6 +576,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
             SELECT
                 v.id,
                 v.sku,
+                v.images,
                 i.name as item_name,
                 v.name as variation_name,
                 v.price_money as retail_price_cents,
@@ -228,9 +602,20 @@ app.get('/api/variations-with-costs', async (req, res) => {
         `;
 
         const result = await db.query(query);
+
+        // Resolve image URLs for each variation
+        const variations = await Promise.all(result.rows.map(async (variation) => {
+            const imageIds = variation.images;
+            const imageUrls = await resolveImageUrls(imageIds);
+            return {
+                ...variation,
+                image_urls: imageUrls
+            };
+        }));
+
         res.json({
-            count: result.rows.length,
-            variations: result.rows
+            count: variations.length,
+            variations
         });
     } catch (error) {
         console.error('Get variations with costs error:', error);
@@ -1112,8 +1497,11 @@ async function startServer() {
             console.log('='.repeat(60));
             console.log('API Endpoints:');
             console.log('  GET  /api/health');
-            console.log('  POST /api/sync');
-            console.log('  POST /api/sync-sales');
+            console.log('  POST /api/sync              (force full sync)');
+            console.log('  POST /api/sync-smart        (smart interval-based sync)');
+            console.log('  POST /api/sync-sales        (sync all sales periods)');
+            console.log('  GET  /api/sync-status       (view sync schedule status)');
+            console.log('  GET  /api/sync-history      (view sync history)');
             console.log('  GET  /api/items');
             console.log('  GET  /api/variations');
             console.log('  GET  /api/variations-with-costs');
