@@ -164,12 +164,15 @@ This is the **recommended endpoint for scheduled/cron jobs**. It intelligently d
 **Configuration** (in `.env`):
 ```env
 SYNC_CATALOG_INTERVAL_HOURS=3        # Sync catalog every 3 hours
+SYNC_LOCATIONS_INTERVAL_HOURS=3      # Sync locations every 3 hours
 SYNC_SALES_91D_INTERVAL_HOURS=3      # 91-day sales every 3 hours
 SYNC_SALES_182D_INTERVAL_HOURS=24    # 182-day sales daily
 SYNC_SALES_365D_INTERVAL_HOURS=168   # 365-day sales weekly
 SYNC_INVENTORY_INTERVAL_HOURS=3      # Inventory every 3 hours
 SYNC_VENDORS_INTERVAL_HOURS=24       # Vendors daily
 ```
+
+**Important:** If there are no active locations in the database, the smart sync will **automatically force a location sync** regardless of interval. This ensures inventory and sales velocity syncs always have the required location data.
 
 **Response:**
 ```json

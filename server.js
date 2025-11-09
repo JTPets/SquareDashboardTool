@@ -260,6 +260,7 @@ app.post('/api/sync-smart', async (req, res) => {
         // Get intervals from environment variables
         const intervals = {
             catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+            locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
             vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
             inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
             sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
@@ -289,6 +290,30 @@ app.post('/api/sync-smart', async (req, res) => {
         } else {
             const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
             skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        }
+
+        // Check and sync locations (CRITICAL: locations must exist before inventory/sales sync)
+        // Always sync if there are 0 active locations, regardless of interval
+        const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE');
+        const locationCount = parseInt(locationCountResult.rows[0].count);
+        const locationsCheck = await isSyncNeeded('locations', intervals.locations);
+
+        if (locationCount === 0 || locationsCheck.needed) {
+            try {
+                if (locationCount === 0) {
+                    console.log('No active locations found - forcing location sync...');
+                } else {
+                    console.log('Syncing locations...');
+                }
+                const result = await loggedSync('locations', () => squareApi.syncLocations());
+                synced.push('locations');
+                summary.locations = result;
+            } catch (error) {
+                errors.push({ type: 'locations', error: error.message });
+            }
+        } else {
+            const hoursRemaining = Math.max(0, intervals.locations - parseFloat(locationsCheck.hoursSince));
+            skipped.locations = `Last synced ${locationsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
         }
 
         // Check and sync vendors
