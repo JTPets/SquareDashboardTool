@@ -201,6 +201,10 @@ async function syncCatalog() {
         variationVendors: 0
     };
 
+    // Track all IDs returned by Square API
+    const syncedItemIds = new Set();
+    const syncedVariationIds = new Set();
+
     try {
         let cursor = null;
 
@@ -220,9 +224,11 @@ async function syncCatalog() {
                         await syncImage(obj);
                         stats.images++;
                     } else if (obj.type === 'ITEM') {
+                        syncedItemIds.add(obj.id);
                         await syncItem(obj);
                         stats.items++;
                     } else if (obj.type === 'ITEM_VARIATION') {
+                        syncedVariationIds.add(obj.id);
                         const vendorCount = await syncVariation(obj);
                         stats.variations++;
                         stats.variationVendors += vendorCount;
@@ -239,6 +245,77 @@ async function syncCatalog() {
         } while (cursor);
 
         console.log('Catalog sync complete:', stats);
+
+        // ===== DETECT DELETIONS =====
+        console.log('Detecting deleted items...');
+
+        // Get all non-deleted items from database
+        const dbItemsResult = await db.query(`
+            SELECT id, name FROM items WHERE is_deleted = FALSE
+        `);
+
+        const dbVariationsResult = await db.query(`
+            SELECT id, name, sku FROM variations WHERE is_deleted = FALSE
+        `);
+
+        // Find items in DB but NOT in Square sync (they were deleted)
+        let itemsMarkedDeleted = 0;
+        let variationsMarkedDeleted = 0;
+        let inventoryZeroed = 0;
+
+        for (const row of dbItemsResult.rows) {
+            if (!syncedItemIds.has(row.id)) {
+                // Item was deleted in Square
+                await db.query(`
+                    UPDATE items
+                    SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                `, [row.id]);
+
+                // Zero inventory for all variations of this item
+                const invResult = await db.query(`
+                    UPDATE inventory_counts
+                    SET quantity = 0, updated_at = CURRENT_TIMESTAMP
+                    WHERE catalog_object_id IN (
+                        SELECT id FROM variations WHERE item_id = $1
+                    )
+                `, [row.id]);
+
+                inventoryZeroed += invResult.rowCount;
+                itemsMarkedDeleted++;
+                console.log(`Item deleted: "${row.name}" (ID: ${row.id}) - zeroed inventory at ${invResult.rowCount} location(s)`);
+            }
+        }
+
+        for (const row of dbVariationsResult.rows) {
+            if (!syncedVariationIds.has(row.id)) {
+                // Variation was deleted in Square
+                await db.query(`
+                    UPDATE variations
+                    SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                `, [row.id]);
+
+                // Zero inventory for this variation
+                const invResult = await db.query(`
+                    UPDATE inventory_counts
+                    SET quantity = 0, updated_at = CURRENT_TIMESTAMP
+                    WHERE catalog_object_id = $1
+                `, [row.id]);
+
+                inventoryZeroed += invResult.rowCount;
+                variationsMarkedDeleted++;
+                console.log(`Variation deleted: "${row.name}" (SKU: ${row.sku || 'N/A'}) - zeroed inventory at ${invResult.rowCount} location(s)`);
+            }
+        }
+
+        console.log(`Deletion detection complete: ${itemsMarkedDeleted} items, ${variationsMarkedDeleted} variations marked deleted`);
+
+        // Add to stats
+        stats.items_marked_deleted = itemsMarkedDeleted;
+        stats.variations_marked_deleted = variationsMarkedDeleted;
+        stats.inventory_zeroed = inventoryZeroed;
+
         return stats;
     } catch (error) {
         console.error('Catalog sync failed:', error.message);
@@ -685,7 +762,13 @@ async function fullSync() {
 
         // Step 3: Sync catalog
         try {
-            summary.catalog = await syncCatalog();
+            const catalogStats = await syncCatalog();
+            summary.catalog = {
+                ...catalogStats,
+                items_marked_deleted: catalogStats.items_marked_deleted || 0,
+                variations_marked_deleted: catalogStats.variations_marked_deleted || 0,
+                inventory_zeroed: catalogStats.inventory_zeroed || 0
+            };
         } catch (error) {
             summary.errors.push(`Catalog: ${error.message}`);
         }
