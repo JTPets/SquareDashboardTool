@@ -199,14 +199,17 @@ async function syncCatalog() {
         images: 0,
         items: 0,
         variations: 0,
-        variationVendors: 0
+        variationVendors: 0,
+        items_deleted: 0,
+        variations_deleted: 0,
+        inventory_zeroed: 0
     };
 
     try {
         let cursor = null;
 
         do {
-            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY${cursor ? `&cursor=${cursor}` : ''}`;
+            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint);
 
             const objects = data.objects || [];
@@ -221,12 +224,16 @@ async function syncCatalog() {
                         await syncImage(obj);
                         stats.images++;
                     } else if (obj.type === 'ITEM') {
-                        await syncItem(obj);
+                        const itemResult = await syncItem(obj);
                         stats.items++;
+                        if (itemResult.deleted) stats.items_deleted++;
+                        stats.inventory_zeroed += itemResult.inventory_zeroed;
                     } else if (obj.type === 'ITEM_VARIATION') {
-                        const vendorCount = await syncVariation(obj);
+                        const varResult = await syncVariation(obj);
                         stats.variations++;
-                        stats.variationVendors += vendorCount;
+                        stats.variationVendors += varResult.vendorCount;
+                        if (varResult.deleted) stats.variations_deleted++;
+                        stats.inventory_zeroed += varResult.inventory_zeroed;
                     }
                 } catch (error) {
                     console.error(`Failed to sync ${obj.type} ${obj.id}:`, error.message);
@@ -283,6 +290,7 @@ async function syncImage(obj) {
 
 /**
  * Sync an item object
+ * @returns {Object} {deleted: boolean, inventory_zeroed: number}
  */
 async function syncItem(obj) {
     const data = obj.item_data;
@@ -346,6 +354,7 @@ async function syncItem(obj) {
     ]);
 
     // If item just got deleted, zero out all inventory for this item's variations
+    let inventoryZeroed = 0;
     if (newlyDeleted) {
         const inventoryResult = await db.query(`
             UPDATE inventory_counts
@@ -355,14 +364,16 @@ async function syncItem(obj) {
             )
         `, [obj.id]);
 
-        const locationCount = inventoryResult.rowCount || 0;
-        console.log(`Item deleted: "${data.name}" (ID: ${obj.id}) - zeroed inventory at ${locationCount} location(s)`);
+        inventoryZeroed = inventoryResult.rowCount || 0;
+        console.log(`Item deleted: "${data.name}" (ID: ${obj.id}) - zeroed inventory at ${inventoryZeroed} location(s)`);
     }
+
+    return { deleted: newlyDeleted, inventory_zeroed: inventoryZeroed };
 }
 
 /**
  * Sync a variation object and its vendor information
- * @returns {number} Number of vendor relationships created
+ * @returns {Object} {vendorCount: number, deleted: boolean, inventory_zeroed: number}
  */
 async function syncVariation(obj) {
     const data = obj.item_variation_data;
@@ -431,6 +442,7 @@ async function syncVariation(obj) {
     ]);
 
     // If variation just got deleted, zero out its inventory at all locations
+    let inventoryZeroed = 0;
     if (newlyDeleted) {
         const inventoryResult = await db.query(`
             UPDATE inventory_counts
@@ -438,8 +450,8 @@ async function syncVariation(obj) {
             WHERE catalog_object_id = $1
         `, [obj.id]);
 
-        const locationCount = inventoryResult.rowCount || 0;
-        console.log(`Variation deleted: "${data.name || 'Regular'}" (SKU: ${sku || 'N/A'}) - zeroed inventory at ${locationCount} location(s)`);
+        inventoryZeroed = inventoryResult.rowCount || 0;
+        console.log(`Variation deleted: "${data.name || 'Regular'}" (SKU: ${sku || 'N/A'}) - zeroed inventory at ${inventoryZeroed} location(s)`);
     }
 
     // Sync location-specific settings from location_overrides
@@ -499,7 +511,7 @@ async function syncVariation(obj) {
         }
     }
 
-    return vendorCount;
+    return { vendorCount, deleted: newlyDeleted, inventory_zeroed: inventoryZeroed };
 }
 
 /**
