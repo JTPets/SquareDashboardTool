@@ -13,7 +13,7 @@
       line-height: 1.4;
     }
     .container {
-      max-width: 1600px;
+      max-width: 1800px;
       margin: 0 auto;
       background: white;
       border-radius: 8px;
@@ -38,19 +38,7 @@
       font-size: 14px;
     }
     .back-button:hover { background: rgba(255,255,255,0.3); }
-    .stats-bar {
-      background: #1f2937;
-      color: white;
-      padding: 15px 30px;
-      display: flex;
-      justify-content: space-around;
-      flex-wrap: wrap;
-      gap: 20px;
-    }
-    .stat { text-align: center; min-width: 100px; }
-    .stat-number { font-size: 24px; font-weight: bold; color: #10b981; }
-    .stat-number.urgent { color: #ef4444; }
-    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
     .controls {
       padding: 20px;
       border-bottom: 1px solid #e5e7eb;
@@ -59,12 +47,14 @@
       align-items: center;
       flex-wrap: wrap;
     }
-    .controls select, .controls button {
-      padding: 8px 16px;
+    .controls label { font-size: 14px; font-weight: 500; color: #374151; }
+    .controls select, .controls input {
+      padding: 8px 12px;
       border: 1px solid #d1d5db;
       border-radius: 4px;
       font-size: 14px;
       min-height: 40px;
+      background: white;
     }
     .controls button {
       background: #059669;
@@ -72,375 +62,495 @@
       border: none;
       cursor: pointer;
       font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 14px;
     }
     .controls button:hover { background: #047857; }
+    .controls button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #6b7280 !important;
+    }
+    .btn-secondary:hover {
+      background: #4b5563 !important;
+    }
+
     .table-container {
       overflow-x: auto;
-      max-height: 70vh;
+      max-height: 65vh;
       overflow-y: auto;
     }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
     th {
       background: #f9fafb;
       font-weight: 600;
       position: sticky;
       top: 0;
       z-index: 10;
-      font-size: 13px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      cursor: pointer;
+      white-space: nowrap;
     }
-    th:hover { background: #f3f4f6; }
+    tr:hover { background: #f9fafb; }
+    tr.selected { background: #dbeafe; }
+
+    .product-name {
+      max-width: 250px;
+      white-space: normal;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .variation-name {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 400;
+      margin-top: 2px;
+    }
+    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
+
     .priority-badge {
+      display: inline-block;
       padding: 4px 8px;
       border-radius: 4px;
       font-size: 11px;
-      font-weight: bold;
+      font-weight: 600;
       text-transform: uppercase;
     }
-    .priority-urgent { background: #ef4444; color: white; }
-    .priority-high { background: #f59e0b; color: white; }
-    .priority-medium { background: #fbbf24; color: #78350f; }
-    .priority-low { background: #9ca3af; color: white; }
-    .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; }
-    .product-name { max-width: 250px; white-space: normal; font-weight: 500; }
-    .variation-name { font-size: 13px; color: #6b7280; font-style: italic; }
-    .reorder-reason { max-width: 200px; white-space: normal; font-size: 13px; }
-    .create-po-btn {
+    .priority-URGENT {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .priority-HIGH {
+      background: #fed7aa;
+      color: #9a3412;
+    }
+    .priority-MEDIUM {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .priority-LOW {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .days-critical { color: #dc2626; font-weight: 600; }
+    .days-warning { color: #f59e0b; font-weight: 600; }
+    .days-ok { color: #059669; }
+
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    .footer {
+      padding: 20px;
+      background: #f9fafb;
+      border-top: 2px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+    .footer-summary {
+      font-size: 14px;
+      color: #374151;
+    }
+    .footer-summary strong {
+      font-size: 18px;
+      color: #059669;
+      margin-left: 5px;
+    }
+    .footer button {
       background: #2563eb;
       color: white;
       border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    .create-po-btn:hover { background: #1d4ed8; }
-    .create-po-btn.added {
-      background: #10b981;
-      cursor: default;
-    }
-    .po-badge {
-      background: #ef4444;
-      color: white;
-      padding: 4px 8px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: bold;
-      margin-left: 10px;
-    }
-    .export-btn {
-      background: #8b5cf6;
-      color: white;
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      margin-left: auto;
-    }
-    .export-btn:hover { background: #7c3aed; }
-    .loading { text-align: center; padding: 40px; color: #6b7280; font-style: italic; }
-    .status {
-      padding: 8px 12px;
+      padding: 10px 20px;
       border-radius: 4px;
       font-size: 14px;
-      font-weight: 500;
-      display: none;
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 1000;
+      font-weight: 600;
+      cursor: pointer;
     }
-    .status.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; display: block; }
-    .status.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; display: block; }
-    @media (max-width: 900px) {
-      .table-container { font-size: 12px; }
-      th, td { padding: 8px 6px; }
-      .reorder-reason, .variation-name { display: none; }
+    .footer button:hover:not(:disabled) { background: #1d4ed8; }
+    .footer button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+      .controls { flex-direction: column; align-items: stretch; }
+      .controls select, .controls input, .controls button { width: 100%; }
+      th, td { padding: 8px; font-size: 12px; }
+      .product-name { max-width: 150px; }
     }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>🔔 Reorder Suggestions</h1>
+      <h1>📋 Reorder Suggestions</h1>
       <a href="/" class="back-button">← Back to Dashboard</a>
     </div>
 
-    <div class="stats-bar">
-      <div class="stat">
-        <div class="stat-number" id="stat-total">--</div>
-        <div class="stat-label">Total Suggestions</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number urgent" id="stat-urgent">--</div>
-        <div class="stat-label">Urgent</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number" id="stat-high">--</div>
-        <div class="stat-label">High Priority</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number" id="stat-order-value">--</div>
-        <div class="stat-label">Total Order Value</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number" id="stat-po-items">0</div>
-        <div class="stat-label">Items in PO Draft</div>
-      </div>
-    </div>
-
     <div class="controls">
-      <label>Supply Days:</label>
-      <select id="supply-days" onchange="loadSuggestions()">
-        <option value="30">30 Days</option>
-        <option value="45" selected>45 Days</option>
-        <option value="60">60 Days</option>
-        <option value="90">90 Days</option>
+      <label for="vendor-select">Vendor:</label>
+      <select id="vendor-select">
+        <option value="">Loading vendors...</option>
       </select>
 
-      <label>Priority:</label>
-      <select id="priority-filter" onchange="filterTable()">
-        <option value="">All Priorities</option>
-        <option value="URGENT">Urgent Only</option>
-        <option value="HIGH">High Only</option>
-        <option value="MEDIUM">Medium Only</option>
-        <option value="LOW">Low Only</option>
+      <label for="supply-days">Supply Days:</label>
+      <input type="number" id="supply-days" value="45" min="1" max="365" style="width: 100px;">
+
+      <label for="sort-by">Sort By:</label>
+      <select id="sort-by">
+        <option value="alphabetical">Alphabetical</option>
+        <option value="urgency">Urgency</option>
+        <option value="vendor">Vendor</option>
       </select>
 
-      <label>Location:</label>
-      <select id="location-filter" onchange="loadSuggestions()">
-        <option value="">All Locations</option>
-      </select>
-
-      <button onclick="loadSuggestions()">Refresh</button>
-      <button class="export-btn" onclick="exportToCSV()">Export to CSV</button>
-      <a href="purchase-orders.html" style="margin-left: auto;">
-        <button style="background: #2563eb;">View PO Draft<span id="po-badge" class="po-badge" style="display: none;">0</span></button>
-      </a>
+      <button onclick="getSuggestions()">Get Suggestions</button>
+      <button class="btn-secondary" onclick="refreshVendors()">Refresh Vendors</button>
     </div>
 
     <div class="table-container">
-      <table id="suggestions-table">
+      <table>
         <thead>
           <tr>
-            <th onclick="sortTable('priority')">Priority</th>
-            <th>Image</th>
-            <th onclick="sortTable('item_name')">Product</th>
-            <th onclick="sortTable('current_stock')">Stock</th>
-            <th>Alert Threshold</th>
-            <th>Reorder Reason</th>
-            <th onclick="sortTable('days_until_stockout')">Days Left</th>
-            <th onclick="sortTable('final_suggested_qty')">Qty Needed</th>
-            <th onclick="sortTable('order_cost')">Cost</th>
+            <th class="text-center">
+              <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)">
+            </th>
+            <th>Priority</th>
+            <th>Product</th>
+            <th>SKU</th>
+            <th class="text-right">Stock</th>
+            <th class="text-right">Min</th>
+            <th class="text-right">Days Left</th>
+            <th class="text-right">Order Qty</th>
+            <th class="text-right">Case</th>
+            <th class="text-right">Cost</th>
+            <th class="text-right">Total</th>
             <th>Vendor</th>
-            <th>Action</th>
           </tr>
         </thead>
         <tbody id="suggestions-body">
-          <tr><td colspan="11" class="loading">Loading reorder suggestions...</td></tr>
+          <tr>
+            <td colspan="12" class="loading">Select vendor and click "Get Suggestions" to load data</td>
+          </tr>
         </tbody>
       </table>
     </div>
-  </div>
 
-  <div id="status-message" class="status"></div>
+    <div class="footer">
+      <div class="footer-summary">
+        <span id="selected-count">0</span> items selected |
+        Total: <strong id="total-cost">$0.00</strong>
+      </div>
+      <button id="create-po-btn" onclick="createPurchaseOrder()" disabled>
+        Create Purchase Order
+      </button>
+    </div>
+  </div>
 
   <script>
     let allSuggestions = [];
-    let poDraft = JSON.parse(localStorage.getItem('poDraft') || '[]');
+    let selectedItems = new Set();
 
-    async function loadSuggestions() {
-      const supplyDays = document.getElementById('supply-days').value;
-      const locationId = document.getElementById('location-filter').value;
-
-      const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="11" class="loading">Loading...</td></tr>';
-
+    // Load vendors on page load
+    async function loadVendors() {
       try {
-        let url = `/api/reorder-suggestions?supply_days=${supplyDays}`;
-        if (locationId) url += `&location_id=${locationId}`;
+        const response = await fetch('/api/vendors?status=ACTIVE');
+        const data = await response.json();
 
-        const data = await fetch(url).then(r => r.json());
-        allSuggestions = data.suggestions || [];
+        const vendors = Array.isArray(data) ? data : (data.vendors || []);
+        const select = document.getElementById('vendor-select');
 
-        updateStats(data);
-        filterTable();
-
-      } catch (error) {
-        tbody.innerHTML = '<tr><td colspan="11" class="loading">Error: ' + error.message + '</td></tr>';
-      }
-    }
-
-    function updateStats(data) {
-      const urgent = allSuggestions.filter(s => s.priority === 'URGENT').length;
-      const high = allSuggestions.filter(s => s.priority === 'HIGH').length;
-      const totalValue = allSuggestions.reduce((sum, s) => sum + (s.order_cost || 0), 0);
-
-      document.getElementById('stat-total').textContent = data.count || allSuggestions.length;
-      document.getElementById('stat-urgent').textContent = urgent;
-      document.getElementById('stat-high').textContent = high;
-      document.getElementById('stat-order-value').textContent = '$' + totalValue.toFixed(2);
-      updatePOBadge();
-    }
-
-    function filterTable() {
-      const priorityFilter = document.getElementById('priority-filter').value;
-      let filtered = allSuggestions;
-
-      if (priorityFilter) {
-        filtered = filtered.filter(s => s.priority === priorityFilter);
-      }
-
-      renderTable(filtered);
-    }
-
-    function renderTable(suggestions) {
-      const tbody = document.getElementById('suggestions-body');
-
-      if (suggestions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="loading">No suggestions match your filters</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = suggestions.map(s => `
-        <tr>
-          <td><span class="priority-badge priority-${s.priority.toLowerCase()}">${s.priority}</span></td>
-          <td>${s.image_urls && s.image_urls[0] ?
-            `<img src="${s.image_urls[0]}" class="product-image" onerror="this.style.display='none'">` :
-            '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}</td>
-          <td class="product-name">
-            ${s.item_name}<br>
-            <span class="variation-name">${s.variation_name || 'Regular'}</span>
-          </td>
-          <td style="font-weight: 600; color: ${s.current_stock === 0 ? '#ef4444' : '#059669'}">${s.current_stock || 0}</td>
-          <td>${s.location_stock_alert_min || s.inventory_alert_threshold || 'N/A'}</td>
-          <td class="reorder-reason">${formatReorderReason(s.reorder_reason)}</td>
-          <td style="font-weight: 600; color: ${s.days_until_stockout < 7 ? '#ef4444' : '#6b7280'}">${s.days_until_stockout?.toFixed(1) || 'N/A'}</td>
-          <td style="font-weight: 600;">${Math.ceil(s.final_suggested_qty || 0)}</td>
-          <td style="color: #059669; font-weight: 600;">$${(s.order_cost || 0).toFixed(2)}</td>
-          <td style="font-size: 12px;">${s.vendor_name || 'N/A'}</td>
-          <td>
-            <button class="create-po-btn ${isInPO(s.variation_id) ? 'added' : ''}"
-                    onclick="addToPO('${s.variation_id}', ${Math.ceil(s.final_suggested_qty || 0)}, '${s.item_name}', '${s.vendor_name || 'N/A'}', ${s.order_cost || 0})"
-                    ${isInPO(s.variation_id) ? 'disabled' : ''}>
-              ${isInPO(s.variation_id) ? '✓ Added' : '+ Add to PO'}
-            </button>
-          </td>
-        </tr>
-      `).join('');
-    }
-
-    function formatReorderReason(reason) {
-      if (!reason) return 'N/A';
-      if (reason.includes('Out of stock')) return '🚨 ' + reason;
-      if (reason.includes('Below stock alert')) return '⚠️ ' + reason;
-      return '📉 ' + reason;
-    }
-
-    function isInPO(variationId) {
-      return poDraft.some(item => item.variation_id === variationId);
-    }
-
-    function addToPO(variationId, quantity, itemName, vendor, cost) {
-      if (isInPO(variationId)) return;
-
-      poDraft.push({
-        variation_id: variationId,
-        item_name: itemName,
-        quantity: quantity,
-        vendor_name: vendor,
-        cost: cost
-      });
-
-      localStorage.setItem('poDraft', JSON.stringify(poDraft));
-      updatePOBadge();
-      filterTable(); // Re-render to update button
-      showStatus('Added to PO draft', 'success');
-    }
-
-    function updatePOBadge() {
-      document.getElementById('stat-po-items').textContent = poDraft.length;
-      const badge = document.getElementById('po-badge');
-      if (poDraft.length > 0) {
-        badge.textContent = poDraft.length;
-        badge.style.display = 'inline-block';
-      } else {
-        badge.style.display = 'none';
-      }
-    }
-
-    let sortDirection = {};
-    function sortTable(field) {
-      sortDirection[field] = !sortDirection[field];
-      allSuggestions.sort((a, b) => {
-        let aVal = a[field];
-        let bVal = b[field];
-        if (field === 'priority') {
-          const order = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
-          aVal = order[a.priority];
-          bVal = order[b.priority];
-        }
-        return sortDirection[field] ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
-      });
-      filterTable();
-    }
-
-    function exportToCSV() {
-      const csv = [
-        ['Priority', 'Product', 'Variation', 'Stock', 'Alert Threshold', 'Reason', 'Days Left', 'Qty Needed', 'Cost', 'Vendor'].join(','),
-        ...allSuggestions.map(s => [
-          s.priority,
-          `"${s.item_name}"`,
-          `"${s.variation_name || 'Regular'}"`,
-          s.current_stock,
-          s.location_stock_alert_min || s.inventory_alert_threshold || 'N/A',
-          `"${s.reorder_reason || 'N/A'}"`,
-          s.days_until_stockout?.toFixed(1) || 'N/A',
-          Math.ceil(s.final_suggested_qty || 0),
-          (s.order_cost || 0).toFixed(2),
-          `"${s.vendor_name || 'N/A'}"`
-        ].join(','))
-      ].join('\n');
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `reorder-suggestions-${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-    }
-
-    function showStatus(message, type) {
-      const status = document.getElementById('status-message');
-      status.textContent = message;
-      status.className = `status ${type}`;
-      setTimeout(() => status.className = 'status', 3000);
-    }
-
-    async function loadLocations() {
-      try {
-        const response = await fetch('/api/locations');
-        const locations = await response.json();
-        const select = document.getElementById('location-filter');
-        locations.forEach(loc => {
+        select.innerHTML = '<option value="">All Vendors</option>';
+        vendors.forEach(vendor => {
           const option = document.createElement('option');
-          option.value = loc.id;
-          option.textContent = loc.name;
+          option.value = vendor.id;
+          option.textContent = vendor.name;
           select.appendChild(option);
         });
       } catch (error) {
-        console.error('Failed to load locations:', error);
+        console.error('Failed to load vendors:', error);
+        alert('Failed to load vendors: ' + error.message);
       }
     }
 
+    async function refreshVendors() {
+      await loadVendors();
+      alert('Vendors refreshed successfully!');
+    }
+
+    async function getSuggestions() {
+      const vendorId = document.getElementById('vendor-select').value;
+      const supplyDays = document.getElementById('supply-days').value;
+
+      let url = `/api/reorder-suggestions?supply_days=${supplyDays}`;
+      if (vendorId) url += `&vendor_id=${vendorId}`;
+
+      const tbody = document.getElementById('suggestions-body');
+      tbody.innerHTML = '<tr><td colspan="12" class="loading">Loading suggestions...</td></tr>';
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        allSuggestions = data.suggestions || [];
+        selectedItems.clear();
+        document.getElementById('select-all').checked = false;
+
+        if (allSuggestions.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="12" class="empty-state">
+                <h3>No Reorder Suggestions</h3>
+                <p>No items need reordering for the selected vendor and supply days.</p>
+                <p>Try different filters or run a sync to update inventory data.</p>
+              </td>
+            </tr>
+          `;
+          updateFooter();
+          return;
+        }
+
+        sortSuggestions();
+        renderTable();
+        updateFooter();
+
+      } catch (error) {
+        console.error('Failed to load suggestions:', error);
+        tbody.innerHTML = `<tr><td colspan="12" class="loading">Error: ${error.message}</td></tr>`;
+      }
+    }
+
+    function sortSuggestions() {
+      const sortBy = document.getElementById('sort-by').value;
+
+      if (sortBy === 'urgency') {
+        // Sort by priority, then days until stockout
+        const priorityOrder = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+        allSuggestions.sort((a, b) => {
+          if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+            return priorityOrder[b.priority] - priorityOrder[a.priority];
+          }
+          return a.days_until_stockout - b.days_until_stockout;
+        });
+      } else if (sortBy === 'alphabetical') {
+        // Sort by item name, then variation name
+        allSuggestions.sort((a, b) => {
+          const nameCompare = a.item_name.localeCompare(b.item_name);
+          if (nameCompare !== 0) return nameCompare;
+          return (a.variation_name || '').localeCompare(b.variation_name || '');
+        });
+      } else if (sortBy === 'vendor') {
+        // Sort by vendor, then item name
+        allSuggestions.sort((a, b) => {
+          const vendorCompare = a.vendor_name.localeCompare(b.vendor_name);
+          if (vendorCompare !== 0) return vendorCompare;
+          return a.item_name.localeCompare(b.item_name);
+        });
+      }
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('suggestions-body');
+
+      tbody.innerHTML = allSuggestions.map((item, index) => {
+        const daysClass = item.days_until_stockout < 7 ? 'days-critical' :
+                         item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
+        const daysText = item.days_until_stockout < 999 ?
+                        item.days_until_stockout.toFixed(1) : '∞';
+        const isSelected = selectedItems.has(item.variation_id);
+
+        return `
+          <tr class="${isSelected ? 'selected' : ''}" data-id="${item.variation_id}">
+            <td class="text-center">
+              <input type="checkbox"
+                     ${isSelected ? 'checked' : ''}
+                     onchange="toggleItem('${item.variation_id}', this.checked)">
+            </td>
+            <td>
+              <span class="priority-badge priority-${item.priority}">${item.priority}</span>
+            </td>
+            <td>
+              <div class="product-name">${escapeHtml(item.item_name)}</div>
+              ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
+            </td>
+            <td class="sku">${escapeHtml(item.sku || '-')}</td>
+            <td class="text-right">${item.current_stock}</td>
+            <td class="text-right">${item.stock_alert_min || '-'}</td>
+            <td class="text-right ${daysClass}">${daysText}</td>
+            <td class="text-right"><strong>${item.final_suggested_qty}</strong></td>
+            <td class="text-right">${item.case_pack_quantity || '-'}</td>
+            <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
+            <td class="text-right"><strong>$${item.order_cost.toFixed(2)}</strong></td>
+            <td>${escapeHtml(item.vendor_name)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleSelectAll(checked) {
+      selectedItems.clear();
+      if (checked) {
+        allSuggestions.forEach(item => selectedItems.add(item.variation_id));
+      }
+      renderTable();
+      updateFooter();
+    }
+
+    function toggleItem(variationId, checked) {
+      if (checked) {
+        selectedItems.add(variationId);
+      } else {
+        selectedItems.delete(variationId);
+      }
+
+      // Update select-all checkbox
+      document.getElementById('select-all').checked =
+        selectedItems.size === allSuggestions.length && allSuggestions.length > 0;
+
+      // Update row styling
+      const row = document.querySelector(`tr[data-id="${variationId}"]`);
+      if (row) {
+        row.classList.toggle('selected', checked);
+      }
+
+      updateFooter();
+    }
+
+    function updateFooter() {
+      const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
+      const totalCost = selectedSuggestions.reduce((sum, item) => sum + item.order_cost, 0);
+
+      document.getElementById('selected-count').textContent = selectedSuggestions.length;
+      document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
+      document.getElementById('create-po-btn').disabled = selectedSuggestions.length === 0;
+    }
+
+    async function createPurchaseOrder() {
+      const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
+
+      if (selectedSuggestions.length === 0) {
+        alert('Please select at least one item to create a purchase order.');
+        return;
+      }
+
+      const vendorId = document.getElementById('vendor-select').value;
+      if (!vendorId) {
+        alert('Please select a specific vendor to create a purchase order.');
+        return;
+      }
+
+      // Check if all selected items are from the same vendor
+      const vendors = new Set(selectedSuggestions.map(s => s.vendor_name));
+      if (vendors.size > 1) {
+        alert('Selected items are from multiple vendors. Please select items from a single vendor or filter by vendor first.');
+        return;
+      }
+
+      // For now, we need a location ID - let's prompt user or use default
+      // In a real implementation, you'd add a location selector to the UI
+      const locationId = prompt('Enter Location ID (or leave blank for default):') || null;
+      if (!locationId) {
+        alert('Location ID is required to create a purchase order.');
+        return;
+      }
+
+      const supplyDays = parseInt(document.getElementById('supply-days').value);
+
+      const items = selectedSuggestions.map(item => ({
+        variation_id: item.variation_id,
+        quantity_ordered: item.final_suggested_qty,
+        unit_cost_cents: item.unit_cost_cents
+      }));
+
+      const poData = {
+        vendor_id: vendorId,
+        location_id: locationId,
+        supply_days_override: supplyDays,
+        items: items,
+        notes: `Auto-generated from reorder suggestions (${selectedSuggestions.length} items)`,
+        created_by: 'Reorder System'
+      };
+
+      const btn = document.getElementById('create-po-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating PO...';
+
+      try {
+        const response = await fetch('/api/purchase-orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(poData)
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to create purchase order');
+        }
+
+        const result = await response.json();
+        alert(`Purchase Order ${result.purchase_order.po_number} created successfully!\nTotal: $${(result.purchase_order.total_cents / 100).toFixed(2)}`);
+
+        // Reset selections
+        selectedItems.clear();
+        document.getElementById('select-all').checked = false;
+        renderTable();
+        updateFooter();
+
+      } catch (error) {
+        console.error('Failed to create PO:', error);
+        alert('Failed to create purchase order: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Purchase Order';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize on page load
     document.addEventListener('DOMContentLoaded', () => {
-      loadLocations();
-      loadSuggestions();
-      setInterval(loadSuggestions, 300000); // Refresh every 5 minutes
+      loadVendors();
+    });
+
+    // Re-sort and re-render when sort option changes
+    document.getElementById('sort-by').addEventListener('change', () => {
+      if (allSuggestions.length > 0) {
+        sortSuggestions();
+        renderTable();
+      }
     });
   </script>
 </body>
