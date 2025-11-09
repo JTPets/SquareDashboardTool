@@ -7,6 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs').promises;
 const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
@@ -52,9 +53,6 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ==================== LOGGING ENDPOINTS ====================
-
-const fs = require('fs').promises;
-const path = require('path');
 
 /**
  * GET /api/logs
