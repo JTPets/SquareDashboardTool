@@ -219,12 +219,12 @@
 
     <div class="controls">
       <label for="vendor-select">Vendor:</label>
-      <select id="vendor-select">
+      <select id="vendor-select" onchange="getSuggestions()">
         <option value="">Loading vendors...</option>
       </select>
 
       <label for="supply-days">Supply Days:</label>
-      <input type="number" id="supply-days" value="45" min="1" max="365" style="width: 100px;">
+      <input type="number" id="supply-days" value="45" min="1" max="365" style="width: 100px;" onchange="getSuggestions()" onblur="getSuggestions()">
 
       <label for="sort-by">Sort By:</label>
       <select id="sort-by">
@@ -232,9 +232,6 @@
         <option value="urgency">Urgency</option>
         <option value="vendor">Vendor</option>
       </select>
-
-      <button onclick="getSuggestions()">Get Suggestions</button>
-      <button class="btn-secondary" onclick="refreshVendors()">Refresh Vendors</button>
     </div>
 
     <div class="table-container">
@@ -250,6 +247,7 @@
             <th class="text-right">Stock</th>
             <th class="text-right">Min</th>
             <th class="text-right">Days Left</th>
+            <th class="text-right">Velocity<br><small>(91d/182d/365d)</small></th>
             <th class="text-right">Order Qty</th>
             <th class="text-right">Case</th>
             <th class="text-right">Cost</th>
@@ -259,7 +257,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="12" class="loading">Select vendor and click "Get Suggestions" to load data</td>
+            <td colspan="13" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -279,6 +277,7 @@
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
+    let velocityData = {}; // Store velocity data by variation_id
 
     // Load vendors on page load
     async function loadVendors() {
@@ -302,9 +301,39 @@
       }
     }
 
-    async function refreshVendors() {
-      await loadVendors();
-      alert('Vendors refreshed successfully!');
+    // Fetch velocity data for all periods (91d, 182d, 365d)
+    async function fetchVelocityData(variationIds) {
+      velocityData = {};
+
+      try {
+        // Fetch velocity for all periods in parallel
+        const periods = [91, 182, 365];
+        const promises = variationIds.map(async (id) => {
+          const velocities = {};
+
+          for (const period of periods) {
+            try {
+              const response = await fetch(`/api/sales-velocity?variation_id=${id}&period_days=${period}`);
+              const data = await response.json();
+
+              if (data && data.length > 0) {
+                velocities[period] = data[0].weekly_avg_quantity || 0;
+              } else {
+                velocities[period] = 0;
+              }
+            } catch (error) {
+              console.error(`Failed to fetch ${period}d velocity for ${id}:`, error);
+              velocities[period] = 0;
+            }
+          }
+
+          velocityData[id] = velocities;
+        });
+
+        await Promise.all(promises);
+      } catch (error) {
+        console.error('Failed to fetch velocity data:', error);
+      }
     }
 
     async function getSuggestions() {
@@ -315,7 +344,7 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="12" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -328,7 +357,7 @@
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="12" class="empty-state">
+              <td colspan="13" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -339,13 +368,18 @@
           return;
         }
 
+        // Fetch velocity data for all unique variation IDs
+        const variationIds = [...new Set(allSuggestions.map(s => s.variation_id))];
+        tbody.innerHTML = '<tr><td colspan="13" class="loading">Loading velocity data...</td></tr>';
+        await fetchVelocityData(variationIds);
+
         sortSuggestions();
         renderTable();
         updateFooter();
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="12" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -388,6 +422,14 @@
                         item.days_until_stockout.toFixed(1) : '∞';
         const isSelected = selectedItems.has(item.variation_id);
 
+        // Get velocity data for this variation
+        const velocity = velocityData[item.variation_id] || { 91: 0, 182: 0, 365: 0 };
+        const velocityText = `${velocity[91].toFixed(1)} / ${velocity[182].toFixed(1)} / ${velocity[365].toFixed(1)}`;
+
+        // Always round up quantities
+        const orderQty = Math.ceil(item.final_suggested_qty);
+        const totalCost = (orderQty * item.unit_cost_cents / 100).toFixed(2);
+
         return `
           <tr class="${isSelected ? 'selected' : ''}" data-id="${item.variation_id}">
             <td class="text-center">
@@ -406,10 +448,11 @@
             <td class="text-right">${item.current_stock}</td>
             <td class="text-right">${item.stock_alert_min || '-'}</td>
             <td class="text-right ${daysClass}">${daysText}</td>
-            <td class="text-right"><strong>${item.final_suggested_qty}</strong></td>
+            <td class="text-right"><small>${velocityText}</small></td>
+            <td class="text-right"><strong>${orderQty}</strong></td>
             <td class="text-right">${item.case_pack_quantity || '-'}</td>
             <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
-            <td class="text-right"><strong>$${item.order_cost.toFixed(2)}</strong></td>
+            <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
           </tr>
         `;
@@ -447,7 +490,11 @@
 
     function updateFooter() {
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
-      const totalCost = selectedSuggestions.reduce((sum, item) => sum + item.order_cost, 0);
+      // Calculate total with rounded quantities
+      const totalCost = selectedSuggestions.reduce((sum, item) => {
+        const orderQty = Math.ceil(item.final_suggested_qty);
+        return sum + (orderQty * item.unit_cost_cents / 100);
+      }, 0);
 
       document.getElementById('selected-count').textContent = selectedSuggestions.length;
       document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
@@ -487,7 +534,7 @@
 
       const items = selectedSuggestions.map(item => ({
         variation_id: item.variation_id,
-        quantity_ordered: item.final_suggested_qty,
+        quantity_ordered: Math.ceil(item.final_suggested_qty), // Always round up
         unit_cost_cents: item.unit_cost_cents
       }));
 
@@ -541,8 +588,10 @@
     }
 
     // Initialize on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      loadVendors();
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadVendors();
+      // Auto-load suggestions on page load
+      await getSuggestions();
     });
 
     // Re-sort and re-render when sort option changes
