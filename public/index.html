@@ -216,6 +216,16 @@
       background: #8b5cf6;
     }
 
+    /* Make START HERE tag more prominent */
+    .tool-card .tag.value {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
     /* API SECTION */
     .api-section {
       display: none;
@@ -360,25 +370,41 @@
     <!-- TOOL CARDS -->
     <div class="tools-grid">
 
+      <!-- PO GENERATOR -->
+      <div class="tool-card inventory">
+        <div class="tag value">START HERE</div>
+        <h2>📝 Purchase Order Generator</h2>
+        <p>Create purchase orders from intelligent reorder suggestions. Edit quantities, select items, and export to Square CSV format.</p>
+        <a href="po-generator.html">Generate PO</a>
+      </div>
+
+      <!-- PO MANAGEMENT -->
+      <div class="tool-card inventory">
+        <div class="tag new">NEW</div>
+        <h2>📋 Manage Purchase Orders</h2>
+        <p>View, edit, and track all purchase orders. Export to CSV, view history, and mark orders as received.</p>
+        <a href="purchase-orders.html">View All POs</a>
+      </div>
+
       <!-- REORDER SUGGESTIONS -->
       <div class="tool-card critical">
         <div class="tag value">HIGH VALUE</div>
-        <h2>Reorder Suggestions</h2>
-        <p>Priority-ranked reorder recommendations based on sales velocity, lead times, and Square stock alerts.</p>
-        <a href="reorder.html">View Suggestions</a>
+        <h2>🔔 Reorder Analysis</h2>
+        <p>Priority-ranked reorder recommendations based on sales velocity, lead times, and stock alerts. View-only analysis.</p>
+        <a href="reorder.html">View Analysis</a>
       </div>
 
       <!-- LOW STOCK ALERTS -->
       <div class="tool-card critical">
         <div class="tag">CRITICAL</div>
-        <h2>Low Stock Alerts</h2>
+        <h2>⚠️ Low Stock Alerts</h2>
         <p>Items below Square stock alert thresholds. Immediate attention required to prevent stockouts.</p>
         <a href="/api/reorder-suggestions?supply_days=45" target="_blank">View Alerts</a>
       </div>
 
       <!-- EXPIRATION TRACKER -->
       <div class="tool-card inventory">
-        <h2>Expiration Tracker</h2>
+        <h2>📅 Expiration Tracker</h2>
         <p>Track and update product expiration dates to ensure freshness and compliance.</p>
         <a href="expiry.html">Open Tool</a>
       </div>
@@ -386,30 +412,22 @@
       <!-- FULL INVENTORY -->
       <div class="tool-card inventory">
         <div class="tag new">NEW</div>
-        <h2>Full Inventory Overview</h2>
+        <h2>📦 Full Inventory Overview</h2>
         <p>Complete view of all inventory records across all locations with stock levels and values.</p>
         <a href="inventory.html">View Inventory</a>
-      </div>
-
-      <!-- PURCHASE ORDERS -->
-      <div class="tool-card inventory">
-        <div class="tag new">NEW</div>
-        <h2>Purchase Orders</h2>
-        <p>Create and manage purchase orders. Track what's been ordered and received.</p>
-        <a href="purchase-orders.html">Manage POs</a>
       </div>
 
       <!-- SALES VELOCITY -->
       <div class="tool-card operations">
         <div class="tag new">NEW</div>
-        <h2>Sales Velocity Reports</h2>
+        <h2>📈 Sales Velocity Reports</h2>
         <p>91/182/365 day sales trends. Identify fast-moving and slow-moving products.</p>
         <a href="sales-velocity.html">View Reports</a>
       </div>
 
       <!-- DELETED ITEMS -->
       <div class="tool-card operations">
-        <h2>Deleted Items Management</h2>
+        <h2>🗑️ Deleted Items Management</h2>
         <p>View soft-deleted items with zeroed inventory. Clean up items deleted more than 1 year ago.</p>
         <a href="deleted-items.html">View Deleted</a>
       </div>
@@ -417,14 +435,14 @@
       <!-- SYSTEM HEALTH -->
       <div class="tool-card api">
         <div class="tag new">NEW</div>
-        <h2>System Health Check</h2>
+        <h2>💚 System Health Check</h2>
         <p>Monitor database connection, sync status, and system performance.</p>
         <a href="/api/health" target="_blank">Check Health</a>
       </div>
 
       <!-- RAW API ACCESS -->
       <div class="tool-card api">
-        <h2>Raw API Access</h2>
+        <h2>🔌 Raw API Access</h2>
         <p>Direct JSON access to all database endpoints for development and integration.</p>
         <a href="#" onclick="toggleApiList(); return false;">View All APIs</a>
       </div>
@@ -526,8 +544,22 @@
     // Load dashboard stats
     async function loadStats() {
       try {
+        console.log('Loading dashboard stats...');
+
         // Fetch inventory data
-        const inventory = await fetch('/api/inventory').then(r => r.json());
+        const inventoryResponse = await fetch('/api/inventory');
+        console.log('Inventory response status:', inventoryResponse.status);
+
+        if (!inventoryResponse.ok) {
+          throw new Error(`Inventory API failed: ${inventoryResponse.status}`);
+        }
+
+        const inventoryData = await inventoryResponse.json();
+        console.log('Inventory data received:', inventoryData);
+
+        // Handle both array response and wrapped response
+        const inventory = Array.isArray(inventoryData) ? inventoryData : (inventoryData.inventory || []);
+        console.log('Inventory items count:', inventory.length);
 
         // Count unique items and variations
         const uniqueItems = new Set(inventory.map(i => i.item_name)).size;
@@ -540,34 +572,82 @@
           return sum + (qty * price / 100);
         }, 0);
 
+        console.log('Stats calculated:', { uniqueItems, uniqueVariations, totalValue });
+
         // Fetch reorder alerts
-        const reorder = await fetch('/api/reorder-suggestions?supply_days=45').then(r => r.json());
-        const alertCount = reorder.count || reorder.suggestions?.length || 0;
+        const reorderResponse = await fetch('/api/reorder-suggestions?supply_days=45');
+        console.log('Reorder response status:', reorderResponse.status);
 
-        // Update stats
-        document.getElementById('stat-items').textContent = uniqueItems.toLocaleString();
-        document.getElementById('stat-variations').textContent = uniqueVariations.toLocaleString();
-        document.getElementById('stat-inventory').textContent = inventory.length.toLocaleString();
-
-        const alertEl = document.getElementById('stat-alerts');
-        alertEl.textContent = alertCount.toLocaleString();
-        if (alertCount > 0) {
-          alertEl.classList.add('alert');
+        if (!reorderResponse.ok) {
+          throw new Error(`Reorder API failed: ${reorderResponse.status}`);
         }
 
-        document.getElementById('stat-value').textContent =
-          '$' + totalValue.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const reorderData = await reorderResponse.json();
+        console.log('Reorder data received:', reorderData);
 
-        // Remove loading placeholders
-        document.querySelectorAll('.loading-placeholder').forEach(el => {
-          el.classList.remove('loading-placeholder');
-        });
+        const alertCount = reorderData.count || reorderData.suggestions?.length || 0;
+        console.log('Alert count:', alertCount);
+
+        // Update stats with null checks
+        const statItems = document.getElementById('stat-items');
+        const statVariations = document.getElementById('stat-variations');
+        const statInventory = document.getElementById('stat-inventory');
+        const statAlerts = document.getElementById('stat-alerts');
+        const statValue = document.getElementById('stat-value');
+
+        if (statItems) {
+          statItems.textContent = uniqueItems.toLocaleString();
+          statItems.classList.remove('loading-placeholder');
+        }
+
+        if (statVariations) {
+          statVariations.textContent = uniqueVariations.toLocaleString();
+          statVariations.classList.remove('loading-placeholder');
+        }
+
+        if (statInventory) {
+          statInventory.textContent = inventory.length.toLocaleString();
+          statInventory.classList.remove('loading-placeholder');
+        }
+
+        if (statAlerts) {
+          statAlerts.textContent = alertCount.toLocaleString();
+          if (alertCount > 0) {
+            statAlerts.classList.add('alert');
+          }
+          statAlerts.classList.remove('loading-placeholder');
+        }
+
+        if (statValue) {
+          statValue.textContent = '$' + totalValue.toLocaleString('en-CA', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+          });
+          statValue.classList.remove('loading-placeholder');
+        }
+
+        console.log('Dashboard stats updated successfully');
 
       } catch (error) {
         console.error('Failed to load stats:', error);
-        document.getElementById('sync-status').innerHTML =
-          '⚠️ Unable to load dashboard data. Check if server is running.';
-        document.getElementById('sync-status').classList.add('loading');
+
+        // Show error state
+        ['stat-items', 'stat-variations', 'stat-inventory', 'stat-alerts', 'stat-value'].forEach(id => {
+          const elem = document.getElementById(id);
+          if (elem) {
+            elem.textContent = 'Error';
+            elem.style.color = '#ef4444';
+            elem.classList.remove('loading-placeholder');
+          }
+        });
+
+        // Update sync status banner
+        const statusEl = document.getElementById('sync-status');
+        if (statusEl) {
+          statusEl.innerHTML = '⚠️ Unable to load dashboard data. Check server logs or console.';
+          statusEl.style.background = '#fee2e2';
+          statusEl.style.color = '#991b1b';
+        }
       }
     }
 
