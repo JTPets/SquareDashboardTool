@@ -234,6 +234,11 @@
     </div>
 
     <div class="controls">
+      <label for="location-select">Location:</label>
+      <select id="location-select" onchange="getSuggestions()">
+        <option value="">All Locations</option>
+      </select>
+
       <label for="vendor-select">Vendor:</label>
       <select id="vendor-select" onchange="getSuggestions()">
         <option value="">Loading vendors...</option>
@@ -295,6 +300,30 @@
     let allSuggestions = [];
     let selectedItems = new Set();
 
+    // Load locations on page load
+    async function loadLocations() {
+      try {
+        const response = await fetch('/api/locations');
+        const data = await response.json();
+
+        const locations = data.locations || [];
+        const select = document.getElementById('location-select');
+
+        select.innerHTML = '<option value="">All Locations</option>';
+        locations
+          .filter(loc => loc.active)
+          .forEach(loc => {
+            const option = document.createElement('option');
+            option.value = loc.id;
+            option.textContent = loc.name;
+            select.appendChild(option);
+          });
+      } catch (error) {
+        console.error('Failed to load locations:', error);
+        alert('Failed to load locations: ' + error.message);
+      }
+    }
+
     // Load vendors on page load
     async function loadVendors() {
       try {
@@ -318,14 +347,16 @@
     }
 
     async function getSuggestions() {
+      const locationId = document.getElementById('location-select').value;
       const vendorId = document.getElementById('vendor-select').value;
       const supplyDays = document.getElementById('supply-days').value;
 
       let url = `/api/reorder-suggestions?supply_days=${supplyDays}`;
+      if (locationId) url += `&location_id=${locationId}`;
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="13" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="14" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -582,6 +613,7 @@
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', async () => {
+      await loadLocations();
       await loadVendors();
       // Auto-load suggestions on page load
       await getSuggestions();

@@ -1032,6 +1032,28 @@ app.get('/api/vendors', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/locations
+ * List all locations
+ */
+app.get('/api/locations', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT id, name, active, address, timezone
+            FROM locations
+            ORDER BY name
+        `);
+
+        res.json({
+            count: result.rows.length,
+            locations: result.rows
+        });
+    } catch (error) {
+        console.error('Get locations error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== SALES VELOCITY ENDPOINTS ====================
 
 /**
