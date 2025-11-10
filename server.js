@@ -1135,9 +1135,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 END as days_until_stockout,
                 -- Base suggested quantity (supply_days worth of inventory)
                 ROUND(COALESCE(sv91.daily_avg_quantity, 0) * $1, 2) as base_suggested_qty,
-                -- Whether currently below minimum stock
+                -- Whether currently at or below minimum stock
                 CASE
-                    WHEN v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min
+                    WHEN v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) <= v.stock_alert_min
                     THEN TRUE
                     ELSE FALSE
                 END as below_minimum
@@ -1156,10 +1156,10 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             WHERE v.discontinued = FALSE
               AND (
                   COALESCE(ic.quantity, 0) <= 0  -- Include out of stock items
-                  OR (v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) < v.stock_alert_min)  -- Below minimum
+                  OR (v.stock_alert_min IS NOT NULL AND COALESCE(ic.quantity, 0) <= v.stock_alert_min)  -- At or below minimum
                   OR (vls.stock_alert_min IS NOT NULL
                       AND vls.stock_alert_min > 0
-                      AND COALESCE(ic.quantity, 0) < vls.stock_alert_min)  -- Below location-specific alert threshold
+                      AND COALESCE(ic.quantity, 0) <= vls.stock_alert_min)  -- At or below location-specific alert threshold
                   OR (sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity < $1)  -- Less than supply_days stock
               )
         `;
@@ -1207,9 +1207,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 }
 
                 // Include all out-of-stock items (quantity <= 0) regardless of sales velocity
-                // Also include items below minimum OR approaching stockout
+                // Also include items below minimum OR will stockout within supply period
                 const isOutOfStock = currentStock <= 0;
-                const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < (leadTime + safetyDays);
+                const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < supplyDaysNum;
                 if (!needsReorder) {
                     return null;
                 }
