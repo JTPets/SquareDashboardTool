@@ -191,14 +191,37 @@
   </div>
 
   <script>
+    // Helper function for safe DOM element updates
+    function safeSetContent(elementId, content, useInnerHTML = false) {
+      const elem = document.getElementById(elementId);
+      if (elem) {
+        if (useInnerHTML) {
+          elem.innerHTML = content;
+        } else {
+          elem.textContent = content;
+        }
+        return true;
+      } else {
+        console.error(`Element not found: ${elementId}`);
+        return false;
+      }
+    }
+
     async function loadPurchaseOrders() {
+      const poListElem = document.getElementById('po-list');
+
+      if (!poListElem) {
+        console.error('po-list element not found');
+        return;
+      }
+
       try {
         const response = await fetch('/api/purchase-orders');
         const data = await response.json();
         const purchaseOrders = data.purchase_orders || [];
 
         if (purchaseOrders.length === 0) {
-          document.getElementById('po-list').innerHTML = `
+          poListElem.innerHTML = `
             <div class="empty-state">
               <h3>No Purchase Orders Yet</h3>
               <p>Create your first purchase order using the PO Generator.</p>
@@ -250,15 +273,17 @@
           </table>
         `;
 
-        document.getElementById('po-list').innerHTML = tableHTML;
+        poListElem.innerHTML = tableHTML;
       } catch (error) {
         console.error('Failed to load purchase orders:', error);
-        document.getElementById('po-list').innerHTML = `
-          <div class="empty-state">
-            <h3>Error Loading Purchase Orders</h3>
-            <p>${error.message}</p>
-          </div>
-        `;
+        if (poListElem) {
+          poListElem.innerHTML = `
+            <div class="empty-state">
+              <h3>Error Loading Purchase Orders</h3>
+              <p>${escapeHtml(error.message)}</p>
+            </div>
+          `;
+        }
       }
     }
 
@@ -271,12 +296,17 @@
 
     function formatDate(dateString) {
       if (!dateString) return '-';
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
+      try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      } catch (error) {
+        console.error('Date formatting error:', error);
+        return '-';
+      }
     }
 
     // Load on page load
