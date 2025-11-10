@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS variation_location_settings CASCADE;
 DROP TABLE IF EXISTS sales_velocity CASCADE;
 DROP TABLE IF EXISTS inventory_counts CASCADE;
 DROP TABLE IF EXISTS variation_vendors CASCADE;
+DROP TABLE IF EXISTS variation_expiration CASCADE;
 DROP TABLE IF EXISTS variations CASCADE;
 DROP TABLE IF EXISTS items CASCADE;
 DROP TABLE IF EXISTS images CASCADE;
@@ -340,4 +341,39 @@ BEGIN
     RAISE NOTICE 'Soft delete migration completed successfully!';
     RAISE NOTICE 'Added is_deleted and deleted_at columns to items and variations';
     RAISE NOTICE 'Created indexes for non-deleted items filtering';
+END $$;
+
+-- ========================================
+-- MIGRATION: Add expiration date tracking
+-- ========================================
+-- This migration adds support for product expiration dates
+
+-- Create variation_expiration table for tracking product expiration dates
+CREATE TABLE IF NOT EXISTS variation_expiration (
+    variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+    expiration_date TIMESTAMPTZ,
+    does_not_expire BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create indexes for efficient expiration queries
+CREATE INDEX IF NOT EXISTS idx_variation_expiration_date
+    ON variation_expiration(expiration_date)
+    WHERE expiration_date IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_variation_does_not_expire
+    ON variation_expiration(does_not_expire)
+    WHERE does_not_expire = TRUE;
+
+-- Add comments
+COMMENT ON TABLE variation_expiration IS 'Product expiration dates for perishable items';
+COMMENT ON COLUMN variation_expiration.expiration_date IS 'Expiration date for this product variation';
+COMMENT ON COLUMN variation_expiration.does_not_expire IS 'Flag for products that never expire';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Expiration tracking migration completed successfully!';
+    RAISE NOTICE 'Created variation_expiration table with indexes';
 END $$;
