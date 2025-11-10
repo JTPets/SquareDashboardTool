@@ -142,6 +142,11 @@
     .days-warning { color: #f59e0b; font-weight: 600; }
     .days-ok { color: #059669; }
 
+    .velocity-fast { color: #059669; font-weight: 600; }
+    .velocity-moderate { color: #f59e0b; }
+    .velocity-slow { color: #6b7280; }
+    .velocity-none { color: #ef4444; font-style: italic; }
+
     .secondary-vendor {
       background-color: #fff3cd !important;
       border-left: 3px solid #ffc107;
@@ -490,17 +495,39 @@
                         item.days_until_stockout.toFixed(1) : '∞';
         const isSelected = selectedItems.has(item.variation_id);
 
-        // Display velocity data from backend
-        const velocityText = item.has_velocity
-          ? `${item.weekly_avg_91d.toFixed(1)} / ${item.weekly_avg_182d.toFixed(1)} / ${item.weekly_avg_365d.toFixed(1)}`
-          : '<span style="color: #f59e0b;">No Sales</span>';
+        // Get velocity class based on 91-day average (daily rate)
+        const dailyVelocity = (item.weekly_avg_91d || 0) / 7;
+        const getVelocityClass = (velocity) => {
+          if (!velocity || velocity === 0) return 'velocity-none';
+          if (velocity >= 1) return 'velocity-fast';
+          if (velocity >= 0.1) return 'velocity-moderate';
+          return 'velocity-slow';
+        };
+        const velocityClass = getVelocityClass(dailyVelocity);
+
+        // Display velocity data with proper precision
+        // Show actual values even if very small (e.g., 0.011/day for slow movers)
+        const formatVelocity = (weeklyVal) => {
+          if (weeklyVal === null || weeklyVal === undefined || weeklyVal === 0) {
+            return 'No data';
+          }
+          // Show 2 decimal places for weekly, but show very small values too
+          return weeklyVal.toFixed(2);
+        };
+
+        const velocityText = `<span class="${velocityClass}">${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}</span>`;
 
         // Always round up quantities
         const orderQty = Math.ceil(item.final_suggested_qty);
         const totalCost = (orderQty * item.unit_cost_cents / 100).toFixed(2);
 
+        // Check if there's actually no velocity data (all periods are null/0)
+        const hasNoVelocityData = (!item.weekly_avg_91d || item.weekly_avg_91d === 0) &&
+                                    (!item.weekly_avg_182d || item.weekly_avg_182d === 0) &&
+                                    (!item.weekly_avg_365d || item.weekly_avg_365d === 0);
+
         // Add visual indicator for items without velocity
-        const priorityClass = !item.has_velocity && item.priority === 'MEDIUM'
+        const priorityClass = hasNoVelocityData && item.priority === 'MEDIUM'
           ? 'priority-MEDIUM'
           : `priority-${item.priority}`;
 
@@ -519,7 +546,8 @@
             </td>
             <td>
               <span class="priority-badge ${priorityClass}">${item.priority}</span>
-              ${!item.has_velocity ? '<br><small style="color: #f59e0b;">⚠ No Data</small>' : ''}
+              ${hasNoVelocityData ? '<br><small style="color: #ef4444;">⚠ No Data</small>' : ''}
+              ${velocityClass === 'velocity-slow' && dailyVelocity > 0 ? '<br><small style="color: #6b7280;">Slow mover</small>' : ''}
               ${vendorWarning}
             </td>
             <td>
