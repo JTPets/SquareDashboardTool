@@ -1300,9 +1300,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     targetQty = baseSuggestedQty;
                 }
 
-                // When location-specific stock_alert_min > 0, ensure we order enough to exceed it
-                if (locationStockAlertMin && locationStockAlertMin > 0) {
-                    targetQty = Math.max(locationStockAlertMin + 1, targetQty);
+                // When stock_alert_min > 0, ensure we order enough to exceed it
+                if (stockAlertMin && stockAlertMin > 0) {
+                    targetQty = Math.max(stockAlertMin + 1, targetQty);
                 }
 
                 let suggestedQty = Math.max(0, targetQty - currentStock);
