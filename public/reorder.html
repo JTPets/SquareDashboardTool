@@ -158,6 +158,34 @@
       cursor: help;
     }
 
+    .sortable {
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      padding-right: 20px;
+    }
+
+    .sortable:hover {
+      background: #e5e7eb;
+    }
+
+    .sort-indicator {
+      position: absolute;
+      right: 5px;
+      font-size: 10px;
+      color: #6b7280;
+    }
+
+    .sort-indicator.asc::after {
+      content: '▲';
+      color: #2563eb;
+    }
+
+    .sort-indicator.desc::after {
+      content: '▼';
+      color: #2563eb;
+    }
+
     .text-right { text-align: right; }
     .text-center { text-align: center; }
     .loading {
@@ -262,19 +290,45 @@
             <th class="text-center">
               <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)">
             </th>
-            <th>Priority</th>
-            <th>Product</th>
-            <th>SKU</th>
-            <th class="text-right">Stock</th>
-            <th class="text-right">Min</th>
-            <th class="text-right">Days Left</th>
-            <th class="text-right">Velocity<br><small>(91d/182d/365d)</small></th>
-            <th class="text-right">Order Qty</th>
-            <th class="text-right">Case</th>
-            <th class="text-right">Cost</th>
-            <th class="text-right">Total</th>
-            <th>Vendor</th>
-            <th>Vendor Code</th>
+            <th onclick="sortTable('priority')" class="sortable">
+              Priority <span class="sort-indicator" id="sort-priority"></span>
+            </th>
+            <th onclick="sortTable('item_name')" class="sortable">
+              Product <span class="sort-indicator" id="sort-item_name"></span>
+            </th>
+            <th onclick="sortTable('sku')" class="sortable">
+              SKU <span class="sort-indicator" id="sort-sku"></span>
+            </th>
+            <th onclick="sortTable('current_stock')" class="sortable text-right">
+              Stock <span class="sort-indicator" id="sort-current_stock"></span>
+            </th>
+            <th onclick="sortTable('stock_alert_min')" class="sortable text-right">
+              Min <span class="sort-indicator" id="sort-stock_alert_min"></span>
+            </th>
+            <th onclick="sortTable('days_until_stockout')" class="sortable text-right">
+              Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
+            </th>
+            <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
+              Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
+            </th>
+            <th onclick="sortTable('final_suggested_qty')" class="sortable text-right">
+              Order Qty <span class="sort-indicator" id="sort-final_suggested_qty"></span>
+            </th>
+            <th onclick="sortTable('case_pack_quantity')" class="sortable text-right">
+              Case <span class="sort-indicator" id="sort-case_pack_quantity"></span>
+            </th>
+            <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
+              Cost <span class="sort-indicator" id="sort-unit_cost_cents"></span>
+            </th>
+            <th onclick="sortTable('order_cost')" class="sortable text-right">
+              Total <span class="sort-indicator" id="sort-order_cost"></span>
+            </th>
+            <th onclick="sortTable('vendor_name')" class="sortable">
+              Vendor <span class="sort-indicator" id="sort-vendor_name"></span>
+            </th>
+            <th onclick="sortTable('vendor_code')" class="sortable">
+              Vendor Code <span class="sort-indicator" id="sort-vendor_code"></span>
+            </th>
           </tr>
         </thead>
         <tbody id="suggestions-body">
@@ -380,9 +434,14 @@
           return;
         }
 
-        sortSuggestions();
-        renderTable();
-        updateFooter();
+        // Apply current sort if set, otherwise use default priority sort
+        if (currentSortField) {
+          // Re-apply current sort field and direction without toggling
+          sortTable(currentSortField, sortDirections[currentSortField]);
+        } else {
+          // Default: sort by priority descending (URGENT first)
+          sortTable('priority', false); // false = descending
+        }
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
@@ -603,6 +662,88 @@
         btn.disabled = false;
         btn.textContent = 'Create Purchase Order';
       }
+    }
+
+    // Click-to-sort functionality
+    let currentSortField = null;
+    let sortDirections = {}; // Track direction for each field
+
+    function sortTable(field, forceDirection = null) {
+      // Toggle sort direction or use forced direction
+      if (forceDirection !== null) {
+        sortDirections[field] = forceDirection;
+      } else {
+        sortDirections[field] = !sortDirections[field];
+      }
+      const ascending = sortDirections[field];
+
+      // Update current sort field
+      currentSortField = field;
+
+      // Clear all sort indicators
+      document.querySelectorAll('.sort-indicator').forEach(el => {
+        el.className = 'sort-indicator';
+      });
+
+      // Set current indicator
+      const indicator = document.getElementById(`sort-${field}`);
+      if (indicator) {
+        indicator.className = `sort-indicator ${ascending ? 'asc' : 'desc'}`;
+      }
+
+      // Sort the data
+      allSuggestions.sort((a, b) => {
+        let aVal = a[field];
+        let bVal = b[field];
+
+        // Handle special cases
+        switch(field) {
+          case 'priority':
+            // Priority order: URGENT=4, HIGH=3, MEDIUM=2, LOW=1
+            const priorityOrder = { URGENT: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+            aVal = priorityOrder[a.priority] || 0;
+            bVal = priorityOrder[b.priority] || 0;
+            break;
+
+          case 'item_name':
+          case 'vendor_name':
+          case 'sku':
+          case 'vendor_code':
+            // String comparison (case-insensitive)
+            aVal = (aVal || '').toString().toLowerCase();
+            bVal = (bVal || '').toString().toLowerCase();
+            break;
+
+          case 'current_stock':
+          case 'stock_alert_min':
+          case 'days_until_stockout':
+          case 'daily_avg_quantity':
+          case 'weekly_avg_91d':
+          case 'weekly_avg_182d':
+          case 'weekly_avg_365d':
+          case 'final_suggested_qty':
+          case 'case_pack_quantity':
+          case 'unit_cost_cents':
+          case 'order_cost':
+            // Numeric comparison (handle null/undefined)
+            aVal = parseFloat(aVal) || 0;
+            bVal = parseFloat(bVal) || 0;
+            break;
+        }
+
+        // Compare values
+        if (aVal === bVal) return 0;
+
+        if (ascending) {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+
+      // Re-render table with sorted data
+      renderTable();
+      updateFooter();
     }
 
     function escapeHtml(text) {
