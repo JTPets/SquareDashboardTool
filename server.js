@@ -931,6 +931,8 @@ app.get('/api/inventory', async (req, res) => {
                 ic.*,
                 v.sku,
                 v.name as variation_name,
+                v.price_money,
+                v.currency,
                 v.stock_alert_min,
                 v.stock_alert_max,
                 i.name as item_name,
