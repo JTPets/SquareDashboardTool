@@ -1275,7 +1275,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             .map(row => {
                 const currentStock = parseFloat(row.current_stock) || 0;
                 const dailyAvg = parseFloat(row.daily_avg_quantity) || 0;
-                const baseSuggestedQty = parseFloat(row.base_suggested_qty) || 0;
+                // Round up base suggested quantity to whole number
+                const baseSuggestedQty = Math.ceil(parseFloat(row.base_suggested_qty) || 0);
                 const casePack = parseInt(row.case_pack_quantity) || 1;
                 const reorderMultiple = parseInt(row.reorder_multiple) || 1;
                 const stockAlertMin = parseInt(row.stock_alert_min) || 0;  // Now includes location-specific via COALESCE
@@ -1345,7 +1346,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                         targetQty = 2; // Default minimum order of 2 units for safety stock
                     }
                 } else {
-                    // Use velocity-based calculation
+                    // Use velocity-based calculation (already rounded up via baseSuggestedQty)
                     targetQty = baseSuggestedQty;
                 }
 
@@ -1354,7 +1355,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     targetQty = Math.max(stockAlertMin + 1, targetQty);
                 }
 
-                let suggestedQty = Math.max(0, targetQty - currentStock);
+                // Calculate suggested quantity (round up to ensure minimum of 1)
+                let suggestedQty = Math.ceil(Math.max(0, targetQty - currentStock));
 
                 // Round up to case pack
                 if (casePack > 1) {
@@ -1366,8 +1368,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     suggestedQty = Math.ceil(suggestedQty / reorderMultiple) * reorderMultiple;
                 }
 
-                // Don't exceed max stock level
-                const finalQty = Math.min(suggestedQty, stockAlertMax - currentStock);
+                // Don't exceed max stock level (round up final quantity)
+                const finalQty = Math.ceil(Math.min(suggestedQty, stockAlertMax - currentStock));
 
                 if (finalQty <= 0) {
                     return null;

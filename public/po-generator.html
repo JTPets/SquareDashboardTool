@@ -397,6 +397,7 @@
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
+    const adjustedQuantities = new Map(); // Track quantity adjustments
 
     // Load vendors and locations on page load
     async function loadVendors() {
@@ -463,6 +464,7 @@
 
         allSuggestions = data.suggestions || [];
         selectedItems.clear();
+        adjustedQuantities.clear(); // Clear adjusted quantities on new load
 
         if (allSuggestions.length === 0) {
           document.getElementById('suggestions-content').innerHTML = `
@@ -526,7 +528,19 @@
                 <td class="text-right ${getDaysClass(item.days_until_stockout)}">
                   ${item.days_until_stockout < 999 ? item.days_until_stockout.toFixed(1) : '∞'}
                 </td>
-                <td class="text-right"><strong>${item.final_suggested_qty}</strong></td>
+                <td class="text-right" style="padding: 8px;">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value="${Math.ceil(item.final_suggested_qty)}"
+                    data-variation-id="${item.variation_id}"
+                    data-original="${Math.ceil(item.final_suggested_qty)}"
+                    onchange="updateQuantity(this, '${item.variation_id}')"
+                    style="width: 70px; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; text-align: center; font-weight: 600;"
+                  />
+                  <div style="font-size: 10px; color: #6b7280; margin-top: 2px;">Suggested: ${Math.ceil(item.final_suggested_qty)}</div>
+                </td>
                 <td class="text-right">${item.case_pack_quantity || '-'}</td>
                 <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
                 <td class="text-right"><strong>$${item.order_cost.toFixed(2)}</strong></td>
@@ -587,15 +601,50 @@
       updateSummary();
     }
 
+    function updateQuantity(input, variationId) {
+      const newQty = parseInt(input.value);
+      const originalQty = parseInt(input.dataset.original);
+
+      // Validate
+      if (isNaN(newQty) || newQty < 1) {
+        input.value = originalQty;
+        showMessage('error', 'Quantity must be at least 1');
+        return;
+      }
+
+      // Store adjustment
+      if (newQty !== originalQty) {
+        adjustedQuantities.set(variationId, newQty);
+        input.style.borderColor = '#f59e0b'; // Orange border for adjusted
+        input.style.backgroundColor = '#fef3c7'; // Light yellow background
+      } else {
+        adjustedQuantities.delete(variationId);
+        input.style.borderColor = '#d1d5db'; // Default border
+        input.style.backgroundColor = 'white';
+      }
+
+      // Recalculate totals
+      updateSummary();
+    }
+
     function updateSummary() {
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
 
-      const totalQuantity = selectedSuggestions.reduce((sum, item) => sum + item.final_suggested_qty, 0);
-      const totalCost = selectedSuggestions.reduce((sum, item) => sum + item.order_cost, 0);
+      // Calculate totals using adjusted quantities if available
+      let totalQuantity = 0;
+      let totalCost = 0;
+
+      selectedSuggestions.forEach(item => {
+        const qty = adjustedQuantities.get(item.variation_id) || Math.ceil(item.final_suggested_qty);
+        const unitCost = item.unit_cost_cents / 100;
+
+        totalQuantity += qty;
+        totalCost += qty * unitCost;
+      });
 
       document.getElementById('total-items').textContent = allSuggestions.length;
       document.getElementById('selected-items').textContent = selectedSuggestions.length;
-      document.getElementById('total-quantity').textContent = totalQuantity;
+      document.getElementById('total-quantity').textContent = totalQuantity; // Now always an integer
       document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
       document.getElementById('selected-count').textContent = selectedSuggestions.length;
 
@@ -627,10 +676,10 @@
 
       const supplyDays = parseInt(document.getElementById('supply-days').value);
 
-      // Build PO items array
+      // Build PO items array (use adjusted quantities if available)
       const items = selectedSuggestions.map(item => ({
         variation_id: item.variation_id,
-        quantity_ordered: item.final_suggested_qty,
+        quantity_ordered: adjustedQuantities.get(item.variation_id) || Math.ceil(item.final_suggested_qty),
         unit_cost_cents: item.unit_cost_cents
       }));
 
@@ -689,8 +738,9 @@
         // Scroll to top to show message
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
-        // Reset selections
+        // Reset selections and adjusted quantities
         selectedItems.clear();
+        adjustedQuantities.clear();
         document.querySelectorAll('.item-checkbox').forEach(cb => cb.checked = false);
         document.getElementById('select-all-checkbox').checked = false;
         updateSummary();
