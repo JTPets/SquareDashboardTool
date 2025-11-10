@@ -402,7 +402,10 @@
     async function loadVendors() {
       try {
         const response = await fetch('/api/vendors?status=ACTIVE');
-        const vendors = await response.json();
+        const data = await response.json();
+
+        // Handle wrapped response: {"count": X, "vendors": [...]}
+        const vendors = data.vendors || [];
 
         const select = document.getElementById('vendor-select');
         select.innerHTML = '<option value="">All Vendors</option>';
@@ -422,7 +425,10 @@
     async function loadLocations() {
       try {
         const response = await fetch('/api/locations');
-        const locations = await response.json();
+        const data = await response.json();
+
+        // Handle wrapped response: {"count": X, "locations": [...]}
+        const locations = data.locations || [];
 
         const select = document.getElementById('location-select');
         select.innerHTML = '<option value="">All Locations</option>';
