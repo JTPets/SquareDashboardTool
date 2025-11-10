@@ -296,6 +296,92 @@
       white-space: nowrap;
     }
 
+    /* Product Image Styles */
+    .product-image-container {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f9fafb;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+      position: relative;
+    }
+
+    .product-thumbnail {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.2s;
+      cursor: pointer;
+    }
+
+    .product-thumbnail:hover {
+      transform: scale(1.05);
+    }
+
+    .product-thumbnail.no-image {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .product-image-container:hover::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      box-shadow: 0 0 0 2px #2563eb;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    .product-thumbnail.no-image + .product-image-container:hover::after {
+      display: none;
+    }
+
+    /* Image Modal */
+    .image-modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      justify-content: center;
+      align-items: center;
+    }
+
+    .image-modal.active {
+      display: flex;
+    }
+
+    .image-modal img {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .image-modal::before {
+      content: '✕ Click anywhere to close';
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      color: white;
+      font-size: 18px;
+      font-weight: 600;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px 20px;
+      border-radius: 6px;
+    }
+
     @media (max-width: 768px) {
       .suggestions-table {
         font-size: 12px;
@@ -312,6 +398,11 @@
 
       .form-row {
         grid-template-columns: 1fr;
+      }
+
+      .product-image-container {
+        width: 40px;
+        height: 40px;
       }
     }
   </style>
@@ -392,6 +483,11 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Image Modal -->
+  <div id="image-modal" class="image-modal">
+    <img src="" alt="">
   </div>
 
   <script>
@@ -488,12 +584,40 @@
       }
     }
 
+    function getProductImage(item) {
+      const imageUrl = item.image_urls && item.image_urls.length > 0 ? item.image_urls[0] : '';
+      const placeholderSvg = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIGZpbGw9IiNGM0Y0RjYiLz4KICA8cGF0aCBkPSJNMjAgMjhMMjQgMjBMMjggMjRMMzUgMTVMNDIgMjhMMzggMzJMMzUgMjhMMjggMzVMMjAgMjhaIiBmaWxsPSIjOUNBM0FGIi8+CiAgPGNpcmNsZSBjeD0iMjYiIGN5PSIyMiIgcj0iNCIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4=';
+
+      if (!imageUrl) {
+        return `
+          <div class="product-image-container">
+            <img src="${placeholderSvg}" alt="${escapeHtml(item.item_name)}" class="product-thumbnail no-image" />
+          </div>
+        `;
+      }
+
+      return `
+        <div class="product-image-container">
+          <img
+            src="${imageUrl}"
+            alt="${escapeHtml(item.item_name)}"
+            class="product-thumbnail"
+            onerror="this.src='${placeholderSvg}'; this.classList.add('no-image');"
+            loading="lazy"
+            onclick="showImageModal('${imageUrl}', '${escapeHtml(item.item_name)}')"
+            title="Click to enlarge"
+          />
+        </div>
+      `;
+    }
+
     function renderSuggestions() {
       const tableHTML = `
         <table class="suggestions-table">
           <thead>
             <tr>
               <th><input type="checkbox" onchange="toggleAll(this)" id="select-all-checkbox"></th>
+              <th style="width: 80px;">Image</th>
               <th>Priority</th>
               <th>Item / Variation</th>
               <th>SKU</th>
@@ -517,6 +641,7 @@
                          class="item-checkbox"
                          data-index="${index}">
                 </td>
+                <td>${getProductImage(item)}</td>
                 <td><span class="priority-badge priority-${item.priority}">${item.priority}</span></td>
                 <td>
                   <strong>${escapeHtml(item.item_name)}</strong><br>
@@ -565,6 +690,20 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function showImageModal(imageUrl, productName) {
+      const modal = document.getElementById('image-modal');
+      const img = modal.querySelector('img');
+
+      img.src = imageUrl;
+      img.alt = productName;
+      modal.classList.add('active');
+
+      // Close on click anywhere
+      modal.onclick = () => {
+        modal.classList.remove('active');
+      };
     }
 
     function toggleAll(checkbox) {

@@ -1166,6 +1166,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 i.name as item_name,
                 v.name as variation_name,
                 v.sku,
+                v.images,
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
@@ -1408,7 +1409,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     is_primary_vendor: row.current_vendor_id === row.primary_vendor_id,
                     primary_vendor_name: row.primary_vendor_name,
                     lead_time_days: leadTime,
-                    has_velocity: dailyAvg > 0
+                    has_velocity: dailyAvg > 0,
+                    images: row.images  // Include images for URL resolution
                 };
             })
             .filter(item => item !== null);
@@ -1437,11 +1439,22 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
+        // Resolve image URLs for each suggestion
+        const suggestionsWithImages = await Promise.all(filteredSuggestions.map(async (suggestion) => {
+            const imageIds = suggestion.images;
+            const imageUrls = await resolveImageUrls(imageIds);
+            return {
+                ...suggestion,
+                image_urls: imageUrls,
+                images: undefined  // Remove raw image IDs from response
+            };
+        }));
+
         res.json({
-            count: filteredSuggestions.length,
+            count: suggestionsWithImages.length,
             supply_days: supplyDaysNum,
             safety_days: safetyDays,
-            suggestions: filteredSuggestions
+            suggestions: suggestionsWithImages
         });
     } catch (error) {
         console.error('Get reorder suggestions error:', error);
