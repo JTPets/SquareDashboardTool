@@ -142,6 +142,22 @@
     .days-warning { color: #f59e0b; font-weight: 600; }
     .days-ok { color: #059669; }
 
+    .secondary-vendor {
+      background-color: #fff3cd !important;
+      border-left: 3px solid #ffc107;
+    }
+
+    .vendor-warning {
+      display: inline-block;
+      background: #ffc107;
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      margin-left: 5px;
+      cursor: help;
+    }
+
     .text-right { text-align: right; }
     .text-center { text-align: center; }
     .loading {
@@ -253,11 +269,12 @@
             <th class="text-right">Cost</th>
             <th class="text-right">Total</th>
             <th>Vendor</th>
+            <th>Vendor Code</th>
           </tr>
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="13" class="loading">Loading suggestions...</td>
+            <td colspan="14" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -397,8 +414,14 @@
           ? 'priority-MEDIUM'
           : `priority-${item.priority}`;
 
+        // Secondary vendor highlighting
+        const rowClass = item.is_primary_vendor ? '' : 'secondary-vendor';
+        const vendorWarning = !item.is_primary_vendor
+          ? `<br><span class="vendor-warning" title="Primary vendor: ${escapeHtml(item.primary_vendor_name)}">⚠️ Alt Vendor</span>`
+          : '';
+
         return `
-          <tr class="${isSelected ? 'selected' : ''}" data-id="${item.variation_id}">
+          <tr class="${isSelected ? 'selected' : ''} ${rowClass}" data-id="${item.variation_id}">
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
@@ -407,6 +430,7 @@
             <td>
               <span class="priority-badge ${priorityClass}">${item.priority}</span>
               ${!item.has_velocity ? '<br><small style="color: #f59e0b;">⚠ No Data</small>' : ''}
+              ${vendorWarning}
             </td>
             <td>
               <div class="product-name">${escapeHtml(item.item_name)}</div>
@@ -422,6 +446,7 @@
             <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
             <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
+            <td>${escapeHtml(item.vendor_code)}</td>
           </tr>
         `;
       }).join('');

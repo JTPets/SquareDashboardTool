@@ -1118,7 +1118,23 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 sv365.weekly_avg_quantity as weekly_avg_365d,
                 ve.name as vendor_name,
                 vv.vendor_code,
+                vv.vendor_id as current_vendor_id,
                 vv.unit_cost_money as unit_cost_cents,
+                -- Get primary vendor (lowest cost, then earliest created)
+                (SELECT vv2.vendor_id
+                 FROM variation_vendors vv2
+                 WHERE vv2.variation_id = v.id
+                 ORDER BY vv2.unit_cost_money ASC, vv2.created_at ASC
+                 LIMIT 1
+                ) as primary_vendor_id,
+                -- Get primary vendor name for comparison
+                (SELECT ve2.name
+                 FROM variation_vendors vv3
+                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id
+                 WHERE vv3.variation_id = v.id
+                 ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
+                 LIMIT 1
+                ) as primary_vendor_name,
                 v.case_pack_quantity,
                 v.reorder_multiple,
                 v.stock_alert_min,
@@ -1317,7 +1333,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     unit_cost_cents: unitCost,
                     order_cost: orderCost,
                     vendor_name: row.vendor_name,
-                    vendor_code: row.vendor_code,
+                    vendor_code: row.vendor_code || 'N/A',
+                    is_primary_vendor: row.current_vendor_id === row.primary_vendor_id,
+                    primary_vendor_name: row.primary_vendor_name,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0
                 };
