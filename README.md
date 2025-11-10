@@ -2,6 +2,51 @@
 
 A comprehensive inventory management system for JTPets pet supply business with Square POS integration. This system provides automated reorder suggestions, sales velocity tracking, cost/margin analysis, and purchase order management.
 
+## ⚠️ PRODUCTION READINESS WARNING
+
+**This system is NOT production-ready without additional security measures:**
+
+### Critical Issues Before Production Deployment:
+
+1. **❌ NO AUTHENTICATION/AUTHORIZATION**
+   - System is currently OPEN to anyone with network access
+   - No API key validation
+   - No user roles or permissions
+   - **ACTION REQUIRED**: Implement authentication before exposing to network
+
+2. **❌ NO RATE LIMITING**
+   - Vulnerable to denial of service attacks
+   - No request throttling
+   - **ACTION REQUIRED**: Add rate limiting middleware
+
+3. **⚠️ PLACEHOLDER PAGES**
+   - 4 pages are not fully implemented:
+     - `inventory.html` (inventory browser)
+     - `purchase-orders.html` (PO management)
+     - `sales-velocity.html` (sales trends)
+     - `deleted-items.html` (soft delete management)
+   - These show "Coming Soon" messages
+
+4. **⚠️ INCOMPLETE FEATURE**
+   - Purchase order receiving doesn't update Square inventory
+   - See TODO comment in `server.js:1734`
+   - Requires Square API write permissions
+
+### Recommended Security Additions:
+
+- Add API key authentication or JWT tokens
+- Implement role-based access control (admin, viewer, manager)
+- Add CORS restrictions to specific origins
+- Add request size limits
+- Implement SSL/HTTPS in production
+- Add comprehensive input validation (in progress)
+- Set up firewall rules
+- Rotate Square access token regularly
+
+### See Full Audit Report:
+
+For detailed production readiness assessment, see the comprehensive audit results in recent commits on the `claude/unified-features-*` branch.
+
 ## Features
 
 - **Square POS Integration**: Sync locations, vendors, catalog, inventory, and sales data

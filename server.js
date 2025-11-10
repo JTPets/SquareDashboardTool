@@ -16,14 +16,19 @@ const emailNotifier = require('./utils/email-notifier');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// AWS S3 Configuration for product images
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'items-images-production';
+const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging
+// TODO: Migrate all console.log statements to logger module for consistent log aggregation
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    logger.info('API request', { method: req.method, path: req.path });
     next();
 });
 
@@ -217,14 +222,14 @@ async function resolveImageUrls(imageIds) {
             if (urlMap[id]) {
                 return urlMap[id];
             }
-            // Fallback: construct S3 URL
-            return `https://items-images-production.s3.us-west-2.amazonaws.com/files/${id}/original.jpeg`;
+            // Fallback: construct S3 URL from environment variables
+            return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
         });
     } catch (error) {
-        console.error('Error resolving image URLs:', error);
-        // Return fallback URLs
+        logger.error('Error resolving image URLs', { error: error.message });
+        // Return fallback URLs from environment variables
         return imageIds.map(id =>
-            `https://items-images-production.s3.us-west-2.amazonaws.com/files/${id}/original.jpeg`
+            `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`
         );
     }
 }
@@ -1063,6 +1068,19 @@ app.get('/api/locations', async (req, res) => {
 app.get('/api/sales-velocity', async (req, res) => {
     try {
         const { variation_id, location_id, period_days } = req.query;
+
+        // Input validation for period_days
+        if (period_days !== undefined) {
+            const periodDaysNum = parseInt(period_days);
+            const validPeriods = [91, 182, 365];
+            if (isNaN(periodDaysNum) || !validPeriods.includes(periodDaysNum)) {
+                return res.status(400).json({
+                    error: 'Invalid period_days parameter',
+                    message: 'period_days must be one of: 91, 182, or 365'
+                });
+            }
+        }
+
         let query = `
             SELECT
                 sv.*,
@@ -1121,7 +1139,25 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             min_cost
         } = req.query;
 
+        // Input validation
         const supplyDaysNum = parseInt(supply_days);
+        if (isNaN(supplyDaysNum) || supplyDaysNum < 1 || supplyDaysNum > 365) {
+            return res.status(400).json({
+                error: 'Invalid supply_days parameter',
+                message: 'supply_days must be a number between 1 and 365'
+            });
+        }
+
+        if (min_cost !== undefined) {
+            const minCostNum = parseFloat(min_cost);
+            if (isNaN(minCostNum) || minCostNum < 0) {
+                return res.status(400).json({
+                    error: 'Invalid min_cost parameter',
+                    message: 'min_cost must be a positive number'
+                });
+            }
+        }
+
         const safetyDays = parseInt(process.env.REORDER_SAFETY_DAYS || '7');
 
         let query = `
