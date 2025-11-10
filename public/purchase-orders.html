@@ -2,52 +2,285 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Purchase Orders - JT Pets</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchase Orders - JT Pets Inventory</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background-color: #f5f5f5;
-      padding: 20px;
+      color: #1f2937;
     }
+
+    header {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: white;
+      padding: 20px 30px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 600;
+    }
+
+    .back-link {
+      color: white;
+      text-decoration: none;
+      font-size: 14px;
+      opacity: 0.9;
+      display: inline-block;
+      margin-top: 8px;
+    }
+
+    .back-link:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+
     .container {
-      max-width: 800px;
-      margin: 100px auto;
+      max-width: 1400px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+
+    .card {
       background: white;
       border-radius: 8px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      padding: 40px;
-      text-align: center;
+      padding: 25px;
+      margin-bottom: 25px;
     }
-    h1 { color: #2563eb; margin-bottom: 20px; }
-    p { color: #6b7280; margin-bottom: 30px; line-height: 1.6; }
-    code {
-      background: #f3f4f6;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-family: monospace;
-      color: #dc2626;
+
+    .card h2 {
+      font-size: 20px;
+      margin-bottom: 20px;
+      color: #1f2937;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
     }
-    .back-button {
+
+    .po-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .po-table thead {
+      background: #f9fafb;
+    }
+
+    .po-table th {
+      text-align: left;
+      padding: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .po-table td {
+      padding: 12px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .po-table tr:hover {
+      background: #f9fafb;
+    }
+
+    .status-badge {
       display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .status-DRAFT {
+      background: #e5e7eb;
+      color: #374151;
+    }
+
+    .status-SUBMITTED {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .status-PARTIAL {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .status-RECEIVED {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
       background: #2563eb;
       color: white;
-      padding: 12px 24px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-weight: 600;
     }
-    .back-button:hover { background: #1d4ed8; }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+
+    .empty-state h3 {
+      font-size: 20px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    .text-right {
+      text-align: right;
+    }
+
+    .text-nowrap {
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
+  <header>
+    <h1>📦 Purchase Orders</h1>
+    <a href="/" class="back-link">← Back to Dashboard</a>
+  </header>
+
   <div class="container">
-    <h1>🚧 Purchase Orders - Coming Soon</h1>
-    <p>This feature is under development and will be available soon.</p>
-    <p>It will provide comprehensive purchase order management including creation, submission, receiving, and tracking.</p>
-    <p>In the meantime, you can access raw PO data via the API:</p>
-    <p><code>GET /api/purchase-orders</code></p>
-    <a href="/" class="back-button">← Back to Dashboard</a>
+    <div class="card">
+      <h2>All Purchase Orders</h2>
+
+      <div id="po-list">
+        <div class="loading">Loading purchase orders...</div>
+      </div>
+    </div>
   </div>
+
+  <script>
+    async function loadPurchaseOrders() {
+      try {
+        const response = await fetch('/api/purchase-orders');
+        const data = await response.json();
+        const purchaseOrders = data.purchase_orders || [];
+
+        if (purchaseOrders.length === 0) {
+          document.getElementById('po-list').innerHTML = `
+            <div class="empty-state">
+              <h3>No Purchase Orders Yet</h3>
+              <p>Create your first purchase order using the PO Generator.</p>
+              <a href="/po-generator.html" class="btn btn-primary" style="margin-top: 20px;">
+                📝 Go to PO Generator
+              </a>
+            </div>
+          `;
+          return;
+        }
+
+        const tableHTML = `
+          <table class="po-table">
+            <thead>
+              <tr>
+                <th>PO Number</th>
+                <th>Vendor</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Items</th>
+                <th>Total</th>
+                <th>Expected Delivery</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${purchaseOrders.map(po => `
+                <tr>
+                  <td class="text-nowrap"><strong>${escapeHtml(po.po_number)}</strong></td>
+                  <td>${escapeHtml(po.vendor_name)}</td>
+                  <td>${escapeHtml(po.location_name)}</td>
+                  <td><span class="status-badge status-${po.status}">${po.status}</span></td>
+                  <td class="text-right">${po.item_count || 0}</td>
+                  <td class="text-right">$${(po.total_cents / 100).toFixed(2)}</td>
+                  <td class="text-nowrap">${formatDate(po.expected_delivery_date)}</td>
+                  <td class="text-nowrap">${formatDate(po.created_at)}</td>
+                  <td class="text-nowrap">
+                    <a href="/api/purchase-orders/${po.po_number}/export-csv"
+                       download="PO_${po.po_number}.csv"
+                       class="btn btn-primary btn-small"
+                       title="Export to Square CSV format">
+                      📥 Export CSV
+                    </a>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+
+        document.getElementById('po-list').innerHTML = tableHTML;
+      } catch (error) {
+        console.error('Failed to load purchase orders:', error);
+        document.getElementById('po-list').innerHTML = `
+          <div class="empty-state">
+            <h3>Error Loading Purchase Orders</h3>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatDate(dateString) {
+      if (!dateString) return '-';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    // Load on page load
+    document.addEventListener('DOMContentLoaded', loadPurchaseOrders);
+  </script>
 </body>
 </html>

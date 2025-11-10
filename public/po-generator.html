@@ -654,8 +654,34 @@
         }
 
         const result = await response.json();
+        const poNumber = result.purchase_order.po_number;
+        const totalCost = (result.purchase_order.total_cents / 100).toFixed(2);
 
-        showMessage('success', `Purchase Order ${result.purchase_order.po_number} created successfully! Total: $${(result.purchase_order.total_cents / 100).toFixed(2)}`);
+        // Show success message with export link
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'success-message';
+        messageDiv.innerHTML = `
+          <strong>✓ Purchase Order ${poNumber} created successfully!</strong><br>
+          Total: $${totalCost}<br>
+          <div style="margin-top: 10px;">
+            <a href="/api/purchase-orders/${poNumber}/export-csv"
+               download="PO_${poNumber}.csv"
+               class="btn btn-primary"
+               style="display: inline-block; text-decoration: none; padding: 8px 16px; font-size: 13px; margin-right: 10px;">
+              📥 Export to Square CSV
+            </a>
+            <span style="color: #065f46; font-size: 13px;">
+              Download CSV file for Square PO import
+            </span>
+          </div>
+        `;
+
+        const container = document.getElementById('message-container');
+        container.innerHTML = '';
+        container.appendChild(messageDiv);
+
+        // Scroll to top to show message
+        window.scrollTo({ top: 0, behavior: 'smooth' });
 
         // Reset selections
         selectedItems.clear();

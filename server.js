@@ -1810,6 +1810,167 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
     }
 });
 
+// ==================== CSV EXPORT HELPERS ====================
+
+/**
+ * Escape a CSV field according to RFC 4180
+ * - Wrap in quotes if contains comma, quote, or newline
+ * - Escape internal quotes by doubling them
+ */
+function escapeCSVField(value) {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    const str = String(value);
+
+    // Check if field needs escaping
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        // Escape quotes by doubling them, then wrap in quotes
+        return '"' + str.replace(/"/g, '""') + '"';
+    }
+
+    return str;
+}
+
+/**
+ * Format date for Square CSV (MM/DD/YYYY)
+ */
+function formatDateForSquare(isoDateString) {
+    if (!isoDateString) {
+        return '';
+    }
+
+    const date = new Date(isoDateString);
+    const month = date.getMonth() + 1; // 0-indexed
+    const day = date.getDate();
+    const year = date.getFullYear();
+
+    return `${month}/${day}/${year}`;
+}
+
+/**
+ * Format money for Square CSV (always 2 decimal places)
+ */
+function formatMoney(cents) {
+    if (cents === null || cents === undefined) {
+        return '0.00';
+    }
+    return (cents / 100).toFixed(2);
+}
+
+/**
+ * GET /api/purchase-orders/:po_number/export-csv
+ * Export a purchase order in Square's CSV import format
+ *
+ * Square CSV Format:
+ * - UTF-8 with BOM
+ * - Metadata rows with 6 trailing commas
+ * - Empty line separator
+ * - Header row
+ * - Data rows (11 fields, no trailing comma)
+ * - Line endings: \r\n
+ */
+app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
+    try {
+        const { po_number } = req.params;
+
+        // Get PO header with vendor and location info
+        const poResult = await db.query(`
+            SELECT
+                po.*,
+                v.name as vendor_name,
+                v.lead_time_days,
+                l.name as location_name,
+                l.address as location_address
+            FROM purchase_orders po
+            JOIN vendors v ON po.vendor_id = v.id
+            JOIN locations l ON po.location_id = l.id
+            WHERE po.po_number = $1
+        `, [po_number]);
+
+        if (poResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Purchase order not found' });
+        }
+
+        const po = poResult.rows[0];
+
+        // Get PO items with SKU and item names
+        const itemsResult = await db.query(`
+            SELECT
+                poi.*,
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name
+            FROM purchase_order_items poi
+            JOIN variations v ON poi.variation_id = v.id
+            JOIN items i ON v.item_id = i.id
+            WHERE poi.purchase_order_id = $1
+            ORDER BY i.name, v.name
+        `, [po.id]);
+
+        // Build CSV content
+        const lines = [];
+
+        // UTF-8 BOM
+        const BOM = '\uFEFF';
+
+        // Metadata rows with 6 trailing commas
+        lines.push(`Vendor,${escapeCSVField(po.vendor_name)},,,,,,`);
+        lines.push(`Location,${escapeCSVField(po.location_name)},,,,,,`);
+        lines.push(`Expected Delivery Date,${formatDateForSquare(po.expected_delivery_date)},,,,,,`);
+
+        // Empty line
+        lines.push('');
+
+        // Header row (11 fields, no trailing comma)
+        lines.push('SKU,Item Name,Quantity,Cost,Note,Expected Delivery Date,Vendor,Location,Ship To,Deliver To,Carrier');
+
+        // Data rows (11 fields, no trailing comma)
+        for (const item of itemsResult.rows) {
+            const itemName = item.variation_name
+                ? `${item.item_name} - ${item.variation_name}`
+                : item.item_name;
+
+            const row = [
+                escapeCSVField(item.sku || ''),
+                escapeCSVField(itemName),
+                item.quantity_ordered || 0,
+                formatMoney(item.unit_cost_money),
+                escapeCSVField(item.notes || ''),
+                formatDateForSquare(po.expected_delivery_date),
+                escapeCSVField(po.vendor_name),
+                escapeCSVField(po.location_name),
+                escapeCSVField(po.location_address || ''),
+                escapeCSVField(po.location_address || ''),
+                escapeCSVField('') // Carrier - empty for now
+            ];
+
+            lines.push(row.join(','));
+        }
+
+        // Join with \r\n line endings
+        const csvContent = BOM + lines.join('\r\n') + '\r\n';
+
+        // Set response headers
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="PO_${po.po_number}_${po.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}.csv"`);
+
+        // Send CSV
+        res.send(csvContent);
+
+        logger.info('CSV export generated', {
+            po_number: po.po_number,
+            vendor: po.vendor_name,
+            items: itemsResult.rows.length
+        });
+
+    } catch (error) {
+        logger.error('CSV export error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== ERROR HANDLING ====================
 
 // 404 handler
