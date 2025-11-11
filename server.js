@@ -1087,7 +1087,7 @@ app.get('/api/expirations', async (req, res) => {
             JOIN items i ON v.item_id = i.id
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
-            WHERE v.is_deleted = FALSE
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
         `;
         const params = [];
 

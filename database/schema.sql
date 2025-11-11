@@ -321,9 +321,13 @@ END $$;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 
--- Add deleted tracking columns to variations table  
+-- Add deleted tracking columns to variations table
 ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
 ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+
+-- Backfill existing rows with FALSE for is_deleted (for rows that existed before migration)
+UPDATE items SET is_deleted = FALSE WHERE is_deleted IS NULL;
+UPDATE variations SET is_deleted = FALSE WHERE is_deleted IS NULL;
 
 -- Create indexes for efficient filtering of non-deleted items
 CREATE INDEX IF NOT EXISTS idx_items_not_deleted ON items(is_deleted) WHERE is_deleted = FALSE;
