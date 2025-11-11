@@ -1062,6 +1062,92 @@ app.get('/api/import/expiration-data/status', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/expirations
+ * Get variations with expiration data for expiration tracker
+ */
+app.get('/api/expirations', async (req, res) => {
+    try {
+        const { expiry, category } = req.query;
+
+        let query = `
+            SELECT
+                v.id as identifier,
+                i.name as name,
+                v.name as variation,
+                v.upc as gtin,
+                v.price_money,
+                v.currency,
+                i.category_name,
+                ve.expiration_date,
+                ve.does_not_expire,
+                COALESCE(SUM(ic.quantity), 0) as quantity,
+                v.images
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE v.is_deleted = FALSE
+        `;
+        const params = [];
+
+        // Filter by category
+        if (category) {
+            params.push(`%${category}%`);
+            query += ` AND i.category_name ILIKE $${params.length}`;
+        }
+
+        // Group by to aggregate inventory across locations
+        query += `
+            GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
+                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images
+        `;
+
+        // Filter by expiry timeframe (applied after grouping)
+        if (expiry) {
+            if (expiry === 'no-expiry') {
+                query += ` HAVING ve.expiration_date IS NULL AND (ve.does_not_expire IS NULL OR ve.does_not_expire = FALSE)`;
+            } else if (expiry === 'never-expires') {
+                query += ` HAVING ve.does_not_expire = TRUE`;
+            } else {
+                const days = parseInt(expiry);
+                if (!isNaN(days)) {
+                    query += ` HAVING ve.expiration_date IS NOT NULL
+                              AND ve.does_not_expire = FALSE
+                              AND ve.expiration_date <= NOW() + INTERVAL '${days} days'
+                              AND ve.expiration_date >= NOW()`;
+                }
+            }
+        }
+
+        query += ' ORDER BY ve.expiration_date ASC NULLS LAST, i.name, v.name';
+
+        const result = await db.query(query, params);
+
+        // Resolve image URLs
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageIds = row.images;
+            const imageUrls = await resolveImageUrls(imageIds);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                images: undefined  // Remove raw image IDs from response
+            };
+        }));
+
+        logger.info('API /api/expirations returning', { count: items.length });
+
+        res.json({
+            count: items.length,
+            items: items
+        });
+
+    } catch (error) {
+        logger.error('Get expirations error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message, items: [] });
+    }
+});
+
 // ==================== INVENTORY ENDPOINTS ====================
 
 /**

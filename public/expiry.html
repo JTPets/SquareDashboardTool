@@ -413,7 +413,7 @@
       tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading...</td></tr>';
 
       try {
-        let url = '/api/items?';
+        let url = '/api/expirations?';
         if (expiryFilter) url += `expiry=${expiryFilter}&`;
         if (categoryFilter) url += `category=${categoryFilter}&`;
 
@@ -637,7 +637,8 @@
 
     async function loadCategories() {
       try {
-        const items = await fetch('/api/items').then(r => r.json());
+        const data = await fetch('/api/expirations').then(r => r.json());
+        const items = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
         const categories = [...new Set(items.map(i => i.category_name).filter(Boolean))];
         const select = document.getElementById('category-filter');
         categories.forEach(cat => {
