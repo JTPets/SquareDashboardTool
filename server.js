@@ -191,49 +191,6 @@ app.post('/api/test-error', async (req, res) => {
     res.json({ message: 'Test error logged and email sent' });
 });
 
-// ==================== HELPER FUNCTIONS ====================
-
-/**
- * Resolve image IDs to URLs
- * @param {Array|null} imageIds - Array of image IDs from JSONB
- * @returns {Promise<Array>} Array of image URLs
- */
-async function resolveImageUrls(imageIds) {
-    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
-        return [];
-    }
-
-    try {
-        // Query the images table to get URLs
-        const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
-        const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders})`,
-            imageIds
-        );
-
-        // Create a map of id -> url
-        const urlMap = {};
-        result.rows.forEach(row => {
-            urlMap[row.id] = row.url;
-        });
-
-        // Return URLs in the same order as imageIds, with fallback format
-        return imageIds.map(id => {
-            if (urlMap[id]) {
-                return urlMap[id];
-            }
-            // Fallback: construct S3 URL from environment variables
-            return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
-        });
-    } catch (error) {
-        logger.error('Error resolving image URLs', { error: error.message });
-        // Return fallback URLs from environment variables
-        return imageIds.map(id =>
-            `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`
-        );
-    }
-}
-
 // ==================== SYNC HELPER FUNCTIONS ====================
 
 /**
@@ -692,9 +649,21 @@ app.get('/api/variations', async (req, res) => {
     try {
         const { item_id, sku, has_cost } = req.query;
         let query = `
-            SELECT v.*, i.name as item_name, i.category_name
+            SELECT v.*, i.name as item_name, i.category_name, img.url as image_url
             FROM variations v
             JOIN items i ON v.item_id = i.id
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM images
+                WHERE id = ANY(
+                    CASE
+                        WHEN v.images IS NOT NULL AND v.images != '[]'
+                        THEN (SELECT array_agg(value::text) FROM json_array_elements_text(v.images::json))
+                        ELSE ARRAY[]::text[]
+                    END
+                )
+                LIMIT 1
+            ) img ON true
             WHERE 1=1
         `;
         const params = [];
@@ -717,19 +686,9 @@ app.get('/api/variations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs for each variation
-        const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
-            return {
-                ...variation,
-                image_urls: imageUrls
-            };
-        }));
-
         res.json({
-            count: variations.length,
-            variations
+            count: result.rows.length,
+            variations: result.rows
         });
     } catch (error) {
         console.error('Get variations error:', error);
@@ -747,7 +706,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
             SELECT
                 v.id,
                 v.sku,
-                v.images,
+                img.url as image_url,
                 i.name as item_name,
                 v.name as variation_name,
                 v.price_money as retail_price_cents,
@@ -768,25 +727,27 @@ app.get('/api/variations-with-costs', async (req, res) => {
             JOIN items i ON v.item_id = i.id
             LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
             LEFT JOIN vendors ve ON vv.vendor_id = ve.id
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM images
+                WHERE id = ANY(
+                    CASE
+                        WHEN v.images IS NOT NULL AND v.images != '[]'
+                        THEN (SELECT array_agg(value::text) FROM json_array_elements_text(v.images::json))
+                        ELSE ARRAY[]::text[]
+                    END
+                )
+                LIMIT 1
+            ) img ON true
             WHERE v.price_money IS NOT NULL
             ORDER BY i.name, v.name, ve.name
         `;
 
         const result = await db.query(query);
 
-        // Resolve image URLs for each variation
-        const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
-            return {
-                ...variation,
-                image_urls: imageUrls
-            };
-        }));
-
         res.json({
-            count: variations.length,
-            variations
+            count: result.rows.length,
+            variations: result.rows
         });
     } catch (error) {
         console.error('Get variations with costs error:', error);
@@ -1082,11 +1043,23 @@ app.get('/api/expirations', async (req, res) => {
                 ve.expiration_date,
                 ve.does_not_expire,
                 COALESCE(SUM(ic.quantity), 0) as quantity,
-                v.images
+                img.url as image_url
             FROM variations v
             JOIN items i ON v.item_id = i.id
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM images
+                WHERE id = ANY(
+                    CASE
+                        WHEN v.images IS NOT NULL AND v.images != '[]'
+                        THEN (SELECT array_agg(value::text) FROM json_array_elements_text(v.images::json))
+                        ELSE ARRAY[]::text[]
+                    END
+                )
+                LIMIT 1
+            ) img ON true
             WHERE COALESCE(v.is_deleted, FALSE) = FALSE
         `;
         const params = [];
@@ -1100,7 +1073,7 @@ app.get('/api/expirations', async (req, res) => {
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, img.url
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -1124,22 +1097,11 @@ app.get('/api/expirations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs
-        const items = await Promise.all(result.rows.map(async (row) => {
-            const imageIds = row.images;
-            const imageUrls = await resolveImageUrls(imageIds);
-            return {
-                ...row,
-                image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
-            };
-        }));
-
-        logger.info('API /api/expirations returning', { count: items.length });
+        logger.info('API /api/expirations returning', { count: result.rows.length });
 
         res.json({
-            count: items.length,
-            items: items
+            count: result.rows.length,
+            items: result.rows
         });
 
     } catch (error) {
@@ -1217,11 +1179,24 @@ app.get('/api/low-stock', async (req, res) => {
                 v.preferred_stock_level,
                 l.name as location_name,
                 ic.location_id,
-                (v.stock_alert_min - ic.quantity) as units_below_min
+                (v.stock_alert_min - ic.quantity) as units_below_min,
+                img.url as image_url
             FROM variations v
             JOIN items i ON v.item_id = i.id
             JOIN inventory_counts ic ON v.id = ic.catalog_object_id
             JOIN locations l ON ic.location_id = l.id
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM images
+                WHERE id = ANY(
+                    CASE
+                        WHEN v.images IS NOT NULL AND v.images != '[]'
+                        THEN (SELECT array_agg(value::text) FROM json_array_elements_text(v.images::json))
+                        ELSE ARRAY[]::text[]
+                    END
+                )
+                LIMIT 1
+            ) img ON true
             WHERE v.stock_alert_min IS NOT NULL
               AND ic.quantity < v.stock_alert_min
               AND ic.state = 'IN_STOCK'
@@ -1399,7 +1374,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 i.name as item_name,
                 v.name as variation_name,
                 v.sku,
-                v.images,
+                img.url as image_url,
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
@@ -1463,6 +1438,18 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN locations l ON ic.location_id = l.id
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
                 AND ic.location_id = vls.location_id
+            LEFT JOIN LATERAL (
+                SELECT url
+                FROM images
+                WHERE id = ANY(
+                    CASE
+                        WHEN v.images IS NOT NULL AND v.images != '[]'
+                        THEN (SELECT array_agg(value::text) FROM json_array_elements_text(v.images::json))
+                        ELSE ARRAY[]::text[]
+                    END
+                )
+                LIMIT 1
+            ) img ON true
             WHERE v.discontinued = FALSE
               AND (
                   -- ALWAYS SHOW: Out of stock items (regardless of supply_days or sales velocity)
@@ -1643,7 +1630,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     primary_vendor_name: row.primary_vendor_name,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
-                    images: row.images  // Include images for URL resolution
+                    image_url: row.image_url
                 };
             })
             .filter(item => item !== null);
@@ -1672,22 +1659,11 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
-        // Resolve image URLs for each suggestion
-        const suggestionsWithImages = await Promise.all(filteredSuggestions.map(async (suggestion) => {
-            const imageIds = suggestion.images;
-            const imageUrls = await resolveImageUrls(imageIds);
-            return {
-                ...suggestion,
-                image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
-            };
-        }));
-
         res.json({
-            count: suggestionsWithImages.length,
+            count: filteredSuggestions.length,
             supply_days: supplyDaysNum,
             safety_days: safetyDays,
-            suggestions: suggestionsWithImages
+            suggestions: filteredSuggestions
         });
     } catch (error) {
         console.error('Get reorder suggestions error:', error);
