@@ -1266,6 +1266,74 @@ app.get('/api/low-stock', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/deleted-items
+ * Get soft-deleted items for cleanup management
+ */
+app.get('/api/deleted-items', async (req, res) => {
+    try {
+        const { age_months } = req.query;
+
+        let query = `
+            SELECT
+                v.id,
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                v.price_money,
+                v.currency,
+                i.category_name,
+                v.deleted_at,
+                v.is_deleted,
+                COALESCE(SUM(ic.quantity), 0) as current_stock,
+                DATE_PART('day', NOW() - v.deleted_at) as days_deleted,
+                v.images,
+                i.images as item_images
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE v.is_deleted = TRUE
+        `;
+        const params = [];
+
+        // Filter by age if specified
+        if (age_months) {
+            const months = parseInt(age_months);
+            if (!isNaN(months) && months > 0) {
+                params.push(months);
+                query += ` AND v.deleted_at <= NOW() - INTERVAL '${months} months'`;
+            }
+        }
+
+        query += `
+            GROUP BY v.id, i.name, v.name, v.sku, v.price_money, v.currency,
+                     i.category_name, v.deleted_at, v.is_deleted, v.images, i.images
+            ORDER BY v.deleted_at DESC NULLS LAST, i.name, v.name
+        `;
+
+        const result = await db.query(query, params);
+
+        // Resolve image URLs (with item fallback)
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
+            };
+        }));
+
+        res.json({
+            count: items.length,
+            deleted_items: items
+        });
+    } catch (error) {
+        console.error('Get deleted items error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
