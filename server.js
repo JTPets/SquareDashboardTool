@@ -194,11 +194,19 @@ app.post('/api/test-error', async (req, res) => {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
- * Resolve image IDs to URLs
- * @param {Array|null} imageIds - Array of image IDs from JSONB
+ * Resolve image IDs to URLs with fallback support
+ * @param {Array|null} variationImages - Array of image IDs from variation
+ * @param {Array|null} itemImages - Array of image IDs from parent item (fallback)
  * @returns {Promise<Array>} Array of image URLs
  */
-async function resolveImageUrls(imageIds) {
+async function resolveImageUrls(variationImages, itemImages = null) {
+    // Try variation images first, then fall back to item images
+    let imageIds = variationImages;
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+        imageIds = itemImages;
+    }
+
     if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
         return [];
     }
@@ -207,14 +215,16 @@ async function resolveImageUrls(imageIds) {
         // Query the images table to get URLs
         const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
         const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders})`,
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
             imageIds
         );
 
         // Create a map of id -> url
         const urlMap = {};
         result.rows.forEach(row => {
-            urlMap[row.id] = row.url;
+            if (row.url) {
+                urlMap[row.id] = row.url;
+            }
         });
 
         // Return URLs in the same order as imageIds, with fallback format
@@ -692,7 +702,7 @@ app.get('/api/variations', async (req, res) => {
     try {
         const { item_id, sku, has_cost } = req.query;
         let query = `
-            SELECT v.*, i.name as item_name, i.category_name
+            SELECT v.*, i.name as item_name, i.category_name, i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             WHERE 1=1
@@ -717,12 +727,12 @@ app.get('/api/variations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs for each variation
+        // Resolve image URLs for each variation (with item fallback)
         const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
             return {
                 ...variation,
+                item_images: undefined,  // Remove from response
                 image_urls: imageUrls
             };
         }));
@@ -748,6 +758,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
                 v.id,
                 v.sku,
                 v.images,
+                i.images as item_images,
                 i.name as item_name,
                 v.name as variation_name,
                 v.price_money as retail_price_cents,
@@ -774,12 +785,12 @@ app.get('/api/variations-with-costs', async (req, res) => {
 
         const result = await db.query(query);
 
-        // Resolve image URLs for each variation
+        // Resolve image URLs for each variation (with item fallback)
         const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
             return {
                 ...variation,
+                item_images: undefined,  // Remove from response
                 image_urls: imageUrls
             };
         }));
@@ -1082,7 +1093,8 @@ app.get('/api/expirations', async (req, res) => {
                 ve.expiration_date,
                 ve.does_not_expire,
                 COALESCE(SUM(ic.quantity), 0) as quantity,
-                v.images
+                v.images,
+                i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
@@ -1100,7 +1112,7 @@ app.get('/api/expirations', async (req, res) => {
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images, i.images
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -1124,14 +1136,14 @@ app.get('/api/expirations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs
+        // Resolve image URLs (with item fallback)
         const items = await Promise.all(result.rows.map(async (row) => {
-            const imageIds = row.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
             return {
                 ...row,
                 image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
             };
         }));
 
@@ -1217,7 +1229,9 @@ app.get('/api/low-stock', async (req, res) => {
                 v.preferred_stock_level,
                 l.name as location_name,
                 ic.location_id,
-                (v.stock_alert_min - ic.quantity) as units_below_min
+                (v.stock_alert_min - ic.quantity) as units_below_min,
+                v.images,
+                i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             JOIN inventory_counts ic ON v.id = ic.catalog_object_id
@@ -1230,9 +1244,21 @@ app.get('/api/low-stock', async (req, res) => {
         `;
 
         const result = await db.query(query);
+
+        // Resolve image URLs (with item fallback)
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
+            };
+        }));
+
         res.json({
-            count: result.rows.length,
-            low_stock_items: result.rows
+            count: items.length,
+            low_stock_items: items
         });
     } catch (error) {
         console.error('Get low stock error:', error);
@@ -1400,6 +1426,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.name as variation_name,
                 v.sku,
                 v.images,
+                i.images as item_images,
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
@@ -1643,7 +1670,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     primary_vendor_name: row.primary_vendor_name,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
-                    images: row.images  // Include images for URL resolution
+                    images: row.images,  // Include images for URL resolution
+                    item_images: row.item_images  // Include item images for fallback
                 };
             })
             .filter(item => item !== null);
@@ -1672,14 +1700,14 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
-        // Resolve image URLs for each suggestion
+        // Resolve image URLs for each suggestion (with item fallback)
         const suggestionsWithImages = await Promise.all(filteredSuggestions.map(async (suggestion) => {
-            const imageIds = suggestion.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(suggestion.images, suggestion.item_images);
             return {
                 ...suggestion,
                 image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
             };
         }));
 
