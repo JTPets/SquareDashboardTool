@@ -1791,6 +1791,429 @@ app.get('/api/reorder-suggestions', async (req, res) => {
     }
 });
 
+// ==================== CYCLE COUNT ENDPOINTS ====================
+
+/**
+ * GET /api/cycle-counts/pending
+ * Get pending items for cycle counting
+ * Returns accumulated uncounted items up to target
+ */
+app.get('/api/cycle-counts/pending', async (req, res) => {
+    try {
+        const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+
+        // Get today's session or create it
+        const sessionResult = await db.query(
+            `INSERT INTO count_sessions (session_date, items_expected)
+             VALUES (CURRENT_DATE, $1)
+             ON CONFLICT DO NOTHING
+             RETURNING id`,
+            [dailyTarget]
+        );
+
+        // First, get priority queue items that haven't been completed
+        const priorityQuery = `
+            SELECT DISTINCT
+                v.id,
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                v.upc,
+                v.price_money,
+                v.currency,
+                i.category_name,
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
+                v.images,
+                i.images as item_images,
+                TRUE as is_priority
+            FROM count_queue_priority cqp
+            JOIN variations v ON cqp.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE cqp.completed = FALSE
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+            GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
+                     i.category_name, v.images, i.images
+            ORDER BY cqp.added_date ASC
+        `;
+
+        const priorityItems = await db.query(priorityQuery);
+        const priorityCount = priorityItems.rows.length;
+
+        // Calculate how many more items we need from regular rotation
+        const remainingTarget = Math.max(0, dailyTarget - priorityCount);
+
+        // Get items not in priority queue, ordered by last counted date (oldest first, never counted first)
+        const regularQuery = `
+            SELECT DISTINCT
+                v.id,
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                v.upc,
+                v.price_money,
+                v.currency,
+                i.category_name,
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
+                v.images,
+                i.images as item_images,
+                FALSE as is_priority,
+                ch.last_counted_date
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
+            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+              AND cqp.id IS NULL
+            GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
+                     i.category_name, v.images, i.images, ch.last_counted_date
+            ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
+            LIMIT $1
+        `;
+
+        const regularItems = await db.query(regularQuery, [remainingTarget]);
+
+        // Combine priority and regular items
+        const allItems = [...priorityItems.rows, ...regularItems.rows];
+
+        // Resolve image URLs for all items
+        const itemsWithImages = await Promise.all(allItems.map(async (item) => {
+            const imageUrls = await resolveImageUrls(item.images, item.item_images);
+            return {
+                ...item,
+                image_urls: imageUrls,
+                images: undefined,
+                item_images: undefined
+            };
+        }));
+
+        res.json({
+            count: itemsWithImages.length,
+            target: dailyTarget,
+            priority_count: priorityCount,
+            regular_count: regularItems.rows.length,
+            items: itemsWithImages
+        });
+
+    } catch (error) {
+        console.error('Get pending cycle counts error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/:id/complete
+ * Mark an item as counted
+ */
+app.post('/api/cycle-counts/:id/complete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { counted_by } = req.body;
+
+        // Insert or update count history
+        await db.query(
+            `INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+             VALUES ($1, CURRENT_TIMESTAMP, $2)
+             ON CONFLICT (catalog_object_id)
+             DO UPDATE SET
+                last_counted_date = CURRENT_TIMESTAMP,
+                counted_by = EXCLUDED.counted_by`,
+            [id, counted_by || 'System']
+        );
+
+        // Mark priority item as completed if it exists
+        await db.query(
+            `UPDATE count_queue_priority
+             SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
+             WHERE catalog_object_id = $1 AND completed = FALSE`,
+            [id]
+        );
+
+        // Update session completed count
+        await db.query(
+            `UPDATE count_sessions
+             SET items_completed = items_completed + 1,
+                 completion_rate = (items_completed + 1)::DECIMAL / items_expected * 100
+             WHERE session_date = CURRENT_DATE`
+        );
+
+        res.json({ success: true, catalog_object_id: id });
+
+    } catch (error) {
+        console.error('Complete cycle count error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/send-now
+ * Add item(s) to priority queue
+ */
+app.post('/api/cycle-counts/send-now', async (req, res) => {
+    try {
+        const { skus, added_by, notes } = req.body;
+
+        if (!skus || !Array.isArray(skus) || skus.length === 0) {
+            return res.status(400).json({ error: 'SKUs array is required' });
+        }
+
+        // Find variation IDs for given SKUs
+        const variations = await db.query(
+            `SELECT id, sku FROM variations
+             WHERE sku = ANY($1::text[])
+             AND COALESCE(is_deleted, FALSE) = FALSE`,
+            [skus]
+        );
+
+        if (variations.rows.length === 0) {
+            return res.status(404).json({ error: 'No valid SKUs found' });
+        }
+
+        // Insert into priority queue
+        const insertPromises = variations.rows.map(row =>
+            db.query(
+                `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT DO NOTHING`,
+                [row.id, added_by || 'System', notes || null]
+            )
+        );
+
+        await Promise.all(insertPromises);
+
+        res.json({
+            success: true,
+            items_added: variations.rows.length,
+            skus: variations.rows.map(r => r.sku)
+        });
+
+    } catch (error) {
+        console.error('Add to priority queue error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/cycle-counts/stats
+ * Get cycle count statistics and history
+ */
+app.get('/api/cycle-counts/stats', async (req, res) => {
+    try {
+        const { days } = req.query;
+        const lookbackDays = parseInt(days || '30');
+
+        // Get session stats for the last N days
+        const sessionsQuery = `
+            SELECT
+                session_date,
+                items_expected,
+                items_completed,
+                completion_rate,
+                started_at,
+                completed_at
+            FROM count_sessions
+            WHERE session_date >= CURRENT_DATE - INTERVAL '${lookbackDays} days'
+            ORDER BY session_date DESC
+        `;
+
+        const sessions = await db.query(sessionsQuery);
+
+        // Get overall stats
+        const overallQuery = `
+            SELECT
+                COUNT(DISTINCT catalog_object_id) as total_items_counted,
+                MAX(last_counted_date) as most_recent_count,
+                MIN(last_counted_date) as oldest_count,
+                COUNT(DISTINCT catalog_object_id) FILTER (
+                    WHERE last_counted_date >= CURRENT_DATE - INTERVAL '30 days'
+                ) as counted_last_30_days
+            FROM count_history
+        `;
+
+        const overall = await db.query(overallQuery);
+
+        // Get total variations that need counting
+        const totalQuery = `
+            SELECT COUNT(*) as total_variations
+            FROM variations
+            WHERE COALESCE(is_deleted, FALSE) = FALSE
+              AND track_inventory = TRUE
+        `;
+
+        const total = await db.query(totalQuery);
+
+        // Calculate coverage percentage
+        const totalVariations = parseInt(total.rows[0].total_variations);
+        const itemsCounted = parseInt(overall.rows[0].total_items_counted);
+        const coveragePercent = totalVariations > 0
+            ? ((itemsCounted / totalVariations) * 100).toFixed(2)
+            : 0;
+
+        res.json({
+            sessions: sessions.rows,
+            overall: {
+                ...overall.rows[0],
+                total_variations: totalVariations,
+                coverage_percent: coveragePercent
+            }
+        });
+
+    } catch (error) {
+        console.error('Get cycle count stats error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/email-report
+ * Send completion report email
+ */
+app.post('/api/cycle-counts/email-report', async (req, res) => {
+    try {
+        const emailEnabled = process.env.EMAIL_ENABLED === 'true';
+        const reportEnabled = process.env.CYCLE_COUNT_REPORT_EMAIL === 'true';
+
+        if (!emailEnabled || !reportEnabled) {
+            return res.status(400).json({
+                error: 'Email reporting is disabled in configuration'
+            });
+        }
+
+        // Get today's session data
+        const sessionQuery = `
+            SELECT
+                session_date,
+                items_expected,
+                items_completed,
+                completion_rate
+            FROM count_sessions
+            WHERE session_date = CURRENT_DATE
+        `;
+
+        const session = await db.query(sessionQuery);
+
+        if (session.rows.length === 0) {
+            return res.status(404).json({ error: 'No session data for today' });
+        }
+
+        const sessionData = session.rows[0];
+
+        // Get items counted today
+        const itemsQuery = `
+            SELECT
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                ch.last_counted_date,
+                ch.counted_by
+            FROM count_history ch
+            JOIN variations v ON ch.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            WHERE DATE(ch.last_counted_date) = CURRENT_DATE
+            ORDER BY ch.last_counted_date DESC
+        `;
+
+        const items = await db.query(itemsQuery);
+
+        // Build email content
+        const emailSubject = `Cycle Count Report - ${sessionData.session_date}`;
+        const emailBody = `
+            <h2>Daily Cycle Count Report</h2>
+            <p><strong>Date:</strong> ${sessionData.session_date}</p>
+            <p><strong>Items Expected:</strong> ${sessionData.items_expected}</p>
+            <p><strong>Items Completed:</strong> ${sessionData.items_completed}</p>
+            <p><strong>Completion Rate:</strong> ${sessionData.completion_rate}%</p>
+            <p><strong>Items Remaining:</strong> ${sessionData.items_expected - sessionData.items_completed}</p>
+
+            <h3>Items Counted Today (${items.rows.length})</h3>
+            <table border="1" cellpadding="5" style="border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Product</th>
+                        <th>Counted By</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.rows.map(item => `
+                        <tr>
+                            <td>${item.sku || 'N/A'}</td>
+                            <td>${item.item_name}${item.variation_name ? ' - ' + item.variation_name : ''}</td>
+                            <td>${item.counted_by || 'System'}</td>
+                            <td>${new Date(item.last_counted_date).toLocaleTimeString()}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+
+        // Send email using existing email notifier
+        const emailNotifier = require('./utils/email-notifier');
+        await emailNotifier.sendAlert(emailSubject, emailBody);
+
+        res.json({ success: true, message: 'Report sent successfully' });
+
+    } catch (error) {
+        console.error('Send cycle count report error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/reset
+ * Admin function to rebuild count history from current catalog
+ */
+app.post('/api/cycle-counts/reset', async (req, res) => {
+    try {
+        const { preserve_history } = req.body;
+
+        if (preserve_history !== false) {
+            // Add all variations that don't have count history yet
+            await db.query(`
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+                SELECT v.id, '1970-01-01'::timestamp, 'System Reset'
+                FROM variations v
+                WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+                  AND v.track_inventory = TRUE
+                  AND NOT EXISTS (
+                    SELECT 1 FROM count_history ch
+                    WHERE ch.catalog_object_id = v.id
+                  )
+            `);
+        } else {
+            // Complete reset - clear all history
+            await db.query('DELETE FROM count_history');
+            await db.query('DELETE FROM count_queue_priority');
+            await db.query('DELETE FROM count_sessions');
+
+            // Re-initialize with all current variations
+            await db.query(`
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+                SELECT id, '1970-01-01'::timestamp, 'System Reset'
+                FROM variations
+                WHERE COALESCE(is_deleted, FALSE) = FALSE
+                  AND track_inventory = TRUE
+            `);
+        }
+
+        const countResult = await db.query('SELECT COUNT(*) as count FROM count_history');
+
+        res.json({
+            success: true,
+            message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
+            total_items: parseInt(countResult.rows[0].count)
+        });
+
+    } catch (error) {
+        console.error('Reset count history error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== PURCHASE ORDERS ====================
 
 /**
