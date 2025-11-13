@@ -2570,6 +2570,46 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/purchase-orders/:id
+ * Delete a purchase order (only DRAFT orders can be deleted)
+ */
+app.delete('/api/purchase-orders/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Check if PO exists and is in DRAFT status
+        const poCheck = await db.query(
+            'SELECT id, po_number, status FROM purchase_orders WHERE id = $1',
+            [id]
+        );
+
+        if (poCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Purchase order not found' });
+        }
+
+        const po = poCheck.rows[0];
+
+        if (po.status !== 'DRAFT') {
+            return res.status(400).json({
+                error: 'Only draft purchase orders can be deleted',
+                message: `Cannot delete ${po.status} purchase order. Only DRAFT orders can be deleted.`
+            });
+        }
+
+        // Delete PO (items will be cascade deleted)
+        await db.query('DELETE FROM purchase_orders WHERE id = $1', [id]);
+
+        res.json({
+            status: 'success',
+            message: `Purchase order ${po.po_number} deleted successfully`
+        });
+    } catch (error) {
+        console.error('Delete PO error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== CSV EXPORT HELPERS ====================
 
 /**

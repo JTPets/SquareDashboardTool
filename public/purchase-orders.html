@@ -172,6 +172,151 @@
     .text-nowrap {
       white-space: nowrap;
     }
+
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #4b5563;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      max-width: 900px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+      padding: 20px 25px;
+      border-bottom: 2px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h2 {
+      font-size: 20px;
+      margin: 0;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    }
+
+    .modal-close:hover {
+      background: #f3f4f6;
+      color: #1f2937;
+    }
+
+    .modal-body {
+      padding: 25px;
+    }
+
+    .po-detail-section {
+      margin-bottom: 25px;
+    }
+
+    .po-detail-section h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #374151;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+    }
+
+    .po-info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .po-info-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .po-info-label {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .po-info-value {
+      font-size: 14px;
+      color: #1f2937;
+    }
+
+    .po-items-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .po-items-table th {
+      background: #f9fafb;
+      padding: 10px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .po-items-table td {
+      padding: 10px;
+      border-bottom: 1px solid #f3f4f6;
+    }
   </style>
 </head>
 <body>
@@ -186,6 +331,19 @@
 
       <div id="po-list">
         <div class="loading">Loading purchase orders...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- View PO Modal -->
+  <div id="view-po-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">Purchase Order Details</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <div class="loading">Loading...</div>
       </div>
     </div>
   </div>
@@ -260,12 +418,26 @@
                   <td class="text-nowrap">${formatDate(po.expected_delivery_date)}</td>
                   <td class="text-nowrap">${formatDate(po.created_at)}</td>
                   <td class="text-nowrap">
-                    <a href="/api/purchase-orders/${po.po_number}/export-csv"
-                       download="PO_${po.po_number}.csv"
-                       class="btn btn-primary btn-small"
-                       title="Export to Square CSV format">
-                      📥 Export CSV
-                    </a>
+                    <div class="btn-group">
+                      <button onclick="viewPO(${po.id})"
+                              class="btn btn-secondary btn-small"
+                              title="View purchase order details">
+                        👁️ View
+                      </button>
+                      ${po.status === 'DRAFT' ? `
+                        <button onclick="deletePO(${po.id}, '${escapeHtml(po.po_number)}')"
+                                class="btn btn-danger btn-small"
+                                title="Delete draft purchase order">
+                          🗑️ Delete
+                        </button>
+                      ` : ''}
+                      <a href="/api/purchase-orders/${po.po_number}/export-csv"
+                         download="PO_${po.po_number}.csv"
+                         class="btn btn-primary btn-small"
+                         title="Download Square CSV">
+                        📥 CSV
+                      </a>
+                    </div>
                   </td>
                 </tr>
               `).join('')}
@@ -308,6 +480,150 @@
         return '-';
       }
     }
+
+    // View PO details in modal
+    async function viewPO(poId) {
+      const modal = document.getElementById('view-po-modal');
+      const modalBody = document.getElementById('modal-body');
+      const modalTitle = document.getElementById('modal-title');
+
+      modal.classList.add('active');
+      modalBody.innerHTML = '<div class="loading">Loading purchase order details...</div>';
+
+      try {
+        const response = await fetch(`/api/purchase-orders/${poId}`);
+        if (!response.ok) throw new Error('Failed to load purchase order');
+
+        const po = await response.json();
+
+        modalTitle.textContent = `Purchase Order: ${po.po_number}`;
+
+        const itemsTableHTML = po.items && po.items.length > 0 ? `
+          <table class="po-items-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>SKU</th>
+                <th class="text-right">Qty Ordered</th>
+                <th class="text-right">Unit Cost</th>
+                <th class="text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${po.items.map(item => `
+                <tr>
+                  <td>
+                    <strong>${escapeHtml(item.item_name)}</strong>
+                    ${item.variation_name ? `<br><small>${escapeHtml(item.variation_name)}</small>` : ''}
+                  </td>
+                  <td>${escapeHtml(item.sku || '-')}</td>
+                  <td class="text-right">${item.quantity_ordered}</td>
+                  <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
+                  <td class="text-right">$${(item.total_cost_cents / 100).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" class="text-right"><strong>Total:</strong></td>
+                <td class="text-right"><strong>$${(po.total_cents / 100).toFixed(2)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        ` : '<p>No items found</p>';
+
+        modalBody.innerHTML = `
+          <div class="po-detail-section">
+            <h3>Order Information</h3>
+            <div class="po-info-grid">
+              <div class="po-info-item">
+                <span class="po-info-label">PO Number</span>
+                <span class="po-info-value">${escapeHtml(po.po_number)}</span>
+              </div>
+              <div class="po-info-item">
+                <span class="po-info-label">Status</span>
+                <span class="po-info-value"><span class="status-badge status-${po.status}">${po.status}</span></span>
+              </div>
+              <div class="po-info-item">
+                <span class="po-info-label">Vendor</span>
+                <span class="po-info-value">${escapeHtml(po.vendor_name)}</span>
+              </div>
+              <div class="po-info-item">
+                <span class="po-info-label">Location</span>
+                <span class="po-info-value">${escapeHtml(po.location_name)}</span>
+              </div>
+              <div class="po-info-item">
+                <span class="po-info-label">Expected Delivery</span>
+                <span class="po-info-value">${formatDate(po.expected_delivery_date)}</span>
+              </div>
+              <div class="po-info-item">
+                <span class="po-info-label">Created</span>
+                <span class="po-info-value">${formatDate(po.created_at)}</span>
+              </div>
+            </div>
+            ${po.notes ? `
+              <div class="po-info-item" style="margin-top: 15px;">
+                <span class="po-info-label">Notes</span>
+                <span class="po-info-value">${escapeHtml(po.notes)}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="po-detail-section">
+            <h3>Items (${po.items ? po.items.length : 0})</h3>
+            ${itemsTableHTML}
+          </div>
+        `;
+
+      } catch (error) {
+        console.error('Failed to load PO details:', error);
+        modalBody.innerHTML = `
+          <div class="empty-state">
+            <h3>Error Loading Purchase Order</h3>
+            <p>${escapeHtml(error.message)}</p>
+          </div>
+        `;
+      }
+    }
+
+    // Delete PO
+    async function deletePO(poId, poNumber) {
+      if (!confirm(`Are you sure you want to delete purchase order ${poNumber}?\n\nThis action cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/purchase-orders/${poId}`, {
+          method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || data.error || 'Failed to delete purchase order');
+        }
+
+        alert(`Purchase order ${poNumber} deleted successfully`);
+        loadPurchaseOrders(); // Reload the list
+
+      } catch (error) {
+        console.error('Failed to delete PO:', error);
+        alert(`Error: ${error.message}`);
+      }
+    }
+
+    // Close modal
+    function closeModal() {
+      const modal = document.getElementById('view-po-modal');
+      modal.classList.remove('active');
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('view-po-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'view-po-modal') {
+        closeModal();
+      }
+    });
 
     // Load on page load
     document.addEventListener('DOMContentLoaded', loadPurchaseOrders);
