@@ -1814,27 +1814,26 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
         // First, get priority queue items that haven't been completed
         const priorityQuery = `
             SELECT DISTINCT
-                v.id,
-                v.sku,
+                v.*,
                 i.name as item_name,
-                v.name as variation_name,
-                v.upc,
-                v.price_money,
-                v.currency,
                 i.category_name,
-                COALESCE(SUM(ic.quantity), 0) as current_inventory,
-                v.images,
                 i.images as item_images,
-                TRUE as is_priority
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
+                TRUE as is_priority,
+                ch.last_counted_date,
+                ch.counted_by,
+                cqp.added_date as priority_added_date,
+                cqp.notes as priority_notes
             FROM count_queue_priority cqp
             JOIN variations v ON cqp.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
             WHERE cqp.completed = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
-            GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
-                     i.category_name, v.images, i.images
+            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
+                     cqp.added_date, cqp.notes
             ORDER BY cqp.added_date ASC
         `;
 
@@ -1847,19 +1846,14 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
         // Get items not in priority queue, ordered by last counted date (oldest first, never counted first)
         const regularQuery = `
             SELECT DISTINCT
-                v.id,
-                v.sku,
+                v.*,
                 i.name as item_name,
-                v.name as variation_name,
-                v.upc,
-                v.price_money,
-                v.currency,
                 i.category_name,
-                COALESCE(SUM(ic.quantity), 0) as current_inventory,
-                v.images,
                 i.images as item_images,
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
                 FALSE as is_priority,
-                ch.last_counted_date
+                ch.last_counted_date,
+                ch.counted_by
             FROM variations v
             JOIN items i ON v.item_id = i.id
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
@@ -1868,8 +1862,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             WHERE COALESCE(v.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
               AND cqp.id IS NULL
-            GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
-                     i.category_name, v.images, i.images, ch.last_counted_date
+            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by
             ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
             LIMIT $1
         `;
