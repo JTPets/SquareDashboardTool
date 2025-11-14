@@ -194,11 +194,19 @@ app.post('/api/test-error', async (req, res) => {
 // ==================== HELPER FUNCTIONS ====================
 
 /**
- * Resolve image IDs to URLs
- * @param {Array|null} imageIds - Array of image IDs from JSONB
+ * Resolve image IDs to URLs with fallback support
+ * @param {Array|null} variationImages - Array of image IDs from variation
+ * @param {Array|null} itemImages - Array of image IDs from parent item (fallback)
  * @returns {Promise<Array>} Array of image URLs
  */
-async function resolveImageUrls(imageIds) {
+async function resolveImageUrls(variationImages, itemImages = null) {
+    // Try variation images first, then fall back to item images
+    let imageIds = variationImages;
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+        imageIds = itemImages;
+    }
+
     if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
         return [];
     }
@@ -207,14 +215,16 @@ async function resolveImageUrls(imageIds) {
         // Query the images table to get URLs
         const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
         const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders})`,
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
             imageIds
         );
 
         // Create a map of id -> url
         const urlMap = {};
         result.rows.forEach(row => {
-            urlMap[row.id] = row.url;
+            if (row.url) {
+                urlMap[row.id] = row.url;
+            }
         });
 
         // Return URLs in the same order as imageIds, with fallback format
@@ -692,7 +702,7 @@ app.get('/api/variations', async (req, res) => {
     try {
         const { item_id, sku, has_cost } = req.query;
         let query = `
-            SELECT v.*, i.name as item_name, i.category_name
+            SELECT v.*, i.name as item_name, i.category_name, i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             WHERE 1=1
@@ -717,12 +727,12 @@ app.get('/api/variations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs for each variation
+        // Resolve image URLs for each variation (with item fallback)
         const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
             return {
                 ...variation,
+                item_images: undefined,  // Remove from response
                 image_urls: imageUrls
             };
         }));
@@ -748,6 +758,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
                 v.id,
                 v.sku,
                 v.images,
+                i.images as item_images,
                 i.name as item_name,
                 v.name as variation_name,
                 v.price_money as retail_price_cents,
@@ -774,12 +785,12 @@ app.get('/api/variations-with-costs', async (req, res) => {
 
         const result = await db.query(query);
 
-        // Resolve image URLs for each variation
+        // Resolve image URLs for each variation (with item fallback)
         const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageIds = variation.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
             return {
                 ...variation,
+                item_images: undefined,  // Remove from response
                 image_urls: imageUrls
             };
         }));
@@ -1082,7 +1093,8 @@ app.get('/api/expirations', async (req, res) => {
                 ve.expiration_date,
                 ve.does_not_expire,
                 COALESCE(SUM(ic.quantity), 0) as quantity,
-                v.images
+                v.images,
+                i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
@@ -1100,7 +1112,7 @@ app.get('/api/expirations', async (req, res) => {
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images, i.images
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -1124,14 +1136,14 @@ app.get('/api/expirations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs
+        // Resolve image URLs (with item fallback)
         const items = await Promise.all(result.rows.map(async (row) => {
-            const imageIds = row.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
             return {
                 ...row,
                 image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
             };
         }));
 
@@ -1217,7 +1229,9 @@ app.get('/api/low-stock', async (req, res) => {
                 v.preferred_stock_level,
                 l.name as location_name,
                 ic.location_id,
-                (v.stock_alert_min - ic.quantity) as units_below_min
+                (v.stock_alert_min - ic.quantity) as units_below_min,
+                v.images,
+                i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id
             JOIN inventory_counts ic ON v.id = ic.catalog_object_id
@@ -1230,12 +1244,92 @@ app.get('/api/low-stock', async (req, res) => {
         `;
 
         const result = await db.query(query);
+
+        // Resolve image URLs (with item fallback)
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
+            };
+        }));
+
         res.json({
-            count: result.rows.length,
-            low_stock_items: result.rows
+            count: items.length,
+            low_stock_items: items
         });
     } catch (error) {
         console.error('Get low stock error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/deleted-items
+ * Get soft-deleted items for cleanup management
+ */
+app.get('/api/deleted-items', async (req, res) => {
+    try {
+        const { age_months } = req.query;
+
+        let query = `
+            SELECT
+                v.id,
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                v.price_money,
+                v.currency,
+                i.category_name,
+                v.deleted_at,
+                v.is_deleted,
+                COALESCE(SUM(ic.quantity), 0) as current_stock,
+                DATE_PART('day', NOW() - v.deleted_at) as days_deleted,
+                v.images,
+                i.images as item_images
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE v.is_deleted = TRUE
+        `;
+        const params = [];
+
+        // Filter by age if specified
+        if (age_months) {
+            const months = parseInt(age_months);
+            if (!isNaN(months) && months > 0) {
+                params.push(months);
+                query += ` AND v.deleted_at <= NOW() - INTERVAL '${months} months'`;
+            }
+        }
+
+        query += `
+            GROUP BY v.id, i.name, v.name, v.sku, v.price_money, v.currency,
+                     i.category_name, v.deleted_at, v.is_deleted, v.images, i.images
+            ORDER BY v.deleted_at DESC NULLS LAST, i.name, v.name
+        `;
+
+        const result = await db.query(query, params);
+
+        // Resolve image URLs (with item fallback)
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
+            };
+        }));
+
+        res.json({
+            count: items.length,
+            deleted_items: items
+        });
+    } catch (error) {
+        console.error('Get deleted items error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1400,6 +1494,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.name as variation_name,
                 v.sku,
                 v.images,
+                i.images as item_images,
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
@@ -1643,7 +1738,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     primary_vendor_name: row.primary_vendor_name,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
-                    images: row.images  // Include images for URL resolution
+                    images: row.images,  // Include images for URL resolution
+                    item_images: row.item_images  // Include item images for fallback
                 };
             })
             .filter(item => item !== null);
@@ -1672,14 +1768,14 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
-        // Resolve image URLs for each suggestion
+        // Resolve image URLs for each suggestion (with item fallback)
         const suggestionsWithImages = await Promise.all(filteredSuggestions.map(async (suggestion) => {
-            const imageIds = suggestion.images;
-            const imageUrls = await resolveImageUrls(imageIds);
+            const imageUrls = await resolveImageUrls(suggestion.images, suggestion.item_images);
             return {
                 ...suggestion,
                 image_urls: imageUrls,
-                images: undefined  // Remove raw image IDs from response
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
             };
         }));
 
@@ -1691,6 +1787,422 @@ app.get('/api/reorder-suggestions', async (req, res) => {
         });
     } catch (error) {
         console.error('Get reorder suggestions error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== CYCLE COUNT ENDPOINTS ====================
+
+/**
+ * GET /api/cycle-counts/pending
+ * Get pending items for cycle counting
+ * Returns accumulated uncounted items up to target
+ */
+app.get('/api/cycle-counts/pending', async (req, res) => {
+    try {
+        const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+
+        // Get today's session or create it
+        const sessionResult = await db.query(
+            `INSERT INTO count_sessions (session_date, items_expected)
+             VALUES (CURRENT_DATE, $1)
+             ON CONFLICT DO NOTHING
+             RETURNING id`,
+            [dailyTarget]
+        );
+
+        // First, get priority queue items that haven't been completed
+        const priorityQuery = `
+            SELECT DISTINCT
+                v.*,
+                i.name as item_name,
+                i.category_name,
+                i.images as item_images,
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
+                TRUE as is_priority,
+                ch.last_counted_date,
+                ch.counted_by,
+                cqp.added_date as priority_added_date,
+                cqp.notes as priority_notes
+            FROM count_queue_priority cqp
+            JOIN variations v ON cqp.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
+            WHERE cqp.completed = FALSE
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
+                     cqp.added_date, cqp.notes
+            ORDER BY cqp.added_date ASC
+        `;
+
+        const priorityItems = await db.query(priorityQuery);
+        const priorityCount = priorityItems.rows.length;
+
+        // Calculate how many more items we need from regular rotation
+        const remainingTarget = Math.max(0, dailyTarget - priorityCount);
+
+        // Get items not in priority queue, ordered by last counted date (oldest first, never counted first)
+        const regularQuery = `
+            SELECT DISTINCT
+                v.*,
+                i.name as item_name,
+                i.category_name,
+                i.images as item_images,
+                COALESCE(SUM(ic.quantity), 0) as current_inventory,
+                FALSE as is_priority,
+                ch.last_counted_date,
+                ch.counted_by
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
+            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+              AND cqp.id IS NULL
+            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by
+            ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
+            LIMIT $1
+        `;
+
+        const regularItems = await db.query(regularQuery, [remainingTarget]);
+
+        // Combine priority and regular items
+        const allItems = [...priorityItems.rows, ...regularItems.rows];
+
+        // Resolve image URLs for all items
+        const itemsWithImages = await Promise.all(allItems.map(async (item) => {
+            const imageUrls = await resolveImageUrls(item.images, item.item_images);
+            return {
+                ...item,
+                image_urls: imageUrls,
+                images: undefined,
+                item_images: undefined
+            };
+        }));
+
+        res.json({
+            count: itemsWithImages.length,
+            target: dailyTarget,
+            priority_count: priorityCount,
+            regular_count: regularItems.rows.length,
+            items: itemsWithImages
+        });
+
+    } catch (error) {
+        console.error('Get pending cycle counts error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/:id/complete
+ * Mark an item as counted
+ */
+app.post('/api/cycle-counts/:id/complete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { counted_by } = req.body;
+
+        // Insert or update count history
+        await db.query(
+            `INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+             VALUES ($1, CURRENT_TIMESTAMP, $2)
+             ON CONFLICT (catalog_object_id)
+             DO UPDATE SET
+                last_counted_date = CURRENT_TIMESTAMP,
+                counted_by = EXCLUDED.counted_by`,
+            [id, counted_by || 'System']
+        );
+
+        // Mark priority item as completed if it exists
+        await db.query(
+            `UPDATE count_queue_priority
+             SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
+             WHERE catalog_object_id = $1 AND completed = FALSE`,
+            [id]
+        );
+
+        // Update session completed count
+        await db.query(
+            `UPDATE count_sessions
+             SET items_completed = items_completed + 1,
+                 completion_rate = (items_completed + 1)::DECIMAL / items_expected * 100
+             WHERE session_date = CURRENT_DATE`
+        );
+
+        res.json({ success: true, catalog_object_id: id });
+
+    } catch (error) {
+        console.error('Complete cycle count error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/send-now
+ * Add item(s) to priority queue
+ */
+app.post('/api/cycle-counts/send-now', async (req, res) => {
+    try {
+        const { skus, added_by, notes } = req.body;
+
+        if (!skus || !Array.isArray(skus) || skus.length === 0) {
+            return res.status(400).json({ error: 'SKUs array is required' });
+        }
+
+        // Find variation IDs for given SKUs
+        const variations = await db.query(
+            `SELECT id, sku FROM variations
+             WHERE sku = ANY($1::text[])
+             AND COALESCE(is_deleted, FALSE) = FALSE`,
+            [skus]
+        );
+
+        if (variations.rows.length === 0) {
+            return res.status(404).json({ error: 'No valid SKUs found' });
+        }
+
+        // Insert into priority queue
+        const insertPromises = variations.rows.map(row =>
+            db.query(
+                `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT DO NOTHING`,
+                [row.id, added_by || 'System', notes || null]
+            )
+        );
+
+        await Promise.all(insertPromises);
+
+        res.json({
+            success: true,
+            items_added: variations.rows.length,
+            skus: variations.rows.map(r => r.sku)
+        });
+
+    } catch (error) {
+        console.error('Add to priority queue error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/cycle-counts/stats
+ * Get cycle count statistics and history
+ */
+app.get('/api/cycle-counts/stats', async (req, res) => {
+    try {
+        const { days } = req.query;
+        const lookbackDays = parseInt(days || '30');
+
+        // Get session stats for the last N days
+        const sessionsQuery = `
+            SELECT
+                session_date,
+                items_expected,
+                items_completed,
+                completion_rate,
+                started_at,
+                completed_at
+            FROM count_sessions
+            WHERE session_date >= CURRENT_DATE - INTERVAL '${lookbackDays} days'
+            ORDER BY session_date DESC
+        `;
+
+        const sessions = await db.query(sessionsQuery);
+
+        // Get overall stats
+        const overallQuery = `
+            SELECT
+                COUNT(DISTINCT catalog_object_id) as total_items_counted,
+                MAX(last_counted_date) as most_recent_count,
+                MIN(last_counted_date) as oldest_count,
+                COUNT(DISTINCT catalog_object_id) FILTER (
+                    WHERE last_counted_date >= CURRENT_DATE - INTERVAL '30 days'
+                ) as counted_last_30_days
+            FROM count_history
+        `;
+
+        const overall = await db.query(overallQuery);
+
+        // Get total variations that need counting
+        const totalQuery = `
+            SELECT COUNT(*) as total_variations
+            FROM variations
+            WHERE COALESCE(is_deleted, FALSE) = FALSE
+              AND track_inventory = TRUE
+        `;
+
+        const total = await db.query(totalQuery);
+
+        // Calculate coverage percentage
+        const totalVariations = parseInt(total.rows[0].total_variations);
+        const itemsCounted = parseInt(overall.rows[0].total_items_counted);
+        const coveragePercent = totalVariations > 0
+            ? ((itemsCounted / totalVariations) * 100).toFixed(2)
+            : 0;
+
+        res.json({
+            sessions: sessions.rows,
+            overall: {
+                ...overall.rows[0],
+                total_variations: totalVariations,
+                coverage_percent: coveragePercent
+            }
+        });
+
+    } catch (error) {
+        console.error('Get cycle count stats error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/email-report
+ * Send completion report email
+ */
+app.post('/api/cycle-counts/email-report', async (req, res) => {
+    try {
+        const emailEnabled = process.env.EMAIL_ENABLED === 'true';
+        const reportEnabled = process.env.CYCLE_COUNT_REPORT_EMAIL === 'true';
+
+        if (!emailEnabled || !reportEnabled) {
+            return res.status(400).json({
+                error: 'Email reporting is disabled in configuration'
+            });
+        }
+
+        // Get today's session data
+        const sessionQuery = `
+            SELECT
+                session_date,
+                items_expected,
+                items_completed,
+                completion_rate
+            FROM count_sessions
+            WHERE session_date = CURRENT_DATE
+        `;
+
+        const session = await db.query(sessionQuery);
+
+        if (session.rows.length === 0) {
+            return res.status(404).json({ error: 'No session data for today' });
+        }
+
+        const sessionData = session.rows[0];
+
+        // Get items counted today
+        const itemsQuery = `
+            SELECT
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                ch.last_counted_date,
+                ch.counted_by
+            FROM count_history ch
+            JOIN variations v ON ch.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            WHERE DATE(ch.last_counted_date) = CURRENT_DATE
+            ORDER BY ch.last_counted_date DESC
+        `;
+
+        const items = await db.query(itemsQuery);
+
+        // Build email content
+        const emailSubject = `Cycle Count Report - ${sessionData.session_date}`;
+        const emailBody = `
+            <h2>Daily Cycle Count Report</h2>
+            <p><strong>Date:</strong> ${sessionData.session_date}</p>
+            <p><strong>Items Expected:</strong> ${sessionData.items_expected}</p>
+            <p><strong>Items Completed:</strong> ${sessionData.items_completed}</p>
+            <p><strong>Completion Rate:</strong> ${sessionData.completion_rate}%</p>
+            <p><strong>Items Remaining:</strong> ${sessionData.items_expected - sessionData.items_completed}</p>
+
+            <h3>Items Counted Today (${items.rows.length})</h3>
+            <table border="1" cellpadding="5" style="border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Product</th>
+                        <th>Counted By</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.rows.map(item => `
+                        <tr>
+                            <td>${item.sku || 'N/A'}</td>
+                            <td>${item.item_name}${item.variation_name ? ' - ' + item.variation_name : ''}</td>
+                            <td>${item.counted_by || 'System'}</td>
+                            <td>${new Date(item.last_counted_date).toLocaleTimeString()}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+
+        // Send email using existing email notifier
+        const emailNotifier = require('./utils/email-notifier');
+        await emailNotifier.sendAlert(emailSubject, emailBody);
+
+        res.json({ success: true, message: 'Report sent successfully' });
+
+    } catch (error) {
+        console.error('Send cycle count report error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/reset
+ * Admin function to rebuild count history from current catalog
+ */
+app.post('/api/cycle-counts/reset', async (req, res) => {
+    try {
+        const { preserve_history } = req.body;
+
+        if (preserve_history !== false) {
+            // Add all variations that don't have count history yet
+            await db.query(`
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+                SELECT v.id, '1970-01-01'::timestamp, 'System Reset'
+                FROM variations v
+                WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+                  AND v.track_inventory = TRUE
+                  AND NOT EXISTS (
+                    SELECT 1 FROM count_history ch
+                    WHERE ch.catalog_object_id = v.id
+                  )
+            `);
+        } else {
+            // Complete reset - clear all history
+            await db.query('DELETE FROM count_history');
+            await db.query('DELETE FROM count_queue_priority');
+            await db.query('DELETE FROM count_sessions');
+
+            // Re-initialize with all current variations
+            await db.query(`
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
+                SELECT id, '1970-01-01'::timestamp, 'System Reset'
+                FROM variations
+                WHERE COALESCE(is_deleted, FALSE) = FALSE
+                  AND track_inventory = TRUE
+            `);
+        }
+
+        const countResult = await db.query('SELECT COUNT(*) as count FROM count_history');
+
+        res.json({
+            success: true,
+            message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
+            total_items: parseInt(countResult.rows[0].count)
+        });
+
+    } catch (error) {
+        console.error('Reset count history error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -2054,6 +2566,46 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
         });
     } catch (error) {
         console.error('Receive PO error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/purchase-orders/:id
+ * Delete a purchase order (only DRAFT orders can be deleted)
+ */
+app.delete('/api/purchase-orders/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Check if PO exists and is in DRAFT status
+        const poCheck = await db.query(
+            'SELECT id, po_number, status FROM purchase_orders WHERE id = $1',
+            [id]
+        );
+
+        if (poCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Purchase order not found' });
+        }
+
+        const po = poCheck.rows[0];
+
+        if (po.status !== 'DRAFT') {
+            return res.status(400).json({
+                error: 'Only draft purchase orders can be deleted',
+                message: `Cannot delete ${po.status} purchase order. Only DRAFT orders can be deleted.`
+            });
+        }
+
+        // Delete PO (items will be cascade deleted)
+        await db.query('DELETE FROM purchase_orders WHERE id = $1', [id]);
+
+        res.json({
+            status: 'success',
+            message: `Purchase order ${po.po_number} deleted successfully`
+        });
+    } catch (error) {
+        console.error('Delete PO error:', error);
         res.status(500).json({ error: error.message });
     }
 });

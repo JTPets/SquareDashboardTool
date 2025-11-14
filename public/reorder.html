@@ -105,6 +105,25 @@
       font-weight: 500;
       line-height: 1.3;
     }
+    .product-image {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+    }
+    .no-image {
+      width: 50px;
+      height: 50px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 20px;
+      border: 1px solid #e5e7eb;
+    }
     .variation-name {
       font-size: 12px;
       color: #6b7280;
@@ -298,6 +317,7 @@
             <th onclick="sortTable('priority')" class="sortable">
               Priority <span class="sort-indicator" id="sort-priority"></span>
             </th>
+            <th>Image</th>
             <th onclick="sortTable('item_name')" class="sortable">
               Product <span class="sort-indicator" id="sort-item_name"></span>
             </th>
@@ -338,7 +358,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="14" class="loading">Loading suggestions...</td>
+            <td colspan="15" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -415,7 +435,7 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="14" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="15" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -428,7 +448,7 @@
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="13" class="empty-state">
+              <td colspan="15" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -450,7 +470,7 @@
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="13" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="15" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -537,6 +557,13 @@
           ? `<br><span class="vendor-warning" title="Primary vendor: ${escapeHtml(item.primary_vendor_name)}">⚠️ Alt Vendor</span>`
           : '';
 
+        // Get image URL
+        const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+        const imageHtml = imageUrl
+          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+             <div class="no-image" style="display:none;">📦</div>`
+          : `<div class="no-image">📦</div>`;
+
         return `
           <tr class="${isSelected ? 'selected' : ''} ${rowClass}" data-id="${item.variation_id}">
             <td class="text-center">
@@ -550,6 +577,7 @@
               ${velocityClass === 'velocity-slow' && dailyVelocity > 0 ? '<br><small style="color: #6b7280;">Slow mover</small>' : ''}
               ${vendorWarning}
             </td>
+            <td>${imageHtml}</td>
             <td>
               <div class="product-name">${escapeHtml(item.item_name)}</div>
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
