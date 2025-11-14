@@ -675,10 +675,13 @@ SKU-003"></textarea>
 
       const expectedQty = item.current_inventory || 0;
 
+      // Store values BEFORE closing modal (which resets them)
+      const isAccurate = countIsAccurate;
+      const itemId = currentCountItem;
       let actualQty = null;
       let notes = null;
 
-      if (!countIsAccurate) {
+      if (!isAccurate) {
         actualQty = parseInt(document.getElementById('actual-count').value);
         notes = document.getElementById('count-notes').value.trim() || null;
 
@@ -688,24 +691,24 @@ SKU-003"></textarea>
         }
       }
 
-      // Close modal
+      // Close modal (this resets countIsAccurate, currentCountItem to null)
       closeCountModal();
 
-      // Find and disable button
-      const btn = document.querySelector(`#item-${currentCountItem} .mark-counted-btn`);
+      // Find and disable button (use stored itemId, not currentCountItem which is now null)
+      const btn = document.querySelector(`#item-${itemId} .mark-counted-btn`);
       if (btn) {
         btn.disabled = true;
         btn.textContent = '⏳ Marking...';
       }
 
       try {
-        const response = await fetch(`/api/cycle-counts/${currentCountItem}/complete`, {
+        const response = await fetch(`/api/cycle-counts/${itemId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             counted_by: 'Mobile User',
-            is_accurate: countIsAccurate,
-            actual_quantity: countIsAccurate ? expectedQty : actualQty,
+            is_accurate: isAccurate,
+            actual_quantity: isAccurate ? expectedQty : actualQty,
             expected_quantity: expectedQty,
             notes: notes
           })
@@ -716,7 +719,7 @@ SKU-003"></textarea>
         const result = await response.json();
 
         // Visual feedback
-        const card = document.getElementById(`item-${currentCountItem}`);
+        const card = document.getElementById(`item-${itemId}`);
         card.classList.add('counted');
         if (btn) {
           btn.classList.add('counted');
@@ -724,7 +727,7 @@ SKU-003"></textarea>
         }
 
         // Remove from pending list (find by ID)
-        const itemIndex = pendingItems.findIndex(i => i.id === currentCountItem);
+        const itemIndex = pendingItems.findIndex(i => i.id === itemId);
         if (itemIndex !== -1) {
           pendingItems.splice(itemIndex, 1);
         }
