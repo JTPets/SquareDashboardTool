@@ -452,6 +452,38 @@ SKU-003"></textarea>
     </div>
   </div>
 
+  <!-- Count Confirmation Modal -->
+  <div class="modal" id="count-modal">
+    <div class="modal-content">
+      <h2 class="modal-title">📋 Confirm Count</h2>
+      <div class="form-group">
+        <label class="form-label">System Inventory:</label>
+        <div style="font-size: 24px; font-weight: 700; color: #667eea; margin-bottom: 16px;" id="modal-system-count">0</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Is the count accurate?</label>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-success" style="flex: 1;" onclick="setAccurate(true)">✅ Yes, Accurate</button>
+          <button class="btn btn-secondary" style="flex: 1;" onclick="setAccurate(false)">❌ Not Accurate</button>
+        </div>
+      </div>
+      <div id="inaccurate-section" style="display: none;">
+        <div class="form-group">
+          <label class="form-label">Actual Physical Count:</label>
+          <input type="number" class="form-input" id="actual-count" placeholder="Enter actual quantity" min="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes (optional):</label>
+          <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeCountModal()">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn" disabled>Submit Count</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
@@ -459,6 +491,11 @@ SKU-003"></textarea>
     let pendingItems = [];
     let countedToday = 0;
     let target = 0;
+
+    // Count modal state
+    let currentCountItem = null;
+    let currentCountIndex = null;
+    let countIsAccurate = null;
 
     // Load pending items on page load
     async function loadPendingItems() {
@@ -551,7 +588,7 @@ SKU-003"></textarea>
               </div>
             </div>
             <div class="item-actions">
-              <button class="mark-counted-btn" onclick="markCounted('${item.id}', ${index})">
+              <button class="mark-counted-btn" onclick="showCountModal('${item.id}', ${index})">
                 ✓ Mark as Counted
               </button>
             </div>
@@ -560,28 +597,105 @@ SKU-003"></textarea>
       }).join('');
     }
 
-    async function markCounted(itemId, index) {
-      const btn = event.target;
-      btn.disabled = true;
-      btn.textContent = '⏳ Marking...';
+    function showCountModal(itemId, index) {
+      const item = pendingItems[index];
+      currentCountItem = itemId;
+      currentCountIndex = index;
+      countIsAccurate = null;
+
+      // Set system count
+      document.getElementById('modal-system-count').textContent = item.current_inventory || 0;
+
+      // Reset form
+      document.getElementById('actual-count').value = '';
+      document.getElementById('count-notes').value = '';
+      document.getElementById('inaccurate-section').style.display = 'none';
+      document.getElementById('submit-count-btn').disabled = true;
+
+      // Show modal
+      document.getElementById('count-modal').classList.add('active');
+    }
+
+    function closeCountModal() {
+      document.getElementById('count-modal').classList.remove('active');
+      currentCountItem = null;
+      currentCountIndex = null;
+      countIsAccurate = null;
+    }
+
+    function setAccurate(isAccurate) {
+      countIsAccurate = isAccurate;
+      const inaccurateSection = document.getElementById('inaccurate-section');
+      const submitBtn = document.getElementById('submit-count-btn');
+
+      if (isAccurate) {
+        inaccurateSection.style.display = 'none';
+        submitBtn.disabled = false;
+      } else {
+        inaccurateSection.style.display = 'block';
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function submitCount() {
+      if (currentCountItem === null || countIsAccurate === null) {
+        showToast('Please select if count is accurate', 'error');
+        return;
+      }
+
+      const item = pendingItems[currentCountIndex];
+      const expectedQty = item.current_inventory || 0;
+
+      let actualQty = null;
+      let notes = null;
+
+      if (!countIsAccurate) {
+        actualQty = parseInt(document.getElementById('actual-count').value);
+        notes = document.getElementById('count-notes').value.trim() || null;
+
+        if (isNaN(actualQty) || actualQty < 0) {
+          showToast('Please enter a valid actual count', 'error');
+          return;
+        }
+      }
+
+      // Close modal
+      closeCountModal();
+
+      // Find and disable button
+      const btn = document.querySelector(`#item-${currentCountItem} .mark-counted-btn`);
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Marking...';
+      }
 
       try {
-        const response = await fetch(`/api/cycle-counts/${itemId}/complete`, {
+        const response = await fetch(`/api/cycle-counts/${currentCountItem}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ counted_by: 'Mobile User' })
+          body: JSON.stringify({
+            counted_by: 'Mobile User',
+            is_accurate: countIsAccurate,
+            actual_quantity: countIsAccurate ? expectedQty : actualQty,
+            expected_quantity: expectedQty,
+            notes: notes
+          })
         });
 
         if (!response.ok) throw new Error('Failed to mark item as counted');
 
+        const result = await response.json();
+
         // Visual feedback
-        const card = document.getElementById(`item-${itemId}`);
+        const card = document.getElementById(`item-${currentCountItem}`);
         card.classList.add('counted');
-        btn.classList.add('counted');
-        btn.textContent = '✅ Counted';
+        if (btn) {
+          btn.classList.add('counted');
+          btn.textContent = '✅ Counted';
+        }
 
         // Remove from pending list
-        pendingItems.splice(index, 1);
+        pendingItems.splice(currentCountIndex, 1);
 
         // Update stats
         countedToday++;
@@ -591,7 +705,12 @@ SKU-003"></textarea>
         const completionRate = target > 0 ? Math.round(((target - remaining) / target) * 100) : 0;
         document.getElementById('completion-rate').textContent = `${completionRate}%`;
 
-        showToast('Item marked as counted!', 'success');
+        // Show success message with completion status
+        if (result.is_complete) {
+          showToast('✅ Item counted! 100% COMPLETE - Report being sent!', 'success');
+        } else {
+          showToast(`Item marked as counted! ${remaining} items remaining`, 'success');
+        }
 
         // Remove card after animation
         setTimeout(() => {
@@ -607,8 +726,10 @@ SKU-003"></textarea>
 
       } catch (error) {
         console.error('Failed to mark counted:', error);
-        btn.disabled = false;
-        btn.textContent = '✓ Mark as Counted';
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✓ Mark as Counted';
+        }
         showToast('Failed to mark item: ' + error.message, 'error');
       }
     }
@@ -764,10 +885,16 @@ SKU-003"></textarea>
       }
     }
 
-    // Close modal on background click
+    // Close modals on background click
     document.getElementById('send-now-modal').addEventListener('click', (e) => {
       if (e.target.id === 'send-now-modal') {
         closeSendNowModal();
+      }
+    });
+
+    document.getElementById('count-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'count-modal') {
+        closeCountModal();
       }
     });
 

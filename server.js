@@ -1884,6 +1884,193 @@ async function generateDailyBatch() {
     }
 }
 
+// ==================== CYCLE COUNT HELPERS ====================
+
+/**
+ * Send cycle count completion report email
+ * Includes accuracy tracking and variance data
+ */
+async function sendCycleCountReport() {
+    try {
+        const emailEnabled = process.env.EMAIL_ENABLED === 'true';
+        const reportEnabled = process.env.CYCLE_COUNT_REPORT_EMAIL === 'true';
+
+        if (!emailEnabled || !reportEnabled) {
+            logger.info('Email reporting disabled in configuration');
+            return { sent: false, reason: 'Email reporting disabled' };
+        }
+
+        // Get today's session data
+        const sessionQuery = `
+            SELECT
+                session_date,
+                items_expected,
+                items_completed,
+                completion_rate
+            FROM count_sessions
+            WHERE session_date = CURRENT_DATE
+        `;
+
+        const session = await db.query(sessionQuery);
+
+        if (session.rows.length === 0) {
+            logger.warn('No session data for today - cannot send report');
+            return { sent: false, reason: 'No session data' };
+        }
+
+        const sessionData = session.rows[0];
+
+        // Get items counted today with accuracy data
+        const itemsQuery = `
+            SELECT
+                v.sku,
+                i.name as item_name,
+                v.name as variation_name,
+                ch.last_counted_date,
+                ch.counted_by,
+                ch.is_accurate,
+                ch.actual_quantity,
+                ch.expected_quantity,
+                ch.variance,
+                ch.notes
+            FROM count_history ch
+            JOIN variations v ON ch.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            WHERE DATE(ch.last_counted_date) = CURRENT_DATE
+            ORDER BY ch.is_accurate ASC NULLS LAST, ABS(COALESCE(ch.variance, 0)) DESC, ch.last_counted_date DESC
+        `;
+
+        const items = await db.query(itemsQuery);
+
+        // Calculate accuracy statistics
+        const accurateCount = items.rows.filter(item => item.is_accurate === true).length;
+        const inaccurateCount = items.rows.filter(item => item.is_accurate === false).length;
+        const totalWithData = accurateCount + inaccurateCount;
+        const accuracyRate = totalWithData > 0 ? ((accurateCount / totalWithData) * 100).toFixed(1) : 'N/A';
+
+        // Calculate total variance
+        const totalVariance = items.rows.reduce((sum, item) => sum + Math.abs(item.variance || 0), 0);
+
+        // Build email content with accuracy data
+        const emailSubject = `Cycle Count Report - ${sessionData.session_date} ${sessionData.completion_rate >= 100 ? '✅ COMPLETE' : ''}`;
+        const emailBody = `
+            <h2>Daily Cycle Count Report</h2>
+            <p><strong>Date:</strong> ${sessionData.session_date}</p>
+            <p><strong>Status:</strong> ${sessionData.completion_rate >= 100 ? '✅ 100% COMPLETE' : '⏳ In Progress'}</p>
+
+            <h3>Summary</h3>
+            <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 20px;">
+                <tr>
+                    <td><strong>Items Expected:</strong></td>
+                    <td>${sessionData.items_expected}</td>
+                </tr>
+                <tr>
+                    <td><strong>Items Completed:</strong></td>
+                    <td>${sessionData.items_completed}</td>
+                </tr>
+                <tr>
+                    <td><strong>Completion Rate:</strong></td>
+                    <td>${sessionData.completion_rate}%</td>
+                </tr>
+                <tr>
+                    <td><strong>Accuracy Rate:</strong></td>
+                    <td>${accuracyRate}% (${accurateCount}/${totalWithData} accurate)</td>
+                </tr>
+                <tr style="background-color: ${inaccurateCount > 0 ? '#fff3cd' : '#d4edda'};">
+                    <td><strong>Discrepancies Found:</strong></td>
+                    <td>${inaccurateCount} items</td>
+                </tr>
+                <tr>
+                    <td><strong>Total Variance:</strong></td>
+                    <td>${totalVariance} units</td>
+                </tr>
+            </table>
+
+            ${inaccurateCount > 0 ? `
+                <h3>⚠️ Discrepancies (${inaccurateCount} items)</h3>
+                <table border="1" cellpadding="5" style="border-collapse: collapse; margin-bottom: 20px; background-color: #fff3cd;">
+                    <thead>
+                        <tr style="background-color: #ffc107; color: #000;">
+                            <th>SKU</th>
+                            <th>Product</th>
+                            <th>Expected</th>
+                            <th>Actual</th>
+                            <th>Variance</th>
+                            <th>Notes</th>
+                            <th>Counted By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${items.rows.filter(item => item.is_accurate === false).map(item => `
+                            <tr>
+                                <td>${item.sku || 'N/A'}</td>
+                                <td>${item.item_name}${item.variation_name ? ' - ' + item.variation_name : ''}</td>
+                                <td>${item.expected_quantity !== null ? item.expected_quantity : 'N/A'}</td>
+                                <td><strong>${item.actual_quantity !== null ? item.actual_quantity : 'N/A'}</strong></td>
+                                <td style="color: ${item.variance > 0 ? '#28a745' : '#dc3545'}; font-weight: bold;">
+                                    ${item.variance !== null ? (item.variance > 0 ? '+' : '') + item.variance : 'N/A'}
+                                </td>
+                                <td>${item.notes || '-'}</td>
+                                <td>${item.counted_by || 'System'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            ` : ''}
+
+            <h3>All Items Counted Today (${items.rows.length})</h3>
+            <table border="1" cellpadding="5" style="border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Product</th>
+                        <th>Status</th>
+                        <th>Expected</th>
+                        <th>Actual</th>
+                        <th>Variance</th>
+                        <th>Counted By</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.rows.map(item => {
+                        const rowColor = item.is_accurate === false ? '#fff3cd' :
+                                       item.is_accurate === true ? '#d4edda' : '#ffffff';
+                        return `
+                        <tr style="background-color: ${rowColor};">
+                            <td>${item.sku || 'N/A'}</td>
+                            <td>${item.item_name}${item.variation_name ? ' - ' + item.variation_name : ''}</td>
+                            <td>${item.is_accurate === true ? '✅ Accurate' :
+                                  item.is_accurate === false ? '⚠️ Discrepancy' : '-'}</td>
+                            <td>${item.expected_quantity !== null ? item.expected_quantity : '-'}</td>
+                            <td>${item.actual_quantity !== null ? item.actual_quantity : '-'}</td>
+                            <td style="color: ${item.variance > 0 ? '#28a745' : item.variance < 0 ? '#dc3545' : '#000'};">
+                                ${item.variance !== null ? (item.variance > 0 ? '+' : '') + item.variance : '-'}
+                            </td>
+                            <td>${item.counted_by || 'System'}</td>
+                            <td>${new Date(item.last_counted_date).toLocaleTimeString()}</td>
+                        </tr>
+                    `}).join('')}
+                </tbody>
+            </table>
+
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">
+                <em>This report was generated automatically by the JTPets Inventory Management System.</em>
+            </p>
+        `;
+
+        // Send email using existing email notifier
+        await emailNotifier.sendAlert(emailSubject, emailBody);
+        logger.info('Cycle count report email sent successfully');
+
+        return { sent: true, items_count: items.rows.length, accuracy_rate: accuracyRate };
+
+    } catch (error) {
+        logger.error('Send cycle count report failed', { error: error.message });
+        throw error;
+    }
+}
+
 // ==================== CYCLE COUNT ENDPOINTS ====================
 
 /**
@@ -1992,22 +2179,37 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
 
 /**
  * POST /api/cycle-counts/:id/complete
- * Mark an item as counted
+ * Mark an item as counted with accuracy tracking
  */
 app.post('/api/cycle-counts/:id/complete', async (req, res) => {
     try {
         const { id } = req.params;
-        const { counted_by } = req.body;
+        const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
 
-        // Insert or update count history
+        // Calculate variance if quantities provided
+        let variance = null;
+        if (actual_quantity !== null && actual_quantity !== undefined &&
+            expected_quantity !== null && expected_quantity !== undefined) {
+            variance = actual_quantity - expected_quantity;
+        }
+
+        // Insert or update count history with accuracy data
         await db.query(
-            `INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
-             VALUES ($1, CURRENT_TIMESTAMP, $2)
+            `INSERT INTO count_history (
+                catalog_object_id, last_counted_date, counted_by,
+                is_accurate, actual_quantity, expected_quantity, variance, notes
+             )
+             VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (catalog_object_id)
              DO UPDATE SET
                 last_counted_date = CURRENT_TIMESTAMP,
-                counted_by = EXCLUDED.counted_by`,
-            [id, counted_by || 'System']
+                counted_by = EXCLUDED.counted_by,
+                is_accurate = EXCLUDED.is_accurate,
+                actual_quantity = EXCLUDED.actual_quantity,
+                expected_quantity = EXCLUDED.expected_quantity,
+                variance = EXCLUDED.variance,
+                notes = EXCLUDED.notes`,
+            [id, counted_by || 'System', is_accurate, actual_quantity, expected_quantity, variance, notes]
         );
 
         // Mark priority item as completed if it exists
@@ -2034,7 +2236,37 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
              WHERE session_date = CURRENT_DATE`
         );
 
-        res.json({ success: true, catalog_object_id: id });
+        // Check if we've reached 100% completion for today
+        const completionCheck = await db.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE completed = FALSE) as pending_count,
+                COUNT(*) as total_count
+            FROM (
+                SELECT catalog_object_id, completed FROM count_queue_daily WHERE batch_date <= CURRENT_DATE
+                UNION
+                SELECT catalog_object_id, completed FROM count_queue_priority
+            ) combined
+        `);
+
+        const pendingCount = parseInt(completionCheck.rows[0]?.pending_count || 0);
+        const isFullyComplete = pendingCount === 0 && completionCheck.rows[0]?.total_count > 0;
+
+        // If 100% complete, automatically send the report email
+        if (isFullyComplete) {
+            logger.info('Cycle count 100% complete - triggering automatic email report');
+
+            // Trigger email report asynchronously (don't wait for it)
+            sendCycleCountReport().catch(error => {
+                logger.error('Auto email report failed', { error: error.message });
+            });
+        }
+
+        res.json({
+            success: true,
+            catalog_object_id: id,
+            is_complete: isFullyComplete,
+            pending_count: pendingCount
+        });
 
     } catch (error) {
         console.error('Complete cycle count error:', error);
@@ -2163,93 +2395,23 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
 
 /**
  * POST /api/cycle-counts/email-report
- * Send completion report email
+ * Send completion report email (uses shared sendCycleCountReport function)
  */
 app.post('/api/cycle-counts/email-report', async (req, res) => {
     try {
-        const emailEnabled = process.env.EMAIL_ENABLED === 'true';
-        const reportEnabled = process.env.CYCLE_COUNT_REPORT_EMAIL === 'true';
+        const result = await sendCycleCountReport();
 
-        if (!emailEnabled || !reportEnabled) {
+        if (!result.sent) {
             return res.status(400).json({
-                error: 'Email reporting is disabled in configuration'
+                error: result.reason || 'Email reporting is disabled in configuration'
             });
         }
 
-        // Get today's session data
-        const sessionQuery = `
-            SELECT
-                session_date,
-                items_expected,
-                items_completed,
-                completion_rate
-            FROM count_sessions
-            WHERE session_date = CURRENT_DATE
-        `;
-
-        const session = await db.query(sessionQuery);
-
-        if (session.rows.length === 0) {
-            return res.status(404).json({ error: 'No session data for today' });
-        }
-
-        const sessionData = session.rows[0];
-
-        // Get items counted today
-        const itemsQuery = `
-            SELECT
-                v.sku,
-                i.name as item_name,
-                v.name as variation_name,
-                ch.last_counted_date,
-                ch.counted_by
-            FROM count_history ch
-            JOIN variations v ON ch.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            WHERE DATE(ch.last_counted_date) = CURRENT_DATE
-            ORDER BY ch.last_counted_date DESC
-        `;
-
-        const items = await db.query(itemsQuery);
-
-        // Build email content
-        const emailSubject = `Cycle Count Report - ${sessionData.session_date}`;
-        const emailBody = `
-            <h2>Daily Cycle Count Report</h2>
-            <p><strong>Date:</strong> ${sessionData.session_date}</p>
-            <p><strong>Items Expected:</strong> ${sessionData.items_expected}</p>
-            <p><strong>Items Completed:</strong> ${sessionData.items_completed}</p>
-            <p><strong>Completion Rate:</strong> ${sessionData.completion_rate}%</p>
-            <p><strong>Items Remaining:</strong> ${sessionData.items_expected - sessionData.items_completed}</p>
-
-            <h3>Items Counted Today (${items.rows.length})</h3>
-            <table border="1" cellpadding="5" style="border-collapse: collapse;">
-                <thead>
-                    <tr>
-                        <th>SKU</th>
-                        <th>Product</th>
-                        <th>Counted By</th>
-                        <th>Time</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${items.rows.map(item => `
-                        <tr>
-                            <td>${item.sku || 'N/A'}</td>
-                            <td>${item.item_name}${item.variation_name ? ' - ' + item.variation_name : ''}</td>
-                            <td>${item.counted_by || 'System'}</td>
-                            <td>${new Date(item.last_counted_date).toLocaleTimeString()}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-
-        // Send email using existing email notifier
-        const emailNotifier = require('./utils/email-notifier');
-        await emailNotifier.sendAlert(emailSubject, emailBody);
-
-        res.json({ success: true, message: 'Report sent successfully' });
+        res.json({
+            success: true,
+            message: 'Report sent successfully',
+            ...result
+        });
 
     } catch (error) {
         console.error('Send cycle count report error:', error);
