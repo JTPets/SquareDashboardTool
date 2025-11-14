@@ -597,7 +597,7 @@ SKU-003"></textarea>
               </div>
             </div>
             <div class="item-actions">
-              <button class="mark-counted-btn" onclick="showCountModal('${item.id}', ${index})">
+              <button class="mark-counted-btn" onclick="showCountModal('${item.id}')">
                 ✓ Mark as Counted
               </button>
             </div>
@@ -606,23 +606,24 @@ SKU-003"></textarea>
       }).join('');
     }
 
-    function showCountModal(itemId, index) {
+    function showCountModal(itemId) {
       // Validate item ID
       if (!itemId || itemId === 'null' || itemId === 'undefined') {
-        console.error('Invalid item ID:', itemId, 'Item:', pendingItems[index]);
+        console.error('Invalid item ID:', itemId);
         showToast('Invalid item ID. Please refresh the page.', 'error');
         return;
       }
 
-      const item = pendingItems[index];
+      // Find item by ID (not by index, since filtering may have changed indices)
+      const item = pendingItems.find(i => i.id === itemId);
       if (!item) {
-        console.error('Item not found at index:', index);
+        console.error('Item not found with ID:', itemId);
         showToast('Item not found. Please refresh the page.', 'error');
         return;
       }
 
       currentCountItem = itemId;
-      currentCountIndex = index;
+      currentCountIndex = null; // We'll look up by ID instead
       countIsAccurate = null;
 
       // Set system count
@@ -665,13 +666,22 @@ SKU-003"></textarea>
         return;
       }
 
-      const item = pendingItems[currentCountIndex];
+      // Find item by ID (not by index)
+      const item = pendingItems.find(i => i.id === currentCountItem);
+      if (!item) {
+        showToast('Item not found. Please refresh the page.', 'error');
+        return;
+      }
+
       const expectedQty = item.current_inventory || 0;
 
+      // Store values BEFORE closing modal (which resets them)
+      const isAccurate = countIsAccurate;
+      const itemId = currentCountItem;
       let actualQty = null;
       let notes = null;
 
-      if (!countIsAccurate) {
+      if (!isAccurate) {
         actualQty = parseInt(document.getElementById('actual-count').value);
         notes = document.getElementById('count-notes').value.trim() || null;
 
@@ -681,24 +691,24 @@ SKU-003"></textarea>
         }
       }
 
-      // Close modal
+      // Close modal (this resets countIsAccurate, currentCountItem to null)
       closeCountModal();
 
-      // Find and disable button
-      const btn = document.querySelector(`#item-${currentCountItem} .mark-counted-btn`);
+      // Find and disable button (use stored itemId, not currentCountItem which is now null)
+      const btn = document.querySelector(`#item-${itemId} .mark-counted-btn`);
       if (btn) {
         btn.disabled = true;
         btn.textContent = '⏳ Marking...';
       }
 
       try {
-        const response = await fetch(`/api/cycle-counts/${currentCountItem}/complete`, {
+        const response = await fetch(`/api/cycle-counts/${itemId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             counted_by: 'Mobile User',
-            is_accurate: countIsAccurate,
-            actual_quantity: countIsAccurate ? expectedQty : actualQty,
+            is_accurate: isAccurate,
+            actual_quantity: isAccurate ? expectedQty : actualQty,
             expected_quantity: expectedQty,
             notes: notes
           })
@@ -709,15 +719,18 @@ SKU-003"></textarea>
         const result = await response.json();
 
         // Visual feedback
-        const card = document.getElementById(`item-${currentCountItem}`);
+        const card = document.getElementById(`item-${itemId}`);
         card.classList.add('counted');
         if (btn) {
           btn.classList.add('counted');
           btn.textContent = '✅ Counted';
         }
 
-        // Remove from pending list
-        pendingItems.splice(currentCountIndex, 1);
+        // Remove from pending list (find by ID)
+        const itemIndex = pendingItems.findIndex(i => i.id === itemId);
+        if (itemIndex !== -1) {
+          pendingItems.splice(itemIndex, 1);
+        }
 
         // Update stats
         countedToday++;
