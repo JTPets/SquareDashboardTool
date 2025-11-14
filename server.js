@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
+const cron = require('node-cron');
 const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
@@ -1791,27 +1792,127 @@ app.get('/api/reorder-suggestions', async (req, res) => {
     }
 });
 
+// ==================== CYCLE COUNT BATCH GENERATION ====================
+
+/**
+ * Generate daily cycle count batch
+ * This function:
+ * 1. Gets uncompleted items from previous batches
+ * 2. Adds new items (oldest count dates first) to reach daily target
+ * 3. Ensures accumulation across days if batches aren't completed
+ */
+async function generateDailyBatch() {
+    try {
+        logger.info('Starting daily cycle count batch generation');
+        const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+
+        // Create today's session
+        await db.query(
+            `INSERT INTO count_sessions (session_date, items_expected)
+             VALUES (CURRENT_DATE, $1)
+             ON CONFLICT (session_date) DO NOTHING`,
+            [dailyTarget]
+        );
+
+        // Count uncompleted items from previous batches
+        const uncompletedResult = await db.query(`
+            SELECT COUNT(DISTINCT catalog_object_id) as count
+            FROM count_queue_daily
+            WHERE completed = FALSE
+        `);
+        const uncompletedCount = parseInt(uncompletedResult.rows[0]?.count || 0);
+
+        logger.info(`Found ${uncompletedCount} uncompleted items from previous batches`);
+
+        // Calculate how many new items we need to add
+        const itemsToAdd = Math.max(0, dailyTarget - uncompletedCount);
+
+        if (itemsToAdd === 0) {
+            logger.info('Daily target already met with uncompleted items. No new items added.');
+            return {
+                success: true,
+                uncompleted: uncompletedCount,
+                new_items_added: 0,
+                total_in_batch: uncompletedCount
+            };
+        }
+
+        // Get items to add (oldest count dates first, excluding already queued items)
+        // Priority: Never counted > Oldest counted > Alphabetically
+        const newItemsQuery = `
+            SELECT v.id
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
+            LEFT JOIN count_queue_daily cqd ON v.id = cqd.catalog_object_id AND cqd.completed = FALSE
+            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+              AND cqd.id IS NULL
+              AND cqp.id IS NULL
+            ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
+            LIMIT $1
+        `;
+
+        const newItems = await db.query(newItemsQuery, [itemsToAdd]);
+
+        if (newItems.rows.length === 0) {
+            logger.info('No new items available to add to batch');
+            return {
+                success: true,
+                uncompleted: uncompletedCount,
+                new_items_added: 0,
+                total_in_batch: uncompletedCount
+            };
+        }
+
+        // Insert new items into daily batch queue
+        const insertPromises = newItems.rows.map(item =>
+            db.query(
+                `INSERT INTO count_queue_daily (catalog_object_id, batch_date, notes)
+                 VALUES ($1, CURRENT_DATE, 'Auto-generated daily batch')
+                 ON CONFLICT (catalog_object_id, batch_date) DO NOTHING`,
+                [item.id]
+            )
+        );
+
+        await Promise.all(insertPromises);
+
+        logger.info(`Successfully added ${newItems.rows.length} new items to daily batch`);
+
+        return {
+            success: true,
+            uncompleted: uncompletedCount,
+            new_items_added: newItems.rows.length,
+            total_in_batch: uncompletedCount + newItems.rows.length
+        };
+
+    } catch (error) {
+        logger.error('Daily batch generation failed', { error: error.message });
+        throw error;
+    }
+}
+
 // ==================== CYCLE COUNT ENDPOINTS ====================
 
 /**
  * GET /api/cycle-counts/pending
- * Get pending items for cycle counting
- * Returns accumulated uncounted items up to target
+ * Get pending items for cycle counting from daily batch queue
+ * Returns accumulated uncounted items (priority + daily batch)
  */
 app.get('/api/cycle-counts/pending', async (req, res) => {
     try {
         const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
 
         // Get today's session or create it
-        const sessionResult = await db.query(
+        await db.query(
             `INSERT INTO count_sessions (session_date, items_expected)
              VALUES (CURRENT_DATE, $1)
-             ON CONFLICT DO NOTHING
-             RETURNING id`,
+             ON CONFLICT (session_date) DO NOTHING`,
             [dailyTarget]
         );
 
-        // First, get priority queue items that haven't been completed
+        // First, get priority queue items (Send Now items)
         const priorityQuery = `
             SELECT DISTINCT
                 v.*,
@@ -1840,11 +1941,8 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
         const priorityItems = await db.query(priorityQuery);
         const priorityCount = priorityItems.rows.length;
 
-        // Calculate how many more items we need from regular rotation
-        const remainingTarget = Math.max(0, dailyTarget - priorityCount);
-
-        // Get items not in priority queue, ordered by last counted date (oldest first, never counted first)
-        const regularQuery = `
+        // Get items from daily batch queue that haven't been completed
+        const dailyBatchQuery = `
             SELECT DISTINCT
                 v.*,
                 i.name as item_name,
@@ -1853,24 +1951,28 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
                 COALESCE(SUM(ic.quantity), 0) as current_inventory,
                 FALSE as is_priority,
                 ch.last_counted_date,
-                ch.counted_by
-            FROM variations v
+                ch.counted_by,
+                cqd.batch_date,
+                cqd.added_date as batch_added_date
+            FROM count_queue_daily cqd
+            JOIN variations v ON cqd.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
             LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
             LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
-            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+            WHERE cqd.completed = FALSE
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
               AND cqp.id IS NULL
-            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by
-            ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
-            LIMIT $1
+            GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
+                     cqd.batch_date, cqd.added_date
+            ORDER BY cqd.batch_date ASC, cqd.added_date ASC
         `;
 
-        const regularItems = await db.query(regularQuery, [remainingTarget]);
+        const dailyBatchItems = await db.query(dailyBatchQuery);
 
-        // Combine priority and regular items
-        const allItems = [...priorityItems.rows, ...regularItems.rows];
+        // Combine priority and daily batch items
+        const allItems = [...priorityItems.rows, ...dailyBatchItems.rows];
 
         // Resolve image URLs for all items
         const itemsWithImages = await Promise.all(allItems.map(async (item) => {
@@ -1887,7 +1989,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             count: itemsWithImages.length,
             target: dailyTarget,
             priority_count: priorityCount,
-            regular_count: regularItems.rows.length,
+            daily_batch_count: dailyBatchItems.rows.length,
             items: itemsWithImages
         });
 
@@ -1920,6 +2022,14 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
         // Mark priority item as completed if it exists
         await db.query(
             `UPDATE count_queue_priority
+             SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
+             WHERE catalog_object_id = $1 AND completed = FALSE`,
+            [id]
+        );
+
+        // Mark daily batch item as completed if it exists
+        await db.query(
+            `UPDATE count_queue_daily
              SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
              WHERE catalog_object_id = $1 AND completed = FALSE`,
             [id]
@@ -2152,6 +2262,27 @@ app.post('/api/cycle-counts/email-report', async (req, res) => {
 
     } catch (error) {
         console.error('Send cycle count report error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/cycle-counts/generate-batch
+ * Manually trigger daily batch generation
+ */
+app.post('/api/cycle-counts/generate-batch', async (req, res) => {
+    try {
+        logger.info('Manual batch generation requested');
+        const result = await generateDailyBatch();
+
+        res.json({
+            success: true,
+            message: 'Batch generated successfully',
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Manual batch generation failed', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2916,6 +3047,26 @@ async function startServer() {
                 nodeVersion: process.version
             });
         });
+
+        // Initialize cycle count daily batch generation cron job
+        // Runs every day at 1:00 AM
+        const cronSchedule = process.env.CYCLE_COUNT_CRON || '0 1 * * *';
+        cron.schedule(cronSchedule, async () => {
+            logger.info('Running scheduled daily batch generation');
+            try {
+                const result = await generateDailyBatch();
+                logger.info('Scheduled batch generation completed', result);
+            } catch (error) {
+                logger.error('Scheduled batch generation failed', { error: error.message });
+                await emailNotifier.sendAlert(
+                    'Cycle Count Batch Generation Failed',
+                    `Failed to generate daily cycle count batch:\n\n${error.message}\n\nStack: ${error.stack}`
+                );
+            }
+        });
+
+        logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
+        console.log(`Cycle Count: Daily batch generation scheduled at ${cronSchedule}`);
 
         // Monitor database connection errors
         db.pool.on('error', (err) => {

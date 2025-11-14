@@ -411,6 +411,9 @@
     <button class="btn btn-secondary" onclick="showSendNowModal()">
       📌 Send Now
     </button>
+    <button class="btn btn-primary" onclick="generateBatch()" id="generate-batch-btn">
+      ⚡ Generate Batch
+    </button>
     <button class="btn btn-primary" onclick="loadPendingItems()">
       🔄 Refresh
     </button>
@@ -651,6 +654,37 @@ SKU-003"></textarea>
       } catch (error) {
         console.error('Send now failed:', error);
         showToast('Error: ' + error.message, 'error');
+      }
+    }
+
+    async function generateBatch() {
+      const btn = document.getElementById('generate-batch-btn');
+      btn.disabled = true;
+      btn.textContent = '⚡ Generating...';
+
+      try {
+        const response = await fetch('/api/cycle-counts/generate-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate batch');
+        }
+
+        const result = await response.json();
+        showToast(`Batch generated! Added ${result.new_items_added} new items. Total: ${result.total_in_batch}`, 'success');
+
+        // Reload items after short delay
+        setTimeout(() => loadPendingItems(), 1000);
+
+      } catch (error) {
+        console.error('Generate batch failed:', error);
+        showToast('Error: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ Generate Batch';
       }
     }
 
