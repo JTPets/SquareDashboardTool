@@ -509,6 +509,13 @@ SKU-003"></textarea>
         pendingItems = data.items || [];
         target = data.target || 0;
 
+        // Debug: Check for items without IDs
+        const itemsWithoutIds = pendingItems.filter(item => !item.id || item.id === 'null');
+        if (itemsWithoutIds.length > 0) {
+          console.error('Found items without valid IDs:', itemsWithoutIds);
+          showToast(`Warning: ${itemsWithoutIds.length} items have invalid IDs and will be hidden`, 'error');
+        }
+
         // Update stats
         document.getElementById('pending-count').textContent = pendingItems.length;
         document.getElementById('target-count').textContent = target;
@@ -548,7 +555,9 @@ SKU-003"></textarea>
     function renderItems() {
       const container = document.getElementById('items-container');
 
-      container.innerHTML = pendingItems.map((item, index) => {
+      container.innerHTML = pendingItems
+        .filter(item => item.id && item.id !== 'null') // Filter out items without valid IDs
+        .map((item, index) => {
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
           ? `<img src="${imageUrl}" class="item-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -598,7 +607,20 @@ SKU-003"></textarea>
     }
 
     function showCountModal(itemId, index) {
+      // Validate item ID
+      if (!itemId || itemId === 'null' || itemId === 'undefined') {
+        console.error('Invalid item ID:', itemId, 'Item:', pendingItems[index]);
+        showToast('Invalid item ID. Please refresh the page.', 'error');
+        return;
+      }
+
       const item = pendingItems[index];
+      if (!item) {
+        console.error('Item not found at index:', index);
+        showToast('Item not found. Please refresh the page.', 'error');
+        return;
+      }
+
       currentCountItem = itemId;
       currentCountIndex = index;
       countIsAccurate = null;
