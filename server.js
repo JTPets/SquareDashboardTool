@@ -1797,9 +1797,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
 /**
  * Generate daily cycle count batch
  * This function:
- * 1. Gets uncompleted items from previous batches
- * 2. Adds new items (oldest count dates first) to reach daily target
- * 3. Ensures accumulation across days if batches aren't completed
+ * 1. Adds 30 NEW items every day (or DAILY_COUNT_TARGET)
+ * 2. Uncompleted items from previous batches remain in queue
+ * 3. Ensures backlog grows if days are skipped to stay on 30/day target
  */
 async function generateDailyBatch() {
     try {
@@ -1814,7 +1814,7 @@ async function generateDailyBatch() {
             [dailyTarget]
         );
 
-        // Count uncompleted items from previous batches
+        // Count uncompleted items from previous batches (for reporting)
         const uncompletedResult = await db.query(`
             SELECT COUNT(DISTINCT catalog_object_id) as count
             FROM count_queue_daily
@@ -1824,18 +1824,9 @@ async function generateDailyBatch() {
 
         logger.info(`Found ${uncompletedCount} uncompleted items from previous batches`);
 
-        // Calculate how many new items we need to add
-        const itemsToAdd = Math.max(0, dailyTarget - uncompletedCount);
-
-        if (itemsToAdd === 0) {
-            logger.info('Daily target already met with uncompleted items. No new items added.');
-            return {
-                success: true,
-                uncompleted: uncompletedCount,
-                new_items_added: 0,
-                total_in_batch: uncompletedCount
-            };
-        }
+        // ALWAYS add the full daily target (30 items) regardless of backlog
+        // This ensures we add 30 new items every day, and backlog accumulates
+        const itemsToAdd = dailyTarget;
 
         // Get items to add (oldest count dates first, excluding already queued items)
         // Priority: Never counted > Oldest counted > Alphabetically
