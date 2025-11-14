@@ -2186,6 +2186,14 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
         const { id } = req.params;
         const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
 
+        // Validate catalog_object_id
+        if (!id || id === 'null' || id === 'undefined') {
+            logger.error('Invalid catalog_object_id received', { id, body: req.body });
+            return res.status(400).json({
+                error: 'Invalid item ID. Please refresh the page and try again.'
+            });
+        }
+
         // Calculate variance if quantities provided
         let variance = null;
         if (actual_quantity !== null && actual_quantity !== undefined &&
