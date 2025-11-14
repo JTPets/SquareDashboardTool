@@ -382,6 +382,151 @@
       border-radius: 6px;
     }
 
+    /* Preview Modal */
+    .preview-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .preview-modal.active {
+      display: flex;
+    }
+
+    .preview-modal-content {
+      background: white;
+      border-radius: 8px;
+      max-width: 800px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .preview-modal-header {
+      padding: 20px 25px;
+      border-bottom: 2px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f9fafb;
+    }
+
+    .preview-modal-header h2 {
+      font-size: 20px;
+      margin: 0;
+      color: #1f2937;
+    }
+
+    .preview-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    }
+
+    .preview-modal-close:hover {
+      background: #e5e7eb;
+      color: #1f2937;
+    }
+
+    .preview-modal-body {
+      padding: 25px;
+    }
+
+    .preview-info {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      padding: 16px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .preview-info h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #0c4a6e;
+    }
+
+    .preview-info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .preview-info-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-info-label {
+      font-size: 11px;
+      color: #0369a1;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .preview-info-value {
+      color: #0c4a6e;
+      font-weight: 600;
+    }
+
+    .preview-items-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 15px;
+    }
+
+    .preview-items-table thead {
+      background: #f9fafb;
+    }
+
+    .preview-items-table th {
+      text-align: left;
+      padding: 10px;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .preview-items-table td {
+      padding: 10px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .preview-items-table tfoot td {
+      font-weight: 600;
+      background: #f9fafb;
+      border-top: 2px solid #e5e7eb;
+    }
+
+    .preview-modal-footer {
+      padding: 20px 25px;
+      border-top: 2px solid #e5e7eb;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      background: #f9fafb;
+    }
+
     @media (max-width: 768px) {
       .suggestions-table {
         font-size: 12px;
@@ -490,10 +635,28 @@
     <img src="" alt="">
   </div>
 
+  <!-- Preview Modal -->
+  <div id="preview-modal" class="preview-modal">
+    <div class="preview-modal-content">
+      <div class="preview-modal-header">
+        <h2>📋 Review Purchase Order</h2>
+        <button class="preview-modal-close" onclick="closePreviewModal()">&times;</button>
+      </div>
+      <div class="preview-modal-body" id="preview-modal-body">
+        <!-- Content will be inserted here -->
+      </div>
+      <div class="preview-modal-footer">
+        <button class="btn btn-secondary" onclick="closePreviewModal()">Cancel</button>
+        <button class="btn btn-success" id="confirm-create-btn" onclick="confirmCreatePO()">✅ Confirm & Create PO</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
     const adjustedQuantities = new Map(); // Track quantity adjustments
+    let previewPOData = null; // Store PO data for preview
 
     // Load vendors and locations on page load
     async function loadVendors() {
@@ -819,10 +982,15 @@
       const items = selectedSuggestions.map(item => ({
         variation_id: item.variation_id,
         quantity_ordered: adjustedQuantities.get(item.variation_id) || Math.ceil(item.final_suggested_qty),
-        unit_cost_cents: item.unit_cost_cents
+        unit_cost_cents: item.unit_cost_cents,
+        // Include display info for preview
+        item_name: item.item_name,
+        variation_name: item.variation_name,
+        sku: item.sku
       }));
 
-      const poData = {
+      // Store PO data for preview
+      previewPOData = {
         vendor_id: vendorId,
         location_id: locationId,
         supply_days_override: supplyDays,
@@ -831,15 +999,120 @@
         created_by: 'PO Generator'
       };
 
-      const createPoBtn = document.getElementById('create-po-btn');
-      createPoBtn.disabled = true;
-      createPoBtn.textContent = '⏳ Creating PO...';
+      // Show preview modal
+      showPreviewModal();
+    }
+
+    // Show preview modal
+    function showPreviewModal() {
+      const modal = document.getElementById('preview-modal');
+      const modalBody = document.getElementById('preview-modal-body');
+
+      // Get vendor and location names
+      const vendorSelect = document.getElementById('vendor-select');
+      const locationSelect = document.getElementById('location-select');
+      const vendorName = vendorSelect.options[vendorSelect.selectedIndex].text;
+      const locationName = locationSelect.options[locationSelect.selectedIndex].text;
+
+      // Calculate total
+      const totalCents = previewPOData.items.reduce((sum, item) => {
+        return sum + (item.quantity_ordered * item.unit_cost_cents);
+      }, 0);
+      const totalCost = (totalCents / 100).toFixed(2);
+
+      // Build items table
+      const itemsHTML = previewPOData.items.map(item => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(item.item_name)}</strong>
+            ${item.variation_name ? `<br><small>${escapeHtml(item.variation_name)}</small>` : ''}
+          </td>
+          <td>${escapeHtml(item.sku || '-')}</td>
+          <td class="text-right">${item.quantity_ordered}</td>
+          <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
+          <td class="text-right">$${((item.quantity_ordered * item.unit_cost_cents) / 100).toFixed(2)}</td>
+        </tr>
+      `).join('');
+
+      modalBody.innerHTML = `
+        <div class="preview-info">
+          <h3>Purchase Order Summary</h3>
+          <div class="preview-info-grid">
+            <div class="preview-info-item">
+              <span class="preview-info-label">Vendor</span>
+              <span class="preview-info-value">${escapeHtml(vendorName)}</span>
+            </div>
+            <div class="preview-info-item">
+              <span class="preview-info-label">Location</span>
+              <span class="preview-info-value">${escapeHtml(locationName)}</span>
+            </div>
+            <div class="preview-info-item">
+              <span class="preview-info-label">Supply Days</span>
+              <span class="preview-info-value">${previewPOData.supply_days_override}</span>
+            </div>
+            <div class="preview-info-item">
+              <span class="preview-info-label">Total Items</span>
+              <span class="preview-info-value">${previewPOData.items.length}</span>
+            </div>
+            <div class="preview-info-item">
+              <span class="preview-info-label">Total Cost</span>
+              <span class="preview-info-value" style="font-size: 18px; color: #059669;">$${totalCost}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+          <h3 style="font-size: 16px; margin-bottom: 10px; color: #374151;">Items</h3>
+          <table class="preview-items-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>SKU</th>
+                <th class="text-right">Quantity</th>
+                <th class="text-right">Unit Cost</th>
+                <th class="text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHTML}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" class="text-right"><strong>Grand Total:</strong></td>
+                <td class="text-right"><strong>$${totalCost}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div style="background: #fffbeb; border: 1px solid #fbbf24; padding: 12px; border-radius: 6px; font-size: 13px;">
+          <strong>ℹ️ Note:</strong> The purchase order will be created as a DRAFT. You can edit it before submitting.
+        </div>
+      `;
+
+      modal.classList.add('active');
+    }
+
+    // Close preview modal
+    function closePreviewModal() {
+      const modal = document.getElementById('preview-modal');
+      modal.classList.remove('active');
+      previewPOData = null;
+    }
+
+    // Confirm and create PO
+    async function confirmCreatePO() {
+      if (!previewPOData) return;
+
+      const confirmBtn = document.getElementById('confirm-create-btn');
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '⏳ Creating...';
 
       try {
         const response = await fetch('/api/purchase-orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(poData)
+          body: JSON.stringify(previewPOData)
         });
 
         if (!response.ok) {
@@ -851,21 +1124,29 @@
         const poNumber = result.purchase_order.po_number;
         const totalCost = (result.purchase_order.total_cents / 100).toFixed(2);
 
-        // Show success message with export link
+        // Close preview modal
+        closePreviewModal();
+
+        // Show success message with links
         const messageDiv = document.createElement('div');
         messageDiv.className = 'success-message';
         messageDiv.innerHTML = `
           <strong>✓ Purchase Order ${poNumber} created successfully!</strong><br>
           Total: $${totalCost}<br>
           <div style="margin-top: 10px;">
-            <a href="/api/purchase-orders/${poNumber}/export-csv"
-               download="PO_${poNumber}.csv"
+            <a href="/purchase-orders.html"
                class="btn btn-primary"
                style="display: inline-block; text-decoration: none; padding: 8px 16px; font-size: 13px; margin-right: 10px;">
-              📥 Export to Square CSV
+              📋 View & Edit PO
+            </a>
+            <a href="/api/purchase-orders/${poNumber}/export-csv"
+               download="PO_${poNumber}.csv"
+               class="btn btn-secondary"
+               style="display: inline-block; text-decoration: none; padding: 8px 16px; font-size: 13px; margin-right: 10px;">
+              📥 Export CSV
             </a>
             <span style="color: #065f46; font-size: 13px;">
-              Download CSV file for Square PO import
+              PO created as DRAFT - you can edit it before submitting
             </span>
           </div>
         `;
@@ -887,9 +1168,8 @@
       } catch (error) {
         console.error('Failed to create PO:', error);
         showMessage('error', 'Failed to create purchase order: ' + error.message);
-      } finally {
-        createPoBtn.disabled = false;
-        createPoBtn.textContent = `📝 Create Purchase Order (${selectedItems.size} items)`;
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '✅ Confirm & Create PO';
       }
     }
 
@@ -914,6 +1194,13 @@
     document.addEventListener('DOMContentLoaded', () => {
       loadVendors();
       loadLocations();
+    });
+
+    // Close preview modal when clicking outside
+    document.getElementById('preview-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'preview-modal') {
+        closePreviewModal();
+      }
     });
   </script>
 </body>
