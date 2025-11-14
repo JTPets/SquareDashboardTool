@@ -2704,12 +2704,12 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
 
         const po = poResult.rows[0];
 
-        // Get PO items with SKU, GTIN, and item names
+        // Get PO items with SKU, UPC (GTIN), and item names
         const itemsResult = await db.query(`
             SELECT
                 poi.*,
                 v.sku,
-                v.gtin,
+                v.upc as gtin,
                 i.name as item_name,
                 v.name as variation_name,
                 vv.vendor_code
