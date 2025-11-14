@@ -2634,7 +2634,7 @@ function escapeCSVField(value) {
 }
 
 /**
- * Format date for Square CSV (MM/DD/YYYY)
+ * Format date for Square CSV (M/D/YYYY - no zero padding)
  */
 function formatDateForSquare(isoDateString) {
     if (!isoDateString) {
@@ -2642,8 +2642,8 @@ function formatDateForSquare(isoDateString) {
     }
 
     const date = new Date(isoDateString);
-    const month = date.getMonth() + 1; // 0-indexed
-    const day = date.getDate();
+    const month = date.getMonth() + 1; // 0-indexed, no padding
+    const day = date.getDate(); // no padding
     const year = date.getFullYear();
 
     return `${month}/${day}/${year}`;
@@ -2663,12 +2663,21 @@ function formatMoney(cents) {
  * GET /api/purchase-orders/:po_number/export-csv
  * Export a purchase order in Square's CSV import format
  *
- * Square CSV Format:
+ * Square CSV Format Specification:
+ * Row 1: Vendor,[Vendor Name String]
+ * Row 2: Ship to,[Location Name String]
+ * Row 3: Expected On,[M/D/YYYY]
+ * Row 4: Notes,[Optional Text]
+ * Row 5: [BLANK ROW - completely empty]
+ * Row 6: Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Cost
+ * Row 7+: [Data rows with 8 columns]
+ *
+ * Critical Rules:
  * - UTF-8 with BOM
- * - Metadata rows with 6 trailing commas
- * - Empty line separator
- * - Header row
- * - Data rows (11 fields, no trailing comma)
+ * - Date format MUST be M/D/YYYY (e.g., 1/31/2022 or 12/5/2023)
+ * - Row 5 MUST be completely blank (no commas, no spaces)
+ * - Empty fields = empty string (just commas: ,,)
+ * - Unit Cost = 3.50 not $3.50
  * - Line endings: \r\n
  */
 app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
@@ -2695,19 +2704,22 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
 
         const po = poResult.rows[0];
 
-        // Get PO items with SKU and item names
+        // Get PO items with SKU, GTIN, and item names
         const itemsResult = await db.query(`
             SELECT
                 poi.*,
                 v.sku,
+                v.gtin,
                 i.name as item_name,
-                v.name as variation_name
+                v.name as variation_name,
+                vv.vendor_code
             FROM purchase_order_items poi
             JOIN variations v ON poi.variation_id = v.id
             JOIN items i ON v.item_id = i.id
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2
             WHERE poi.purchase_order_id = $1
             ORDER BY i.name, v.name
-        `, [po.id]);
+        `, [po.id, po.vendor_id]);
 
         // Build CSV content
         const lines = [];
@@ -2715,35 +2727,29 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // UTF-8 BOM
         const BOM = '\uFEFF';
 
-        // Metadata rows with 6 trailing commas
-        lines.push(`Vendor,${escapeCSVField(po.vendor_name)},,,,,,`);
-        lines.push(`Location,${escapeCSVField(po.location_name)},,,,,,`);
-        lines.push(`Expected Delivery Date,${formatDateForSquare(po.expected_delivery_date)},,,,,,`);
+        // Metadata rows (NO trailing commas)
+        lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
+        lines.push(`Ship to,${escapeCSVField(po.location_name)}`);
+        lines.push(`Expected On,${formatDateForSquare(po.expected_delivery_date)}`);
+        lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
 
-        // Empty line
+        // CRITICAL: Row 5 must be completely blank (no commas, no spaces)
         lines.push('');
 
-        // Header row (11 fields, no trailing comma)
-        lines.push('SKU,Item Name,Quantity,Cost,Note,Expected Delivery Date,Vendor,Location,Ship To,Deliver To,Carrier');
+        // Header row (8 fields exactly as specified)
+        lines.push('Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Cost');
 
-        // Data rows (11 fields, no trailing comma)
+        // Data rows (8 fields matching header order)
         for (const item of itemsResult.rows) {
-            const itemName = item.variation_name
-                ? `${item.item_name} - ${item.variation_name}`
-                : item.item_name;
-
             const row = [
+                escapeCSVField(item.item_name || ''),
+                escapeCSVField(item.variation_name || ''),
                 escapeCSVField(item.sku || ''),
-                escapeCSVField(itemName),
-                item.quantity_ordered || 0,
-                formatMoney(item.unit_cost_money),
+                escapeCSVField(item.gtin || ''),
+                escapeCSVField(item.vendor_code || ''),
                 escapeCSVField(item.notes || ''),
-                formatDateForSquare(po.expected_delivery_date),
-                escapeCSVField(po.vendor_name),
-                escapeCSVField(po.location_name),
-                escapeCSVField(po.location_address || ''),
-                escapeCSVField(po.location_address || ''),
-                escapeCSVField('') // Carrier - empty for now
+                Math.round(item.quantity_ordered || 0), // Whole number
+                formatMoney(item.unit_cost_cents) // No $ sign, just decimal
             ];
 
             lines.push(row.join(','));
@@ -2759,7 +2765,7 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // Send CSV
         res.send(csvContent);
 
-        logger.info('CSV export generated', {
+        logger.info('Square CSV export generated', {
             po_number: po.po_number,
             vendor: po.vendor_name,
             items: itemsResult.rows.length
