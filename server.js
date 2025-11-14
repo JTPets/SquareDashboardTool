@@ -2152,23 +2152,44 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
         // Combine priority and daily batch items
         const allItems = [...priorityItems.rows, ...dailyBatchItems.rows];
 
-        // Resolve image URLs for all items
+        // Resolve image URLs for all items and ensure proper field mapping
         const itemsWithImages = await Promise.all(allItems.map(async (item) => {
             const imageUrls = await resolveImageUrls(item.images, item.item_images);
+
             return {
                 ...item,
+                variation_name: item.name, // Explicitly map variation name (v.name -> variation_name)
                 image_urls: imageUrls,
                 images: undefined,
-                item_images: undefined
+                item_images: undefined,
+                name: undefined // Remove to avoid confusion with item_name
             };
         }));
 
+        // Filter out items without valid IDs and log them
+        const validItems = itemsWithImages.filter(item => {
+            if (!item.id) {
+                logger.warn('Excluding item without valid ID from cycle count', {
+                    item_name: item.item_name,
+                    sku: item.sku,
+                    variation_name: item.variation_name,
+                    is_priority: item.is_priority
+                });
+                return false;
+            }
+            return true;
+        });
+
+        if (validItems.length < itemsWithImages.length) {
+            logger.error(`Filtered out ${itemsWithImages.length - validItems.length} items without IDs from cycle count queue`);
+        }
+
         res.json({
-            count: itemsWithImages.length,
+            count: validItems.length,
             target: dailyTarget,
             priority_count: priorityCount,
             daily_batch_count: dailyBatchItems.rows.length,
-            items: itemsWithImages
+            items: validItems
         });
 
     } catch (error) {
