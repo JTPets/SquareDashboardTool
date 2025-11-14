@@ -2724,13 +2724,20 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // Build CSV content
         const lines = [];
 
-        // UTF-8 BOM
-        const BOM = '\uFEFF';
+        // Calculate expected delivery date (use existing or default to today + lead time)
+        let expectedDeliveryDate = po.expected_delivery_date;
+        if (!expectedDeliveryDate) {
+            // Default: today + vendor lead time (or 7 days if no lead time set)
+            const leadTimeDays = po.lead_time_days || 7;
+            const deliveryDate = new Date();
+            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
+            expectedDeliveryDate = deliveryDate.toISOString();
+        }
 
         // Metadata rows (NO trailing commas)
         lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
         lines.push(`Ship to,${escapeCSVField(po.location_name)}`);
-        lines.push(`Expected On,${formatDateForSquare(po.expected_delivery_date)}`);
+        lines.push(`Expected On,${formatDateForSquare(expectedDeliveryDate)}`); // CRITICAL: Must never be empty
         lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
 
         // CRITICAL: Row 5 must be completely blank (no commas, no spaces)
@@ -2755,8 +2762,8 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
             lines.push(row.join(','));
         }
 
-        // Join with \r\n line endings
-        const csvContent = BOM + lines.join('\r\n') + '\r\n';
+        // Join with \r\n line endings (UTF-8 without BOM for Square compatibility)
+        const csvContent = lines.join('\r\n') + '\r\n';
 
         // Set response headers
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
