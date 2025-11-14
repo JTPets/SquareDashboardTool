@@ -2664,6 +2664,7 @@ function formatMoney(cents) {
 /**
  * Format GTIN/UPC as plain text to avoid scientific notation
  * UPCs are typically 12-14 digit numbers that can be misinterpreted in scientific notation
+ * Prefix with = and wrap in quotes to force text interpretation (Excel/CSV standard)
  */
 function formatGTIN(value) {
     if (value === null || value === undefined || value === '') {
@@ -2673,8 +2674,16 @@ function formatGTIN(value) {
     // Convert to string, handling potential scientific notation
     // Use toFixed(0) for numbers to avoid scientific notation, then remove decimals
     const str = typeof value === 'number' ? value.toFixed(0) : String(value);
+    const trimmed = str.trim();
 
-    return str.trim();
+    // If empty after trimming, return empty
+    if (!trimmed) {
+        return '';
+    }
+
+    // Prefix with single quote to force text interpretation in CSV
+    // This is a standard CSV technique that's invisible when displayed
+    return "'" + trimmed;
 }
 
 /**
