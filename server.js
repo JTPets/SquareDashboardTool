@@ -2614,6 +2614,7 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
 
 /**
  * Escape a CSV field according to RFC 4180
+ * - Trim whitespace and hidden characters
  * - Wrap in quotes if contains comma, quote, or newline
  * - Escape internal quotes by doubling them
  */
@@ -2622,7 +2623,8 @@ function escapeCSVField(value) {
         return '';
     }
 
-    const str = String(value);
+    // Convert to string and trim all whitespace/hidden characters
+    const str = String(value).trim();
 
     // Check if field needs escaping
     if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
@@ -2660,6 +2662,22 @@ function formatMoney(cents) {
 }
 
 /**
+ * Format GTIN/UPC as plain text to avoid scientific notation
+ * UPCs are typically 12-14 digit numbers that can be misinterpreted in scientific notation
+ */
+function formatGTIN(value) {
+    if (value === null || value === undefined || value === '') {
+        return '';
+    }
+
+    // Convert to string, handling potential scientific notation
+    // Use toFixed(0) for numbers to avoid scientific notation, then remove decimals
+    const str = typeof value === 'number' ? value.toFixed(0) : String(value);
+
+    return str.trim();
+}
+
+/**
  * GET /api/purchase-orders/:po_number/export-csv
  * Export a purchase order in Square's CSV import format
  *
@@ -2673,12 +2691,15 @@ function formatMoney(cents) {
  * Row 7+: [Data rows with 8 columns]
  *
  * Critical Rules:
- * - UTF-8 with BOM
+ * - UTF-8 WITH BOM (\uFEFF) - REQUIRED for Square to recognize file encoding
  * - Date format MUST be M/D/YYYY (e.g., 1/31/2022 or 12/5/2023)
  * - Row 5 MUST be completely blank (no commas, no spaces)
  * - Empty fields = empty string (just commas: ,,)
  * - Unit Cost = 3.50 not $3.50
- * - Line endings: \r\n
+ * - GTIN/UPC = plain text (avoid scientific notation for large numbers)
+ * - All fields trimmed (no leading/trailing whitespace)
+ * - Line endings: \r\n (CRLF)
+ * - Cache-Control headers to prevent browser caching
  */
 app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
     try {
@@ -2752,7 +2773,7 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
                 escapeCSVField(item.item_name || ''),
                 escapeCSVField(item.variation_name || ''),
                 escapeCSVField(item.sku || ''),
-                escapeCSVField(item.gtin || ''),
+                escapeCSVField(formatGTIN(item.gtin)), // Format GTIN to avoid scientific notation
                 escapeCSVField(item.vendor_code || ''),
                 escapeCSVField(item.notes || ''),
                 Math.round(item.quantity_ordered || 0), // Whole number
@@ -2762,12 +2783,20 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
             lines.push(row.join(','));
         }
 
-        // Join with \r\n line endings (UTF-8 without BOM for Square compatibility)
-        const csvContent = lines.join('\r\n') + '\r\n';
+        // Join with \r\n (CRLF) line endings for maximum compatibility
+        const csvLines = lines.join('\r\n') + '\r\n';
 
-        // Set response headers
+        // Add UTF-8 BOM (Byte Order Mark) for proper encoding recognition
+        // BOM = EF BB BF in hex, or \uFEFF in Unicode
+        const BOM = '\uFEFF';
+        const csvContent = BOM + csvLines;
+
+        // Set response headers with cache-busting to prevent stale file issues
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="PO_${po.po_number}_${po.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}.csv"`);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
 
         // Send CSV
         res.send(csvContent);
