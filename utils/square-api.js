@@ -5,6 +5,7 @@
 
 const fetch = require('node-fetch');
 const db = require('./database');
+const logger = require('./logger');
 
 // Square API configuration
 const SQUARE_API_VERSION = '2024-10-17';
@@ -44,7 +45,7 @@ async function makeSquareRequest(endpoint, options = {}) {
                 // Handle rate limiting
                 if (response.status === 429) {
                     const retryAfter = parseInt(response.headers.get('retry-after') || '5');
-                    console.log(`Rate limited. Retrying after ${retryAfter} seconds...`);
+                    logger.warn(`Rate limited. Retrying after ${retryAfter} seconds`);
                     await sleep(retryAfter * 1000);
                     continue;
                 }
@@ -62,7 +63,7 @@ async function makeSquareRequest(endpoint, options = {}) {
             lastError = error;
             if (attempt < MAX_RETRIES - 1) {
                 const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-                console.log(`Request failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${MAX_RETRIES})`);
+                logger.warn(`Request failed, retrying in ${delay}ms`, { attempt: attempt + 1, max_retries: MAX_RETRIES });
                 await sleep(delay);
             }
         }
@@ -83,7 +84,7 @@ function sleep(ms) {
  * @returns {Promise<number>} Number of locations synced
  */
 async function syncLocations() {
-    console.log('Starting location sync...');
+    logger.info('Starting location sync');
 
     try {
         const data = await makeSquareRequest('/v2/locations');
@@ -112,10 +113,10 @@ async function syncLocations() {
             synced++;
         }
 
-        console.log(`Synced ${synced} locations`);
+        logger.info('Location sync complete', { count: synced });
         return synced;
     } catch (error) {
-        console.error('Location sync failed:', error.message);
+        logger.error('Location sync failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -125,7 +126,7 @@ async function syncLocations() {
  * @returns {Promise<number>} Number of vendors synced
  */
 async function syncVendors() {
-    console.log('Starting vendor sync...');
+    logger.info('Starting vendor sync');
 
     try {
         let cursor = null;
@@ -175,14 +176,14 @@ async function syncVendors() {
             }
 
             cursor = data.cursor;
-            console.log(`Synced ${totalSynced} vendors so far...`);
+            logger.info('Vendor sync progress', { count: totalSynced });
 
         } while (cursor);
 
-        console.log(`Vendor sync complete: ${totalSynced} vendors`);
+        logger.info('Vendor sync complete', { count: totalSynced });
         return totalSynced;
     } catch (error) {
-        console.error('Vendor sync failed:', error.message);
+        logger.error('Vendor sync failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -192,7 +193,7 @@ async function syncVendors() {
  * @returns {Promise<Object>} Sync statistics
  */
 async function syncCatalog() {
-    console.log('Starting catalog sync...');
+    logger.info('Starting catalog sync');
 
     const stats = {
         categories: 0,
@@ -238,20 +239,20 @@ async function syncCatalog() {
                         stats.variationVendors += vendorCount;
                     }
                 } catch (error) {
-                    console.error(`Failed to sync ${obj.type} ${obj.id}:`, error.message);
+                    logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
                     // Continue with other objects
                 }
             }
 
             cursor = data.cursor;
-            console.log(`Progress: ${stats.items} items, ${stats.variations} variations...`);
+            logger.info('Catalog sync progress', { items: stats.items, variations: stats.variations });
 
         } while (cursor);
 
-        console.log('Catalog sync complete:', stats);
+        logger.info('Catalog sync complete', stats);
 
         // ===== DETECT DELETIONS =====
-        console.log('Detecting deleted items...');
+        logger.info('Detecting deleted items');
 
         // Get all non-deleted items from database
         const dbItemsResult = await db.query(`
@@ -287,7 +288,7 @@ async function syncCatalog() {
 
                 inventoryZeroed += invResult.rowCount;
                 itemsMarkedDeleted++;
-                console.log(`Item deleted: "${row.name}" (ID: ${row.id}) - zeroed inventory at ${invResult.rowCount} location(s)`);
+                logger.info('Item marked as deleted', { name: row.name, id: row.id, locations_zeroed: invResult.rowCount });
             }
         }
 
@@ -309,11 +310,11 @@ async function syncCatalog() {
 
                 inventoryZeroed += invResult.rowCount;
                 variationsMarkedDeleted++;
-                console.log(`Variation deleted: "${row.name}" (SKU: ${row.sku || 'N/A'}) - zeroed inventory at ${invResult.rowCount} location(s)`);
+                logger.info('Variation marked as deleted', { name: row.name, sku: row.sku || 'N/A', locations_zeroed: invResult.rowCount });
             }
         }
 
-        console.log(`Deletion detection complete: ${itemsMarkedDeleted} items, ${variationsMarkedDeleted} variations marked deleted`);
+        logger.info('Deletion detection complete', { items_deleted: itemsMarkedDeleted, variations_deleted: variationsMarkedDeleted });
 
         // Add to stats
         stats.items_deleted = itemsMarkedDeleted;
@@ -322,7 +323,7 @@ async function syncCatalog() {
 
         return stats;
     } catch (error) {
-        console.error('Catalog sync failed:', error.message);
+        logger.error('Catalog sync failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -490,7 +491,7 @@ async function syncVariation(obj) {
                     null  // stock_alert_max not available in Square API
                 ]);
             } catch (error) {
-                console.log(`Error syncing location override for variation ${obj.id}, location ${override.location_id}:`, error.message);
+                logger.error('Error syncing location override', { variation_id: obj.id, location_id: override.location_id, error: error.message });
             }
         }
     }
@@ -519,7 +520,7 @@ async function syncVariation(obj) {
                 vendorCount++;
             } catch (error) {
                 // Vendor might not exist yet, skip
-                console.log(`Skipping vendor ${vendorInfo.vendor_id} for variation ${obj.id}`);
+                logger.warn('Skipping vendor - not found in database', { vendor_id: vendorInfo.vendor_id, variation_id: obj.id });
             }
         }
     }
@@ -532,7 +533,7 @@ async function syncVariation(obj) {
  * @returns {Promise<number>} Number of inventory records synced
  */
 async function syncInventory() {
-    console.log('Starting inventory sync...');
+    logger.info('Starting inventory sync');
 
     try {
         // Get all locations
@@ -540,7 +541,7 @@ async function syncInventory() {
         const locationIds = locationsResult.rows.map(r => r.id);
 
         if (locationIds.length === 0) {
-            console.log('No active locations found. Run location sync first.');
+            logger.warn('No active locations found. Run location sync first');
             return 0;
         }
 
@@ -549,7 +550,7 @@ async function syncInventory() {
         const catalogObjectIds = variationsResult.rows.map(r => r.id);
 
         if (catalogObjectIds.length === 0) {
-            console.log('No variations found. Run catalog sync first.');
+            logger.warn('No variations found. Run catalog sync first');
             return 0;
         }
 
@@ -592,9 +593,9 @@ async function syncInventory() {
                     totalSynced++;
                 }
 
-                console.log(`Processed batch ${Math.floor(i / batchSize) + 1}: ${totalSynced} records synced`);
+                logger.info('Inventory sync batch complete', { batch: Math.floor(i / batchSize) + 1, total_synced: totalSynced });
             } catch (error) {
-                console.error(`Batch ${Math.floor(i / batchSize) + 1} failed:`, error.message);
+                logger.error('Inventory sync batch failed', { batch: Math.floor(i / batchSize) + 1, error: error.message });
                 // Continue with next batch
             }
 
@@ -602,10 +603,10 @@ async function syncInventory() {
             await sleep(100);
         }
 
-        console.log(`Inventory sync complete: ${totalSynced} records`);
+        logger.info('Inventory sync complete', { records: totalSynced });
         return totalSynced;
     } catch (error) {
-        console.error('Inventory sync failed:', error.message);
+        logger.error('Inventory sync failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -616,7 +617,7 @@ async function syncInventory() {
  * @returns {Promise<number>} Number of variations with velocity data
  */
 async function syncSalesVelocity(periodDays = 91) {
-    console.log(`Starting sales velocity sync for ${periodDays}-day period...`);
+    logger.info('Starting sales velocity sync', { period_days: periodDays });
 
     try {
         // Calculate date range
@@ -629,7 +630,7 @@ async function syncSalesVelocity(periodDays = 91) {
         const locationIds = locationsResult.rows.map(r => r.id);
 
         if (locationIds.length === 0) {
-            console.log('No active locations found.');
+            logger.warn('No active locations found');
             return 0;
         }
 
@@ -698,7 +699,7 @@ async function syncSalesVelocity(periodDays = 91) {
 
             ordersProcessed += orders.length;
             cursor = data.cursor;
-            console.log(`Processed ${ordersProcessed} orders...`);
+            logger.info('Sales velocity sync progress', { orders_processed: ordersProcessed });
 
         } while (cursor);
 
@@ -747,14 +748,14 @@ async function syncSalesVelocity(periodDays = 91) {
                 savedCount++;
             } catch (error) {
                 // Variation might not exist in our database
-                console.log(`Skipping velocity for variation ${data.variation_id}`);
+                logger.warn('Skipping velocity for variation - not found in database', { variation_id: data.variation_id });
             }
         }
 
-        console.log(`Sales velocity sync complete: ${savedCount} variation/location combinations for ${periodDays} days`);
+        logger.info('Sales velocity sync complete', { combinations: savedCount, period_days: periodDays });
         return savedCount;
     } catch (error) {
-        console.error(`Sales velocity sync failed for ${periodDays} days:`, error.message);
+        logger.error('Sales velocity sync failed', { period_days: periodDays, error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -764,7 +765,7 @@ async function syncSalesVelocity(periodDays = 91) {
  * @returns {Promise<Object>} Sync summary
  */
 async function fullSync() {
-    console.log('=== Starting Full Square Sync ===');
+    logger.info('Starting full Square sync');
     const startTime = Date.now();
 
     const summary = {
@@ -816,16 +817,16 @@ async function fullSync() {
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`=== Full Sync Complete in ${duration}s ===`);
+        logger.info('Full Square sync complete', { duration_seconds: duration });
 
         if (summary.errors.length > 0) {
-            console.log('Errors encountered:', summary.errors);
+            logger.warn('Errors encountered during full sync', { errors: summary.errors });
             summary.success = false;
         }
 
         return summary;
     } catch (error) {
-        console.error('Full sync failed:', error.message);
+        logger.error('Full sync failed', { error: error.message, stack: error.stack });
         summary.success = false;
         summary.errors.push(error.message);
         return summary;
