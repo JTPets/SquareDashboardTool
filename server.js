@@ -339,6 +339,163 @@ async function isSyncNeeded(syncType, intervalHours) {
     };
 }
 
+/**
+ * Run smart sync - intelligently syncs only data types whose interval has elapsed
+ * This is the core function used by both the API endpoint and cron job
+ * @returns {Promise<Object>} Sync result with status, synced types, and summary
+ */
+async function runSmartSync() {
+    console.log('Smart sync initiated');
+
+    // Get intervals from environment variables
+    const intervals = {
+        catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+        locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
+        vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+        inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+        sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+        sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+        sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+    };
+
+    const synced = [];
+    const skipped = {};
+    const errors = [];
+    const summary = {};
+
+    // CRITICAL: Check and sync locations FIRST
+    // Always sync if there are 0 active locations, regardless of interval
+    // Locations are required for inventory and sales velocity syncs
+    const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE');
+    const locationCount = parseInt(locationCountResult.rows[0].count);
+    const locationsCheck = await isSyncNeeded('locations', intervals.locations);
+
+    if (locationCount === 0 || locationsCheck.needed) {
+        try {
+            if (locationCount === 0) {
+                console.log('No active locations found - forcing location sync...');
+            } else {
+                console.log('Syncing locations...');
+            }
+            const result = await loggedSync('locations', () => squareApi.syncLocations());
+            synced.push('locations');
+            summary.locations = result;
+        } catch (error) {
+            errors.push({ type: 'locations', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.locations - parseFloat(locationsCheck.hoursSince));
+        skipped.locations = `Last synced ${locationsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync vendors
+    const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors);
+    if (vendorsCheck.needed) {
+        try {
+            console.log('Syncing vendors...');
+            const result = await loggedSync('vendors', () => squareApi.syncVendors());
+            synced.push('vendors');
+            summary.vendors = result;
+        } catch (error) {
+            errors.push({ type: 'vendors', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.vendors - parseFloat(vendorsCheck.hoursSince));
+        skipped.vendors = `Last synced ${vendorsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync catalog
+    const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
+    if (catalogCheck.needed) {
+        try {
+            console.log('Syncing catalog...');
+            const result = await loggedSync('catalog', async () => {
+                const stats = await squareApi.syncCatalog();
+                return stats.items + stats.variations;
+            });
+            synced.push('catalog');
+            summary.catalog = result;
+        } catch (error) {
+            errors.push({ type: 'catalog', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
+        skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync inventory
+    const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory);
+    if (inventoryCheck.needed) {
+        try {
+            console.log('Syncing inventory...');
+            const result = await loggedSync('inventory', () => squareApi.syncInventory());
+            synced.push('inventory');
+            summary.inventory = result;
+        } catch (error) {
+            errors.push({ type: 'inventory', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.inventory - parseFloat(inventoryCheck.hoursSince));
+        skipped.inventory = `Last synced ${inventoryCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync sales_91d
+    const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d);
+    if (sales91Check.needed) {
+        try {
+            console.log('Syncing 91-day sales velocity...');
+            const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91));
+            synced.push('sales_91d');
+            summary.sales_91d = result;
+        } catch (error) {
+            errors.push({ type: 'sales_91d', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.sales_91d - parseFloat(sales91Check.hoursSince));
+        skipped.sales_91d = `Last synced ${sales91Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync sales_182d
+    const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d);
+    if (sales182Check.needed) {
+        try {
+            console.log('Syncing 182-day sales velocity...');
+            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182));
+            synced.push('sales_182d');
+            summary.sales_182d = result;
+        } catch (error) {
+            errors.push({ type: 'sales_182d', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
+        skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    // Check and sync sales_365d
+    const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d);
+    if (sales365Check.needed) {
+        try {
+            console.log('Syncing 365-day sales velocity...');
+            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365));
+            synced.push('sales_365d');
+            summary.sales_365d = result;
+        } catch (error) {
+            errors.push({ type: 'sales_365d', error: error.message });
+        }
+    } else {
+        const hoursRemaining = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
+        skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+    }
+
+    return {
+        status: errors.length === 0 ? 'success' : 'partial',
+        synced,
+        skipped,
+        summary,
+        errors: errors.length > 0 ? errors : undefined
+    };
+}
+
 // ==================== SYNC ENDPOINTS ====================
 
 /**
@@ -411,154 +568,8 @@ app.post('/api/sync-sales', async (req, res) => {
 app.post('/api/sync-smart', async (req, res) => {
     try {
         console.log('Smart sync requested');
-
-        // Get intervals from environment variables
-        const intervals = {
-            catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
-            locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
-            vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
-            inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
-            sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
-            sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
-            sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
-        };
-
-        const synced = [];
-        const skipped = {};
-        const errors = [];
-        const summary = {};
-
-        // CRITICAL: Check and sync locations FIRST
-        // Always sync if there are 0 active locations, regardless of interval
-        // Locations are required for inventory and sales velocity syncs
-        const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE');
-        const locationCount = parseInt(locationCountResult.rows[0].count);
-        const locationsCheck = await isSyncNeeded('locations', intervals.locations);
-
-        if (locationCount === 0 || locationsCheck.needed) {
-            try {
-                if (locationCount === 0) {
-                    console.log('No active locations found - forcing location sync...');
-                } else {
-                    console.log('Syncing locations...');
-                }
-                const result = await loggedSync('locations', () => squareApi.syncLocations());
-                synced.push('locations');
-                summary.locations = result;
-            } catch (error) {
-                errors.push({ type: 'locations', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.locations - parseFloat(locationsCheck.hoursSince));
-            skipped.locations = `Last synced ${locationsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync vendors
-        const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors);
-        if (vendorsCheck.needed) {
-            try {
-                console.log('Syncing vendors...');
-                const result = await loggedSync('vendors', () => squareApi.syncVendors());
-                synced.push('vendors');
-                summary.vendors = result;
-            } catch (error) {
-                errors.push({ type: 'vendors', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.vendors - parseFloat(vendorsCheck.hoursSince));
-            skipped.vendors = `Last synced ${vendorsCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync catalog
-        const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
-        if (catalogCheck.needed) {
-            try {
-                console.log('Syncing catalog...');
-                const result = await loggedSync('catalog', async () => {
-                    const stats = await squareApi.syncCatalog();
-                    return stats.items + stats.variations;
-                });
-                synced.push('catalog');
-                summary.catalog = result;
-            } catch (error) {
-                errors.push({ type: 'catalog', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.catalog - parseFloat(catalogCheck.hoursSince));
-            skipped.catalog = `Last synced ${catalogCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync inventory
-        const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory);
-        if (inventoryCheck.needed) {
-            try {
-                console.log('Syncing inventory...');
-                const result = await loggedSync('inventory', () => squareApi.syncInventory());
-                synced.push('inventory');
-                summary.inventory = result;
-            } catch (error) {
-                errors.push({ type: 'inventory', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.inventory - parseFloat(inventoryCheck.hoursSince));
-            skipped.inventory = `Last synced ${inventoryCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync sales_91d
-        const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d);
-        if (sales91Check.needed) {
-            try {
-                console.log('Syncing 91-day sales velocity...');
-                const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91));
-                synced.push('sales_91d');
-                summary.sales_91d = result;
-            } catch (error) {
-                errors.push({ type: 'sales_91d', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.sales_91d - parseFloat(sales91Check.hoursSince));
-            skipped.sales_91d = `Last synced ${sales91Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync sales_182d
-        const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d);
-        if (sales182Check.needed) {
-            try {
-                console.log('Syncing 182-day sales velocity...');
-                const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182));
-                synced.push('sales_182d');
-                summary.sales_182d = result;
-            } catch (error) {
-                errors.push({ type: 'sales_182d', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
-            skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        // Check and sync sales_365d
-        const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d);
-        if (sales365Check.needed) {
-            try {
-                console.log('Syncing 365-day sales velocity...');
-                const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365));
-                synced.push('sales_365d');
-                summary.sales_365d = result;
-            } catch (error) {
-                errors.push({ type: 'sales_365d', error: error.message });
-            }
-        } else {
-            const hoursRemaining = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
-            skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-        }
-
-        res.json({
-            status: errors.length === 0 ? 'success' : 'partial',
-            synced,
-            skipped,
-            summary,
-            errors: errors.length > 0 ? errors : undefined
-        });
+        const result = await runSmartSync();
+        res.json(result);
     } catch (error) {
         console.error('Smart sync error:', error);
         res.status(500).json({
@@ -3250,6 +3261,38 @@ async function startServer() {
         logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
         console.log(`Cycle Count: Daily batch generation scheduled at ${cronSchedule}`);
 
+        // Initialize automated database sync cron job
+        // Runs hourly by default (configurable via SYNC_CRON_SCHEDULE)
+        const syncCronSchedule = process.env.SYNC_CRON_SCHEDULE || '0 * * * *';
+        cron.schedule(syncCronSchedule, async () => {
+            logger.info('Running scheduled smart sync');
+            try {
+                const result = await runSmartSync();
+                logger.info('Scheduled smart sync completed', {
+                    synced: result.synced,
+                    skipped: Object.keys(result.skipped).length,
+                    errors: result.errors?.length || 0
+                });
+
+                // Send alert if there were errors
+                if (result.errors && result.errors.length > 0) {
+                    await emailNotifier.sendAlert(
+                        'Database Sync Partial Failure',
+                        `Some sync operations failed:\n\n${result.errors.map(e => `- ${e.type}: ${e.error}`).join('\n')}`
+                    );
+                }
+            } catch (error) {
+                logger.error('Scheduled smart sync failed', { error: error.message });
+                await emailNotifier.sendAlert(
+                    'Database Sync Failed',
+                    `Failed to run scheduled database sync:\n\n${error.message}\n\nStack: ${error.stack}`
+                );
+            }
+        });
+
+        logger.info('Database sync cron job scheduled', { schedule: syncCronSchedule });
+        console.log(`Database Sync: Automated smart sync scheduled at ${syncCronSchedule}`);
+
         // Startup check: Generate today's batch if it doesn't exist yet
         // This handles cases where server was offline during scheduled cron time
         (async () => {
@@ -3277,6 +3320,71 @@ async function startServer() {
             } catch (error) {
                 logger.error('Startup batch check failed', { error: error.message });
                 console.error('Cycle Count: Startup batch check failed:', error.message);
+            }
+        })();
+
+        // Startup check: Run smart sync if data is stale
+        // This handles cases where server was offline during scheduled sync time
+        (async () => {
+            try {
+                logger.info('Checking for stale data on startup...');
+                console.log('Database Sync: Checking for stale data...');
+
+                // Get intervals from environment variables
+                const intervals = {
+                    catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+                    locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
+                    vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+                    inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+                    sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+                    sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+                    sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+                };
+
+                // Check if any sync type is stale
+                let needsSync = false;
+                const staleTypes = [];
+
+                for (const [syncType, intervalHours] of Object.entries(intervals)) {
+                    const check = await isSyncNeeded(syncType, intervalHours);
+                    if (check.needed) {
+                        needsSync = true;
+                        staleTypes.push(syncType);
+                    }
+                }
+
+                if (needsSync) {
+                    logger.info('Stale data detected on startup - running smart sync', {
+                        stale_types: staleTypes
+                    });
+                    console.log(`Database Sync: Stale data detected (${staleTypes.join(', ')}) - syncing...`);
+
+                    const result = await runSmartSync();
+                    logger.info('Startup smart sync completed', {
+                        synced: result.synced,
+                        skipped: Object.keys(result.skipped).length,
+                        errors: result.errors?.length || 0
+                    });
+
+                    if (result.synced.length > 0) {
+                        console.log(`Database Sync: Synced ${result.synced.join(', ')} on startup`);
+                    }
+
+                    // Send alert if there were errors
+                    if (result.errors && result.errors.length > 0) {
+                        await emailNotifier.sendAlert(
+                            'Startup Database Sync Partial Failure',
+                            `Some sync operations failed during startup:\n\n${result.errors.map(e => `- ${e.type}: ${e.error}`).join('\n')}`
+                        );
+                    }
+                } else {
+                    logger.info('All data is current - no sync needed on startup');
+                    console.log('Database Sync: All data is current');
+                }
+            } catch (error) {
+                logger.error('Startup sync check failed', { error: error.message });
+                console.error('Database Sync: Startup sync check failed:', error.message);
+                // Don't send alert for startup check failures - not critical
             }
         })();
 
