@@ -54,10 +54,18 @@
       background: #1f2937;
       color: white;
       padding: 15px 30px;
+    }
+
+    .stats-row {
       display: flex;
       justify-content: space-around;
       flex-wrap: wrap;
       gap: 20px;
+      padding: 10px 0;
+    }
+
+    .stats-row:not(:last-child) {
+      border-bottom: 1px solid #374151;
     }
 
     .stat {
@@ -306,9 +314,13 @@
       }
 
       .stats-bar {
+        padding: 15px;
+      }
+
+      .stats-row {
         flex-direction: column;
         gap: 10px;
-        padding: 15px;
+        padding: 10px 0;
       }
 
       .stat {
@@ -340,52 +352,56 @@
 
     <!-- STATS BAR -->
     <div class="stats-bar" id="stats-bar">
-      <!-- Inventory Metrics -->
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-variations">--</div>
-        <div class="stat-label">Total Variations</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-total-units">--</div>
-        <div class="stat-label">Total Units</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-value">--</div>
-        <div class="stat-label">Inventory Value</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder alert" id="stat-out-of-stock">--</div>
-        <div class="stat-label">Out of Stock</div>
-      </div>
-
-      <!-- Expiration Tracking -->
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
-        <div class="stat-label">With Expiry Data</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
-        <div class="stat-label">Expiring &lt; 120 Days</div>
-      </div>
-
-      <!-- Reorder & Purchasing -->
-      <div class="stat">
-        <div class="stat-number loading-placeholder alert" id="stat-alerts">--</div>
-        <div class="stat-label">Reorder Alerts</div>
+      <!-- Row 1: Inventory & Stock Metrics -->
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-variations">--</div>
+          <div class="stat-label">Total Variations</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-total-units">--</div>
+          <div class="stat-label">Total Units</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-value-retail">--</div>
+          <div class="stat-label">Inventory Value (Retail)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-value-cog">--</div>
+          <div class="stat-label">Inventory Value (COG)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-out-of-stock">--</div>
+          <div class="stat-label">Out of Stock</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-alerts">--</div>
+          <div class="stat-label">Reorder Alerts</div>
+        </div>
       </div>
 
-      <!-- Cycle Counting -->
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-cycle-pending">--</div>
-        <div class="stat-label">Cycle Counts Pending</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-cycle-target">--</div>
-        <div class="stat-label">Today's Target</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-cycle-complete">--</div>
-        <div class="stat-label">Completion Rate</div>
+      <!-- Row 2: Expiration & Cycle Count Metrics -->
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
+          <div class="stat-label">With Expiry Data</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
+          <div class="stat-label">Expiring &lt; 120 Days</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-pending">--</div>
+          <div class="stat-label">Cycle Counts Pending</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-target">--</div>
+          <div class="stat-label">Today's Target</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-complete">--</div>
+          <div class="stat-label">Completion Rate</div>
+        </div>
       </div>
     </div>
 
@@ -671,10 +687,18 @@
         const totalUnits = inventory.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
         const outOfStock = inventory.filter(item => (parseFloat(item.quantity) || 0) === 0).length;
 
-        const totalValue = inventory.reduce((sum, item) => {
+        // Calculate retail value (using price_money)
+        const totalValueRetail = inventory.reduce((sum, item) => {
           const qty = item.quantity || 0;
           const price = item.price_money || 0;
           return sum + (qty * price / 100);
+        }, 0);
+
+        // Calculate COG value (using unit_cost_cents)
+        const totalValueCOG = inventory.reduce((sum, item) => {
+          const qty = item.quantity || 0;
+          const cost = item.unit_cost_cents || 0;
+          return sum + (qty * cost / 100);
         }, 0);
 
         // Process expiration data
@@ -707,7 +731,8 @@
         // Update all stats
         updateStat('stat-variations', uniqueVariations.toLocaleString());
         updateStat('stat-total-units', Math.floor(totalUnits).toLocaleString());
-        updateStat('stat-value', '$' + totalValue.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
+        updateStat('stat-value-retail', '$' + totalValueRetail.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
+        updateStat('stat-value-cog', '$' + totalValueCOG.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
         updateStat('stat-out-of-stock', outOfStock.toLocaleString());
 
         updateStat('stat-expiry-data', `${withExpiryData.toLocaleString()} (${expiryPercent}%)`);
@@ -725,7 +750,7 @@
         console.error('Failed to load stats:', error);
 
         // Show error state
-        ['stat-variations', 'stat-total-units', 'stat-value', 'stat-out-of-stock',
+        ['stat-variations', 'stat-total-units', 'stat-value-retail', 'stat-value-cog', 'stat-out-of-stock',
          'stat-expiry-data', 'stat-expiring-soon', 'stat-alerts',
          'stat-cycle-pending', 'stat-cycle-target', 'stat-cycle-complete'].forEach(id => {
           const elem = document.getElementById(id);
