@@ -576,9 +576,23 @@
 
         const velocityText = `<span class="${velocityClass}">${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}</span>`;
 
+        // Calculate order quantity respecting stock maximum
+        let suggestedQty = item.final_suggested_qty;
+        let cappedByMax = false;
+
+        // If stock_alert_max is set, don't order beyond it
+        if (item.stock_alert_max && item.stock_alert_max > 0) {
+          const projectedStock = item.current_stock + suggestedQty;
+          if (projectedStock > item.stock_alert_max) {
+            // Cap at maximum, but don't go negative
+            suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+            cappedByMax = true;
+          }
+        }
+
         // Calculate cases to order (round up)
         const casePack = item.case_pack_quantity || 1;
-        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         const actualUnits = casesToOrder * casePack;
         const totalCost = (actualUnits * item.unit_cost_cents / 100).toFixed(2);
 
@@ -642,6 +656,7 @@
             <td class="text-right">
               <strong>${casesToOrder}</strong>
               <br><small style="color: #6b7280;">(${actualUnits} units)</small>
+              ${cappedByMax ? '<br><small style="color: #f59e0b;">⚠️ Capped at max</small>' : ''}
             </td>
             <td class="text-right editable-cell">
               <input type="number"
@@ -694,10 +709,19 @@
 
     function updateFooter() {
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
-      // Calculate total cost based on cases
+      // Calculate total cost based on cases (respecting stock max)
       const totalCost = selectedSuggestions.reduce((sum, item) => {
+        // Apply stock maximum logic
+        let suggestedQty = item.final_suggested_qty;
+        if (item.stock_alert_max && item.stock_alert_max > 0) {
+          const projectedStock = item.current_stock + suggestedQty;
+          if (projectedStock > item.stock_alert_max) {
+            suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+          }
+        }
+
         const casePack = item.case_pack_quantity || 1;
-        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         const actualUnits = casesToOrder * casePack;
         return sum + (actualUnits * item.unit_cost_cents / 100);
       }, 0);
@@ -739,9 +763,18 @@
       const supplyDays = parseInt(document.getElementById('supply-days').value);
 
       const items = selectedSuggestions.map(item => {
+        // Apply stock maximum logic
+        let suggestedQty = item.final_suggested_qty;
+        if (item.stock_alert_max && item.stock_alert_max > 0) {
+          const projectedStock = item.current_stock + suggestedQty;
+          if (projectedStock > item.stock_alert_max) {
+            suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+          }
+        }
+
         // Calculate actual units to order (cases × case pack)
         const casePack = item.case_pack_quantity || 1;
-        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         const actualUnits = casesToOrder * casePack;
 
         return {
@@ -923,6 +956,12 @@
 
         // Update local data
         item[field] = newValue;
+
+        // If we updated stock_alert_max or case_pack_quantity, re-render to recalculate order quantities
+        if (field === 'stock_alert_max' || field === 'case_pack_quantity') {
+          renderTable();
+          updateFooter();
+        }
 
         // Show success state
         input.classList.remove('saving');
