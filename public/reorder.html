@@ -375,11 +375,11 @@
             <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
               Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
             </th>
-            <th onclick="sortTable('final_suggested_qty')" class="sortable text-right">
-              Order Qty <span class="sort-indicator" id="sort-final_suggested_qty"></span>
+            <th onclick="sortTable('final_suggested_qty')" class="sortable text-right" title="Cases to order (units ÷ case pack)">
+              Cases<br><small>to Order</small> <span class="sort-indicator" id="sort-final_suggested_qty"></span>
             </th>
             <th onclick="sortTable('case_pack_quantity')" class="sortable text-right" title="Case Pack Quantity (editable)">
-              Case <span class="sort-indicator" id="sort-case_pack_quantity"></span>
+              Case Pack <span class="sort-indicator" id="sort-case_pack_quantity"></span>
             </th>
             <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
               Cost <span class="sort-indicator" id="sort-unit_cost_cents"></span>
@@ -576,9 +576,11 @@
 
         const velocityText = `<span class="${velocityClass}">${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}</span>`;
 
-        // Always round up quantities
-        const orderQty = Math.ceil(item.final_suggested_qty);
-        const totalCost = (orderQty * item.unit_cost_cents / 100).toFixed(2);
+        // Calculate cases to order (round up)
+        const casePack = item.case_pack_quantity || 1;
+        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const actualUnits = casesToOrder * casePack;
+        const totalCost = (actualUnits * item.unit_cost_cents / 100).toFixed(2);
 
         // Check if there's actually no velocity data (all periods are null/0)
         const hasNoVelocityData = (!item.weekly_avg_91d || item.weekly_avg_91d === 0) &&
@@ -637,7 +639,10 @@
             </td>
             <td class="text-right ${daysClass}">${daysText}</td>
             <td class="text-right"><small>${velocityText}</small></td>
-            <td class="text-right"><strong>${orderQty}</strong></td>
+            <td class="text-right">
+              <strong>${casesToOrder}</strong>
+              <br><small style="color: #6b7280;">(${actualUnits} units)</small>
+            </td>
             <td class="text-right editable-cell">
               <input type="number"
                      class="editable-input"
@@ -689,10 +694,12 @@
 
     function updateFooter() {
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
-      // Calculate total with rounded quantities
+      // Calculate total cost based on cases
       const totalCost = selectedSuggestions.reduce((sum, item) => {
-        const orderQty = Math.ceil(item.final_suggested_qty);
-        return sum + (orderQty * item.unit_cost_cents / 100);
+        const casePack = item.case_pack_quantity || 1;
+        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const actualUnits = casesToOrder * casePack;
+        return sum + (actualUnits * item.unit_cost_cents / 100);
       }, 0);
 
       document.getElementById('selected-count').textContent = selectedSuggestions.length;
@@ -731,11 +738,18 @@
 
       const supplyDays = parseInt(document.getElementById('supply-days').value);
 
-      const items = selectedSuggestions.map(item => ({
-        variation_id: item.variation_id,
-        quantity_ordered: Math.ceil(item.final_suggested_qty), // Always round up
-        unit_cost_cents: item.unit_cost_cents
-      }));
+      const items = selectedSuggestions.map(item => {
+        // Calculate actual units to order (cases × case pack)
+        const casePack = item.case_pack_quantity || 1;
+        const casesToOrder = Math.ceil(item.final_suggested_qty / casePack);
+        const actualUnits = casesToOrder * casePack;
+
+        return {
+          variation_id: item.variation_id,
+          quantity_ordered: actualUnits, // Order in full cases
+          unit_cost_cents: item.unit_cost_cents
+        };
+      });
 
       const poData = {
         vendor_id: vendorId,
