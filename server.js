@@ -1186,7 +1186,6 @@ app.get('/api/inventory', async (req, res) => {
                 ic.catalog_object_id as variation_id,
                 ic.quantity,
                 ic.location_id,
-                ic.calculated_at,
                 ic.updated_at,
                 v.sku,
                 v.name as variation_name,
