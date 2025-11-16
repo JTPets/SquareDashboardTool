@@ -270,11 +270,47 @@
       cursor: pointer;
     }
 
+    .editable-cell {
+      position: relative;
+    }
+
+    .editable-input {
+      width: 60px;
+      padding: 4px 6px;
+      border: 1px solid #d1d5db;
+      border-radius: 3px;
+      font-size: 13px;
+      text-align: right;
+      font-family: inherit;
+    }
+
+    .editable-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+
+    .editable-input.saving {
+      background: #fef3c7;
+      border-color: #f59e0b;
+    }
+
+    .editable-input.saved {
+      background: #d1fae5;
+      border-color: #059669;
+    }
+
+    .editable-input.error {
+      background: #fee2e2;
+      border-color: #dc2626;
+    }
+
     @media (max-width: 768px) {
       .controls { flex-direction: column; align-items: stretch; }
       .controls select, .controls input, .controls button { width: 100%; }
       th, td { padding: 8px; font-size: 12px; }
       .product-name { max-width: 150px; }
+      .editable-input { width: 50px; font-size: 12px; }
     }
   </style>
 </head>
@@ -330,6 +366,9 @@
             <th onclick="sortTable('stock_alert_min')" class="sortable text-right">
               Min <span class="sort-indicator" id="sort-stock_alert_min"></span>
             </th>
+            <th class="text-right" title="Stock Maximum (editable)">
+              Max
+            </th>
             <th onclick="sortTable('days_until_stockout')" class="sortable text-right">
               Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
             </th>
@@ -339,7 +378,7 @@
             <th onclick="sortTable('final_suggested_qty')" class="sortable text-right">
               Order Qty <span class="sort-indicator" id="sort-final_suggested_qty"></span>
             </th>
-            <th onclick="sortTable('case_pack_quantity')" class="sortable text-right">
+            <th onclick="sortTable('case_pack_quantity')" class="sortable text-right" title="Case Pack Quantity (editable)">
               Case <span class="sort-indicator" id="sort-case_pack_quantity"></span>
             </th>
             <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
@@ -358,7 +397,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="15" class="loading">Loading suggestions...</td>
+            <td colspan="16" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -435,7 +474,7 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="15" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="16" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -448,7 +487,7 @@
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="15" class="empty-state">
+              <td colspan="16" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -470,7 +509,7 @@
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="15" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="16" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -585,10 +624,31 @@
             <td class="sku">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">${item.current_stock}</td>
             <td class="text-right">${item.stock_alert_min || '-'}</td>
+            <td class="text-right editable-cell">
+              <input type="number"
+                     class="editable-input"
+                     value="${item.stock_alert_max || ''}"
+                     placeholder="-"
+                     min="0"
+                     data-field="stock_alert_max"
+                     data-variation-id="${item.variation_id}"
+                     onblur="saveField(this)"
+                     onkeydown="if(event.key==='Enter') this.blur()">
+            </td>
             <td class="text-right ${daysClass}">${daysText}</td>
             <td class="text-right"><small>${velocityText}</small></td>
             <td class="text-right"><strong>${orderQty}</strong></td>
-            <td class="text-right">${item.case_pack_quantity || '-'}</td>
+            <td class="text-right editable-cell">
+              <input type="number"
+                     class="editable-input"
+                     value="${item.case_pack_quantity || ''}"
+                     placeholder="-"
+                     min="1"
+                     data-field="case_pack_quantity"
+                     data-variation-id="${item.variation_id}"
+                     onblur="saveField(this)"
+                     onkeydown="if(event.key==='Enter') this.blur()">
+            </td>
             <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
             <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
@@ -800,6 +860,73 @@
       // Re-render table with sorted data
       renderTable();
       updateFooter();
+    }
+
+    // Save editable field to database
+    async function saveField(input) {
+      const variationId = input.dataset.variationId;
+      const field = input.dataset.field;
+      const value = input.value.trim();
+
+      // Don't save if value is empty or unchanged
+      const item = allSuggestions.find(s => s.variation_id === variationId);
+      if (!item) return;
+
+      const currentValue = item[field];
+      const newValue = value === '' ? null : parseInt(value, 10);
+
+      // Check if value actually changed
+      if (currentValue === newValue || (currentValue == null && newValue == null)) {
+        return;
+      }
+
+      // Validate
+      if (value !== '' && (isNaN(newValue) || newValue < 0)) {
+        input.classList.add('error');
+        setTimeout(() => input.classList.remove('error'), 2000);
+        input.value = currentValue || '';
+        return;
+      }
+
+      // Show saving state
+      input.classList.add('saving');
+      input.disabled = true;
+
+      try {
+        const response = await fetch(`/api/variations/${variationId}/extended`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            [field]: newValue
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        // Update local data
+        item[field] = newValue;
+
+        // Show success state
+        input.classList.remove('saving');
+        input.classList.add('saved');
+        setTimeout(() => input.classList.remove('saved'), 2000);
+
+      } catch (error) {
+        console.error('Failed to save field:', error);
+        input.classList.remove('saving');
+        input.classList.add('error');
+        setTimeout(() => input.classList.remove('error'), 2000);
+
+        // Revert to original value
+        input.value = currentValue || '';
+        alert(`Failed to save ${field}: ${error.message}`);
+      } finally {
+        input.disabled = false;
+      }
     }
 
     function escapeHtml(text) {
