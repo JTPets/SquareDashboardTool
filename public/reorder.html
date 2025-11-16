@@ -305,6 +305,31 @@
       border-color: #dc2626;
     }
 
+    .editable-display {
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 3px;
+      transition: background 0.2s;
+      display: inline-block;
+      min-width: 40px;
+      text-align: right;
+    }
+
+    .editable-display:hover {
+      background: #f3f4f6;
+    }
+
+    .infinity-symbol {
+      font-size: 18px;
+      font-weight: bold;
+      color: #6b7280;
+    }
+
+    .editable-display.has-value {
+      color: #374151;
+      font-weight: 500;
+    }
+
     @media (max-width: 768px) {
       .controls { flex-direction: column; align-items: stretch; }
       .controls select, .controls input, .controls button { width: 100%; }
@@ -641,15 +666,10 @@
             <td class="text-right">${item.current_stock}</td>
             <td class="text-right">${item.stock_alert_min || '-'}</td>
             <td class="text-right editable-cell">
-              <input type="number"
-                     class="editable-input"
-                     value="${item.stock_alert_max || ''}"
-                     placeholder="-"
-                     min="0"
-                     data-field="stock_alert_max"
-                     data-variation-id="${item.variation_id}"
-                     onblur="saveField(this)"
-                     onkeydown="if(event.key==='Enter') this.blur()">
+              <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
+                   onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
+                ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
+              </div>
             </td>
             <td class="text-right ${daysClass}">${daysText}</td>
             <td class="text-right"><small>${velocityText}</small></td>
@@ -980,6 +1000,114 @@
       } finally {
         input.disabled = false;
       }
+    }
+
+    // Enter edit mode for stock maximum field
+    function enterEditMode(displayElement, variationId, field, currentValue) {
+      // Create input element
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'editable-input';
+      input.value = currentValue === null ? '' : currentValue;
+      input.placeholder = '∞';
+      input.min = '0';
+      input.dataset.variationId = variationId;
+      input.dataset.field = field;
+
+      // Save on blur or Enter key
+      input.onblur = function() {
+        exitEditMode(this, true);
+      };
+      input.onkeydown = function(e) {
+        if (e.key === 'Enter') {
+          this.blur();
+        } else if (e.key === 'Escape') {
+          exitEditMode(this, false);
+        }
+      };
+
+      // Replace display with input
+      const cell = displayElement.parentElement;
+      cell.innerHTML = '';
+      cell.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    // Exit edit mode and optionally save
+    async function exitEditMode(input, save) {
+      const variationId = input.dataset.variationId;
+      const field = input.dataset.field;
+      const value = input.value.trim();
+
+      const item = allSuggestions.find(s => s.variation_id === variationId);
+      if (!item) return;
+
+      const currentValue = item[field];
+      const newValue = value === '' ? null : parseInt(value, 10);
+
+      // If saving and value changed, save it
+      if (save && currentValue !== newValue) {
+        // Validate
+        if (value !== '' && (isNaN(newValue) || newValue < 0)) {
+          alert('Please enter a valid positive number or leave empty for unlimited.');
+          recreateDisplay(input.parentElement, variationId, field, currentValue);
+          return;
+        }
+
+        // Show saving state
+        input.classList.add('saving');
+        input.disabled = true;
+
+        try {
+          const response = await fetch(`/api/variations/${variationId}/extended`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              [field]: newValue
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          // Update local data
+          item[field] = newValue;
+
+          // Re-render entire table to recalculate order quantities
+          renderTable();
+          updateFooter();
+
+        } catch (error) {
+          console.error('Failed to save field:', error);
+          alert(`Failed to save ${field}: ${error.message}`);
+          recreateDisplay(input.parentElement, variationId, field, currentValue);
+        }
+      } else {
+        // Not saving or no change, just recreate display
+        recreateDisplay(input.parentElement, variationId, field, currentValue);
+      }
+    }
+
+    // Recreate the display element
+    function recreateDisplay(cell, variationId, field, value) {
+      const displayDiv = document.createElement('div');
+      displayDiv.className = `editable-display ${value ? 'has-value' : ''}`;
+      displayDiv.onclick = function() {
+        enterEditMode(this, variationId, field, value);
+      };
+
+      if (value) {
+        displayDiv.textContent = value;
+      } else {
+        displayDiv.innerHTML = '<span class="infinity-symbol">∞</span>';
+      }
+
+      cell.innerHTML = '';
+      cell.appendChild(displayDiv);
     }
 
     function escapeHtml(text) {
