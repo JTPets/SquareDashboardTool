@@ -638,7 +638,7 @@
 
         // Count unique items and variations
         const uniqueItems = new Set(inventory.map(i => i.item_name)).size;
-        const uniqueVariations = new Set(inventory.map(i => i.catalog_object_id)).size;
+        const uniqueVariations = new Set(inventory.map(i => i.variation_id)).size;
 
         // Calculate total inventory value
         const totalValue = inventory.reduce((sum, item) => {
