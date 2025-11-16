@@ -1183,16 +1183,45 @@ app.get('/api/inventory', async (req, res) => {
         const { location_id, low_stock } = req.query;
         let query = `
             SELECT
-                ic.*,
+                ic.catalog_object_id as variation_id,
+                ic.quantity,
+                ic.location_id,
+                ic.calculated_at,
+                ic.updated_at,
                 v.sku,
                 v.name as variation_name,
                 v.price_money,
                 v.currency,
                 v.stock_alert_min,
                 v.stock_alert_max,
+                v.case_pack_quantity,
+                v.discontinued,
+                v.images,
+                i.id as item_id,
                 i.name as item_name,
                 i.category_name,
-                l.name as location_name
+                i.images as item_images,
+                l.name as location_name,
+                -- Get primary vendor info
+                (SELECT ve.name
+                 FROM variation_vendors vv
+                 JOIN vendors ve ON vv.vendor_id = ve.id
+                 WHERE vv.variation_id = v.id
+                 ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
+                 LIMIT 1
+                ) as vendor_name,
+                (SELECT vv.vendor_code
+                 FROM variation_vendors vv
+                 WHERE vv.variation_id = v.id
+                 ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
+                 LIMIT 1
+                ) as vendor_code,
+                (SELECT vv.unit_cost_money
+                 FROM variation_vendors vv
+                 WHERE vv.variation_id = v.id
+                 ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
+                 LIMIT 1
+                ) as unit_cost_cents
             FROM inventory_counts ic
             JOIN variations v ON ic.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
@@ -1213,9 +1242,23 @@ app.get('/api/inventory', async (req, res) => {
         query += ' ORDER BY i.name, v.name, l.name';
 
         const result = await db.query(query, params);
+
+        // Resolve image URLs (same as reorder suggestions)
+        const inventory = result.rows.map(row => {
+            const images = row.images || row.item_images;
+            const imageUrls = images && images.length > 0
+                ? images.map(img => img.url).filter(Boolean)
+                : [];
+
+            return {
+                ...row,
+                image_urls: imageUrls
+            };
+        });
+
         res.json({
-            count: result.rows.length,
-            inventory: result.rows
+            count: inventory.length,
+            inventory: inventory
         });
     } catch (error) {
         logger.error('Get inventory error', { error: error.message, stack: error.stack });
