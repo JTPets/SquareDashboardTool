@@ -12,7 +12,7 @@ async function resetStockMax() {
 
     // First, count how many records will be affected
     const countResult = await db.query(
-      'SELECT COUNT(*) FROM variation_extended WHERE stock_alert_max = 99999'
+      'SELECT COUNT(*) FROM variations WHERE stock_alert_max = 99999'
     );
     const count = parseInt(countResult.rows[0].count);
 
@@ -29,7 +29,7 @@ async function resetStockMax() {
 
     // Reset to NULL
     const result = await db.query(
-      'UPDATE variation_extended SET stock_alert_max = NULL WHERE stock_alert_max = 99999'
+      'UPDATE variations SET stock_alert_max = NULL WHERE stock_alert_max = 99999'
     );
 
     console.log(`✅ Successfully updated ${result.rowCount} records`);
