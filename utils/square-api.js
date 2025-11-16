@@ -210,6 +210,9 @@ async function syncCatalog() {
     const syncedItemIds = new Set();
     const syncedVariationIds = new Set();
 
+    // Build a map of categories for looking up category names
+    const categoriesMap = new Map();
+
     try {
         let cursor = null;
 
@@ -224,13 +227,15 @@ async function syncCatalog() {
                 try {
                     if (obj.type === 'CATEGORY') {
                         await syncCategory(obj);
+                        // Store category in map for lookup when processing items
+                        categoriesMap.set(obj.id, obj.category_data?.name || 'Uncategorized');
                         stats.categories++;
                     } else if (obj.type === 'IMAGE') {
                         await syncImage(obj);
                         stats.images++;
                     } else if (obj.type === 'ITEM') {
                         syncedItemIds.add(obj.id);
-                        await syncItem(obj);
+                        await syncItem(obj, categoriesMap);
                         stats.items++;
                     } else if (obj.type === 'ITEM_VARIATION') {
                         syncedVariationIds.add(obj.id);
@@ -364,9 +369,14 @@ async function syncImage(obj) {
 
 /**
  * Sync an item object
+ * @param {Object} obj - Item object from Square API
+ * @param {Map} categoriesMap - Map of category IDs to names
  */
-async function syncItem(obj) {
+async function syncItem(obj, categoriesMap) {
     const data = obj.item_data;
+
+    // Look up category name from the map using category_id
+    const category_name = data.category_id ? categoriesMap.get(data.category_id) : null;
 
     await db.query(`
         INSERT INTO items (
@@ -398,7 +408,7 @@ async function syncItem(obj) {
         data.name,
         data.description || null,
         data.category_id || null,
-        data.category_name || null,
+        category_name || null,
         data.product_type || null,
         data.is_taxable || false,
         obj.visibility || 'PRIVATE',
