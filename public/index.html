@@ -459,40 +459,107 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints</h3>
+      <h3>📚 Raw API Endpoints (42 Total)</h3>
       <div class="api-grid">
+
+        <div class="api-category">
+          <h4>💚 Health & Status</h4>
+          <a href="/api/health" target="_blank">GET /api/health</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📋 Logging</h4>
+          <a href="/api/logs" target="_blank">GET /api/logs</a>
+          <a href="/api/logs/errors" target="_blank">GET /api/logs/errors</a>
+          <a href="/api/logs/stats" target="_blank">GET /api/logs/stats</a>
+          <a href="/api/logs/download" target="_blank">GET /api/logs/download</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🧪 Testing</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-email</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-error</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔄 Sync Operations</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-smart</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-sales</a>
+          <a href="/api/sync-status" target="_blank">GET /api/sync-status</a>
+          <a href="/api/sync-history" target="_blank">GET /api/sync-history</a>
+        </div>
 
         <div class="api-category">
           <h4>📦 Items & Catalog</h4>
           <a href="/api/items" target="_blank">GET /api/items</a>
-          <a href="/api/items?name=dog" target="_blank">GET /api/items?name=search</a>
-          <a href="/api/items?include_deleted=true" target="_blank">GET /api/items?include_deleted=true</a>
+          <a href="/api/variations" target="_blank">GET /api/variations</a>
+          <a href="/api/variations-with-costs" target="_blank">GET /api/variations-with-costs</a>
+        </div>
+
+        <div class="api-category">
+          <h4>✏️ Variation Extended Fields</h4>
+          <a href="#" onclick="alert('Use PATCH with variation ID')" target="_blank">PATCH /api/variations/:id/extended</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/variations/bulk-update-extended</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📅 Expiration Tracking</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/import/expiration-data</a>
+          <a href="/api/import/expiration-data/status" target="_blank">GET /api/import/expiration-data/status</a>
+          <a href="/api/expirations" target="_blank">GET /api/expirations</a>
         </div>
 
         <div class="api-category">
           <h4>📊 Inventory</h4>
           <a href="/api/inventory" target="_blank">GET /api/inventory</a>
-          <a href="/api/inventory?location_id=LOC" target="_blank">GET /api/inventory?location_id=LOC</a>
-        </div>
-
-        <div class="api-category">
-          <h4>🔔 Reorder & Alerts</h4>
-          <a href="/api/reorder-suggestions?supply_days=45" target="_blank">GET /api/reorder-suggestions?supply_days=45</a>
           <a href="/api/low-stock" target="_blank">GET /api/low-stock</a>
         </div>
 
         <div class="api-category">
-          <h4>📈 Sales & Costs</h4>
-          <a href="/api/variations-with-costs" target="_blank">GET /api/variations-with-costs</a>
-          <a href="/api/sales-velocity/:variationId?period=91" target="_blank">GET /api/sales-velocity/:id?period=91</a>
+          <h4>🗑️ Deleted Items</h4>
+          <a href="/api/deleted-items" target="_blank">GET /api/deleted-items</a>
         </div>
 
         <div class="api-category">
-          <h4>⚙️ System</h4>
-          <a href="/api/health" target="_blank">GET /api/health</a>
-          <a href="/api/sync-status" target="_blank">GET /api/sync-status</a>
-          <a href="/api/sync-history" target="_blank">GET /api/sync-history</a>
-          <a href="/api/deleted-items" target="_blank">GET /api/deleted-items</a>
+          <h4>🏪 Vendors & Locations</h4>
+          <a href="/api/vendors" target="_blank">GET /api/vendors</a>
+          <a href="/api/locations" target="_blank">GET /api/locations</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📈 Sales Velocity</h4>
+          <a href="/api/sales-velocity" target="_blank">GET /api/sales-velocity</a>
+          <a href="/api/sales-velocity?period_days=91" target="_blank">GET /api/sales-velocity?period=91</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔔 Reorder Suggestions</h4>
+          <a href="/api/reorder-suggestions" target="_blank">GET /api/reorder-suggestions</a>
+          <a href="/api/reorder-suggestions?supply_days=45" target="_blank">GET /api/reorder-suggestions?supply_days=45</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔄 Cycle Count</h4>
+          <a href="/api/cycle-counts/pending" target="_blank">GET /api/cycle-counts/pending</a>
+          <a href="#" onclick="alert('Use POST with count ID')" target="_blank">POST /api/cycle-counts/:id/complete</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/send-now</a>
+          <a href="/api/cycle-counts/stats" target="_blank">GET /api/cycle-counts/stats</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/email-report</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/generate-batch</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/reset</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📝 Purchase Orders</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/purchase-orders</a>
+          <a href="/api/purchase-orders" target="_blank">GET /api/purchase-orders</a>
+          <a href="#" onclick="alert('Use GET with PO ID')" target="_blank">GET /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use PATCH with PO ID')" target="_blank">PATCH /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/submit</a>
+          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/receive</a>
+          <a href="#" onclick="alert('Use DELETE with PO ID')" target="_blank">DELETE /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use GET with PO number')" target="_blank">GET /api/purchase-orders/:po_number/export-csv</a>
         </div>
 
       </div>
