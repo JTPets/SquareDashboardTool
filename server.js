@@ -3250,6 +3250,36 @@ async function startServer() {
         logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
         console.log(`Cycle Count: Daily batch generation scheduled at ${cronSchedule}`);
 
+        // Startup check: Generate today's batch if it doesn't exist yet
+        // This handles cases where server was offline during scheduled cron time
+        (async () => {
+            try {
+                // Check if any items have been added to today's batch
+                const batchCheck = await db.query(`
+                    SELECT COUNT(*) as count
+                    FROM count_queue_daily
+                    WHERE batch_date = CURRENT_DATE
+                `);
+
+                const todaysBatchCount = parseInt(batchCheck.rows[0]?.count || 0);
+
+                if (todaysBatchCount === 0) {
+                    logger.info('No batch found for today - generating startup batch');
+                    console.log('Cycle Count: Generating missed batch on startup...');
+
+                    const result = await generateDailyBatch();
+                    logger.info('Startup batch generation completed', result);
+                    console.log(`Cycle Count: Startup batch generated - ${result.new_items_added} items added`);
+                } else {
+                    logger.info('Today\'s batch already exists', { items_count: todaysBatchCount });
+                    console.log(`Cycle Count: Today's batch already exists (${todaysBatchCount} items)`);
+                }
+            } catch (error) {
+                logger.error('Startup batch check failed', { error: error.message });
+                console.error('Cycle Count: Startup batch check failed:', error.message);
+            }
+        })();
+
         // Monitor database connection errors
         db.pool.on('error', (err) => {
             logger.error('Database connection error', {
