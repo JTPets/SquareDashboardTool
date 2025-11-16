@@ -2409,6 +2409,100 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
 });
 
 /**
+ * GET /api/cycle-counts/history
+ * Get historical cycle count data with variance details
+ * Query params: date (YYYY-MM-DD) or start_date + end_date
+ */
+app.get('/api/cycle-counts/history', async (req, res) => {
+    try {
+        const { date, start_date, end_date } = req.query;
+
+        let dateFilter = '';
+        const params = [];
+
+        if (date) {
+            // Single date query
+            params.push(date);
+            dateFilter = `AND DATE(ch.last_counted_date) = $${params.length}`;
+        } else if (start_date && end_date) {
+            // Date range query
+            params.push(start_date, end_date);
+            dateFilter = `AND DATE(ch.last_counted_date) BETWEEN $${params.length - 1} AND $${params.length}`;
+        } else if (start_date) {
+            // From start date to now
+            params.push(start_date);
+            dateFilter = `AND DATE(ch.last_counted_date) >= $${params.length}`;
+        } else {
+            // Default to last 30 days
+            dateFilter = `AND ch.last_counted_date >= CURRENT_DATE - INTERVAL '30 days'`;
+        }
+
+        const query = `
+            SELECT
+                ch.id,
+                ch.catalog_object_id,
+                v.name as variation_name,
+                v.sku,
+                i.name as item_name,
+                i.category_name,
+                ch.last_counted_date,
+                ch.counted_by,
+                ch.is_accurate,
+                ch.actual_quantity,
+                ch.expected_quantity,
+                ch.variance,
+                ch.notes,
+                v.price_money,
+                v.currency,
+                -- Calculate variance value in dollars
+                CASE
+                    WHEN ch.variance IS NOT NULL AND v.price_money IS NOT NULL
+                    THEN (ch.variance * v.price_money / 100.0)
+                    ELSE 0
+                END as variance_value
+            FROM count_history ch
+            JOIN variations v ON ch.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            WHERE 1=1
+                ${dateFilter}
+            ORDER BY ch.last_counted_date DESC, ABS(COALESCE(ch.variance, 0)) DESC
+        `;
+
+        const result = await db.query(query, params);
+
+        // Calculate summary stats
+        const totalCounts = result.rows.length;
+        const accurateCounts = result.rows.filter(r => r.is_accurate).length;
+        const inaccurateCounts = result.rows.filter(r => r.is_accurate === false).length;
+        const totalVariance = result.rows.reduce((sum, r) => sum + Math.abs(r.variance || 0), 0);
+        const totalVarianceValue = result.rows.reduce((sum, r) => sum + Math.abs(r.variance_value || 0), 0);
+
+        const accuracyRate = totalCounts > 0
+            ? ((accurateCounts / totalCounts) * 100).toFixed(2)
+            : 0;
+
+        res.json({
+            summary: {
+                total_counts: totalCounts,
+                accurate_counts: accurateCounts,
+                inaccurate_counts: inaccurateCounts,
+                accuracy_rate: parseFloat(accuracyRate),
+                total_variance_units: totalVariance,
+                total_variance_value: totalVarianceValue
+            },
+            items: result.rows.map(row => ({
+                ...row,
+                variance_value: parseFloat((row.variance_value || 0).toFixed(2))
+            }))
+        });
+
+    } catch (error) {
+        logger.error('Get cycle count history error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/cycle-counts/email-report
  * Send completion report email (uses shared sendCycleCountReport function)
  */

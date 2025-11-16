@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cycle Count History - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    .stat { text-align: center; min-width: 100px; }
+    .stat-number { font-size: 24px; font-weight: bold; color: #10b981; }
+    .stat-number.negative { color: #ef4444; }
+    .stat-label { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls label { font-weight: 500; font-size: 14px; }
+    .controls input, .controls select, .controls button {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 40px;
+    }
+    .controls button {
+      background: #059669;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .controls button:hover { background: #047857; }
+    .filter-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      background: #f9fafb;
+      border-radius: 4px;
+    }
+    .table-container {
+      overflow-x: auto;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .accurate { color: #10b981; font-weight: 600; }
+    .inaccurate { color: #ef4444; font-weight: 600; }
+    .variance-positive { color: #10b981; }
+    .variance-negative { color: #ef4444; }
+    .variance-zero { color: #6b7280; }
+    .loading { text-align: center; padding: 40px; color: #6b7280; font-style: italic; }
+    .notes-cell {
+      max-width: 300px;
+      white-space: normal;
+      word-wrap: break-word;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    @media (max-width: 900px) {
+      .stat { min-width: 80px; }
+      .stat-number { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 Cycle Count History</h1>
+      <a href="/cycle-count.html" class="back-button">← Back to Cycle Count</a>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-number" id="stat-total">--</div>
+        <div class="stat-label">Total Counts</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-accurate">--</div>
+        <div class="stat-label">Accurate</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-inaccurate">--</div>
+        <div class="stat-label">Inaccurate</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-accuracy-rate">--</div>
+        <div class="stat-label">Accuracy Rate</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-variance-units">--</div>
+        <div class="stat-label">Total Variance (Units)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-variance-value">--</div>
+        <div class="stat-label">Total Variance (Value)</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="filter-group">
+        <label>Single Date:</label>
+        <input type="date" id="single-date">
+      </div>
+
+      <div class="filter-group">
+        <label>Date Range:</label>
+        <input type="date" id="start-date">
+        <span>to</span>
+        <input type="date" id="end-date">
+      </div>
+
+      <button onclick="loadHistory()">Load History</button>
+      <button onclick="clearFilters()" style="background: #6b7280;">Clear Filters</button>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Item Name</th>
+            <th>Variation</th>
+            <th>SKU</th>
+            <th>Category</th>
+            <th>Expected</th>
+            <th>Actual</th>
+            <th>Variance</th>
+            <th>$ Variance</th>
+            <th>Status</th>
+            <th>Counted By</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="12" class="loading">Select a date or date range to view cycle count history</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // Set default date to today
+    document.getElementById('single-date').valueAsDate = new Date();
+
+    async function loadHistory() {
+      const singleDate = document.getElementById('single-date').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+
+      const tbody = document.getElementById('history-body');
+      tbody.innerHTML = '<tr><td colspan="12" class="loading">Loading...</td></tr>';
+
+      try {
+        let url = '/api/cycle-counts/history?';
+
+        if (singleDate) {
+          url += `date=${singleDate}`;
+        } else if (startDate && endDate) {
+          url += `start_date=${startDate}&end_date=${endDate}`;
+        } else if (startDate) {
+          url += `start_date=${startDate}`;
+        } else {
+          // Default to last 30 days
+          url = '/api/cycle-counts/history';
+        }
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (!data.items || data.items.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="12" class="loading">No cycle count history found for the selected date range</td></tr>';
+          updateStats({
+            total_counts: 0,
+            accurate_counts: 0,
+            inaccurate_counts: 0,
+            accuracy_rate: 0,
+            total_variance_units: 0,
+            total_variance_value: 0
+          });
+          return;
+        }
+
+        updateStats(data.summary);
+        renderTable(data.items);
+
+      } catch (error) {
+        console.error('Failed to load history:', error);
+        tbody.innerHTML = '<tr><td colspan="12" class="loading">Error: ' + error.message + '</td></tr>';
+      }
+    }
+
+    function updateStats(summary) {
+      document.getElementById('stat-total').textContent = summary.total_counts.toLocaleString();
+      document.getElementById('stat-accurate').textContent = summary.accurate_counts.toLocaleString();
+      document.getElementById('stat-inaccurate').textContent = summary.inaccurate_counts.toLocaleString();
+      document.getElementById('stat-accuracy-rate').textContent = summary.accuracy_rate.toFixed(1) + '%';
+      document.getElementById('stat-variance-units').textContent = summary.total_variance_units.toLocaleString();
+      document.getElementById('stat-variance-value').textContent = '$' + summary.total_variance_value.toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function renderTable(items) {
+      const tbody = document.getElementById('history-body');
+
+      tbody.innerHTML = items.map(item => {
+        const countDate = new Date(item.last_counted_date);
+        const dateStr = countDate.toLocaleDateString('en-CA');
+        const timeStr = countDate.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' });
+
+        const variance = item.variance || 0;
+        const varianceClass = variance > 0 ? 'variance-positive' : (variance < 0 ? 'variance-negative' : 'variance-zero');
+        const varianceSymbol = variance > 0 ? '+' : '';
+
+        const statusClass = item.is_accurate ? 'accurate' : 'inaccurate';
+        const statusText = item.is_accurate ? '✓ Accurate' : '✗ Inaccurate';
+
+        return `<tr>
+          <td>
+            <div>${dateStr}</div>
+            <div style="font-size: 11px; color: #6b7280;">${timeStr}</div>
+          </td>
+          <td>${item.item_name || 'N/A'}</td>
+          <td>${item.variation_name || 'Regular'}</td>
+          <td style="font-family: monospace; font-size: 12px;">${item.sku || 'N/A'}</td>
+          <td>${item.category_name || 'Uncategorized'}</td>
+          <td style="text-align: right;">${item.expected_quantity !== null ? item.expected_quantity : 'N/A'}</td>
+          <td style="text-align: right;">${item.actual_quantity !== null ? item.actual_quantity : 'N/A'}</td>
+          <td style="text-align: right;" class="${varianceClass}">
+            <strong>${varianceSymbol}${variance}</strong>
+          </td>
+          <td style="text-align: right;" class="${varianceClass}">
+            <strong>${varianceSymbol}$${Math.abs(item.variance_value || 0).toFixed(2)}</strong>
+          </td>
+          <td class="${statusClass}">${statusText}</td>
+          <td>${item.counted_by || 'System'}</td>
+          <td class="notes-cell">${item.notes || ''}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function clearFilters() {
+      document.getElementById('single-date').value = '';
+      document.getElementById('start-date').value = '';
+      document.getElementById('end-date').value = '';
+      document.getElementById('history-body').innerHTML = '<tr><td colspan="12" class="loading">Select a date or date range to view cycle count history</td></tr>';
+      updateStats({
+        total_counts: 0,
+        accurate_counts: 0,
+        inaccurate_counts: 0,
+        accuracy_rate: 0,
+        total_variance_units: 0,
+        total_variance_value: 0
+      });
+    }
+
+    // Load today's data by default
+    window.addEventListener('DOMContentLoaded', () => {
+      loadHistory();
+    });
+  </script>
+</body>
+</html>
