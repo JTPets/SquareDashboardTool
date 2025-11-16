@@ -2492,7 +2492,7 @@ app.get('/api/cycle-counts/history', async (req, res) => {
             },
             items: result.rows.map(row => ({
                 ...row,
-                variance_value: parseFloat((row.variance_value || 0).toFixed(2))
+                variance_value: parseFloat((Number(row.variance_value) || 0).toFixed(2))
             }))
         });
 
