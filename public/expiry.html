@@ -390,7 +390,8 @@
 
     function formatDate(dateStr) {
       if (!dateStr) return 'Not set';
-      return new Date(dateStr).toLocaleDateString();
+      // Return ISO format (YYYY-MM-DD) - Canadian standard
+      return dateStr.split('T')[0];
     }
 
     function showDateConfirmation(id, newValue, input) {

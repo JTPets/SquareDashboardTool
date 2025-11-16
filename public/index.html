@@ -340,25 +340,52 @@
 
     <!-- STATS BAR -->
     <div class="stats-bar" id="stats-bar">
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-items">--</div>
-        <div class="stat-label">Items</div>
-      </div>
+      <!-- Inventory Metrics -->
       <div class="stat">
         <div class="stat-number loading-placeholder" id="stat-variations">--</div>
-        <div class="stat-label">Variations</div>
+        <div class="stat-label">Total Variations</div>
       </div>
       <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-inventory">--</div>
-        <div class="stat-label">Inventory Records</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number loading-placeholder" id="stat-alerts">--</div>
-        <div class="stat-label">Reorder Alerts</div>
+        <div class="stat-number loading-placeholder" id="stat-total-units">--</div>
+        <div class="stat-label">Total Units</div>
       </div>
       <div class="stat">
         <div class="stat-number loading-placeholder" id="stat-value">--</div>
         <div class="stat-label">Inventory Value</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number loading-placeholder alert" id="stat-out-of-stock">--</div>
+        <div class="stat-label">Out of Stock</div>
+      </div>
+
+      <!-- Expiration Tracking -->
+      <div class="stat">
+        <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
+        <div class="stat-label">With Expiry Data</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
+        <div class="stat-label">Expiring &lt; 120 Days</div>
+      </div>
+
+      <!-- Reorder & Purchasing -->
+      <div class="stat">
+        <div class="stat-number loading-placeholder alert" id="stat-alerts">--</div>
+        <div class="stat-label">Reorder Alerts</div>
+      </div>
+
+      <!-- Cycle Counting -->
+      <div class="stat">
+        <div class="stat-number loading-placeholder" id="stat-cycle-pending">--</div>
+        <div class="stat-label">Cycle Counts Pending</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number loading-placeholder" id="stat-cycle-target">--</div>
+        <div class="stat-label">Today's Target</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number loading-placeholder" id="stat-cycle-complete">--</div>
+        <div class="stat-label">Completion Rate</div>
       </div>
     </div>
 
@@ -614,90 +641,83 @@
       return `${diffHours}h`;
     }
 
+    // Helper function to update a stat
+    function updateStat(id, value) {
+      const elem = document.getElementById(id);
+      if (elem) {
+        elem.textContent = value;
+        elem.classList.remove('loading-placeholder');
+      }
+    }
+
     // Load dashboard stats
     async function loadStats() {
       try {
         console.log('Loading dashboard stats...');
 
-        // Fetch inventory data
-        const inventoryResponse = await fetch('/api/inventory');
-        console.log('Inventory response status:', inventoryResponse.status);
+        // Fetch all data in parallel
+        const [inventoryResponse, expiryResponse, reorderResponse, cycleResponse] = await Promise.all([
+          fetch('/api/inventory'),
+          fetch('/api/expirations'),
+          fetch('/api/reorder-suggestions?supply_days=45'),
+          fetch('/api/cycle-counts/pending')
+        ]);
 
-        if (!inventoryResponse.ok) {
-          throw new Error(`Inventory API failed: ${inventoryResponse.status}`);
-        }
-
+        // Process inventory data
         const inventoryData = await inventoryResponse.json();
-        console.log('Inventory data received:', inventoryData);
-
-        // Handle both array response and wrapped response
         const inventory = Array.isArray(inventoryData) ? inventoryData : (inventoryData.inventory || []);
-        console.log('Inventory items count:', inventory.length);
 
-        // Count unique items and variations
-        const uniqueItems = new Set(inventory.map(i => i.item_name)).size;
         const uniqueVariations = new Set(inventory.map(i => i.variation_id)).size;
+        const totalUnits = inventory.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+        const outOfStock = inventory.filter(item => (parseFloat(item.quantity) || 0) === 0).length;
 
-        // Calculate total inventory value
         const totalValue = inventory.reduce((sum, item) => {
           const qty = item.quantity || 0;
           const price = item.price_money || 0;
           return sum + (qty * price / 100);
         }, 0);
 
-        console.log('Stats calculated:', { uniqueItems, uniqueVariations, totalValue });
+        // Process expiration data
+        const expiryData = await expiryResponse.json();
+        const expirations = Array.isArray(expiryData) ? expiryData : (expiryData.items || []);
 
-        // Fetch reorder alerts
-        const reorderResponse = await fetch('/api/reorder-suggestions?supply_days=45');
-        console.log('Reorder response status:', reorderResponse.status);
+        const withExpiryData = expirations.filter(i => i.expiration_date || i.does_not_expire).length;
+        const expiryPercent = uniqueVariations > 0 ? ((withExpiryData / uniqueVariations) * 100).toFixed(1) : 0;
 
-        if (!reorderResponse.ok) {
-          throw new Error(`Reorder API failed: ${reorderResponse.status}`);
-        }
+        const today = new Date();
+        const in120Days = new Date(today.getTime() + 120*24*60*60*1000);
+        const expiringSoon = expirations.filter(i => {
+          if (!i.expiration_date || i.does_not_expire) return false;
+          const expDate = new Date(i.expiration_date);
+          return expDate <= in120Days && expDate >= today;
+        }).length;
 
+        // Process reorder data
         const reorderData = await reorderResponse.json();
-        console.log('Reorder data received:', reorderData);
-
         const alertCount = reorderData.count || reorderData.suggestions?.length || 0;
-        console.log('Alert count:', alertCount);
 
-        // Update stats with null checks
-        const statItems = document.getElementById('stat-items');
-        const statVariations = document.getElementById('stat-variations');
-        const statInventory = document.getElementById('stat-inventory');
-        const statAlerts = document.getElementById('stat-alerts');
-        const statValue = document.getElementById('stat-value');
+        // Process cycle count data
+        const cycleData = await cycleResponse.json();
+        const pendingCount = cycleData.items?.length || 0;
+        const targetCount = cycleData.target || 0;
+        const completionRate = targetCount > 0
+          ? Math.round(((targetCount - pendingCount) / targetCount) * 100)
+          : 0;
 
-        if (statItems) {
-          statItems.textContent = uniqueItems.toLocaleString();
-          statItems.classList.remove('loading-placeholder');
-        }
+        // Update all stats
+        updateStat('stat-variations', uniqueVariations.toLocaleString());
+        updateStat('stat-total-units', Math.floor(totalUnits).toLocaleString());
+        updateStat('stat-value', '$' + totalValue.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
+        updateStat('stat-out-of-stock', outOfStock.toLocaleString());
 
-        if (statVariations) {
-          statVariations.textContent = uniqueVariations.toLocaleString();
-          statVariations.classList.remove('loading-placeholder');
-        }
+        updateStat('stat-expiry-data', `${withExpiryData.toLocaleString()} (${expiryPercent}%)`);
+        updateStat('stat-expiring-soon', expiringSoon.toLocaleString());
 
-        if (statInventory) {
-          statInventory.textContent = inventory.length.toLocaleString();
-          statInventory.classList.remove('loading-placeholder');
-        }
+        updateStat('stat-alerts', alertCount.toLocaleString());
 
-        if (statAlerts) {
-          statAlerts.textContent = alertCount.toLocaleString();
-          if (alertCount > 0) {
-            statAlerts.classList.add('alert');
-          }
-          statAlerts.classList.remove('loading-placeholder');
-        }
-
-        if (statValue) {
-          statValue.textContent = '$' + totalValue.toLocaleString('en-CA', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-          });
-          statValue.classList.remove('loading-placeholder');
-        }
+        updateStat('stat-cycle-pending', pendingCount.toLocaleString());
+        updateStat('stat-cycle-target', targetCount.toLocaleString());
+        updateStat('stat-cycle-complete', `${completionRate}%`);
 
         console.log('Dashboard stats updated successfully');
 
@@ -705,7 +725,9 @@
         console.error('Failed to load stats:', error);
 
         // Show error state
-        ['stat-items', 'stat-variations', 'stat-inventory', 'stat-alerts', 'stat-value'].forEach(id => {
+        ['stat-variations', 'stat-total-units', 'stat-value', 'stat-out-of-stock',
+         'stat-expiry-data', 'stat-expiring-soon', 'stat-alerts',
+         'stat-cycle-pending', 'stat-cycle-target', 'stat-cycle-complete'].forEach(id => {
           const elem = document.getElementById(id);
           if (elem) {
             elem.textContent = 'Error';
