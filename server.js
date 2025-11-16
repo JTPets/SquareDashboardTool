@@ -940,150 +940,7 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
     }
 });
 
-// ==================== EXPIRATION DATA IMPORT ENDPOINTS ====================
-
-/**
- * POST /api/import/expiration-data
- * Import expiration dates from legacy API
- */
-app.post('/api/import/expiration-data', async (req, res) => {
-    try {
-        const { source_url } = req.body;
-
-        // Default to legacy API URL
-        const sourceAPI = source_url || 'http://localhost:5000/api/items';
-
-        logger.info(`Starting expiration data import from: ${sourceAPI}`);
-
-        // Fetch data from legacy API
-        const response = await fetch(sourceAPI);
-
-        if (!response.ok) {
-            throw new Error(`Legacy API returned ${response.status}: ${response.statusText}`);
-        }
-
-        const legacyData = await response.json();
-
-        if (!Array.isArray(legacyData)) {
-            throw new Error('Legacy API did not return an array');
-        }
-
-        logger.info(`Fetched ${legacyData.length} items from legacy API`);
-
-        let imported = 0;
-        let skipped = 0;
-        let errors = 0;
-        const errorDetails = [];
-
-        // Process each item
-        for (const item of legacyData) {
-            try {
-                // Map legacy identifier to variation_id
-                const variationId = item.identifier;
-
-                if (!variationId) {
-                    skipped++;
-                    continue;
-                }
-
-                // Check if variation exists in our database
-                const variationCheck = await db.query(
-                    'SELECT id FROM variations WHERE id = $1',
-                    [variationId]
-                );
-
-                if (variationCheck.rows.length === 0) {
-                    logger.warn(`Variation ${variationId} not found in database, skipping`);
-                    skipped++;
-                    continue;
-                }
-
-                // Extract expiration data
-                const expirationDate = item.expiration_date || null;
-                const doesNotExpire = item.does_not_expire || false;
-
-                // Update or insert expiration data
-                await db.query(`
-                    INSERT INTO variation_expiration (
-                        variation_id,
-                        expiration_date,
-                        does_not_expire
-                    ) VALUES ($1, $2, $3)
-                    ON CONFLICT (variation_id)
-                    DO UPDATE SET
-                        expiration_date = EXCLUDED.expiration_date,
-                        does_not_expire = EXCLUDED.does_not_expire,
-                        updated_at = NOW()
-                `, [variationId, expirationDate, doesNotExpire]);
-
-                imported++;
-
-            } catch (itemError) {
-                errors++;
-                errorDetails.push({
-                    identifier: item.identifier,
-                    name: item.name,
-                    error: itemError.message
-                });
-                logger.error(`Error importing ${item.identifier}:`, itemError);
-            }
-        }
-
-        const result = {
-            success: true,
-            total_fetched: legacyData.length,
-            imported: imported,
-            skipped: skipped,
-            errors: errors,
-            error_details: errorDetails.slice(0, 10) // First 10 errors only
-        };
-
-        logger.info('Expiration data import completed', result);
-
-        res.json(result);
-
-    } catch (error) {
-        logger.error('Expiration import failed', { error: error.message });
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/import/expiration-data/status
- * Get import status and coverage statistics
- */
-app.get('/api/import/expiration-data/status', async (req, res) => {
-    try {
-        // Check how many variations have expiration data
-        const result = await db.query(`
-            SELECT
-                COUNT(*) as total_variations,
-                COUNT(ve.variation_id) as with_expiration_data,
-                COUNT(CASE WHEN ve.does_not_expire = true THEN 1 END) as never_expires,
-                COUNT(CASE WHEN ve.expiration_date IS NOT NULL AND ve.does_not_expire = false THEN 1 END) as has_expiry_date
-            FROM variations v
-            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
-        `);
-
-        res.json({
-            total_variations: parseInt(result.rows[0].total_variations),
-            with_expiration_data: parseInt(result.rows[0].with_expiration_data),
-            never_expires: parseInt(result.rows[0].never_expires),
-            has_expiry_date: parseInt(result.rows[0].has_expiry_date),
-            coverage_percent: (
-                (parseInt(result.rows[0].with_expiration_data) /
-                 parseInt(result.rows[0].total_variations)) * 100
-            ).toFixed(1)
-        });
-
-    } catch (error) {
-        logger.error('Failed to get import status', { error: error.message });
-        res.status(500).json({ error: 'Failed to get import status' });
-    }
-});
+// ==================== EXPIRATION TRACKING ENDPOINTS ====================
 
 /**
  * GET /api/expirations
@@ -3176,7 +3033,7 @@ async function startServer() {
                 `Environment: ${process.env.NODE_ENV || 'development'}`,
                 `Database: ${process.env.DB_NAME || 'jtpets_beta'}`,
                 '='.repeat(60),
-                'API Endpoints (42 total):',
+                'API Endpoints (40 total):',
                 '  GET    /api/health',
                 '  GET    /api/logs                                  (view recent logs)',
                 '  GET    /api/logs/errors                           (view error logs)',
@@ -3194,8 +3051,6 @@ async function startServer() {
                 '  GET    /api/variations-with-costs',
                 '  PATCH  /api/variations/:id/extended               (update extended fields)',
                 '  POST   /api/variations/bulk-update-extended       (bulk update extended fields)',
-                '  POST   /api/import/expiration-data                (import expiration data)',
-                '  GET    /api/import/expiration-data/status         (expiration import status)',
                 '  GET    /api/expirations                           (get expiration tracking)',
                 '  GET    /api/inventory',
                 '  GET    /api/low-stock',
