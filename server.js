@@ -1621,14 +1621,14 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 const casePack = parseInt(row.case_pack_quantity) || 1;
                 const reorderMultiple = parseInt(row.reorder_multiple) || 1;
                 const stockAlertMin = parseInt(row.stock_alert_min) || 0;  // Now includes location-specific via COALESCE
-                const stockAlertMax = parseInt(row.stock_alert_max) || 999999;  // Now includes location-specific via COALESCE
+                const stockAlertMax = row.stock_alert_max ? parseInt(row.stock_alert_max) : null;  // Keep null as null for infinity
                 const locationId = row.location_id || null;
                 const locationName = row.location_name || null;
                 const leadTime = parseInt(row.lead_time_days) || 7;
                 const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
-                // Don't suggest if already above max
-                if (currentStock >= stockAlertMax) {
+                // Don't suggest if already above max (null = unlimited, so skip this check)
+                if (stockAlertMax !== null && currentStock >= stockAlertMax) {
                     return null;
                 }
 
@@ -1710,7 +1710,10 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 }
 
                 // Don't exceed max stock level (round up final quantity)
-                const finalQty = Math.ceil(Math.min(suggestedQty, stockAlertMax - currentStock));
+                // If stockAlertMax is null (unlimited), don't cap the quantity
+                const finalQty = stockAlertMax !== null
+                    ? Math.ceil(Math.min(suggestedQty, stockAlertMax - currentStock))
+                    : Math.ceil(suggestedQty);
 
                 if (finalQty <= 0) {
                     return null;
