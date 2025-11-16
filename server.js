@@ -668,6 +668,27 @@ app.get('/api/sync-status', async (req, res) => {
 // ==================== CATALOG ENDPOINTS ====================
 
 /**
+ * GET /api/categories
+ * Get list of all distinct categories from items
+ */
+app.get('/api/categories', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT DISTINCT i.category_name
+            FROM items i
+            WHERE i.category_name IS NOT NULL
+              AND i.category_name != ''
+            ORDER BY i.category_name
+        `);
+        logger.info('API /api/categories returning', { count: result.rows.length });
+        res.json(result.rows.map(row => row.category_name));
+    } catch (error) {
+        logger.error('Get categories error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/items
  * List all items with optional filtering
  */

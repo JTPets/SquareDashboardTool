@@ -724,8 +724,10 @@
         const cycleData = await cycleResponse.json();
         const pendingCount = cycleData.items?.length || 0;
         const targetCount = cycleData.target || 0;
+        // Completion rate: 0% if pending >= target, otherwise (target - pending) / target * 100
+        // Always clamp between 0% and 100%
         const completionRate = targetCount > 0
-          ? Math.round(((targetCount - pendingCount) / targetCount) * 100)
+          ? Math.max(0, Math.min(100, Math.round(((targetCount - pendingCount) / targetCount) * 100)))
           : 0;
 
         // Update all stats
