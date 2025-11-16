@@ -1050,6 +1050,58 @@ app.get('/api/expirations', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/expirations
+ * Save/update expiration data for variations
+ */
+app.post('/api/expirations', async (req, res) => {
+    try {
+        const changes = req.body;
+
+        if (!Array.isArray(changes)) {
+            return res.status(400).json({ error: 'Expected array of changes' });
+        }
+
+        let updatedCount = 0;
+
+        for (const change of changes) {
+            const { variation_id, expiration_date, does_not_expire } = change;
+
+            if (!variation_id) {
+                logger.warn('Skipping change - no variation_id', change);
+                continue;
+            }
+
+            await db.query(`
+                INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
+                VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                ON CONFLICT (variation_id)
+                DO UPDATE SET
+                    expiration_date = EXCLUDED.expiration_date,
+                    does_not_expire = EXCLUDED.does_not_expire,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [
+                variation_id,
+                expiration_date || null,
+                does_not_expire || false
+            ]);
+
+            updatedCount++;
+        }
+
+        logger.info('Updated expirations', { count: updatedCount });
+
+        res.json({
+            success: true,
+            message: `Updated ${updatedCount} expiration record(s)`
+        });
+
+    } catch (error) {
+        logger.error('Save expirations error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: 'Failed to save expiration data', details: error.message });
+    }
+});
+
 // ==================== INVENTORY ENDPOINTS ====================
 
 /**
