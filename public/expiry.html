@@ -290,15 +290,19 @@
     <div class="stats-bar">
       <div class="stat">
         <div class="stat-number" id="stat-total">--</div>
-        <div class="stat-label">Total Products</div>
+        <div class="stat-label">Total Variations</div>
       </div>
       <div class="stat">
-        <div class="stat-number" id="stat-in-stock">--</div>
-        <div class="stat-label">In Stock</div>
+        <div class="stat-number" id="stat-with-data">--</div>
+        <div class="stat-label">With Expiration Data</div>
       </div>
       <div class="stat">
-        <div class="stat-number" id="stat-no-expiry">--</div>
-        <div class="stat-label">No Expiry Set</div>
+        <div class="stat-number" id="stat-never-expires">--</div>
+        <div class="stat-label">Never Expires</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-has-expiry">--</div>
+        <div class="stat-label">Has Expiry Date</div>
       </div>
       <div class="stat">
         <div class="stat-number" id="stat-expiring">--</div>
@@ -446,8 +450,16 @@
       }
 
       const total = allItems.length;
-      const inStock = allItems.filter(i => (i.quantity || 0) > 0).length;
-      const noExpiry = allItems.filter(i => !i.expiration_date && !i.does_not_expire).length;
+
+      // With Expiration Data: items that have either expiration_date or does_not_expire set
+      const withData = allItems.filter(i => i.expiration_date || i.does_not_expire).length;
+      const withDataPercent = total > 0 ? ((withData / total) * 100).toFixed(1) : 0;
+
+      // Never Expires: items where does_not_expire is true
+      const neverExpires = allItems.filter(i => i.does_not_expire).length;
+
+      // Has Expiry Date: items with an actual expiration_date
+      const hasExpiry = allItems.filter(i => i.expiration_date && !i.does_not_expire).length;
 
       const today = new Date();
       const in120Days = new Date(today.getTime() + 120*24*60*60*1000);
@@ -464,8 +476,9 @@
       }, 0);
 
       document.getElementById('stat-total').textContent = total.toLocaleString();
-      document.getElementById('stat-in-stock').textContent = inStock.toLocaleString();
-      document.getElementById('stat-no-expiry').textContent = noExpiry.toLocaleString();
+      document.getElementById('stat-with-data').textContent = `${withData.toLocaleString()} (${withDataPercent}%)`;
+      document.getElementById('stat-never-expires').textContent = neverExpires.toLocaleString();
+      document.getElementById('stat-has-expiry').textContent = hasExpiry.toLocaleString();
       document.getElementById('stat-expiring').textContent = expiring.toLocaleString();
       document.getElementById('stat-value').textContent = '$' + totalValue.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0});
     }
