@@ -227,8 +227,8 @@ async function syncCatalog() {
                 try {
                     if (obj.type === 'CATEGORY') {
                         await syncCategory(obj);
-                        // Store category in map for lookup when processing items
-                        categoriesMap.set(obj.id, obj.category_data?.name || 'Uncategorized');
+                        // Store category object in map for lookup when processing items
+                        categoriesMap.set(obj.id, obj.category_data || obj);
                         stats.categories++;
                     } else if (obj.type === 'IMAGE') {
                         await syncImage(obj);
@@ -376,7 +376,7 @@ async function syncItem(obj, categoriesMap) {
     const data = obj.item_data;
 
     // Look up category name from the map using category_id
-    const category_name = data.category_id ? categoriesMap.get(data.category_id) : null;
+    const category_name = data.category_id ? categoriesMap.get(data.category_id)?.name : null;
 
     await db.query(`
         INSERT INTO items (
