@@ -4,6 +4,7 @@
  */
 
 const { Pool } = require('pg');
+const logger = require('./logger');
 
 // Create connection pool
 const pool = new Pool({
@@ -19,7 +20,7 @@ const pool = new Pool({
 
 // Handle pool errors
 pool.on('error', (err, client) => {
-    console.error('Unexpected error on idle client', err);
+    logger.error('Unexpected error on idle client', { error: err.message, stack: err.stack });
     process.exit(-1);
 });
 
@@ -37,7 +38,7 @@ async function query(text, params) {
 
         // Log slow queries (> 1 second)
         if (duration > 1000) {
-            console.log('Slow query detected:', {
+            logger.warn('Slow query detected', {
                 text: text.substring(0, 100),
                 duration,
                 rows: res.rowCount
@@ -46,7 +47,7 @@ async function query(text, params) {
 
         return res;
     } catch (error) {
-        console.error('Database query error:', {
+        logger.error('Database query error', {
             message: error.message,
             query: text.substring(0, 100),
             params: params
@@ -66,7 +67,7 @@ async function getClient() {
 
     // Set a timeout of 5 seconds, after which we will log this client's last query
     const timeout = setTimeout(() => {
-        console.error('A client has been checked out for more than 5 seconds!');
+        logger.warn('A client has been checked out for more than 5 seconds');
     }, 5000);
 
     // Monkey patch the query method to keep track of the last query executed
@@ -99,7 +100,7 @@ async function transaction(callback) {
         return result;
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('Transaction error:', error.message);
+        logger.error('Transaction error', { error: error.message });
         throw error;
     } finally {
         client.release();
@@ -162,7 +163,7 @@ async function batchUpsert(table, records, conflictColumns, updateColumns) {
         return totalAffected;
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('Batch upsert error:', error.message);
+        logger.error('Batch upsert error', { error: error.message });
         throw error;
     } finally {
         client.release();
@@ -176,10 +177,10 @@ async function batchUpsert(table, records, conflictColumns, updateColumns) {
 async function testConnection() {
     try {
         const result = await query('SELECT NOW() as now');
-        console.log('Database connection successful:', result.rows[0].now);
+        logger.info('Database connection successful', { timestamp: result.rows[0].now });
         return true;
     } catch (error) {
-        console.error('Database connection failed:', error.message);
+        logger.error('Database connection failed', { error: error.message });
         return false;
     }
 }
@@ -189,7 +190,7 @@ async function testConnection() {
  */
 async function close() {
     await pool.end();
-    console.log('Database pool closed');
+    logger.info('Database pool closed');
 }
 
 module.exports = {

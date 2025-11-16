@@ -70,53 +70,45 @@ class EmailNotifier {
     }
   }
 
-  async sendDailySummary(stats) {
-    if (!this.enabled) return;
+  async sendAlert(subject, body) {
+    if (!this.enabled) {
+      logger.warn('Email notifications disabled, would have sent alert:', { subject });
+      return;
+    }
 
     try {
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: process.env.EMAIL_TO,
-        subject: `[JTPets] Daily Summary - ${new Date().toLocaleDateString()}`,
+        subject: `[JTPets] ALERT: ${subject}`,
         html: `
-          <h2 style="color: #2563eb;">📊 Daily Summary</h2>
-          <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+          <h2 style="color: #f59e0b;">⚠️ System Alert</h2>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>Alert:</strong> ${subject}</p>
 
-          <h3>System Health</h3>
-          <ul>
-            <li>Total Syncs: ${stats.totalSyncs || 0}</li>
-            <li>Errors: <span style="color: ${stats.errorCount > 0 ? '#dc2626' : '#059669'}">${stats.errorCount || 0}</span></li>
-            <li>Warnings: ${stats.warningCount || 0}</li>
-            <li>API Calls: ${stats.apiCalls || 0}</li>
-          </ul>
+          <hr>
 
-          ${stats.topErrors && stats.topErrors.length > 0 ? `
-            <h3>Top Errors</h3>
-            <ol>
-              ${stats.topErrors.map(e => `<li>${e.message} (${e.count}x)</li>`).join('')}
-            </ol>
-          ` : ''}
-
-          <h3>Database</h3>
-          <ul>
-            <li>Items: ${stats.itemCount || 0}</li>
-            <li>Variations: ${stats.variationCount || 0}</li>
-            <li>Inventory Records: ${stats.inventoryCount || 0}</li>
-          </ul>
+          <div style="background: #f3f4f6; padding: 15px; border-radius: 5px;">
+            <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">${body}</pre>
+          </div>
 
           <hr>
           <p style="color: #6b7280; font-size: 12px;">
             Server: ${require('os').hostname()}<br>
-            Uptime: ${Math.floor(process.uptime() / 3600)} hours
+            Node Version: ${process.version}<br>
+            Uptime: ${Math.floor(process.uptime() / 60)} minutes
           </p>
         `
       };
 
       await this.transporter.sendMail(mailOptions);
-      logger.info('Daily summary email sent');
+      logger.info('Alert email sent', { subject, to: process.env.EMAIL_TO });
 
     } catch (error) {
-      logger.error('Failed to send daily summary', { error: error.message });
+      logger.error('Failed to send alert email', {
+        error: error.message,
+        subject
+      });
     }
   }
 

@@ -13,6 +13,7 @@ const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
+const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('./utils/csv-helpers');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -27,7 +28,6 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging
-// TODO: Migrate all console.log statements to logger module for consistent log aggregation
 app.use((req, res, next) => {
     logger.info('API request', { method: req.method, path: req.path });
     next();
@@ -299,7 +299,7 @@ async function loggedSync(syncType, syncFunction) {
                 WHERE sync_type = $3 AND started_at = $4
             `, [error.message, durationSeconds, syncType, startedAt]);
         } catch (updateError) {
-            console.error('Failed to update sync history:', updateError);
+            logger.error('Failed to update sync history', { error: updateError.message });
         }
 
         throw error;
@@ -345,7 +345,7 @@ async function isSyncNeeded(syncType, intervalHours) {
  * @returns {Promise<Object>} Sync result with status, synced types, and summary
  */
 async function runSmartSync() {
-    console.log('Smart sync initiated');
+    logger.info('Smart sync initiated');
 
     // Get intervals from environment variables
     const intervals = {
@@ -373,9 +373,9 @@ async function runSmartSync() {
     if (locationCount === 0 || locationsCheck.needed) {
         try {
             if (locationCount === 0) {
-                console.log('No active locations found - forcing location sync...');
+                logger.info('No active locations found - forcing location sync');
             } else {
-                console.log('Syncing locations...');
+                logger.info('Syncing locations');
             }
             const result = await loggedSync('locations', () => squareApi.syncLocations());
             synced.push('locations');
@@ -392,7 +392,7 @@ async function runSmartSync() {
     const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors);
     if (vendorsCheck.needed) {
         try {
-            console.log('Syncing vendors...');
+            logger.info('Syncing vendors');
             const result = await loggedSync('vendors', () => squareApi.syncVendors());
             synced.push('vendors');
             summary.vendors = result;
@@ -408,7 +408,7 @@ async function runSmartSync() {
     const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
     if (catalogCheck.needed) {
         try {
-            console.log('Syncing catalog...');
+            logger.info('Syncing catalog');
             const result = await loggedSync('catalog', async () => {
                 const stats = await squareApi.syncCatalog();
                 return stats.items + stats.variations;
@@ -427,7 +427,7 @@ async function runSmartSync() {
     const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory);
     if (inventoryCheck.needed) {
         try {
-            console.log('Syncing inventory...');
+            logger.info('Syncing inventory');
             const result = await loggedSync('inventory', () => squareApi.syncInventory());
             synced.push('inventory');
             summary.inventory = result;
@@ -443,7 +443,7 @@ async function runSmartSync() {
     const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d);
     if (sales91Check.needed) {
         try {
-            console.log('Syncing 91-day sales velocity...');
+            logger.info('Syncing 91-day sales velocity');
             const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91));
             synced.push('sales_91d');
             summary.sales_91d = result;
@@ -459,7 +459,7 @@ async function runSmartSync() {
     const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d);
     if (sales182Check.needed) {
         try {
-            console.log('Syncing 182-day sales velocity...');
+            logger.info('Syncing 182-day sales velocity');
             const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182));
             synced.push('sales_182d');
             summary.sales_182d = result;
@@ -475,7 +475,7 @@ async function runSmartSync() {
     const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d);
     if (sales365Check.needed) {
         try {
-            console.log('Syncing 365-day sales velocity...');
+            logger.info('Syncing 365-day sales velocity');
             const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365));
             synced.push('sales_365d');
             summary.sales_365d = result;
@@ -504,7 +504,7 @@ async function runSmartSync() {
  */
 app.post('/api/sync', async (req, res) => {
     try {
-        console.log('Full sync requested');
+        logger.info('Full sync requested');
         const summary = await squareApi.fullSync();
 
         res.json({
@@ -525,7 +525,7 @@ app.post('/api/sync', async (req, res) => {
             errors: summary.errors
         });
     } catch (error) {
-        console.error('Sync error:', error);
+        logger.error('Sync error', { error: error.message, stack: error.stack });
         res.status(500).json({
             status: 'error',
             message: error.message
@@ -539,7 +539,7 @@ app.post('/api/sync', async (req, res) => {
  */
 app.post('/api/sync-sales', async (req, res) => {
     try {
-        console.log('Sales velocity sync requested');
+        logger.info('Sales velocity sync requested');
         const results = {};
 
         for (const days of [91, 182, 365]) {
@@ -552,7 +552,7 @@ app.post('/api/sync-sales', async (req, res) => {
             variations_updated: results
         });
     } catch (error) {
-        console.error('Sales sync error:', error);
+        logger.error('Sales sync error', { error: error.message, stack: error.stack });
         res.status(500).json({
             status: 'error',
             message: error.message
@@ -567,11 +567,11 @@ app.post('/api/sync-sales', async (req, res) => {
  */
 app.post('/api/sync-smart', async (req, res) => {
     try {
-        console.log('Smart sync requested');
+        logger.info('Smart sync requested');
         const result = await runSmartSync();
         res.json(result);
     } catch (error) {
-        console.error('Smart sync error:', error);
+        logger.error('Smart sync error', { error: error.message, stack: error.stack });
         res.status(500).json({
             status: 'error',
             message: error.message
@@ -607,7 +607,7 @@ app.get('/api/sync-history', async (req, res) => {
             history: result.rows
         });
     } catch (error) {
-        console.error('Get sync history error:', error);
+        logger.error('Get sync history error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -660,7 +660,7 @@ app.get('/api/sync-status', async (req, res) => {
 
         res.json(status);
     } catch (error) {
-        console.error('Get sync status error:', error);
+        logger.error('Get sync status error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -754,7 +754,7 @@ app.get('/api/variations', async (req, res) => {
             variations
         });
     } catch (error) {
-        console.error('Get variations error:', error);
+        logger.error('Get variations error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -812,7 +812,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
             variations
         });
     } catch (error) {
-        console.error('Get variations with costs error:', error);
+        logger.error('Get variations with costs error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -869,7 +869,7 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
             variation: result.rows[0]
         });
     } catch (error) {
-        console.error('Update variation error:', error);
+        logger.error('Update variation error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -935,7 +935,7 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
             errors: errors
         });
     } catch (error) {
-        console.error('Bulk update error:', error);
+        logger.error('Bulk update error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1218,7 +1218,7 @@ app.get('/api/inventory', async (req, res) => {
             inventory: result.rows
         });
     } catch (error) {
-        console.error('Get inventory error:', error);
+        logger.error('Get inventory error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1273,7 +1273,7 @@ app.get('/api/low-stock', async (req, res) => {
             low_stock_items: items
         });
     } catch (error) {
-        console.error('Get low stock error:', error);
+        logger.error('Get low stock error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1341,7 +1341,7 @@ app.get('/api/deleted-items', async (req, res) => {
             deleted_items: items
         });
     } catch (error) {
-        console.error('Get deleted items error:', error);
+        logger.error('Get deleted items error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1371,7 +1371,7 @@ app.get('/api/vendors', async (req, res) => {
             vendors: result.rows
         });
     } catch (error) {
-        console.error('Get vendors error:', error);
+        logger.error('Get vendors error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1393,7 +1393,7 @@ app.get('/api/locations', async (req, res) => {
             locations: result.rows
         });
     } catch (error) {
-        console.error('Get locations error:', error);
+        logger.error('Get locations error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1458,7 +1458,7 @@ app.get('/api/sales-velocity', async (req, res) => {
             sales_velocity: result.rows
         });
     } catch (error) {
-        console.error('Get sales velocity error:', error);
+        logger.error('Get sales velocity error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -1798,7 +1798,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             suggestions: suggestionsWithImages
         });
     } catch (error) {
-        console.error('Get reorder suggestions error:', error);
+        logger.error('Get reorder suggestions error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2204,7 +2204,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Get pending cycle counts error:', error);
+        logger.error('Get pending cycle counts error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2309,7 +2309,7 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Complete cycle count error:', error);
+        logger.error('Complete cycle count error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2357,7 +2357,7 @@ app.post('/api/cycle-counts/send-now', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Add to priority queue error:', error);
+        logger.error('Add to priority queue error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2428,7 +2428,7 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Get cycle count stats error:', error);
+        logger.error('Get cycle count stats error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2454,7 +2454,7 @@ app.post('/api/cycle-counts/email-report', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Send cycle count report error:', error);
+        logger.error('Send cycle count report error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2526,7 +2526,7 @@ app.post('/api/cycle-counts/reset', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Reset count history error:', error);
+        logger.error('Reset count history error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2600,7 +2600,7 @@ app.post('/api/purchase-orders', async (req, res) => {
             purchase_order: po
         });
     } catch (error) {
-        console.error('Create PO error:', error);
+        logger.error('Create PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2643,7 +2643,7 @@ app.get('/api/purchase-orders', async (req, res) => {
             purchase_orders: result.rows
         });
     } catch (error) {
-        console.error('Get POs error:', error);
+        logger.error('Get POs error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2693,7 +2693,7 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
 
         res.json(po);
     } catch (error) {
-        console.error('Get PO error:', error);
+        logger.error('Get PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2787,7 +2787,7 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
             purchase_order: result.rows[0]
         });
     } catch (error) {
-        console.error('Update PO error:', error);
+        logger.error('Update PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2824,7 +2824,7 @@ app.post('/api/purchase-orders/:id/submit', async (req, res) => {
             purchase_order: result.rows[0]
         });
     } catch (error) {
-        console.error('Submit PO error:', error);
+        logger.error('Submit PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2889,7 +2889,7 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
             purchase_order: result.rows[0]
         });
     } catch (error) {
-        console.error('Receive PO error:', error);
+        logger.error('Receive PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2929,86 +2929,10 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
             message: `Purchase order ${po.po_number} deleted successfully`
         });
     } catch (error) {
-        console.error('Delete PO error:', error);
+        logger.error('Delete PO error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
-
-// ==================== CSV EXPORT HELPERS ====================
-
-/**
- * Escape a CSV field according to RFC 4180
- * - Trim whitespace and hidden characters
- * - Wrap in quotes if contains comma, quote, or newline
- * - Escape internal quotes by doubling them
- */
-function escapeCSVField(value) {
-    if (value === null || value === undefined) {
-        return '';
-    }
-
-    // Convert to string and trim all whitespace/hidden characters
-    const str = String(value).trim();
-
-    // Check if field needs escaping
-    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-        // Escape quotes by doubling them, then wrap in quotes
-        return '"' + str.replace(/"/g, '""') + '"';
-    }
-
-    return str;
-}
-
-/**
- * Format date for Square CSV (M/D/YYYY - no zero padding)
- */
-function formatDateForSquare(isoDateString) {
-    if (!isoDateString) {
-        return '';
-    }
-
-    const date = new Date(isoDateString);
-    const month = date.getMonth() + 1; // 0-indexed, no padding
-    const day = date.getDate(); // no padding
-    const year = date.getFullYear();
-
-    return `${month}/${day}/${year}`;
-}
-
-/**
- * Format money for Square CSV (always 2 decimal places)
- */
-function formatMoney(cents) {
-    if (cents === null || cents === undefined) {
-        return '0.00';
-    }
-    return (cents / 100).toFixed(2);
-}
-
-/**
- * Format GTIN/UPC as plain text to avoid scientific notation
- * UPCs are typically 12-14 digit numbers that can be misinterpreted in scientific notation
- * Prefix with = and wrap in quotes to force text interpretation (Excel/CSV standard)
- */
-function formatGTIN(value) {
-    if (value === null || value === undefined || value === '') {
-        return '';
-    }
-
-    // Convert to string, handling potential scientific notation
-    // Use toFixed(0) for numbers to avoid scientific notation, then remove decimals
-    const str = typeof value === 'number' ? value.toFixed(0) : String(value);
-    const trimmed = str.trim();
-
-    // If empty after trimming, return empty
-    if (!trimmed) {
-        return '';
-    }
-
-    // Prefix with single quote to force text interpretation in CSV
-    // This is a standard CSV technique that's invisible when displayed
-    return "'" + trimmed;
-}
 
 /**
  * GET /api/purchase-orders/:po_number/export-csv
@@ -3120,9 +3044,7 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         const csvLines = lines.join('\r\n') + '\r\n';
 
         // Add UTF-8 BOM (Byte Order Mark) for proper encoding recognition
-        // BOM = EF BB BF in hex, or \uFEFF in Unicode
-        const BOM = '\uFEFF';
-        const csvContent = BOM + csvLines;
+        const csvContent = UTF8_BOM + csvLines;
 
         // Set response headers with cache-busting to prevent stale file issues
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -3158,7 +3080,7 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-    console.error('Unhandled error:', err);
+    logger.error('Unhandled error', { error: err.message, stack: err.stack });
     res.status(500).json({
         error: 'Internal server error',
         message: err.message
@@ -3201,43 +3123,65 @@ async function startServer() {
 
         // Start server
         app.listen(PORT, () => {
-            console.log('='.repeat(60));
-            console.log('JTPets Inventory Management System');
-            console.log('='.repeat(60));
-            console.log(`Server running on port ${PORT}`);
-            console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-            console.log(`Database: ${process.env.DB_NAME || 'jtpets_beta'}`);
-            console.log('='.repeat(60));
-            console.log('API Endpoints:');
-            console.log('  GET  /api/health');
-            console.log('  GET  /api/logs              (view recent logs)');
-            console.log('  GET  /api/logs/errors       (view error logs)');
-            console.log('  GET  /api/logs/stats        (log statistics)');
-            console.log('  GET  /api/logs/download     (download logs)');
-            console.log('  POST /api/test-email        (test email)');
-            console.log('  POST /api/test-error        (test error logging)');
-            console.log('  POST /api/sync              (force full sync)');
-            console.log('  POST /api/sync-smart        (smart interval-based sync)');
-            console.log('  POST /api/sync-sales        (sync all sales periods)');
-            console.log('  GET  /api/sync-status       (view sync schedule status)');
-            console.log('  GET  /api/sync-history      (view sync history)');
-            console.log('  GET  /api/items');
-            console.log('  GET  /api/variations');
-            console.log('  GET  /api/variations-with-costs');
-            console.log('  GET  /api/inventory');
-            console.log('  GET  /api/low-stock');
-            console.log('  GET  /api/vendors');
-            console.log('  GET  /api/sales-velocity');
-            console.log('  GET  /api/reorder-suggestions');
-            console.log('  POST /api/purchase-orders');
-            console.log('  GET  /api/purchase-orders');
-            console.log('  GET  /api/purchase-orders/:id');
-            console.log('='.repeat(60));
+            const banner = [
+                '='.repeat(60),
+                'JTPets Inventory Management System',
+                '='.repeat(60),
+                `Server running on port ${PORT}`,
+                `Environment: ${process.env.NODE_ENV || 'development'}`,
+                `Database: ${process.env.DB_NAME || 'jtpets_beta'}`,
+                '='.repeat(60),
+                'API Endpoints (42 total):',
+                '  GET    /api/health',
+                '  GET    /api/logs                                  (view recent logs)',
+                '  GET    /api/logs/errors                           (view error logs)',
+                '  GET    /api/logs/stats                            (log statistics)',
+                '  GET    /api/logs/download                         (download logs)',
+                '  POST   /api/test-email                            (test email)',
+                '  POST   /api/test-error                            (test error logging)',
+                '  POST   /api/sync                                  (force full sync)',
+                '  POST   /api/sync-smart                            (smart interval-based sync)',
+                '  POST   /api/sync-sales                            (sync all sales periods)',
+                '  GET    /api/sync-status                           (view sync schedule status)',
+                '  GET    /api/sync-history                          (view sync history)',
+                '  GET    /api/items',
+                '  GET    /api/variations',
+                '  GET    /api/variations-with-costs',
+                '  PATCH  /api/variations/:id/extended               (update extended fields)',
+                '  POST   /api/variations/bulk-update-extended       (bulk update extended fields)',
+                '  POST   /api/import/expiration-data                (import expiration data)',
+                '  GET    /api/import/expiration-data/status         (expiration import status)',
+                '  GET    /api/expirations                           (get expiration tracking)',
+                '  GET    /api/inventory',
+                '  GET    /api/low-stock',
+                '  GET    /api/deleted-items                         (view deleted items)',
+                '  GET    /api/vendors',
+                '  GET    /api/locations',
+                '  GET    /api/sales-velocity',
+                '  GET    /api/reorder-suggestions',
+                '  GET    /api/cycle-counts/pending                  (pending cycle counts)',
+                '  POST   /api/cycle-counts/:id/complete             (complete cycle count)',
+                '  POST   /api/cycle-counts/send-now                 (send to priority queue)',
+                '  GET    /api/cycle-counts/stats                    (cycle count statistics)',
+                '  POST   /api/cycle-counts/email-report             (email cycle count report)',
+                '  POST   /api/cycle-counts/generate-batch           (generate daily batch)',
+                '  POST   /api/cycle-counts/reset                    (reset count history)',
+                '  POST   /api/purchase-orders                       (create PO)',
+                '  GET    /api/purchase-orders                       (list POs)',
+                '  GET    /api/purchase-orders/:id                   (get PO details)',
+                '  PATCH  /api/purchase-orders/:id                   (update PO)',
+                '  POST   /api/purchase-orders/:id/submit            (submit PO)',
+                '  POST   /api/purchase-orders/:id/receive           (receive PO)',
+                '  DELETE /api/purchase-orders/:id                   (delete PO)',
+                '  GET    /api/purchase-orders/:po_number/export-csv (export PO to CSV)',
+                '='.repeat(60)
+            ];
 
             logger.info('Server started successfully', {
                 port: PORT,
                 environment: process.env.NODE_ENV || 'development',
-                nodeVersion: process.version
+                nodeVersion: process.version,
+                startup_banner: banner.join('\n')
             });
         });
 
@@ -3259,7 +3203,6 @@ async function startServer() {
         });
 
         logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
-        console.log(`Cycle Count: Daily batch generation scheduled at ${cronSchedule}`);
 
         // Initialize automated database sync cron job
         // Runs hourly by default (configurable via SYNC_CRON_SCHEDULE)
@@ -3291,7 +3234,6 @@ async function startServer() {
         });
 
         logger.info('Database sync cron job scheduled', { schedule: syncCronSchedule });
-        console.log(`Database Sync: Automated smart sync scheduled at ${syncCronSchedule}`);
 
         // Startup check: Generate today's batch if it doesn't exist yet
         // This handles cases where server was offline during scheduled cron time
@@ -3308,18 +3250,13 @@ async function startServer() {
 
                 if (todaysBatchCount === 0) {
                     logger.info('No batch found for today - generating startup batch');
-                    console.log('Cycle Count: Generating missed batch on startup...');
-
                     const result = await generateDailyBatch();
                     logger.info('Startup batch generation completed', result);
-                    console.log(`Cycle Count: Startup batch generated - ${result.new_items_added} items added`);
                 } else {
                     logger.info('Today\'s batch already exists', { items_count: todaysBatchCount });
-                    console.log(`Cycle Count: Today's batch already exists (${todaysBatchCount} items)`);
                 }
             } catch (error) {
                 logger.error('Startup batch check failed', { error: error.message });
-                console.error('Cycle Count: Startup batch check failed:', error.message);
             }
         })();
 
@@ -3327,8 +3264,7 @@ async function startServer() {
         // This handles cases where server was offline during scheduled sync time
         (async () => {
             try {
-                logger.info('Checking for stale data on startup...');
-                console.log('Database Sync: Checking for stale data...');
+                logger.info('Checking for stale data on startup');
 
                 // Get intervals from environment variables
                 const intervals = {
@@ -3357,18 +3293,12 @@ async function startServer() {
                     logger.info('Stale data detected on startup - running smart sync', {
                         stale_types: staleTypes
                     });
-                    console.log(`Database Sync: Stale data detected (${staleTypes.join(', ')}) - syncing...`);
-
                     const result = await runSmartSync();
                     logger.info('Startup smart sync completed', {
                         synced: result.synced,
                         skipped: Object.keys(result.skipped).length,
                         errors: result.errors?.length || 0
                     });
-
-                    if (result.synced.length > 0) {
-                        console.log(`Database Sync: Synced ${result.synced.join(', ')} on startup`);
-                    }
 
                     // Send alert if there were errors
                     if (result.errors && result.errors.length > 0) {
@@ -3379,11 +3309,9 @@ async function startServer() {
                     }
                 } else {
                     logger.info('All data is current - no sync needed on startup');
-                    console.log('Database Sync: All data is current');
                 }
             } catch (error) {
                 logger.error('Startup sync check failed', { error: error.message });
-                console.error('Database Sync: Startup sync check failed:', error.message);
                 // Don't send alert for startup check failures - not critical
             }
         })();
@@ -3409,13 +3337,13 @@ async function startServer() {
 
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, closing server...');
+    logger.info('SIGTERM received, closing server');
     await db.close();
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-    console.log('SIGINT received, closing server...');
+    logger.info('SIGINT received, closing server');
     await db.close();
     process.exit(0);
 });

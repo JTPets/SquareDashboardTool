@@ -20,12 +20,9 @@ A comprehensive inventory management system for JTPets pet supply business with 
    - **ACTION REQUIRED**: Add rate limiting middleware
 
 3. **⚠️ PLACEHOLDER PAGES**
-   - 4 pages are not fully implemented:
-     - `inventory.html` (inventory browser)
+   - 1 page is not fully implemented:
      - `purchase-orders.html` (PO management)
-     - `sales-velocity.html` (sales trends)
-     - `deleted-items.html` (soft delete management)
-   - These show "Coming Soon" messages
+   - This shows "Coming Soon" message
 
 4. **⚠️ INCOMPLETE FEATURE**
    - Purchase order receiving doesn't update Square inventory
@@ -187,11 +184,23 @@ Access all pages from the dashboard at http://localhost:5001/
   - Auto-save on confirmation
   - Sync from Square button
 
-#### Coming Soon 🚧
-- **Full Inventory** (`/inventory.html`) - Complete inventory view across locations
-- **Purchase Orders** (`/purchase-orders.html`) - PO creation, submission, and receiving
-- **Sales Velocity** (`/sales-velocity.html`) - 91/182/365-day sales trend reports
+- **Full Inventory** (`/inventory.html`) - Complete inventory view with:
+  - Search by product name or SKU
+  - Location filtering
+  - Stock level filtering (in stock, out of stock)
+  - Real-time statistics (total records, unique products, total units, out of stock)
+  - Status badges (OK, LOW, OUT)
+- **Sales Velocity** (`/sales-velocity.html`) - Sales trend reports with:
+  - Period selection (91/182/365 days)
+  - Sales statistics (fast movers, slow movers)
+  - Daily average calculations
+  - Velocity badges (Fast, Moderate, Slow)
 - **Deleted Items** (`/deleted-items.html`) - Soft-deleted items management and cleanup
+  - View and restore items marked as deleted in Square
+  - Zero inventory for deleted items automatically
+
+#### Coming Soon 🚧
+- **Purchase Orders** (`/purchase-orders.html`) - PO creation, submission, and receiving
 
 #### Page Features
 All implemented pages include:
