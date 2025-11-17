@@ -812,7 +812,10 @@ SKU-003"></textarea>
         }
 
         const result = await response.json();
-        showToast(`Batch generated! Added ${result.new_items_added} new items. Total: ${result.total_in_batch}`, 'success');
+        const recountMsg = result.yesterday_inaccurate_added > 0
+          ? ` + ${result.yesterday_inaccurate_added} recount${result.yesterday_inaccurate_added > 1 ? 's' : ''} from yesterday`
+          : '';
+        showToast(`Batch generated! Added ${result.new_items_added} new items${recountMsg}. Total: ${result.total_in_batch}`, 'success');
 
         // Reload items after short delay
         setTimeout(() => loadPendingItems(), 1000);
