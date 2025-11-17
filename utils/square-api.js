@@ -239,9 +239,12 @@ async function syncCatalog() {
             try {
                 if (obj.type === 'CATEGORY') {
                     await syncCategory(obj);
-                    // Store category object in map for lookup when processing items
-                    categoriesMap.set(obj.id, obj.category_data || obj);
+                    // Store category name in map for lookup when processing items
+                    // Ensure we always store an object with a 'name' property
+                    const categoryName = obj.category_data?.name || 'Uncategorized';
+                    categoriesMap.set(obj.id, { name: categoryName });
                     stats.categories++;
+                    logger.info('Category synced', { id: obj.id, name: categoryName });
                 }
             } catch (error) {
                 logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
@@ -393,7 +396,20 @@ async function syncItem(obj, categoriesMap) {
     const data = obj.item_data;
 
     // Look up category name from the map using category_id
-    const category_name = data.category_id ? categoriesMap.get(data.category_id)?.name : null;
+    let category_name = null;
+    if (data.category_id) {
+        const categoryData = categoriesMap.get(data.category_id);
+        if (categoryData) {
+            category_name = categoryData.name;
+        } else {
+            logger.warn('Category not found in map', {
+                item_id: obj.id,
+                item_name: data.name,
+                category_id: data.category_id,
+                map_size: categoriesMap.size
+            });
+        }
+    }
 
     await db.query(`
         INSERT INTO items (
