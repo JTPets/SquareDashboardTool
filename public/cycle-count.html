@@ -813,7 +813,7 @@ SKU-003"></textarea>
 
         const result = await response.json();
         const recountMsg = result.yesterday_inaccurate_added > 0
-          ? ` + ${result.yesterday_inaccurate_added} recount${result.yesterday_inaccurate_added > 1 ? 's' : ''} from yesterday`
+          ? ` + ${result.yesterday_inaccurate_added} recount${result.yesterday_inaccurate_added > 1 ? 's' : ''}`
           : '';
         showToast(`Batch generated! Added ${result.new_items_added} new items${recountMsg}. Total: ${result.total_in_batch}`, 'success');
 
