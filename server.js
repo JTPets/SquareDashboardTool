@@ -1284,7 +1284,6 @@ app.get('/api/deleted-items', async (req, res) => {
         if (age_months) {
             const months = parseInt(age_months);
             if (!isNaN(months) && months > 0) {
-                params.push(months);
                 query += ` AND v.deleted_at <= NOW() - INTERVAL '${months} months'`;
             }
         }
