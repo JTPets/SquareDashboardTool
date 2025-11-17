@@ -464,25 +464,16 @@ SKU-003"></textarea>
         <div style="font-size: 24px; font-weight: 700; color: #667eea; margin-bottom: 16px;" id="modal-system-count">0</div>
       </div>
       <div class="form-group">
-        <label class="form-label">Is the count accurate?</label>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn btn-success" style="flex: 1;" onclick="setAccurate(true)">✅ Yes, Accurate</button>
-          <button class="btn btn-secondary" style="flex: 1;" onclick="setAccurate(false)">❌ Not Accurate</button>
-        </div>
+        <label class="form-label">Actual Physical Count:</label>
+        <input type="number" class="form-input" id="actual-count" placeholder="Enter actual quantity" min="0">
       </div>
-      <div id="inaccurate-section" style="display: none;">
-        <div class="form-group">
-          <label class="form-label">Actual Physical Count:</label>
-          <input type="number" class="form-input" id="actual-count" placeholder="Enter actual quantity" min="0">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Notes (optional):</label>
-          <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
-        </div>
+      <div class="form-group">
+        <label class="form-label">Notes (optional):</label>
+        <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
       </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeCountModal()">Cancel</button>
-        <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn" disabled>Submit Count</button>
+        <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn">Submit Count</button>
       </div>
     </div>
   </div>
@@ -498,7 +489,7 @@ SKU-003"></textarea>
     // Count modal state
     let currentCountItem = null;
     let currentCountIndex = null;
-    let countIsAccurate = null;
+    let systemCount = 0;
 
     // Load pending items on page load
     async function loadPendingItems() {
@@ -627,16 +618,15 @@ SKU-003"></textarea>
 
       currentCountItem = itemId;
       currentCountIndex = null; // We'll look up by ID instead
-      countIsAccurate = null;
+      systemCount = item.current_inventory || 0;
 
       // Set system count
-      document.getElementById('modal-system-count').textContent = item.current_inventory || 0;
+      document.getElementById('modal-system-count').textContent = systemCount;
 
       // Reset form
       document.getElementById('actual-count').value = '';
       document.getElementById('count-notes').value = '';
-      document.getElementById('inaccurate-section').style.display = 'none';
-      document.getElementById('submit-count-btn').disabled = true;
+      document.getElementById('actual-count').focus();
 
       // Show modal
       document.getElementById('count-modal').classList.add('active');
@@ -646,26 +636,25 @@ SKU-003"></textarea>
       document.getElementById('count-modal').classList.remove('active');
       currentCountItem = null;
       currentCountIndex = null;
-      countIsAccurate = null;
-    }
-
-    function setAccurate(isAccurate) {
-      countIsAccurate = isAccurate;
-      const inaccurateSection = document.getElementById('inaccurate-section');
-      const submitBtn = document.getElementById('submit-count-btn');
-
-      if (isAccurate) {
-        inaccurateSection.style.display = 'none';
-        submitBtn.disabled = false;
-      } else {
-        inaccurateSection.style.display = 'block';
-        submitBtn.disabled = false;
-      }
+      systemCount = 0;
     }
 
     async function submitCount() {
-      if (currentCountItem === null || countIsAccurate === null) {
-        showToast('Please select if count is accurate', 'error');
+      if (currentCountItem === null) {
+        showToast('Invalid item. Please try again.', 'error');
+        return;
+      }
+
+      // Get the actual count from the input
+      const actualCountInput = document.getElementById('actual-count').value;
+      if (actualCountInput === '' || actualCountInput === null) {
+        showToast('Please enter the actual physical count', 'error');
+        return;
+      }
+
+      const actualQty = parseInt(actualCountInput);
+      if (isNaN(actualQty) || actualQty < 0) {
+        showToast('Please enter a valid count (0 or greater)', 'error');
         return;
       }
 
@@ -676,25 +665,15 @@ SKU-003"></textarea>
         return;
       }
 
-      const expectedQty = item.current_inventory || 0;
-
       // Store values BEFORE closing modal (which resets them)
-      const isAccurate = countIsAccurate;
       const itemId = currentCountItem;
-      let actualQty = null;
-      let notes = null;
+      const expectedQty = systemCount;
+      const notes = document.getElementById('count-notes').value.trim() || null;
 
-      if (!isAccurate) {
-        actualQty = parseInt(document.getElementById('actual-count').value);
-        notes = document.getElementById('count-notes').value.trim() || null;
+      // Automatically determine if the count is accurate
+      const isAccurate = (actualQty === expectedQty);
 
-        if (isNaN(actualQty) || actualQty < 0) {
-          showToast('Please enter a valid actual count', 'error');
-          return;
-        }
-      }
-
-      // Close modal (this resets countIsAccurate, currentCountItem to null)
+      // Close modal (this resets currentCountItem, systemCount to null/0)
       closeCountModal();
 
       // Find and disable button (use stored itemId, not currentCountItem which is now null)
@@ -711,7 +690,7 @@ SKU-003"></textarea>
           body: JSON.stringify({
             counted_by: 'Mobile User',
             is_accurate: isAccurate,
-            actual_quantity: isAccurate ? expectedQty : actualQty,
+            actual_quantity: actualQty,
             expected_quantity: expectedQty,
             notes: notes
           })
