@@ -224,11 +224,16 @@
 
     <div class="controls">
       <label for="age-filter">Show Items Deleted:</label>
-      <select id="age-filter" onchange="loadDeletedItems()">
+      <select id="age-filter" onchange="filterItems()">
         <option value="">All Items</option>
         <option value="12">Over 1 Year Ago</option>
         <option value="6">Over 6 Months Ago</option>
         <option value="3">Over 3 Months Ago</option>
+      </select>
+
+      <label for="category-filter">Category:</label>
+      <select id="category-filter" onchange="filterItems()">
+        <option value="">All Categories</option>
       </select>
 
       <button onclick="loadDeletedItems()">🔄 Refresh</button>
@@ -263,6 +268,7 @@
 
   <script>
     let allItems = [];
+    let filteredItems = [];
 
     async function loadDeletedItems() {
       const ageFilter = document.getElementById('age-filter').value;
@@ -280,21 +286,20 @@
 
         allItems = data.deleted_items || [];
 
-        if (allItems.length === 0) {
-          tbody.innerHTML = `
-            <tr>
-              <td colspan="8" class="empty-state">
-                <h3>No Deleted Items Found</h3>
-                <p>No items match your criteria. Try adjusting the filters.</p>
-              </td>
-            </tr>
-          `;
-          updateFooter();
-          return;
-        }
+        // Populate category filter
+        const categories = [...new Set(allItems.map(item => item.category_name).filter(Boolean))].sort();
+        const categorySelect = document.getElementById('category-filter');
+        const currentValue = categorySelect.value;
+        categorySelect.innerHTML = '<option value="">All Categories</option>';
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categorySelect.appendChild(option);
+        });
+        categorySelect.value = currentValue; // Restore previous selection
 
-        renderTable();
-        updateFooter();
+        filterItems();
 
       } catch (error) {
         console.error('Failed to load deleted items:', error);
@@ -302,10 +307,36 @@
       }
     }
 
+    function filterItems() {
+      const categoryFilter = document.getElementById('category-filter').value;
+
+      filteredItems = allItems.filter(item => {
+        const matchesCategory = !categoryFilter || item.category_name === categoryFilter;
+        return matchesCategory;
+      });
+
+      const tbody = document.getElementById('items-body');
+      if (filteredItems.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty-state">
+              <h3>No Deleted Items Found</h3>
+              <p>No items match your criteria. Try adjusting the filters.</p>
+            </td>
+          </tr>
+        `;
+        updateFooter();
+        return;
+      }
+
+      renderTable();
+      updateFooter();
+    }
+
     function renderTable() {
       const tbody = document.getElementById('items-body');
 
-      tbody.innerHTML = allItems.map((item) => {
+      tbody.innerHTML = filteredItems.map((item) => {
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
@@ -363,7 +394,7 @@
     }
 
     function updateFooter() {
-      document.getElementById('item-count').textContent = allItems.length;
+      document.getElementById('item-count').textContent = filteredItems.length;
     }
 
     function escapeHtml(text) {

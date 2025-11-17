@@ -226,6 +226,7 @@
           <tr>
             <th>Image</th>
             <th>Product Name</th>
+            <th>Category</th>
             <th class="variation-col">Variation</th>
             <th class="gtin-col">GTIN/UPC</th>
             <th>Price</th>
@@ -236,7 +237,7 @@
           </tr>
         </thead>
         <tbody id="items-body">
-          <tr><td colspan="9" class="loading">Loading products...</td></tr>
+          <tr><td colspan="10" class="loading">Loading products...</td></tr>
         </tbody>
       </table>
     </div>
@@ -364,6 +365,7 @@
               '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}
           </td>
           <td class="product-name">${item.name || ''}</td>
+          <td><small>${item.category_name || '-'}</small></td>
           <td class="variation-name variation-col">${item.variation || 'Regular'}</td>
           <td class="gtin gtin-col">${item.gtin || 'N/A'}</td>
           <td class="price">$${((item.price_money || 0) / 100).toFixed(2)}</td>
