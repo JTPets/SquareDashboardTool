@@ -214,45 +214,62 @@ async function syncCatalog() {
     const categoriesMap = new Map();
 
     try {
+        // Collect all objects from all pages first
         let cursor = null;
+        const allObjects = [];
 
         do {
             const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint);
 
             const objects = data.objects || [];
-
-            // Process by type
-            for (const obj of objects) {
-                try {
-                    if (obj.type === 'CATEGORY') {
-                        await syncCategory(obj);
-                        // Store category object in map for lookup when processing items
-                        categoriesMap.set(obj.id, obj.category_data || obj);
-                        stats.categories++;
-                    } else if (obj.type === 'IMAGE') {
-                        await syncImage(obj);
-                        stats.images++;
-                    } else if (obj.type === 'ITEM') {
-                        syncedItemIds.add(obj.id);
-                        await syncItem(obj, categoriesMap);
-                        stats.items++;
-                    } else if (obj.type === 'ITEM_VARIATION') {
-                        syncedVariationIds.add(obj.id);
-                        const vendorCount = await syncVariation(obj);
-                        stats.variations++;
-                        stats.variationVendors += vendorCount;
-                    }
-                } catch (error) {
-                    logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
-                    // Continue with other objects
-                }
-            }
+            allObjects.push(...objects);
 
             cursor = data.cursor;
-            logger.info('Catalog sync progress', { items: stats.items, variations: stats.variations });
+            logger.info('Fetching catalog objects', { fetched: allObjects.length });
 
         } while (cursor);
+
+        logger.info('All catalog objects fetched', { total: allObjects.length });
+
+        // Process in two passes to ensure categories are loaded before items
+
+        // PASS 1: Process categories first to build the categoriesMap
+        for (const obj of allObjects) {
+            try {
+                if (obj.type === 'CATEGORY') {
+                    await syncCategory(obj);
+                    // Store category object in map for lookup when processing items
+                    categoriesMap.set(obj.id, obj.category_data || obj);
+                    stats.categories++;
+                }
+            } catch (error) {
+                logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
+            }
+        }
+
+        logger.info('Categories synced', { count: stats.categories });
+
+        // PASS 2: Process items, variations, and images (categories are now all loaded)
+        for (const obj of allObjects) {
+            try {
+                if (obj.type === 'IMAGE') {
+                    await syncImage(obj);
+                    stats.images++;
+                } else if (obj.type === 'ITEM') {
+                    syncedItemIds.add(obj.id);
+                    await syncItem(obj, categoriesMap);
+                    stats.items++;
+                } else if (obj.type === 'ITEM_VARIATION') {
+                    syncedVariationIds.add(obj.id);
+                    const vendorCount = await syncVariation(obj);
+                    stats.variations++;
+                    stats.variationVendors += vendorCount;
+                }
+            } catch (error) {
+                logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
+            }
+        }
 
         logger.info('Catalog sync complete', stats);
 
