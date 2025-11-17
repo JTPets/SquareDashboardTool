@@ -1831,14 +1831,17 @@ async function generateDailyBatch() {
         if (recentInaccurateCount > 0) {
             logger.info(`Found ${recentInaccurateCount} inaccurate counts from the past 7 days to recount`);
 
-            // Add to priority queue for today
+            // Add to priority queue for today (only if not already in queue)
             const priorityInserts = recentInaccurate.rows.map(item => {
                 const daysAgo = item.count_date ? Math.floor((Date.now() - new Date(item.count_date)) / (1000 * 60 * 60 * 24)) : 1;
                 const timeRef = daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
                 return db.query(
                     `INSERT INTO count_queue_priority (catalog_object_id, notes, added_by, added_date)
-                     VALUES ($1, $2, 'System', CURRENT_TIMESTAMP)
-                     ON CONFLICT (catalog_object_id) DO NOTHING`,
+                     SELECT $1, $2, 'System', CURRENT_TIMESTAMP
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM count_queue_priority
+                         WHERE catalog_object_id = $1 AND completed = FALSE
+                     )`,
                     [item.catalog_object_id, `Recount - Inaccurate ${timeRef} (${item.sku})`]
                 );
             });
@@ -2386,12 +2389,15 @@ app.post('/api/cycle-counts/send-now', async (req, res) => {
             return res.status(404).json({ error: 'No valid SKUs found' });
         }
 
-        // Insert into priority queue
+        // Insert into priority queue (only if not already in queue)
         const insertPromises = variations.rows.map(row =>
             db.query(
                 `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT DO NOTHING`,
+                 SELECT $1, $2, $3
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM count_queue_priority
+                     WHERE catalog_object_id = $1 AND completed = FALSE
+                 )`,
                 [row.id, added_by || 'System', notes || null]
             )
         );
