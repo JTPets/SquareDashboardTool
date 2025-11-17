@@ -1800,6 +1800,54 @@ async function generateDailyBatch() {
             [dailyTarget]
         );
 
+        // STEP 1: Auto-add recent inaccurate counts to priority queue for verification
+        // This helps identify if discrepancies were one-off miscounts or real inventory issues
+        // Looks back 7 days to catch items missed due to skipped cron jobs
+        const recentInaccurateQuery = `
+            SELECT DISTINCT ch.catalog_object_id, v.sku, i.name as item_name,
+                   DATE(ch.last_counted_date) as count_date
+            FROM count_history ch
+            JOIN variations v ON ch.catalog_object_id = v.id
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN count_queue_priority cqp ON ch.catalog_object_id = cqp.catalog_object_id AND cqp.completed = FALSE
+            WHERE ch.is_accurate = FALSE
+              AND ch.last_counted_date >= CURRENT_DATE - INTERVAL '7 days'
+              AND ch.last_counted_date < CURRENT_DATE
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND v.track_inventory = TRUE
+              AND cqp.id IS NULL
+              AND NOT EXISTS (
+                -- Only add if there's no more recent count after the inaccurate one
+                SELECT 1 FROM count_history ch2
+                WHERE ch2.catalog_object_id = ch.catalog_object_id
+                  AND ch2.last_counted_date > ch.last_counted_date
+              )
+        `;
+
+        const recentInaccurate = await db.query(recentInaccurateQuery);
+        const recentInaccurateCount = recentInaccurate.rows.length;
+
+        if (recentInaccurateCount > 0) {
+            logger.info(`Found ${recentInaccurateCount} inaccurate counts from the past 7 days to recount`);
+
+            // Add to priority queue for today
+            const priorityInserts = recentInaccurate.rows.map(item => {
+                const daysAgo = item.count_date ? Math.floor((Date.now() - new Date(item.count_date)) / (1000 * 60 * 60 * 24)) : 1;
+                const timeRef = daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
+                return db.query(
+                    `INSERT INTO count_queue_priority (catalog_object_id, notes, added_by, added_date)
+                     VALUES ($1, $2, 'System', CURRENT_TIMESTAMP)
+                     ON CONFLICT (catalog_object_id) DO NOTHING`,
+                    [item.catalog_object_id, `Recount - Inaccurate ${timeRef} (${item.sku})`]
+                );
+            });
+
+            await Promise.all(priorityInserts);
+            logger.info(`Added ${recentInaccurateCount} items from recent inaccurate counts to priority queue`);
+        } else {
+            logger.info('No recent inaccurate counts to recount');
+        }
+
         // Count uncompleted items from previous batches (for reporting)
         const uncompletedResult = await db.query(`
             SELECT COUNT(DISTINCT catalog_object_id) as count
@@ -1839,6 +1887,7 @@ async function generateDailyBatch() {
                 success: true,
                 uncompleted: uncompletedCount,
                 new_items_added: 0,
+                yesterday_inaccurate_added: recentInaccurateCount,
                 total_in_batch: uncompletedCount
             };
         }
@@ -1861,6 +1910,7 @@ async function generateDailyBatch() {
             success: true,
             uncompleted: uncompletedCount,
             new_items_added: newItems.rows.length,
+            yesterday_inaccurate_added: recentInaccurateCount,
             total_in_batch: uncompletedCount + newItems.rows.length
         };
 
