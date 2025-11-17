@@ -583,6 +583,13 @@
             <option value="">All Locations</option>
           </select>
         </div>
+
+        <div class="form-group">
+          <label for="category-select">Category (Optional)</label>
+          <select id="category-select" onchange="filterSuggestions()">
+            <option value="">All Categories</option>
+          </select>
+        </div>
       </div>
 
       <button class="btn btn-primary" onclick="loadSuggestions()">🔍 Get Reorder Suggestions</button>
@@ -654,6 +661,7 @@
 
   <script>
     let allSuggestions = [];
+    let filteredSuggestions = [];
     let selectedItems = new Set();
     const adjustedQuantities = new Map(); // Track quantity adjustments
     let previewPOData = null; // Store PO data for preview
@@ -725,6 +733,17 @@
         selectedItems.clear();
         adjustedQuantities.clear(); // Clear adjusted quantities on new load
 
+        // Populate category filter
+        const categories = [...new Set(allSuggestions.map(item => item.category_name).filter(Boolean))].sort();
+        const categorySelect = document.getElementById('category-select');
+        categorySelect.innerHTML = '<option value="">All Categories</option>';
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categorySelect.appendChild(option);
+        });
+
         if (allSuggestions.length === 0) {
           document.getElementById('suggestions-content').innerHTML = `
             <div class="empty-state">
@@ -736,7 +755,7 @@
           return;
         }
 
-        renderSuggestions();
+        filterSuggestions();
         document.getElementById('summary-container').style.display = 'block';
         updateSummary();
       } catch (error) {
@@ -745,6 +764,18 @@
           <div class="error-message">Failed to load suggestions: ${error.message}</div>
         `;
       }
+    }
+
+    function filterSuggestions() {
+      const categoryFilter = document.getElementById('category-select').value;
+
+      filteredSuggestions = allSuggestions.filter(item => {
+        const matchesCategory = !categoryFilter || item.category_name === categoryFilter;
+        return matchesCategory;
+      });
+
+      renderSuggestions();
+      updateSummary();
     }
 
     function getProductImage(item) {
@@ -783,6 +814,7 @@
               <th style="width: 80px;">Image</th>
               <th>Priority</th>
               <th>Item / Variation</th>
+              <th>Category</th>
               <th>SKU</th>
               <th>Location</th>
               <th>Current Stock</th>
@@ -796,7 +828,7 @@
             </tr>
           </thead>
           <tbody>
-            ${allSuggestions.map((item, index) => `
+            ${filteredSuggestions.map((item, index) => `
               <tr>
                 <td>
                   <input type="checkbox"
@@ -810,6 +842,7 @@
                   <strong>${escapeHtml(item.item_name)}</strong><br>
                   <small>${escapeHtml(item.variation_name || '')}</small>
                 </td>
+                <td><small>${escapeHtml(item.category_name || '-')}</small></td>
                 <td class="text-nowrap">${escapeHtml(item.sku || '-')}</td>
                 <td>${escapeHtml(item.location_name || 'All')}</td>
                 <td class="text-right">${item.current_stock}</td>

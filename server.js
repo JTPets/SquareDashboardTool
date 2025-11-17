@@ -1397,6 +1397,7 @@ app.get('/api/sales-velocity', async (req, res) => {
                 v.sku,
                 i.name as item_name,
                 v.name as variation_name,
+                i.category_name,
                 l.name as location_name
             FROM sales_velocity sv
             JOIN variations v ON sv.variation_id = v.id
@@ -1478,6 +1479,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 v.sku,
                 v.images,
                 i.images as item_images,
+                i.category_name,
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
