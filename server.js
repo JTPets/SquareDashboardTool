@@ -2099,6 +2099,28 @@ async function sendCycleCountReport() {
         await emailNotifier.sendAlert(emailSubject, emailBody);
         logger.info('Cycle count report email sent successfully');
 
+        // Send to additional email if configured
+        const additionalEmail = process.env.ADDITIONAL_CYCLE_COUNT_REPORT_EMAIL;
+        if (additionalEmail && additionalEmail.trim()) {
+            try {
+                // Temporarily override EMAIL_TO for the additional recipient
+                const originalEmailTo = process.env.EMAIL_TO;
+                process.env.EMAIL_TO = additionalEmail.trim();
+
+                await emailNotifier.sendAlert(emailSubject, emailBody);
+                logger.info('Cycle count report sent to additional email', { email: additionalEmail });
+
+                // Restore original EMAIL_TO
+                process.env.EMAIL_TO = originalEmailTo;
+            } catch (error) {
+                logger.error('Failed to send cycle count report to additional email', {
+                    email: additionalEmail,
+                    error: error.message
+                });
+                // Don't throw - main email was sent successfully
+            }
+        }
+
         return { sent: true, items_count: items.rows.length, accuracy_rate: accuracyRate };
 
     } catch (error) {
