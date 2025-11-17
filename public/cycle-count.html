@@ -618,7 +618,7 @@ SKU-003"></textarea>
 
       currentCountItem = itemId;
       currentCountIndex = null; // We'll look up by ID instead
-      systemCount = item.current_inventory || 0;
+      systemCount = Number(item.current_inventory) || 0;  // Ensure it's a number
 
       // Set system count
       document.getElementById('modal-system-count').textContent = systemCount;
@@ -667,7 +667,7 @@ SKU-003"></textarea>
 
       // Store values BEFORE closing modal (which resets them)
       const itemId = currentCountItem;
-      const expectedQty = systemCount;
+      const expectedQty = Number(systemCount);  // Ensure it's a number for accurate comparison
       const notes = document.getElementById('count-notes').value.trim() || null;
 
       // Automatically determine if the count is accurate
