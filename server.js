@@ -1156,6 +1156,8 @@ app.get('/api/inventory', async (req, res) => {
             JOIN items i ON v.item_id = i.id
             JOIN locations l ON ic.location_id = l.id
             WHERE ic.state = 'IN_STOCK'
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
         `;
         const params = [];
 
@@ -1403,7 +1405,8 @@ app.get('/api/sales-velocity', async (req, res) => {
             JOIN variations v ON sv.variation_id = v.id
             JOIN items i ON v.item_id = i.id
             JOIN locations l ON sv.location_id = l.id
-            WHERE 1=1
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
         `;
         const params = [];
 
@@ -1544,6 +1547,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
                 AND ic.location_id = vls.location_id
             WHERE v.discontinued = FALSE
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND (
                   -- ALWAYS SHOW: Out of stock items (regardless of supply_days or sales velocity)
                   COALESCE(ic.quantity, 0) <= 0
@@ -1815,6 +1820,7 @@ async function generateDailyBatch() {
               AND ch.last_counted_date >= CURRENT_DATE - INTERVAL '7 days'
               AND ch.last_counted_date < CURRENT_DATE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
               AND cqp.id IS NULL
               AND NOT EXISTS (
@@ -2172,6 +2178,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
             WHERE cqp.completed = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
                      cqp.added_date, cqp.notes
@@ -2202,6 +2209,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
             WHERE cqd.completed = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
               AND cqp.id IS NULL
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
