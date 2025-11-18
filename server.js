@@ -678,6 +678,7 @@ app.get('/api/categories', async (req, res) => {
             FROM items i
             WHERE i.category_name IS NOT NULL
               AND i.category_name != ''
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
             ORDER BY i.category_name
         `);
         logger.info('API /api/categories returning', { count: result.rows.length });

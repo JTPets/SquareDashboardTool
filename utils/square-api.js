@@ -240,7 +240,9 @@ async function syncCatalog() {
                         imagesMap.set(obj.id, obj.image_data);
                         break;
                     case 'CATEGORY':
-                        categoriesMap.set(obj.id, obj.category_data || obj);
+                        // Normalize category structure to always have .name as direct property
+                        const categoryName = obj.category_data?.name || obj.name || 'Uncategorized';
+                        categoriesMap.set(obj.id, { name: categoryName });
                         break;
                 }
             }
