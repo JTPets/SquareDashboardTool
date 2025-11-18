@@ -166,6 +166,13 @@
         <input type="date" id="end-date">
       </div>
 
+      <div class="filter-group">
+        <label>Category:</label>
+        <select id="category-filter" onchange="filterHistory()">
+          <option value="">All Categories</option>
+        </select>
+      </div>
+
       <button onclick="loadHistory()">Load History</button>
       <button onclick="clearFilters()" style="background: #6b7280;">Clear Filters</button>
     </div>
@@ -198,6 +205,9 @@
   <script>
     // Set default date to today
     document.getElementById('single-date').valueAsDate = new Date();
+
+    let allItems = [];
+    let filteredItems = [];
 
     async function loadHistory() {
       const singleDate = document.getElementById('single-date').value;
@@ -234,16 +244,44 @@
             total_variance_units: 0,
             total_variance_value: 0
           });
+          allItems = [];
+          filteredItems = [];
           return;
         }
 
+        allItems = data.items;
+
+        // Populate category filter
+        const categories = [...new Set(allItems.map(item => item.category_name).filter(Boolean))].sort();
+        const categorySelect = document.getElementById('category-filter');
+        const currentValue = categorySelect.value;
+        categorySelect.innerHTML = '<option value="">All Categories</option>';
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categorySelect.appendChild(option);
+        });
+        categorySelect.value = currentValue; // Restore previous selection
+
         updateStats(data.summary);
-        renderTable(data.items);
+        filterHistory();
 
       } catch (error) {
         console.error('Failed to load history:', error);
         tbody.innerHTML = '<tr><td colspan="12" class="loading">Error: ' + error.message + '</td></tr>';
       }
+    }
+
+    function filterHistory() {
+      const categoryFilter = document.getElementById('category-filter').value;
+
+      filteredItems = allItems.filter(item => {
+        const matchesCategory = !categoryFilter || item.category_name === categoryFilter;
+        return matchesCategory;
+      });
+
+      renderTable(filteredItems);
     }
 
     function updateStats(summary) {
@@ -298,6 +336,9 @@
       document.getElementById('single-date').value = '';
       document.getElementById('start-date').value = '';
       document.getElementById('end-date').value = '';
+      document.getElementById('category-filter').value = '';
+      allItems = [];
+      filteredItems = [];
       document.getElementById('history-body').innerHTML = '<tr><td colspan="12" class="loading">Select a date or date range to view cycle count history</td></tr>';
       updateStats({
         total_counts: 0,
