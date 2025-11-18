@@ -210,31 +210,38 @@ async function syncCatalog() {
     const syncedItemIds = new Set();
     const syncedVariationIds = new Set();
 
-    // Build a map of categories for looking up category names
+    // Build maps for all catalog objects (like legacy exp_tracker approach)
+    const itemsMap = new Map();
+    const variationsMap = new Map();
+    const imagesMap = new Map();
     const categoriesMap = new Map();
 
     try {
         let cursor = null;
 
-        // PASS 1: Fetch and process ONLY categories first to populate categoriesMap
-        logger.info('Starting category sync (Pass 1)');
+        // Fetch ALL catalog objects in one pass - building maps first
+        logger.info('Starting catalog fetch');
         do {
-            const endpoint = `/v2/catalog/list?types=CATEGORY&include_deleted_objects=false${cursor ? `&cursor=${cursor}` : ''}`;
+            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint);
 
             const objects = data.objects || [];
 
+            // Build maps (don't insert to DB yet - just collect)
             for (const obj of objects) {
-                try {
-                    if (obj.type === 'CATEGORY') {
-                        await syncCategory(obj);
-                        // Store category name in map for lookup when processing items
-                        const categoryName = obj.category_data?.name || 'Uncategorized';
-                        categoriesMap.set(obj.id, { name: categoryName });
-                        stats.categories++;
-                    }
-                } catch (error) {
-                    logger.error(`Failed to sync category`, { id: obj.id, error: error.message });
+                switch (obj.type) {
+                    case 'ITEM':
+                        itemsMap.set(obj.id, obj.item_data);
+                        break;
+                    case 'ITEM_VARIATION':
+                        variationsMap.set(obj.id, obj.item_variation_data);
+                        break;
+                    case 'IMAGE':
+                        imagesMap.set(obj.id, obj.image_data);
+                        break;
+                    case 'CATEGORY':
+                        categoriesMap.set(obj.id, obj.category_data || obj);
+                        break;
                 }
             }
 
@@ -242,42 +249,68 @@ async function syncCatalog() {
 
         } while (cursor);
 
+        logger.info('All catalog objects fetched', {
+            items: itemsMap.size,
+            variations: variationsMap.size,
+            images: imagesMap.size,
+            categories: categoriesMap.size
+        });
+
+        // Now process the maps - insert to database
+
+        // 1. Insert categories first
+        for (const [id, cat] of categoriesMap) {
+            try {
+                await syncCategory({ id, category_data: cat });
+                stats.categories++;
+            } catch (error) {
+                logger.error('Failed to sync category', { id, error: error.message });
+            }
+        }
         logger.info('Categories synced', { count: stats.categories });
 
-        // PASS 2: Now fetch and process items, variations, and images with complete category data
-        logger.info('Starting items/variations/images sync (Pass 2)');
-        cursor = null;
-
-        do {
-            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE&include_deleted_objects=false${cursor ? `&cursor=${cursor}` : ''}`;
-            const data = await makeSquareRequest(endpoint);
-
-            const objects = data.objects || [];
-
-            for (const obj of objects) {
-                try {
-                    if (obj.type === 'IMAGE') {
-                        await syncImage(obj);
-                        stats.images++;
-                    } else if (obj.type === 'ITEM') {
-                        syncedItemIds.add(obj.id);
-                        await syncItem(obj, categoriesMap);
-                        stats.items++;
-                    } else if (obj.type === 'ITEM_VARIATION') {
-                        syncedVariationIds.add(obj.id);
-                        const vendorCount = await syncVariation(obj);
-                        stats.variations++;
-                        stats.variationVendors += vendorCount;
-                    }
-                } catch (error) {
-                    logger.error(`Failed to sync ${obj.type}`, { id: obj.id, error: error.message });
-                }
+        // 2. Insert images
+        for (const [id, img] of imagesMap) {
+            try {
+                await syncImage({ id, image_data: img });
+                stats.images++;
+            } catch (error) {
+                logger.error('Failed to sync image', { id, error: error.message });
             }
+        }
 
-            cursor = data.cursor;
-            logger.info('Catalog sync progress', { items: stats.items, variations: stats.variations });
+        // 3. Insert items with category names looked up from map
+        for (const [id, itemData] of itemsMap) {
+            try {
+                // Look up category name from the map
+                const category_name = itemData.category_id ? categoriesMap.get(itemData.category_id)?.name : null;
+                await syncItem({ id, item_data: itemData }, category_name);
+                stats.items++;
+                syncedItemIds.add(id);
+            } catch (error) {
+                logger.error('Failed to sync item', { id, error: error.message });
+            }
+        }
+        logger.info('Items synced', { count: stats.items });
 
-        } while (cursor);
+        // 4. Insert variations
+        for (const [id, varData] of variationsMap) {
+            try {
+                if (!itemsMap.has(varData.item_id)) {
+                    logger.warn('Skipping variation - parent item not found', {
+                        variation_id: id,
+                        item_id: varData.item_id
+                    });
+                    continue;
+                }
+                const vendorCount = await syncVariation({ id, item_variation_data: varData });
+                stats.variations++;
+                stats.variationVendors += vendorCount;
+                syncedVariationIds.add(id);
+            } catch (error) {
+                logger.error('Failed to sync variation', { id, error: error.message });
+            }
+        }
 
         logger.info('Catalog sync complete', stats);
 
@@ -395,26 +428,10 @@ async function syncImage(obj) {
 /**
  * Sync an item object
  * @param {Object} obj - Item object from Square API
- * @param {Map} categoriesMap - Map of category IDs to names
+ * @param {string} category_name - Category name (already looked up from categoriesMap)
  */
-async function syncItem(obj, categoriesMap) {
+async function syncItem(obj, category_name) {
     const data = obj.item_data;
-
-    // Look up category name from the map using category_id
-    let category_name = null;
-    if (data.category_id) {
-        const categoryData = categoriesMap.get(data.category_id);
-        if (categoryData) {
-            category_name = categoryData.name;
-        } else {
-            logger.warn('Category not found in map', {
-                item_id: obj.id,
-                item_name: data.name,
-                category_id: data.category_id,
-                map_size: categoriesMap.size
-            });
-        }
-    }
 
     await db.query(`
         INSERT INTO items (
