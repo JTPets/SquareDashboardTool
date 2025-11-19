@@ -359,7 +359,7 @@
       </select>
 
       <label for="supply-days">Supply Days:</label>
-      <input type="number" id="supply-days" value="45" min="1" max="365" style="width: 100px;" onchange="getSuggestions()" onblur="getSuggestions()">
+      <input type="number" id="supply-days" value="" min="1" max="365" style="width: 100px;" onchange="getSuggestions()" onblur="getSuggestions()">
 
       <label for="sort-by">Sort By:</label>
       <select id="sort-by">
@@ -443,6 +443,24 @@
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
+
+    // Load configuration from server
+    async function loadConfig() {
+      try {
+        const response = await fetch('/api/config');
+        const config = await response.json();
+
+        // Set default supply days from environment variable
+        const supplyDaysInput = document.getElementById('supply-days');
+        supplyDaysInput.value = config.defaultSupplyDays || 45;
+
+        return config;
+      } catch (error) {
+        console.error('Failed to load config:', error);
+        // Fallback to hardcoded default if config fetch fails
+        document.getElementById('supply-days').value = 45;
+      }
+    }
 
     // Load locations on page load
     async function loadLocations() {
@@ -1119,6 +1137,7 @@
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', async () => {
+      await loadConfig();
       await loadLocations();
       await loadVendors();
       // Auto-load suggestions on page load

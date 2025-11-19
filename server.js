@@ -58,6 +58,28 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/config
+ * Get frontend configuration from environment variables
+ */
+app.get('/api/config', (req, res) => {
+    try {
+        res.json({
+            defaultSupplyDays: parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
+            reorderSafetyDays: parseInt(process.env.REORDER_SAFETY_DAYS || '7'),
+            reorderPriorityThresholds: {
+                urgent: parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0'),
+                high: parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7'),
+                medium: parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14'),
+                low: parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30')
+            }
+        });
+    } catch (error) {
+        logger.error('Failed to get config', { error: error.message });
+        res.status(500).json({ error: 'Failed to get configuration' });
+    }
+});
+
 // ==================== LOGGING ENDPOINTS ====================
 
 /**
