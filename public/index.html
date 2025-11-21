@@ -491,6 +491,14 @@
         <a href="/api/health" target="_blank">Check Health</a>
       </div>
 
+      <!-- DATABASE BACKUP -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>💾 Database Backup & Restore</h2>
+        <p>Export and import complete database backups. Restore to empty or existing databases.</p>
+        <a href="database-backup.html">Manage Backups</a>
+      </div>
+
       <!-- RAW API ACCESS -->
       <div class="tool-card api">
         <h2>🔌 Raw API Access</h2>
@@ -502,12 +510,19 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (42 Total)</h3>
+      <h3>📚 Raw API Endpoints (45 Total)</h3>
       <div class="api-grid">
 
         <div class="api-category">
           <h4>💚 Health & Status</h4>
           <a href="/api/health" target="_blank">GET /api/health</a>
+        </div>
+
+        <div class="api-category">
+          <h4>💾 Database Backup</h4>
+          <a href="/api/database/info" target="_blank">GET /api/database/info</a>
+          <a href="/api/database/export" target="_blank">GET /api/database/export</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/database/import</a>
         </div>
 
         <div class="api-category">

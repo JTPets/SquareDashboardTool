@@ -3247,6 +3247,209 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
     }
 });
 
+// ==================== DATABASE BACKUP & RESTORE ====================
+
+/**
+ * GET /api/database/export
+ * Export database as SQL dump
+ */
+app.get('/api/database/export', async (req, res) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        const dbHost = process.env.DB_HOST || 'localhost';
+        const dbPort = process.env.DB_PORT || '5432';
+        const dbName = process.env.DB_NAME || 'jtpets_beta';
+        const dbUser = process.env.DB_USER || 'postgres';
+        const dbPassword = process.env.DB_PASSWORD || '';
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `jtpets_backup_${timestamp}.sql`;
+
+        logger.info('Starting database export', { database: dbName });
+
+        // Set PGPASSWORD environment variable for pg_dump
+        const env = { ...process.env, PGPASSWORD: dbPassword };
+
+        // Use pg_dump to create backup
+        const command = `pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
+
+        const { stdout, stderr } = await execAsync(command, {
+            env,
+            maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+        });
+
+        if (stderr && !stderr.includes('NOTICE')) {
+            logger.warn('Database export warnings', { warnings: stderr });
+        }
+
+        // Send SQL dump as downloadable file
+        res.setHeader('Content-Type', 'application/sql');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.send(stdout);
+
+        logger.info('Database export completed', {
+            filename,
+            size_bytes: stdout.length
+        });
+
+    } catch (error) {
+        logger.error('Database export failed', {
+            error: error.message,
+            stack: error.stack
+        });
+        res.status(500).json({
+            error: 'Database export failed',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/database/import
+ * Import database from SQL dump
+ * Body: { sql: "SQL dump content" }
+ */
+app.post('/api/database/import', async (req, res) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        const tmpFs = require('fs').promises;
+        const tmpPath = require('path');
+
+        const { sql } = req.body;
+
+        if (!sql || typeof sql !== 'string') {
+            return res.status(400).json({
+                error: 'Invalid request',
+                message: 'SQL content is required'
+            });
+        }
+
+        const dbHost = process.env.DB_HOST || 'localhost';
+        const dbPort = process.env.DB_PORT || '5432';
+        const dbName = process.env.DB_NAME || 'jtpets_beta';
+        const dbUser = process.env.DB_USER || 'postgres';
+        const dbPassword = process.env.DB_PASSWORD || '';
+
+        logger.info('Starting database import', {
+            database: dbName,
+            sql_size_bytes: sql.length
+        });
+
+        // Write SQL to temporary file
+        const tmpDir = tmpPath.join(__dirname, 'temp');
+        await tmpFs.mkdir(tmpDir, { recursive: true });
+
+        const tmpFile = tmpPath.join(tmpDir, `import_${Date.now()}.sql`);
+        await tmpFs.writeFile(tmpFile, sql, 'utf-8');
+
+        try {
+            // Set PGPASSWORD environment variable for psql
+            const env = { ...process.env, PGPASSWORD: dbPassword };
+
+            // Use psql to restore backup
+            const command = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${tmpFile}" -v ON_ERROR_STOP=1`;
+
+            const { stdout, stderr } = await execAsync(command, {
+                env,
+                maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+            });
+
+            // Clean up temp file
+            await tmpFs.unlink(tmpFile);
+
+            if (stderr && !stderr.includes('NOTICE') && !stderr.includes('WARNING')) {
+                logger.warn('Database import warnings', { warnings: stderr });
+            }
+
+            logger.info('Database import completed successfully');
+
+            res.json({
+                success: true,
+                message: 'Database imported successfully',
+                output: stdout
+            });
+
+        } catch (execError) {
+            // Clean up temp file on error
+            try {
+                await tmpFs.unlink(tmpFile);
+            } catch (unlinkError) {
+                // Ignore unlink errors
+            }
+            throw execError;
+        }
+
+    } catch (error) {
+        logger.error('Database import failed', {
+            error: error.message,
+            stack: error.stack
+        });
+        res.status(500).json({
+            error: 'Database import failed',
+            message: error.message,
+            details: error.stderr || error.message
+        });
+    }
+});
+
+/**
+ * GET /api/database/info
+ * Get database information
+ */
+app.get('/api/database/info', async (req, res) => {
+    try {
+        // Get database size
+        const sizeResult = await db.query(`
+            SELECT
+                pg_database.datname as name,
+                pg_size_pretty(pg_database_size(pg_database.datname)) as size,
+                pg_database_size(pg_database.datname) as size_bytes
+            FROM pg_database
+            WHERE datname = $1
+        `, [process.env.DB_NAME || 'jtpets_beta']);
+
+        // Get table counts
+        const tablesResult = await db.query(`
+            SELECT
+                schemaname,
+                tablename,
+                n_live_tup as row_count
+            FROM pg_stat_user_tables
+            ORDER BY n_live_tup DESC
+        `);
+
+        // Get database version
+        const versionResult = await db.query('SELECT version()');
+
+        res.json({
+            database: sizeResult.rows[0] || {},
+            tables: tablesResult.rows,
+            version: versionResult.rows[0].version,
+            connection: {
+                host: process.env.DB_HOST || 'localhost',
+                port: process.env.DB_PORT || '5432',
+                database: process.env.DB_NAME || 'jtpets_beta',
+                user: process.env.DB_USER || 'postgres'
+            }
+        });
+
+    } catch (error) {
+        logger.error('Failed to get database info', {
+            error: error.message
+        });
+        res.status(500).json({
+            error: 'Failed to get database info',
+            message: error.message
+        });
+    }
+});
+
 // ==================== ERROR HANDLING ====================
 
 // 404 handler
