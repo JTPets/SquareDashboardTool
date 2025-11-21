@@ -61,3 +61,4 @@ desktop.ini
 
 # Output of 'npm pack'
 *.tgz
+temp/
