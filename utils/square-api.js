@@ -770,53 +770,89 @@ async function syncSalesVelocity(periodDays = 91) {
 
         } while (cursor);
 
-        // Save velocity data to database
+        // Validate which variations exist in our database before inserting
+        // This prevents foreign key constraint violations for deleted variations
+        const uniqueVariationIds = [...new Set([...salesData.values()].map(d => d.variation_id))];
+
+        if (uniqueVariationIds.length === 0) {
+            logger.info('No sales data to sync');
+            return 0;
+        }
+
+        // Query to check which variation IDs exist
+        const placeholders = uniqueVariationIds.map((_, i) => `$${i + 1}`).join(',');
+        const existingVariationsResult = await db.query(
+            `SELECT id FROM variations WHERE id IN (${placeholders})`,
+            uniqueVariationIds
+        );
+
+        const existingVariationIds = new Set(existingVariationsResult.rows.map(row => row.id));
+        const missingCount = uniqueVariationIds.length - existingVariationIds.size;
+
+        if (missingCount > 0) {
+            logger.info('Filtering out deleted variations from sales velocity', {
+                total_variations: uniqueVariationIds.length,
+                existing: existingVariationIds.size,
+                missing: missingCount
+            });
+        }
+
+        // Save velocity data to database (only for existing variations)
         let savedCount = 0;
+        let skippedCount = 0;
+
         for (const [key, data] of salesData.entries()) {
+            // Skip variations that don't exist in our database
+            if (!existingVariationIds.has(data.variation_id)) {
+                skippedCount++;
+                continue;
+            }
+
             const dailyAvg = data.total_quantity / periodDays;
             const weeklyAvg = data.total_quantity / (periodDays / 7);
             const monthlyAvg = data.total_quantity / (periodDays / 30);
             const dailyRevenueAvg = data.total_revenue / periodDays;
 
-            try {
-                await db.query(`
-                    INSERT INTO sales_velocity (
-                        variation_id, location_id, period_days,
-                        total_quantity_sold, total_revenue_cents,
-                        period_start_date, period_end_date,
-                        daily_avg_quantity, daily_avg_revenue_cents,
-                        weekly_avg_quantity, monthly_avg_quantity,
-                        updated_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
-                    ON CONFLICT (variation_id, location_id, period_days) DO UPDATE SET
-                        total_quantity_sold = EXCLUDED.total_quantity_sold,
-                        total_revenue_cents = EXCLUDED.total_revenue_cents,
-                        period_start_date = EXCLUDED.period_start_date,
-                        period_end_date = EXCLUDED.period_end_date,
-                        daily_avg_quantity = EXCLUDED.daily_avg_quantity,
-                        daily_avg_revenue_cents = EXCLUDED.daily_avg_revenue_cents,
-                        weekly_avg_quantity = EXCLUDED.weekly_avg_quantity,
-                        monthly_avg_quantity = EXCLUDED.monthly_avg_quantity,
-                        updated_at = CURRENT_TIMESTAMP
-                `, [
-                    data.variation_id,
-                    data.location_id,
-                    periodDays,
-                    data.total_quantity,
-                    data.total_revenue,
-                    startDate,
-                    endDate,
-                    dailyAvg,
-                    dailyRevenueAvg,
-                    weeklyAvg,
-                    monthlyAvg
-                ]);
-                savedCount++;
-            } catch (error) {
-                // Variation might not exist in our database
-                logger.warn('Skipping velocity for variation - not found in database', { variation_id: data.variation_id });
-            }
+            await db.query(`
+                INSERT INTO sales_velocity (
+                    variation_id, location_id, period_days,
+                    total_quantity_sold, total_revenue_cents,
+                    period_start_date, period_end_date,
+                    daily_avg_quantity, daily_avg_revenue_cents,
+                    weekly_avg_quantity, monthly_avg_quantity,
+                    updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+                ON CONFLICT (variation_id, location_id, period_days) DO UPDATE SET
+                    total_quantity_sold = EXCLUDED.total_quantity_sold,
+                    total_revenue_cents = EXCLUDED.total_revenue_cents,
+                    period_start_date = EXCLUDED.period_start_date,
+                    period_end_date = EXCLUDED.period_end_date,
+                    daily_avg_quantity = EXCLUDED.daily_avg_quantity,
+                    daily_avg_revenue_cents = EXCLUDED.daily_avg_revenue_cents,
+                    weekly_avg_quantity = EXCLUDED.weekly_avg_quantity,
+                    monthly_avg_quantity = EXCLUDED.monthly_avg_quantity,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [
+                data.variation_id,
+                data.location_id,
+                periodDays,
+                data.total_quantity,
+                data.total_revenue,
+                startDate,
+                endDate,
+                dailyAvg,
+                dailyRevenueAvg,
+                weeklyAvg,
+                monthlyAvg
+            ]);
+            savedCount++;
+        }
+
+        if (skippedCount > 0) {
+            logger.info('Skipped sales velocity entries for deleted variations', {
+                skipped: skippedCount
+            });
         }
 
         logger.info('Sales velocity sync complete', { combinations: savedCount, period_days: periodDays });
