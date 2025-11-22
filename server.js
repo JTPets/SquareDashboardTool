@@ -214,6 +214,21 @@ app.post('/api/test-error', async (req, res) => {
     res.json({ message: 'Test error logged and email sent' });
 });
 
+/**
+ * POST /api/test-backup-email
+ * Test backup email functionality
+ */
+app.post('/api/test-backup-email', async (req, res) => {
+    try {
+        logger.info('Testing backup email');
+        await runAutomatedBackup();
+        res.json({ success: true, message: 'Test backup email sent successfully' });
+    } catch (error) {
+        logger.error('Test backup email failed', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== HELPER FUNCTIONS ====================
 
 /**
@@ -359,6 +374,74 @@ async function isSyncNeeded(syncType, intervalHours) {
         nextDue,
         hoursSince: hoursSinceLastSync.toFixed(1)
     };
+}
+
+/**
+ * Run automated database backup and email it
+ * This is used by the weekly backup cron job
+ * @returns {Promise<void>}
+ */
+async function runAutomatedBackup() {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    logger.info('Starting automated database backup');
+
+    const dbHost = process.env.DB_HOST || 'localhost';
+    const dbPort = process.env.DB_PORT || '5432';
+    const dbName = process.env.DB_NAME || 'jtpets_beta';
+    const dbUser = process.env.DB_USER || 'postgres';
+    const dbPassword = process.env.DB_PASSWORD || '';
+
+    // Find pg_dump command (handles Windows paths)
+    const pgDumpCmd = process.platform === 'win32' ? findPgDumpOnWindows() : 'pg_dump';
+
+    // Set PGPASSWORD environment variable for pg_dump
+    const env = { ...process.env, PGPASSWORD: dbPassword };
+
+    // Use pg_dump to create backup
+    const command = `${pgDumpCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
+
+    const { stdout, stderr } = await execAsync(command, {
+        env,
+        maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+    });
+
+    if (stderr && !stderr.includes('NOTICE')) {
+        logger.warn('Database backup warnings', { warnings: stderr });
+    }
+
+    // Get database info for the email
+    const sizeResult = await db.query(`
+        SELECT
+            pg_database.datname as name,
+            pg_size_pretty(pg_database_size(pg_database.datname)) as size
+        FROM pg_database
+        WHERE datname = $1
+    `, [dbName]);
+
+    const tablesResult = await db.query(`
+        SELECT
+            relname as tablename,
+            n_live_tup as row_count
+        FROM pg_stat_user_tables
+        ORDER BY n_live_tup DESC
+    `);
+
+    const dbInfo = {
+        database: sizeResult.rows[0]?.name || dbName,
+        size: sizeResult.rows[0]?.size || 'Unknown',
+        tables: tablesResult.rows
+    };
+
+    // Email the backup
+    await emailNotifier.sendBackup(stdout, dbInfo);
+
+    logger.info('Automated database backup completed and emailed', {
+        size_bytes: stdout.length,
+        database: dbName
+    });
 }
 
 /**
@@ -3695,6 +3778,25 @@ async function startServer() {
         });
 
         logger.info('Database sync cron job scheduled', { schedule: syncCronSchedule });
+
+        // Initialize automated weekly database backup cron job
+        // Runs every Sunday at 2:00 AM by default (configurable via BACKUP_CRON_SCHEDULE)
+        const backupCronSchedule = process.env.BACKUP_CRON_SCHEDULE || '0 2 * * 0';
+        cron.schedule(backupCronSchedule, async () => {
+            logger.info('Running scheduled database backup');
+            try {
+                await runAutomatedBackup();
+                logger.info('Scheduled database backup completed successfully');
+            } catch (error) {
+                logger.error('Scheduled database backup failed', { error: error.message });
+                await emailNotifier.sendAlert(
+                    'Automated Database Backup Failed',
+                    `Failed to run scheduled database backup:\n\n${error.message}\n\nStack: ${error.stack}`
+                );
+            }
+        });
+
+        logger.info('Database backup cron job scheduled', { schedule: backupCronSchedule });
 
         // Startup check: Generate today's batch if it doesn't exist yet
         // This handles cases where server was offline during scheduled cron time
