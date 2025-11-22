@@ -3250,6 +3250,42 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
 // ==================== DATABASE BACKUP & RESTORE ====================
 
 /**
+ * Find pg_dump command on Windows in common installation paths
+ */
+function findPgDumpOnWindows() {
+    const { execSync } = require('child_process');
+    const fs = require('fs');
+    const path = require('path');
+
+    // Try direct command first
+    try {
+        execSync('pg_dump --version', { stdio: 'ignore' });
+        return 'pg_dump';
+    } catch (e) {
+        // Not in PATH, search common locations
+    }
+
+    // Common PostgreSQL installation paths on Windows
+    const basePaths = [
+        'C:\\Program Files\\PostgreSQL',
+        'C:\\Program Files (x86)\\PostgreSQL'
+    ];
+
+    // Check versions 16 down to 10
+    for (const basePath of basePaths) {
+        for (let version = 16; version >= 10; version--) {
+            const pgDumpPath = path.join(basePath, `${version}`, 'bin', 'pg_dump.exe');
+            if (fs.existsSync(pgDumpPath)) {
+                logger.info('Found pg_dump at', { path: pgDumpPath });
+                return `"${pgDumpPath}"`;
+            }
+        }
+    }
+
+    throw new Error('pg_dump not found. Please add PostgreSQL bin directory to PATH or install PostgreSQL client tools.');
+}
+
+/**
  * GET /api/database/export
  * Export database as SQL dump
  */
@@ -3270,11 +3306,14 @@ app.get('/api/database/export', async (req, res) => {
 
         logger.info('Starting database export', { database: dbName });
 
+        // Find pg_dump command (handles Windows paths)
+        const pgDumpCmd = process.platform === 'win32' ? findPgDumpOnWindows() : 'pg_dump';
+
         // Set PGPASSWORD environment variable for pg_dump
         const env = { ...process.env, PGPASSWORD: dbPassword };
 
         // Use pg_dump to create backup
-        const command = `pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
+        const command = `${pgDumpCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
 
         const { stdout, stderr } = await execAsync(command, {
             env,
@@ -3302,18 +3341,48 @@ app.get('/api/database/export', async (req, res) => {
             stack: error.stack
         });
 
-        // Provide helpful error message for Windows users
-        let helpMessage = error.message;
-        if (error.message.includes('pg_dump') && error.message.includes('not recognized')) {
-            helpMessage = 'pg_dump command not found. On Windows, add PostgreSQL bin directory to your PATH (e.g., C:\\Program Files\\PostgreSQL\\15\\bin) or run this server from a PostgreSQL-enabled terminal.';
-        }
-
         res.status(500).json({
             error: 'Database export failed',
-            message: helpMessage
+            message: error.message
         });
     }
 });
+
+/**
+ * Find psql command on Windows in common installation paths
+ */
+function findPsqlOnWindows() {
+    const { execSync } = require('child_process');
+    const fs = require('fs');
+    const path = require('path');
+
+    // Try direct command first
+    try {
+        execSync('psql --version', { stdio: 'ignore' });
+        return 'psql';
+    } catch (e) {
+        // Not in PATH, search common locations
+    }
+
+    // Common PostgreSQL installation paths on Windows
+    const basePaths = [
+        'C:\\Program Files\\PostgreSQL',
+        'C:\\Program Files (x86)\\PostgreSQL'
+    ];
+
+    // Check versions 16 down to 10
+    for (const basePath of basePaths) {
+        for (let version = 16; version >= 10; version--) {
+            const psqlPath = path.join(basePath, `${version}`, 'bin', 'psql.exe');
+            if (fs.existsSync(psqlPath)) {
+                logger.info('Found psql at', { path: psqlPath });
+                return `"${psqlPath}"`;
+            }
+        }
+    }
+
+    throw new Error('psql not found. Please add PostgreSQL bin directory to PATH or install PostgreSQL client tools.');
+}
 
 /**
  * POST /api/database/import
@@ -3322,6 +3391,12 @@ app.get('/api/database/export', async (req, res) => {
  */
 app.post('/api/database/import', async (req, res) => {
     try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        const tmpFs = require('fs').promises;
+        const tmpPath = require('path');
+
         const { sql } = req.body;
 
         if (!sql || typeof sql !== 'string') {
@@ -3331,33 +3406,64 @@ app.post('/api/database/import', async (req, res) => {
             });
         }
 
+        const dbHost = process.env.DB_HOST || 'localhost';
+        const dbPort = process.env.DB_PORT || '5432';
+        const dbName = process.env.DB_NAME || 'jtpets_beta';
+        const dbUser = process.env.DB_USER || 'postgres';
+        const dbPassword = process.env.DB_PASSWORD || '';
+
         logger.info('Starting database import', {
+            database: dbName,
             sql_size_bytes: sql.length
         });
 
-        // Get a client from the pool for executing the SQL
-        const client = await db.getClient();
+        // Write SQL to temporary file
+        const tmpDir = tmpPath.join(__dirname, 'temp');
+        await tmpFs.mkdir(tmpDir, { recursive: true });
+
+        const tmpFile = tmpPath.join(tmpDir, `import_${Date.now()}.sql`);
+        await tmpFs.writeFile(tmpFile, sql, 'utf-8');
 
         try {
-            // Execute the SQL dump directly
-            // Note: This executes the entire SQL as one statement
-            await client.query(sql);
+            // Find psql command (handles Windows paths)
+            const psqlCmd = process.platform === 'win32' ? findPsqlOnWindows() : 'psql';
+
+            // Set PGPASSWORD environment variable for psql
+            const env = { ...process.env, PGPASSWORD: dbPassword };
+
+            // Use psql to restore backup
+            const command = `${psqlCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${tmpFile}" -v ON_ERROR_STOP=1`;
+
+            logger.info('Executing psql command', { command: command.replace(dbPassword, '***') });
+
+            const { stdout, stderr } = await execAsync(command, {
+                env,
+                maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+            });
+
+            // Clean up temp file
+            await tmpFs.unlink(tmpFile);
+
+            if (stderr && !stderr.includes('NOTICE') && !stderr.includes('WARNING')) {
+                logger.warn('Database import warnings', { warnings: stderr });
+            }
 
             logger.info('Database import completed successfully');
 
             res.json({
                 success: true,
-                message: 'Database imported successfully'
+                message: 'Database imported successfully',
+                output: stdout
             });
 
-        } catch (queryError) {
-            logger.error('Database import query failed', {
-                error: queryError.message,
-                position: queryError.position
-            });
-            throw queryError;
-        } finally {
-            client.release();
+        } catch (execError) {
+            // Clean up temp file on error
+            try {
+                await tmpFs.unlink(tmpFile);
+            } catch (unlinkError) {
+                // Ignore unlink errors
+            }
+            throw execError;
         }
 
     } catch (error) {
@@ -3368,7 +3474,7 @@ app.post('/api/database/import', async (req, res) => {
         res.status(500).json({
             error: 'Database import failed',
             message: error.message,
-            details: error.toString()
+            details: error.stderr || error.message
         });
     }
 });
