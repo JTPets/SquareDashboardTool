@@ -127,6 +127,75 @@ class EmailNotifier {
     await this.transporter.sendMail(mailOptions);
     logger.info('Test email sent successfully');
   }
+
+  async sendBackup(sqlDump, dbInfo) {
+    if (!this.enabled) {
+      logger.warn('Email notifications disabled, database backup not sent');
+      return;
+    }
+
+    try {
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `jtpets_backup_${timestamp}.sql`;
+      const sizeInMB = (sqlDump.length / 1024 / 1024).toFixed(2);
+
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: process.env.EMAIL_TO,
+        subject: `[JTPets] Weekly Database Backup - ${timestamp}`,
+        html: `
+          <h2 style="color: #8b5cf6;">💾 Weekly Database Backup</h2>
+          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>Database:</strong> ${dbInfo.database || 'jtpets_beta'}</p>
+          <p><strong>Backup Size:</strong> ${sizeInMB} MB</p>
+
+          <hr>
+
+          <h3>Database Statistics</h3>
+          <ul>
+            ${dbInfo.tables ? dbInfo.tables.slice(0, 10).map(t =>
+              `<li><strong>${t.tablename}:</strong> ${parseInt(t.row_count).toLocaleString()} rows</li>`
+            ).join('') : ''}
+          </ul>
+          ${dbInfo.tables && dbInfo.tables.length > 10 ? `<p><em>...and ${dbInfo.tables.length - 10} more tables</em></p>` : ''}
+
+          <hr>
+
+          <p style="background: #fef3c7; padding: 10px; border-radius: 5px; border-left: 4px solid #f59e0b;">
+            <strong>📎 Attachment:</strong> ${filename}<br>
+            This backup can be restored using the Database Backup & Restore tool.
+          </p>
+
+          <hr>
+          <p style="color: #6b7280; font-size: 12px;">
+            Server: ${require('os').hostname()}<br>
+            This is an automated weekly backup from your JTPets Inventory System.
+          </p>
+        `,
+        attachments: [
+          {
+            filename: filename,
+            content: sqlDump,
+            contentType: 'application/sql'
+          }
+        ]
+      };
+
+      await this.transporter.sendMail(mailOptions);
+      logger.info('Backup email sent successfully', {
+        filename,
+        size_mb: sizeInMB,
+        to: process.env.EMAIL_TO
+      });
+
+    } catch (error) {
+      logger.error('Failed to send backup email', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
 }
 
 module.exports = new EmailNotifier();
