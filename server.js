@@ -3271,9 +3271,9 @@ function findPgDumpOnWindows() {
         'C:\\Program Files (x86)\\PostgreSQL'
     ];
 
-    // Check versions 16 down to 10
+    // Check versions 20 down to 10 (future-proof for newer releases)
     for (const basePath of basePaths) {
-        for (let version = 16; version >= 10; version--) {
+        for (let version = 20; version >= 10; version--) {
             const pgDumpPath = path.join(basePath, `${version}`, 'bin', 'pg_dump.exe');
             if (fs.existsSync(pgDumpPath)) {
                 logger.info('Found pg_dump at', { path: pgDumpPath });
@@ -3370,9 +3370,9 @@ function findPsqlOnWindows() {
         'C:\\Program Files (x86)\\PostgreSQL'
     ];
 
-    // Check versions 16 down to 10
+    // Check versions 20 down to 10 (future-proof for newer releases)
     for (const basePath of basePaths) {
-        for (let version = 16; version >= 10; version--) {
+        for (let version = 20; version >= 10; version--) {
             const psqlPath = path.join(basePath, `${version}`, 'bin', 'psql.exe');
             if (fs.existsSync(psqlPath)) {
                 logger.info('Found psql at', { path: psqlPath });
