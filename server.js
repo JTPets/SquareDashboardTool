@@ -24,7 +24,7 @@ const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increased limit for database imports
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Request logging
