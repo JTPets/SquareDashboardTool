@@ -3301,9 +3301,16 @@ app.get('/api/database/export', async (req, res) => {
             error: error.message,
             stack: error.stack
         });
+
+        // Provide helpful error message for Windows users
+        let helpMessage = error.message;
+        if (error.message.includes('pg_dump') && error.message.includes('not recognized')) {
+            helpMessage = 'pg_dump command not found. On Windows, add PostgreSQL bin directory to your PATH (e.g., C:\\Program Files\\PostgreSQL\\15\\bin) or run this server from a PostgreSQL-enabled terminal.';
+        }
+
         res.status(500).json({
             error: 'Database export failed',
-            message: error.message
+            message: helpMessage
         });
     }
 });
@@ -3315,12 +3322,6 @@ app.get('/api/database/export', async (req, res) => {
  */
 app.post('/api/database/import', async (req, res) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        const tmpFs = require('fs').promises;
-        const tmpPath = require('path');
-
         const { sql } = req.body;
 
         if (!sql || typeof sql !== 'string') {
@@ -3330,59 +3331,33 @@ app.post('/api/database/import', async (req, res) => {
             });
         }
 
-        const dbHost = process.env.DB_HOST || 'localhost';
-        const dbPort = process.env.DB_PORT || '5432';
-        const dbName = process.env.DB_NAME || 'jtpets_beta';
-        const dbUser = process.env.DB_USER || 'postgres';
-        const dbPassword = process.env.DB_PASSWORD || '';
-
         logger.info('Starting database import', {
-            database: dbName,
             sql_size_bytes: sql.length
         });
 
-        // Write SQL to temporary file
-        const tmpDir = tmpPath.join(__dirname, 'temp');
-        await tmpFs.mkdir(tmpDir, { recursive: true });
-
-        const tmpFile = tmpPath.join(tmpDir, `import_${Date.now()}.sql`);
-        await tmpFs.writeFile(tmpFile, sql, 'utf-8');
+        // Get a client from the pool for executing the SQL
+        const client = await db.getClient();
 
         try {
-            // Set PGPASSWORD environment variable for psql
-            const env = { ...process.env, PGPASSWORD: dbPassword };
-
-            // Use psql to restore backup
-            const command = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${tmpFile}" -v ON_ERROR_STOP=1`;
-
-            const { stdout, stderr } = await execAsync(command, {
-                env,
-                maxBuffer: 50 * 1024 * 1024 // 50MB buffer
-            });
-
-            // Clean up temp file
-            await tmpFs.unlink(tmpFile);
-
-            if (stderr && !stderr.includes('NOTICE') && !stderr.includes('WARNING')) {
-                logger.warn('Database import warnings', { warnings: stderr });
-            }
+            // Execute the SQL dump directly
+            // Note: This executes the entire SQL as one statement
+            await client.query(sql);
 
             logger.info('Database import completed successfully');
 
             res.json({
                 success: true,
-                message: 'Database imported successfully',
-                output: stdout
+                message: 'Database imported successfully'
             });
 
-        } catch (execError) {
-            // Clean up temp file on error
-            try {
-                await tmpFs.unlink(tmpFile);
-            } catch (unlinkError) {
-                // Ignore unlink errors
-            }
-            throw execError;
+        } catch (queryError) {
+            logger.error('Database import query failed', {
+                error: queryError.message,
+                position: queryError.position
+            });
+            throw queryError;
+        } finally {
+            client.release();
         }
 
     } catch (error) {
@@ -3393,7 +3368,7 @@ app.post('/api/database/import', async (req, res) => {
         res.status(500).json({
             error: 'Database import failed',
             message: error.message,
-            details: error.stderr || error.message
+            details: error.toString()
         });
     }
 });
