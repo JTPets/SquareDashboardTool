@@ -332,6 +332,9 @@
       <select id="categoryFilter" onchange="filterData()">
         <option value="">All Categories</option>
       </select>
+      <select id="vendorFilter" onchange="filterData()">
+        <option value="">All Vendors</option>
+      </select>
       <select id="stockFilter" onchange="filterData()">
         <option value="">All Stock Levels</option>
         <option value="in_stock">In Stock (> 0)</option>
@@ -431,6 +434,7 @@
     let filteredData = [];
     let locations = new Set();
     let categories = new Set();
+    let vendors = new Set();
     let currentSortField = null;
     let sortDirections = {}; // Track direction for each field
 
@@ -491,6 +495,7 @@
       const searchTerm = document.getElementById('searchBox').value.toLowerCase();
       const locationFilter = document.getElementById('locationFilter').value;
       const categoryFilter = document.getElementById('categoryFilter').value;
+      const vendorFilter = document.getElementById('vendorFilter').value;
       const stockFilter = document.getElementById('stockFilter').value;
 
       filteredData = allData.filter(item => {
@@ -501,6 +506,7 @@
 
         const matchesLocation = !locationFilter || item.location_name === locationFilter;
         const matchesCategory = !categoryFilter || item.category_name === categoryFilter;
+        const matchesVendor = !vendorFilter || item.vendor_name === vendorFilter;
 
         const qty = parseFloat(item.quantity || 0);
         const min = parseFloat(item.stock_alert_min || 0);
@@ -509,7 +515,7 @@
           (stockFilter === 'low_stock' && min > 0 && qty <= min) ||
           (stockFilter === 'out_of_stock' && qty === 0);
 
-        return matchesSearch && matchesLocation && matchesCategory && matchesStock;
+        return matchesSearch && matchesLocation && matchesCategory && matchesVendor && matchesStock;
       });
 
       renderTable(filteredData);
@@ -559,6 +565,17 @@
           option.value = category;
           option.textContent = category;
           categorySelect.appendChild(option);
+        });
+
+        // Populate vendor filter
+        vendors = new Set(allData.map(item => item.vendor_name).filter(Boolean));
+        const vendorSelect = document.getElementById('vendorFilter');
+        vendorSelect.innerHTML = '<option value="">All Vendors</option>';
+        Array.from(vendors).sort().forEach(vendor => {
+          const option = document.createElement('option');
+          option.value = vendor;
+          option.textContent = vendor;
+          vendorSelect.appendChild(option);
         });
 
         filteredData = allData;
