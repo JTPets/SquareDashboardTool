@@ -1107,7 +1107,7 @@ SquareDashboardTool/
 
 ## License
 
-Proprietary - JTPets Internal Use Only
+MIT License - Free and open source. See [LICENSE](LICENSE) file for details.
 
 ## Support
 
