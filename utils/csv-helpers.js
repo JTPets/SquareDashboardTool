@@ -47,23 +47,24 @@ function formatDateForSquare(isoDateString) {
 }
 
 /**
- * Format money for Square CSV (always 2 decimal places)
+ * Format money for Square CSV with $ prefix and exactly 2 decimal places
+ * Examples: $105.00, $13.29, $315.00
  * @param {number} cents - Amount in cents
- * @returns {string} Formatted money string
+ * @returns {string} Formatted money string with $ prefix
  */
 function formatMoney(cents) {
     if (cents === null || cents === undefined) {
-        return '0.00';
+        return '$0.00';
     }
-    return (cents / 100).toFixed(2);
+    return '$' + (cents / 100).toFixed(2);
 }
 
 /**
  * Format GTIN/UPC as plain text to avoid scientific notation
- * UPCs are typically 12-14 digit numbers that can be misinterpreted in scientific notation
- * Prefix with single quote to force text interpretation (Excel/CSV standard)
+ * UPCs are typically 12-14 digit numbers that Excel may display in scientific notation
+ * Output plain string with NO prefix, NO quotes (unless field contains special chars)
  * @param {string|number} value - GTIN/UPC value
- * @returns {string} Formatted GTIN
+ * @returns {string} Plain text GTIN with no scientific notation
  */
 function formatGTIN(value) {
     if (value === null || value === undefined || value === '') {
@@ -71,18 +72,22 @@ function formatGTIN(value) {
     }
 
     // Convert to string, handling potential scientific notation
-    // Use toFixed(0) for numbers to avoid scientific notation, then remove decimals
-    const str = typeof value === 'number' ? value.toFixed(0) : String(value);
-    const trimmed = str.trim();
+    // For numbers, use toFixed(0) to avoid scientific notation, then convert to string
+    let str;
+    if (typeof value === 'number') {
+        // toFixed returns string with decimals, so we parse as int then convert to string
+        str = Math.floor(value).toString();
+    } else {
+        str = String(value).trim();
+    }
 
     // If empty after trimming, return empty
-    if (!trimmed) {
+    if (!str) {
         return '';
     }
 
-    // Prefix with single quote to force text interpretation in CSV
-    // This is a standard CSV technique that's invisible when displayed
-    return "'" + trimmed;
+    // Return plain string - escapeCSVField will handle quoting if needed
+    return str;
 }
 
 /**
