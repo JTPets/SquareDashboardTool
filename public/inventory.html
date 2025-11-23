@@ -673,8 +673,9 @@
         };
         const velocityClass = getVelocityClass(dailyVelocity);
         const formatVelocity = (weekly) => {
-          if (!weekly || weekly === 0) return '<span class="velocity-none">None</span>';
-          return `<span class="${getVelocityClass(weekly / 7)}">${weekly.toFixed(1)}</span>`;
+          const weeklyNum = parseFloat(weekly) || 0;
+          if (weeklyNum === 0) return '<span class="velocity-none">None</span>';
+          return `<span class="${getVelocityClass(weeklyNum / 7)}">${weeklyNum.toFixed(1)}</span>`;
         };
         const velocityHtml = `
           ${formatVelocity(item.weekly_avg_91d)} /
