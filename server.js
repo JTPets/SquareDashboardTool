@@ -3198,27 +3198,26 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
 
 /**
  * GET /api/purchase-orders/:po_number/export-csv
- * Export a purchase order in Square's CSV import format
+ * Export a purchase order as a Square-importable CSV file
  *
- * Square CSV Format Specification:
- * Row 1: Vendor,[Vendor Name String]
- * Row 2: Ship to,[Location Name String]
- * Row 3: Expected On,[M/D/YYYY]
- * Row 4: Notes,[Optional Text]
- * Row 5: [BLANK ROW - completely empty]
- * Row 6: Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Cost
- * Row 7+: [Data rows with 8 columns]
+ * CSV FORMAT (Square PO Import specification):
+ * Row 1 (header): Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status
+ * Rows 2+: [data rows with 12 columns matching header exactly]
  *
- * Critical Rules:
- * - UTF-8 WITH BOM (\uFEFF) - REQUIRED for Square to recognize file encoding
- * - Date format MUST be M/D/YYYY (e.g., 1/31/2022 or 12/5/2023)
- * - Row 5 MUST be completely blank (no commas, no spaces)
- * - Empty fields = empty string (just commas: ,,)
- * - Unit Cost = 3.50 not $3.50
- * - GTIN/UPC = plain text (avoid scientific notation for large numbers)
- * - All fields trimmed (no leading/trailing whitespace)
+ * CRITICAL FORMAT REQUIREMENTS:
+ * - Exactly 12 columns in exact order (no additions, removals, or reordering)
+ * - SKU and GTIN must be plain text with NO scientific notation
+ * - Qty must be integer (e.g., 3)
+ * - Currency fields (Unit Price, Fee, Price w/ Fee, Amount) must be formatted as: $105.00
+ *   - Always start with "$"
+ *   - Always exactly 2 decimal places
+ *   - No commas, no spaces
+ * - Fee can be blank OR formatted as $0.00
+ * - Price w/ Fee = Unit Price + Fee (or Unit Price if Fee is blank)
+ * - Amount = Qty * Price w/ Fee
+ * - Status typically "Open" for new PO items
  * - Line endings: \r\n (CRLF)
- * - Cache-Control headers to prevent browser caching
+ * - UTF-8 encoding with BOM
  */
 app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
     try {
@@ -3264,39 +3263,36 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // Build CSV content
         const lines = [];
 
-        // Calculate expected delivery date (use existing or default to today + lead time)
-        let expectedDeliveryDate = po.expected_delivery_date;
-        if (!expectedDeliveryDate) {
-            // Default: today + vendor lead time (or 7 days if no lead time set)
-            const leadTimeDays = po.lead_time_days || 7;
-            const deliveryDate = new Date();
-            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
-            expectedDeliveryDate = deliveryDate.toISOString();
-        }
+        // Header row - EXACT Square format (12 columns in exact order)
+        lines.push('Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status');
 
-        // Metadata rows (NO trailing commas)
-        lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
-        lines.push(`Ship to,${escapeCSVField(po.location_name)}`);
-        lines.push(`Expected On,${formatDateForSquare(expectedDeliveryDate)}`); // CRITICAL: Must never be empty
-        lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
-
-        // CRITICAL: Row 5 must be completely blank (no commas, no spaces)
-        lines.push('');
-
-        // Header row (8 fields exactly as specified)
-        lines.push('Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Cost');
-
-        // Data rows (8 fields matching header order)
+        // Data rows (12 fields matching header order)
         for (const item of itemsResult.rows) {
+            const qty = Math.round(item.quantity_ordered || 0); // Integer
+            const unitPrice = formatMoney(item.unit_cost_cents); // $105.00 format
+            const fee = ''; // Blank (no fee)
+            const priceWithFee = unitPrice; // Same as unit price when no fee
+
+            // Calculate Amount = Qty * Price w/ Fee
+            const unitPriceCents = item.unit_cost_cents || 0;
+            const amountCents = qty * unitPriceCents;
+            const amount = formatMoney(amountCents);
+
+            const status = 'Open'; // Default status for new PO items
+
             const row = [
                 escapeCSVField(item.item_name || ''),
                 escapeCSVField(item.variation_name || ''),
                 escapeCSVField(item.sku || ''),
-                escapeCSVField(formatGTIN(item.gtin)), // Format GTIN to avoid scientific notation
+                escapeCSVField(formatGTIN(item.gtin)), // Plain text, no scientific notation
                 escapeCSVField(item.vendor_code || ''),
-                escapeCSVField(item.notes || ''),
-                Math.round(item.quantity_ordered || 0), // Whole number
-                formatMoney(item.unit_cost_cents) // No $ sign, just decimal
+                escapeCSVField(item.notes || ''), // Notes column (item-specific)
+                qty, // Integer
+                unitPrice, // $105.00
+                fee, // Blank or $0.00
+                priceWithFee, // $105.00 (same as unit price when no fee)
+                amount, // $315.00 (calculated)
+                status // Open
             ];
 
             lines.push(row.join(','));
