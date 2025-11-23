@@ -703,11 +703,17 @@
                           🗑️ Delete
                         </button>
                       ` : ''}
+                      <a href="/api/purchase-orders/${po.po_number}/export-xlsx"
+                         download="PO_${po.po_number}.xlsx"
+                         class="btn btn-primary btn-small"
+                         title="Download Square XLSX (recommended)">
+                        📥 XLSX
+                      </a>
                       <a href="/api/purchase-orders/${po.po_number}/export-csv"
                          download="PO_${po.po_number}.csv"
-                         class="btn btn-primary btn-small"
-                         title="Download Square CSV">
-                        📥 CSV
+                         class="btn btn-secondary btn-small"
+                         title="Download CSV (legacy)">
+                        📄 CSV
                       </a>
                     </div>
                   </td>

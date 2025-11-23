@@ -1074,6 +1074,10 @@ SquareDashboardTool/
   - `node-fetch` - HTTP requests to Square API
   - `dotenv` - Environment configuration
   - `cors` - CORS middleware
+  - `exceljs` - XLSX file generation for Square PO imports (required)
+  - `winston` - Logging system
+  - `nodemailer` - Email notifications
+  - `node-cron` - Scheduled tasks
 
 ## Business Rules
 
