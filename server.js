@@ -3201,18 +3201,25 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
  * Export a purchase order as a Square-importable CSV file
  *
  * CSV FORMAT (Square PO Import specification):
- * Row 1 (header): Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status
- * Rows 2+: [data rows with 12 columns matching header exactly]
+ * Row 1: Vendor,[Vendor Name]
+ * Row 2: Ship to,[Location Name]
+ * Row 3: Expected On,[M/D/YYYY date]
+ * Row 4: Notes,[Optional notes]
+ * Row 5: [BLANK - completely empty]
+ * Row 6 (header): Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status
+ * Rows 7+: [data rows with 12 columns matching header exactly]
  *
  * CRITICAL FORMAT REQUIREMENTS:
- * - Exactly 12 columns in exact order (no additions, removals, or reordering)
+ * - Exactly 12 columns in item rows (exact order, no additions/removals/reordering)
+ * - Row 5 MUST be completely blank (no commas, no spaces)
+ * - Expected On must NEVER be empty (defaults to today + lead time)
  * - SKU and GTIN must be plain text with NO scientific notation
  * - Qty must be integer (e.g., 3)
- * - Currency fields (Unit Price, Fee, Price w/ Fee, Amount) must be formatted as: $105.00
- *   - Always start with "$"
+ * - Currency fields (Unit Price, Fee, Price w/ Fee, Amount) formatted as: 105.00
+ *   - NO $ symbol (Square adds it on import)
  *   - Always exactly 2 decimal places
  *   - No commas, no spaces
- * - Fee can be blank OR formatted as $0.00
+ * - Fee can be blank OR formatted as 0.00
  * - Price w/ Fee = Unit Price + Fee (or Unit Price if Fee is blank)
  * - Amount = Qty * Price w/ Fee
  * - Status typically "Open" for new PO items
@@ -3263,13 +3270,32 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // Build CSV content
         const lines = [];
 
+        // Calculate expected delivery date (use existing or default to today + lead time)
+        let expectedDeliveryDate = po.expected_delivery_date;
+        if (!expectedDeliveryDate) {
+            // Default: today + vendor lead time (or 7 days if no lead time set)
+            const leadTimeDays = po.lead_time_days || 7;
+            const deliveryDate = new Date();
+            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
+            expectedDeliveryDate = deliveryDate.toISOString();
+        }
+
+        // Metadata rows (REQUIRED by Square - NO trailing commas)
+        lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
+        lines.push(`Ship to,${escapeCSVField(po.location_name)}`);
+        lines.push(`Expected On,${formatDateForSquare(expectedDeliveryDate)}`);
+        lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
+
+        // CRITICAL: Row 5 must be completely blank (no commas, no spaces)
+        lines.push('');
+
         // Header row - EXACT Square format (12 columns in exact order)
         lines.push('Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status');
 
         // Data rows (12 fields matching header order)
         for (const item of itemsResult.rows) {
             const qty = Math.round(item.quantity_ordered || 0); // Integer
-            const unitPrice = formatMoney(item.unit_cost_cents); // $105.00 format
+            const unitPrice = formatMoney(item.unit_cost_cents); // 105.00 format (NO $)
             const fee = ''; // Blank (no fee)
             const priceWithFee = unitPrice; // Same as unit price when no fee
 
@@ -3288,10 +3314,10 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
                 escapeCSVField(item.vendor_code || ''),
                 escapeCSVField(item.notes || ''), // Notes column (item-specific)
                 qty, // Integer
-                unitPrice, // $105.00
-                fee, // Blank or $0.00
-                priceWithFee, // $105.00 (same as unit price when no fee)
-                amount, // $315.00 (calculated)
+                unitPrice, // 105.00 (NO $ symbol)
+                fee, // Blank or 0.00
+                priceWithFee, // 105.00 (same as unit price when no fee)
+                amount, // 315.00 (calculated, NO $ symbol)
                 status // Open
             ];
 
