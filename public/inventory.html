@@ -417,6 +417,9 @@
               <th onclick="sortTable('vendor_name')" class="sortable">
                 Vendor <span class="sort-indicator" id="sort-vendor_name"></span>
               </th>
+              <th onclick="sortTable('vendor_code')" class="sortable">
+                Vendor Code <span class="sort-indicator" id="sort-vendor_code"></span>
+              </th>
               <th onclick="sortTable('category_name')" class="sortable">
                 Category <span class="sort-indicator" id="sort-category_name"></span>
               </th>
@@ -627,6 +630,7 @@
           case 'sku':
           case 'location_name':
           case 'vendor_name':
+          case 'vendor_code':
           case 'category_name':
             // String comparison (case-insensitive)
             aVal = (aVal || '').toString().toLowerCase();
@@ -744,6 +748,7 @@
           <td class="text-right">$${unitCost.toFixed(2)}</td>
           <td class="text-right"><strong>$${totalValue.toFixed(2)}</strong></td>
           <td>${escapeHtml(item.vendor_name || '-')}</td>
+          <td>${escapeHtml(item.vendor_code || '-')}</td>
           <td>${escapeHtml(item.category_name || '-')}</td>
           <td>${getStockBadge(item)}</td>
         `;
