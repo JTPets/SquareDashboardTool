@@ -3365,6 +3365,173 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/purchase-orders/:po_number/export-xlsx
+ * Export a purchase order as Square-compatible XLSX file
+ *
+ * Square XLSX Import Format (EXACT template structure):
+ *
+ * Row 1: Instructions text
+ * Rows 2-3: Blank
+ * Row 4: Vendor,[vendor name]
+ * Row 5: Ship to,[location name]
+ * Row 6: Expected On,[date]
+ * Row 7: Notes,[notes]
+ * Row 8: Blank
+ * Row 9: Column headers (Item Name, Variation Name, SKU, GTIN, Vendor Code, Notes, Qty, Unit Cost)
+ * Row 10+: Line items
+ *
+ * CRITICAL REQUIREMENTS:
+ * - Sheet name MUST be "Sheet0"
+ * - Only one sheet
+ * - No merged cells
+ * - Headers in row 9 exactly as specified
+ * - Data starts row 10
+ * - Columns A-H only
+ */
+app.get('/api/purchase-orders/:po_number/export-xlsx', async (req, res) => {
+    try {
+        const ExcelJS = require('exceljs');
+        const { po_number } = req.params;
+
+        // Get PO header with vendor and location info
+        const poResult = await db.query(`
+            SELECT
+                po.*,
+                v.name as vendor_name,
+                v.lead_time_days,
+                l.name as location_name
+            FROM purchase_orders po
+            JOIN vendors v ON po.vendor_id = v.id
+            JOIN locations l ON po.location_id = l.id
+            WHERE po.po_number = $1
+        `, [po_number]);
+
+        if (poResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Purchase order not found' });
+        }
+
+        const po = poResult.rows[0];
+
+        // Get PO items
+        const itemsResult = await db.query(`
+            SELECT
+                poi.*,
+                v.sku,
+                v.upc as gtin,
+                i.name as item_name,
+                v.name as variation_name,
+                vv.vendor_code
+            FROM purchase_order_items poi
+            JOIN variations v ON poi.variation_id = v.id
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2
+            WHERE poi.purchase_order_id = $1
+            ORDER BY i.name, v.name
+        `, [po.id, po.vendor_id]);
+
+        // Calculate expected delivery date
+        let expectedDeliveryDate = po.expected_delivery_date;
+        if (!expectedDeliveryDate) {
+            const leadTimeDays = po.lead_time_days || 7;
+            const deliveryDate = new Date();
+            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
+            expectedDeliveryDate = deliveryDate;
+        } else {
+            expectedDeliveryDate = new Date(expectedDeliveryDate);
+        }
+
+        // Create workbook
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Sheet0');
+
+        // Row 1: Instructions
+        worksheet.getCell('A1').value = 'Fill out the purchase order starting with the line items - they require an item name, SKU, or GTIN. Quantity is also required for each item.';
+
+        // Rows 2-3: Blank (skip)
+
+        // Row 4: Vendor
+        worksheet.getCell('A4').value = 'Vendor';
+        worksheet.getCell('B4').value = po.vendor_name;
+
+        // Row 5: Ship to
+        worksheet.getCell('A5').value = 'Ship to';
+        worksheet.getCell('B5').value = po.location_name;
+
+        // Row 6: Expected On (must be Excel date)
+        worksheet.getCell('A6').value = 'Expected On';
+        worksheet.getCell('B6').value = expectedDeliveryDate;
+        worksheet.getCell('B6').numFmt = 'm/d/yyyy'; // Format as date
+
+        // Row 7: Notes
+        worksheet.getCell('A7').value = 'Notes';
+        worksheet.getCell('B7').value = po.notes || '';
+
+        // Row 8: Blank (skip)
+
+        // Row 9: Column Headers (EXACT order required by Square)
+        const headers = ['Item Name', 'Variation Name', 'SKU', 'GTIN', 'Vendor Code', 'Notes', 'Qty', 'Unit Cost'];
+        worksheet.getRow(9).values = headers;
+
+        // Make header row bold
+        worksheet.getRow(9).font = { bold: true };
+
+        // Row 10+: Line items
+        let currentRow = 10;
+        for (const item of itemsResult.rows) {
+            const row = worksheet.getRow(currentRow);
+            row.values = [
+                item.item_name || '',
+                item.variation_name || '',
+                item.sku || '',
+                item.gtin || '',
+                item.vendor_code || '',
+                item.notes || '',
+                Math.round(item.quantity_ordered || 0), // Integer
+                (item.unit_cost_cents || 0) / 100 // Decimal (no $ symbol in Excel)
+            ];
+
+            // Format Unit Cost as currency with 2 decimals
+            row.getCell(8).numFmt = '0.00';
+
+            currentRow++;
+        }
+
+        // Auto-fit columns for readability
+        worksheet.columns = [
+            { key: 'itemName', width: 25 },
+            { key: 'variationName', width: 20 },
+            { key: 'sku', width: 15 },
+            { key: 'gtin', width: 15 },
+            { key: 'vendorCode', width: 15 },
+            { key: 'notes', width: 20 },
+            { key: 'qty', width: 8 },
+            { key: 'unitCost', width: 12 }
+        ];
+
+        // Generate Excel file buffer
+        const buffer = await workbook.xlsx.writeBuffer();
+
+        // Set response headers
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="PO_${po.po_number}_${po.vendor_name.replace(/[^a-zA-Z0-9]/g, '_')}.xlsx"`);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        // Send Excel file
+        res.send(buffer);
+
+        logger.info('Square XLSX export generated', {
+            po_number: po.po_number,
+            vendor: po.vendor_name,
+            items: itemsResult.rows.length
+        });
+
+    } catch (error) {
+        logger.error('XLSX export error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== DATABASE BACKUP & RESTORE ====================
 
 /**
