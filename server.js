@@ -1237,6 +1237,19 @@ app.get('/api/inventory', async (req, res) => {
                 i.category_name,
                 i.images as item_images,
                 l.name as location_name,
+                -- Sales velocity data
+                sv91.daily_avg_quantity,
+                sv91.weekly_avg_quantity as weekly_avg_91d,
+                sv182.weekly_avg_quantity as weekly_avg_182d,
+                sv365.weekly_avg_quantity as weekly_avg_365d,
+                -- Days until stockout calculation
+                CASE
+                    WHEN sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) > 0
+                    THEN ROUND(COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity, 1)
+                    WHEN COALESCE(ic.quantity, 0) <= 0
+                    THEN 0
+                    ELSE 999
+                END as days_until_stockout,
                 -- Get primary vendor info
                 (SELECT ve.name
                  FROM variation_vendors vv
@@ -1261,6 +1274,9 @@ app.get('/api/inventory', async (req, res) => {
             JOIN variations v ON ic.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
             JOIN locations l ON ic.location_id = l.id
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
             WHERE ic.state = 'IN_STOCK'
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
