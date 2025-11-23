@@ -1296,22 +1296,20 @@ app.get('/api/inventory', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs (same as reorder suggestions)
-        const inventory = result.rows.map(row => {
-            const images = row.images || row.item_images;
-            const imageUrls = images && images.length > 0
-                ? images.map(img => img.url).filter(Boolean)
-                : [];
-
+        // Resolve image URLs using the same helper as reorder suggestions
+        const inventoryWithImages = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.images, row.item_images);
             return {
                 ...row,
-                image_urls: imageUrls
+                image_urls: imageUrls,
+                images: undefined,  // Remove raw image IDs from response
+                item_images: undefined  // Remove from response
             };
-        });
+        }));
 
         res.json({
-            count: inventory.length,
-            inventory: inventory
+            count: inventoryWithImages.length,
+            inventory: inventoryWithImages
         });
     } catch (error) {
         logger.error('Get inventory error', { error: error.message, stack: error.stack });
