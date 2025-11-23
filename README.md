@@ -70,7 +70,7 @@ For detailed production readiness assessment, see the comprehensive audit result
 
 ```bash
 git clone <repository-url>
-cd JTPetsClaudeBuildTool
+cd SquareDashboardTool
 ```
 
 ### 2. Install Dependencies
@@ -1034,14 +1034,28 @@ Example log entry:
 ## Project Structure
 
 ```
-JTPetsClaudeBuildTool/
+SquareDashboardTool/
 ├── database/
 │   └── schema.sql          # Complete database schema
 ├── utils/
 │   ├── database.js         # Database connection pool
-│   └── square-api.js       # Square API integration
+│   ├── square-api.js       # Square API integration
+│   ├── logger.js           # Winston logging setup
+│   ├── email-notifier.js   # Email notification system
+│   └── csv-helpers.js      # CSV export helpers
 ├── public/
-│   └── index.html          # Main dashboard (HTML/CSS/JS)
+│   ├── index.html          # Main dashboard
+│   ├── reorder.html        # Reorder suggestions
+│   ├── expiry.html         # Expiration tracking
+│   ├── inventory.html      # Full inventory view
+│   ├── sales-velocity.html # Sales reports
+│   ├── cycle-count.html    # Cycle counting
+│   ├── cycle-count-history.html # Count history viewer
+│   ├── po-generator.html   # Purchase order generator
+│   ├── purchase-orders.html # PO management
+│   ├── deleted-items.html  # Deleted items management
+│   ├── database-backup.html # Database backup/restore
+│   └── logs.html           # Log viewer
 ├── server.js               # Main Express server
 ├── package.json            # Dependencies
 ├── .env.example            # Environment template
