@@ -3445,8 +3445,8 @@ app.get('/api/purchase-orders/:po_number/export-xlsx', async (req, res) => {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('Sheet0');
 
-        // Row 1: Instructions
-        worksheet.getCell('A1').value = 'Fill out the purchase order starting with the line items - they require an item name, SKU, or GTIN. Quantity is also required for each item.';
+        // Row 1: Instructions (exact text from Square template)
+        worksheet.getCell('A1').value = 'Fill out the purchase order starting with the line items - then add in the vendor and destination name below. Each line item requires at least one of the following: item name, SKU, or GTIN. Quantity is also required for each item.';
 
         // Rows 2-3: Blank (skip)
 
