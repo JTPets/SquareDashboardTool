@@ -47,16 +47,17 @@ function formatDateForSquare(isoDateString) {
 }
 
 /**
- * Format money for Square CSV with $ prefix and exactly 2 decimal places
- * Examples: $105.00, $13.29, $315.00
+ * Format money for Square CSV - decimal format WITHOUT $ symbol
+ * Square import expects: 105.00 (not $105.00)
+ * Examples: 105.00, 13.29, 315.00
  * @param {number} cents - Amount in cents
- * @returns {string} Formatted money string with $ prefix
+ * @returns {string} Formatted money string (no $ prefix for import)
  */
 function formatMoney(cents) {
     if (cents === null || cents === undefined) {
-        return '$0.00';
+        return '0.00';
     }
-    return '$' + (cents / 100).toFixed(2);
+    return (cents / 100).toFixed(2);
 }
 
 /**
