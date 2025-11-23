@@ -47,37 +47,36 @@ function formatDateForSquare(isoDateString) {
 }
 
 /**
- * Format money for Square CSV - decimal format WITHOUT $ symbol
- * Square import expects: 105.00 (not $105.00)
- * Examples: 105.00, 13.29, 315.00
+ * Format money for Square CSV - WITH $ symbol
+ * Square export format: $105.00
+ * Examples: $105.00, $13.29, $315.00
  * @param {number} cents - Amount in cents
- * @returns {string} Formatted money string (no $ prefix for import)
+ * @returns {string} Formatted money string with $ prefix
  */
 function formatMoney(cents) {
     if (cents === null || cents === undefined) {
-        return '0.00';
+        return '$0.00';
     }
-    return (cents / 100).toFixed(2);
+    return '$' + (cents / 100).toFixed(2);
 }
 
 /**
- * Format GTIN/UPC as plain text to avoid scientific notation
- * UPCs are typically 12-14 digit numbers that Excel may display in scientific notation
- * Output plain string with NO prefix, NO quotes (unless field contains special chars)
+ * Format GTIN/UPC to prevent Excel scientific notation
+ * UPCs are 12-14 digit numbers that Excel converts to scientific notation (8.51655E+11)
+ * Solution: Prefix with tab character to force Excel to treat as text
  * @param {string|number} value - GTIN/UPC value
- * @returns {string} Plain text GTIN with no scientific notation
+ * @returns {string} Tab-prefixed string to prevent scientific notation
  */
 function formatGTIN(value) {
     if (value === null || value === undefined || value === '') {
         return '';
     }
 
-    // Convert to string, handling potential scientific notation
-    // For numbers, use toFixed(0) to avoid scientific notation, then convert to string
+    // Convert to string, handling potential scientific notation from database
     let str;
     if (typeof value === 'number') {
-        // toFixed returns string with decimals, so we parse as int then convert to string
-        str = Math.floor(value).toString();
+        // For large numbers, convert to string without scientific notation
+        str = value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 0 });
     } else {
         str = String(value).trim();
     }
@@ -87,8 +86,9 @@ function formatGTIN(value) {
         return '';
     }
 
-    // Return plain string - escapeCSVField will handle quoting if needed
-    return str;
+    // Prefix with tab to force Excel text interpretation (prevents 8.51655E+11)
+    // The tab won't be visible but prevents Excel from converting to scientific notation
+    return '\t' + str;
 }
 
 /**

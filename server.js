@@ -3198,31 +3198,35 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
 
 /**
  * GET /api/purchase-orders/:po_number/export-csv
- * Export a purchase order as a Square-importable CSV file
+ * Export a purchase order in Square's CSV format (matches their export/import format)
  *
- * CSV FORMAT (Square PO Import specification):
- * Row 1: Vendor,[Vendor Name]
- * Row 2: Ship to,[Location Name]
- * Row 3: Expected On,[M/D/YYYY date]
- * Row 4: Notes,[Optional notes]
- * Row 5: [BLANK - completely empty]
- * Row 6 (header): Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status
- * Rows 7+: [data rows with 12 columns matching header exactly]
+ * CSV FORMAT (based on actual Square PO exports):
+ * Row 1 (header): Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status
+ * Rows 2-N: [item data rows - 12 columns]
+ * [blank rows]
+ * Metadata section at BOTTOM:
+ *   Vendor,[name]
+ *   Account Number,
+ *   Address,
+ *   Contact,
+ *   Phone Number,
+ *   Email,
+ *   [blank]
+ *   Ship To,[location]
+ *   Expected On,[M/D/YYYY]
+ *   Ordered By,
+ *   Notes,[notes]
  *
  * CRITICAL FORMAT REQUIREMENTS:
- * - Exactly 12 columns in item rows (exact order, no additions/removals/reordering)
- * - Row 5 MUST be completely blank (no commas, no spaces)
- * - Expected On must NEVER be empty (defaults to today + lead time)
- * - SKU and GTIN must be plain text with NO scientific notation
+ * - Exactly 12 columns in item rows (Item Name through Status)
+ * - SKU and GTIN: Tab-prefixed (\t851655000000) to prevent Excel scientific notation
+ * - Currency WITH $ symbol: $105.00, $13.29 (not 105.00)
  * - Qty must be integer (e.g., 3)
- * - Currency fields (Unit Price, Fee, Price w/ Fee, Amount) formatted as: 105.00
- *   - NO $ symbol (Square adds it on import)
- *   - Always exactly 2 decimal places
- *   - No commas, no spaces
- * - Fee can be blank OR formatted as 0.00
- * - Price w/ Fee = Unit Price + Fee (or Unit Price if Fee is blank)
+ * - Fee typically blank (or $0.00)
+ * - Price w/ Fee = Unit Price + Fee
  * - Amount = Qty * Price w/ Fee
- * - Status typically "Open" for new PO items
+ * - Status typically "Open"
+ * - Metadata at BOTTOM, not top
  * - Line endings: \r\n (CRLF)
  * - UTF-8 encoding with BOM
  */
@@ -3270,32 +3274,13 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
         // Build CSV content
         const lines = [];
 
-        // Calculate expected delivery date (use existing or default to today + lead time)
-        let expectedDeliveryDate = po.expected_delivery_date;
-        if (!expectedDeliveryDate) {
-            // Default: today + vendor lead time (or 7 days if no lead time set)
-            const leadTimeDays = po.lead_time_days || 7;
-            const deliveryDate = new Date();
-            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
-            expectedDeliveryDate = deliveryDate.toISOString();
-        }
-
-        // Metadata rows (REQUIRED by Square - NO trailing commas)
-        lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
-        lines.push(`Ship to,${escapeCSVField(po.location_name)}`);
-        lines.push(`Expected On,${formatDateForSquare(expectedDeliveryDate)}`);
-        lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
-
-        // CRITICAL: Row 5 must be completely blank (no commas, no spaces)
-        lines.push('');
-
         // Header row - EXACT Square format (12 columns in exact order)
         lines.push('Item Name,Variation Name,SKU,GTIN,Vendor Code,Notes,Qty,Unit Price,Fee,Price w/ Fee,Amount,Status');
 
         // Data rows (12 fields matching header order)
         for (const item of itemsResult.rows) {
             const qty = Math.round(item.quantity_ordered || 0); // Integer
-            const unitPrice = formatMoney(item.unit_cost_cents); // 105.00 format (NO $)
+            const unitPrice = formatMoney(item.unit_cost_cents); // $105.00 format
             const fee = ''; // Blank (no fee)
             const priceWithFee = unitPrice; // Same as unit price when no fee
 
@@ -3309,20 +3294,48 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
             const row = [
                 escapeCSVField(item.item_name || ''),
                 escapeCSVField(item.variation_name || ''),
-                escapeCSVField(item.sku || ''),
-                escapeCSVField(formatGTIN(item.gtin)), // Plain text, no scientific notation
+                formatGTIN(item.sku), // Tab-prefixed to prevent scientific notation
+                formatGTIN(item.gtin), // Tab-prefixed to prevent scientific notation
                 escapeCSVField(item.vendor_code || ''),
                 escapeCSVField(item.notes || ''), // Notes column (item-specific)
                 qty, // Integer
-                unitPrice, // 105.00 (NO $ symbol)
-                fee, // Blank or 0.00
-                priceWithFee, // 105.00 (same as unit price when no fee)
-                amount, // 315.00 (calculated, NO $ symbol)
+                unitPrice, // $105.00
+                fee, // Blank
+                priceWithFee, // $105.00
+                amount, // $315.00
                 status // Open
             ];
 
             lines.push(row.join(','));
         }
+
+        // Calculate expected delivery date (use existing or default to today + lead time)
+        let expectedDeliveryDate = po.expected_delivery_date;
+        if (!expectedDeliveryDate) {
+            // Default: today + vendor lead time (or 7 days if no lead time set)
+            const leadTimeDays = po.lead_time_days || 7;
+            const deliveryDate = new Date();
+            deliveryDate.setDate(deliveryDate.getDate() + leadTimeDays);
+            expectedDeliveryDate = deliveryDate.toISOString();
+        }
+
+        // Add blank rows before metadata (matches Square's format)
+        lines.push('');
+        lines.push('');
+
+        // Metadata rows at BOTTOM (Square's actual format)
+        lines.push(`Vendor,${escapeCSVField(po.vendor_name)}`);
+        lines.push('Account Number,');
+        lines.push('Address,');
+        lines.push('Contact,');
+        lines.push('Phone Number,');
+        lines.push('Email,');
+        lines.push('');
+        lines.push(`Ship To,${escapeCSVField(po.location_name)}`);
+        lines.push(`Expected On,${formatDateForSquare(expectedDeliveryDate)}`);
+        lines.push('Ordered By,');
+        lines.push(`Notes,${escapeCSVField(po.notes || '')}`);
+
 
         // Join with \r\n (CRLF) line endings for maximum compatibility
         const csvLines = lines.join('\r\n') + '\r\n';
