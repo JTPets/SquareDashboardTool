@@ -476,6 +476,13 @@
         <a href="cycle-count.html">Start Counting</a>
       </div>
 
+      <!-- CYCLE COUNT HISTORY -->
+      <div class="tool-card operations">
+        <h2>📊 Cycle Count History</h2>
+        <p>View historical cycle count data, accuracy tracking, and variance reports.</p>
+        <a href="cycle-count-history.html">View History</a>
+      </div>
+
       <!-- DELETED ITEMS -->
       <div class="tool-card operations">
         <h2>🗑️ Deleted Items Management</h2>
@@ -510,12 +517,13 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (45 Total)</h3>
+      <h3>📚 Raw API Endpoints (48 Total)</h3>
       <div class="api-grid">
 
         <div class="api-category">
           <h4>💚 Health & Status</h4>
           <a href="/api/health" target="_blank">GET /api/health</a>
+          <a href="/api/config" target="_blank">GET /api/config</a>
         </div>
 
         <div class="api-category">
@@ -537,6 +545,7 @@
           <h4>🧪 Testing</h4>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-email</a>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-error</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-backup-email</a>
         </div>
 
         <div class="api-category">
@@ -550,6 +559,7 @@
 
         <div class="api-category">
           <h4>📦 Items & Catalog</h4>
+          <a href="/api/categories" target="_blank">GET /api/categories</a>
           <a href="/api/items" target="_blank">GET /api/items</a>
           <a href="/api/variations" target="_blank">GET /api/variations</a>
           <a href="/api/variations-with-costs" target="_blank">GET /api/variations-with-costs</a>
@@ -564,6 +574,7 @@
         <div class="api-category">
           <h4>📅 Expiration Tracking</h4>
           <a href="/api/expirations" target="_blank">GET /api/expirations</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/expirations</a>
         </div>
 
         <div class="api-category">
@@ -598,9 +609,10 @@
         <div class="api-category">
           <h4>🔄 Cycle Count</h4>
           <a href="/api/cycle-counts/pending" target="_blank">GET /api/cycle-counts/pending</a>
+          <a href="/api/cycle-counts/stats" target="_blank">GET /api/cycle-counts/stats</a>
+          <a href="/api/cycle-counts/history" target="_blank">GET /api/cycle-counts/history</a>
           <a href="#" onclick="alert('Use POST with count ID')" target="_blank">POST /api/cycle-counts/:id/complete</a>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/send-now</a>
-          <a href="/api/cycle-counts/stats" target="_blank">GET /api/cycle-counts/stats</a>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/email-report</a>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/generate-batch</a>
           <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/reset</a>

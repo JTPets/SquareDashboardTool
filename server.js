@@ -1768,7 +1768,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     } else if (reorderMultiple > 1) {
                         targetQty = reorderMultiple;
                     } else {
-                        targetQty = 2; // Default minimum order of 2 units for safety stock
+                        targetQty = 1; // Default minimum order of 1 unit
                     }
                 } else {
                     // Use velocity-based calculation (already rounded up via baseSuggestedQty)
