@@ -1439,6 +1439,149 @@ app.get('/api/deleted-items', async (req, res) => {
     }
 });
 
+// ==================== CATALOG AUDIT ENDPOINT ====================
+
+/**
+ * GET /api/catalog-audit
+ * Get items/variations with data quality issues
+ * Supports filtering by issue type
+ */
+app.get('/api/catalog-audit', async (req, res) => {
+    try {
+        const { issue_type, category_id } = req.query;
+
+        // Base query that includes all audit fields
+        let query = `
+            SELECT
+                v.id as variation_id,
+                v.item_id,
+                i.name as item_name,
+                v.name as variation_name,
+                v.sku,
+                v.upc,
+                v.price_money,
+                v.currency,
+                v.track_inventory,
+                v.discontinued,
+                v.stock_alert_min,
+                v.images as variation_images,
+                i.images as item_images,
+                i.description,
+                i.category_id,
+                i.category_name,
+                i.taxable,
+                i.visibility,
+                i.is_deleted as item_deleted,
+                v.is_deleted as variation_deleted,
+                COALESCE(ic.quantity, 0) as current_stock,
+                (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id) as vendor_count,
+                -- Audit flags
+                CASE WHEN (v.images IS NULL OR v.images = '[]'::jsonb OR v.images = 'null'::jsonb)
+                     AND (i.images IS NULL OR i.images = '[]'::jsonb OR i.images = 'null'::jsonb)
+                     THEN TRUE ELSE FALSE END as has_no_image,
+                CASE WHEN i.description IS NULL OR TRIM(i.description) = '' THEN TRUE ELSE FALSE END as has_no_description,
+                CASE WHEN i.category_id IS NULL THEN TRUE ELSE FALSE END as has_no_category,
+                CASE WHEN v.price_money IS NULL OR v.price_money = 0 THEN TRUE ELSE FALSE END as has_no_price,
+                CASE WHEN v.sku IS NULL OR TRIM(v.sku) = '' THEN TRUE ELSE FALSE END as has_no_sku,
+                CASE WHEN i.taxable = FALSE THEN TRUE ELSE FALSE END as is_not_taxable,
+                CASE WHEN v.track_inventory = FALSE THEN TRUE ELSE FALSE END as has_tracking_disabled,
+                CASE WHEN v.stock_alert_min IS NULL THEN TRUE ELSE FALSE END as has_no_stock_alert
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+              AND COALESCE(i.is_deleted, FALSE) = FALSE
+              AND v.discontinued = FALSE
+        `;
+
+        const params = [];
+
+        // Filter by category if specified
+        if (category_id) {
+            params.push(category_id);
+            query += ` AND i.category_id = $${params.length}`;
+        }
+
+        // Filter by issue type
+        if (issue_type) {
+            switch (issue_type) {
+                case 'no_image':
+                    query += ` AND (v.images IS NULL OR v.images = '[]'::jsonb OR v.images = 'null'::jsonb)
+                               AND (i.images IS NULL OR i.images = '[]'::jsonb OR i.images = 'null'::jsonb)`;
+                    break;
+                case 'no_description':
+                    query += ` AND (i.description IS NULL OR TRIM(i.description) = '')`;
+                    break;
+                case 'no_category':
+                    query += ` AND i.category_id IS NULL`;
+                    break;
+                case 'no_price':
+                    query += ` AND (v.price_money IS NULL OR v.price_money = 0)`;
+                    break;
+                case 'no_sku':
+                    query += ` AND (v.sku IS NULL OR TRIM(v.sku) = '')`;
+                    break;
+                case 'not_taxable':
+                    query += ` AND i.taxable = FALSE`;
+                    break;
+                case 'tracking_disabled':
+                    query += ` AND v.track_inventory = FALSE`;
+                    break;
+                case 'no_vendor':
+                    query += ` AND NOT EXISTS (SELECT 1 FROM variation_vendors vv WHERE vv.variation_id = v.id)`;
+                    break;
+                case 'no_stock_alert':
+                    query += ` AND v.stock_alert_min IS NULL`;
+                    break;
+                case 'no_upc':
+                    query += ` AND (v.upc IS NULL OR TRIM(v.upc) = '')`;
+                    break;
+                default:
+                    // No filter - return all items with any issues
+                    break;
+            }
+        }
+
+        query += ` ORDER BY i.name, v.name`;
+
+        const result = await db.query(query, params);
+
+        // Resolve image URLs and clean up response
+        const items = await Promise.all(result.rows.map(async (row) => {
+            const imageUrls = await resolveImageUrls(row.variation_images, row.item_images);
+            return {
+                ...row,
+                image_urls: imageUrls,
+                variation_images: undefined,
+                item_images: undefined
+            };
+        }));
+
+        // Calculate summary counts
+        const summary = {
+            total: items.length,
+            no_image: items.filter(i => i.has_no_image).length,
+            no_description: items.filter(i => i.has_no_description).length,
+            no_category: items.filter(i => i.has_no_category).length,
+            no_price: items.filter(i => i.has_no_price).length,
+            no_sku: items.filter(i => i.has_no_sku).length,
+            not_taxable: items.filter(i => i.is_not_taxable).length,
+            tracking_disabled: items.filter(i => i.has_tracking_disabled).length,
+            no_vendor: items.filter(i => i.vendor_count === 0).length,
+            no_stock_alert: items.filter(i => i.has_no_stock_alert).length
+        };
+
+        res.json({
+            summary,
+            items,
+            filter_applied: issue_type || 'none'
+        });
+    } catch (error) {
+        logger.error('Catalog audit error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
@@ -3915,6 +4058,7 @@ async function startServer() {
                 '  GET    /api/inventory',
                 '  GET    /api/low-stock',
                 '  GET    /api/deleted-items                         (view deleted items)',
+                '  GET    /api/catalog-audit                          (catalog data quality audit)',
                 '  GET    /api/vendors',
                 '  GET    /api/locations',
                 '  GET    /api/sales-velocity',

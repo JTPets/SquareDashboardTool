@@ -483,6 +483,14 @@
         <a href="cycle-count-history.html">View History</a>
       </div>
 
+      <!-- CATALOG AUDIT -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>🔍 Catalog Audit</h2>
+        <p>Find items missing images, descriptions, categories, prices, SKUs, vendors, or with tracking disabled.</p>
+        <a href="catalog-audit.html">Run Audit</a>
+      </div>
+
       <!-- DELETED ITEMS -->
       <div class="tool-card operations">
         <h2>🗑️ Deleted Items Management</h2>
@@ -517,7 +525,7 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (48 Total)</h3>
+      <h3>📚 Raw API Endpoints (49 Total)</h3>
       <div class="api-grid">
 
         <div class="api-category">
@@ -586,6 +594,12 @@
         <div class="api-category">
           <h4>🗑️ Deleted Items</h4>
           <a href="/api/deleted-items" target="_blank">GET /api/deleted-items</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔍 Catalog Audit</h4>
+          <a href="/api/catalog-audit" target="_blank">GET /api/catalog-audit</a>
+          <a href="/api/catalog-audit?issue_type=no_image" target="_blank">GET /api/catalog-audit?issue_type=no_image</a>
         </div>
 
         <div class="api-category">

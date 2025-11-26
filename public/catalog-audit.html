@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catalog Audit - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls label { font-size: 14px; font-weight: 500; color: #374151; }
+    .controls select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 40px;
+      background: white;
+    }
+    .controls input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls button {
+      background: #059669;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls button:hover { background: #047857; }
+    .controls button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .info-badge {
+      background: #dbeafe;
+      color: #1e40af;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-left: auto;
+    }
+
+    /* Summary Cards */
+    .summary-grid {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .summary-card {
+      background: white;
+      padding: 12px;
+      border-radius: 6px;
+      border: 2px solid #e5e7eb;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+    .summary-card:hover {
+      border-color: #2563eb;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .summary-card.active {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .summary-card.has-issues {
+      border-color: #fbbf24;
+    }
+    .summary-card.has-issues .summary-value {
+      color: #d97706;
+    }
+    .summary-card.critical {
+      border-color: #ef4444;
+    }
+    .summary-card.critical .summary-value {
+      color: #dc2626;
+    }
+    .summary-label {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .summary-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      max-height: 55vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    tr:hover { background: #f9fafb; }
+
+    .product-image {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+    }
+    .no-image {
+      width: 50px;
+      height: 50px;
+      background: #fee2e2;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #dc2626;
+      font-size: 20px;
+      border: 2px dashed #fca5a5;
+    }
+    .product-name {
+      max-width: 250px;
+      white-space: normal;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .variation-name {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 400;
+      margin-top: 2px;
+    }
+    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    /* Issue badges */
+    .issue-badge {
+      display: inline-block;
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin: 1px;
+    }
+    .issue-critical {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .issue-warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .issue-info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .issue-ok {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #2563eb;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      text-align: center;
+      padding: 40px;
+      color: #dc2626;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #059669;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #065f46;
+    }
+
+    @media (max-width: 768px) {
+      .controls { flex-direction: column; align-items: stretch; }
+      .controls select, .controls input, .controls button { width: 100%; }
+      th, td { padding: 8px; font-size: 12px; }
+      .product-name { max-width: 150px; }
+      .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Catalog Audit</h1>
+      <a href="/" class="back-button">Back to Dashboard</a>
+    </div>
+
+    <div class="controls">
+      <label for="issue-filter">Filter by Issue:</label>
+      <select id="issue-filter" onchange="loadData()">
+        <option value="">All Items (Show Issues)</option>
+        <option value="no_image">No Image</option>
+        <option value="no_description">No Description</option>
+        <option value="no_category">No Category</option>
+        <option value="no_price">No Price</option>
+        <option value="no_sku">No SKU</option>
+        <option value="no_upc">No UPC</option>
+        <option value="not_taxable">Not Taxable</option>
+        <option value="tracking_disabled">Tracking Disabled</option>
+        <option value="no_vendor">No Vendor Assigned</option>
+        <option value="no_stock_alert">No Stock Alert</option>
+      </select>
+
+      <label for="category-filter">Category:</label>
+      <select id="category-filter" onchange="loadData()">
+        <option value="">All Categories</option>
+      </select>
+
+      <input type="text" id="search" placeholder="Search by name or SKU..." oninput="filterTable()">
+
+      <button onclick="loadData()">Refresh</button>
+      <div class="info-badge" id="lastUpdated"></div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-grid" id="summary-grid">
+      <div class="summary-card" data-filter="" onclick="setFilter('')">
+        <div class="summary-label">Total Items</div>
+        <div class="summary-value" id="total-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_image" onclick="setFilter('no_image')">
+        <div class="summary-label">No Image</div>
+        <div class="summary-value" id="no-image-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_description" onclick="setFilter('no_description')">
+        <div class="summary-label">No Description</div>
+        <div class="summary-value" id="no-description-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_category" onclick="setFilter('no_category')">
+        <div class="summary-label">No Category</div>
+        <div class="summary-value" id="no-category-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_price" onclick="setFilter('no_price')">
+        <div class="summary-label">No Price</div>
+        <div class="summary-value" id="no-price-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_sku" onclick="setFilter('no_sku')">
+        <div class="summary-label">No SKU</div>
+        <div class="summary-value" id="no-sku-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="not_taxable" onclick="setFilter('not_taxable')">
+        <div class="summary-label">Not Taxable</div>
+        <div class="summary-value" id="not-taxable-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="tracking_disabled" onclick="setFilter('tracking_disabled')">
+        <div class="summary-label">No Tracking</div>
+        <div class="summary-value" id="tracking-disabled-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_vendor" onclick="setFilter('no_vendor')">
+        <div class="summary-label">No Vendor</div>
+        <div class="summary-value" id="no-vendor-count">-</div>
+      </div>
+      <div class="summary-card" data-filter="no_stock_alert" onclick="setFilter('no_stock_alert')">
+        <div class="summary-label">No Alert</div>
+        <div class="summary-value" id="no-stock-alert-count">-</div>
+      </div>
+    </div>
+
+    <div id="content">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Loading catalog audit data...</p>
+      </div>
+      <div class="error" id="error" style="display: none;">
+        <p id="errorMessage">Failed to load data</p>
+      </div>
+      <div class="table-container">
+        <table id="dataTable" style="display: none;">
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th>Product</th>
+              <th>SKU</th>
+              <th>Category</th>
+              <th class="text-right">Price</th>
+              <th class="text-right">Stock</th>
+              <th>Issues</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="empty-state" style="display: none;">
+        <h3>No Issues Found!</h3>
+        <p>All items pass this audit check.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allItems = [];
+    let summaryData = {};
+
+    function showLoading() {
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('error').style.display = 'none';
+      document.getElementById('dataTable').style.display = 'none';
+      document.getElementById('empty-state').style.display = 'none';
+    }
+
+    function showError(message) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').style.display = 'block';
+      document.getElementById('errorMessage').textContent = message;
+      document.getElementById('dataTable').style.display = 'none';
+      document.getElementById('empty-state').style.display = 'none';
+    }
+
+    function showData() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').style.display = 'none';
+      if (allItems.length === 0) {
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'block';
+      } else {
+        document.getElementById('dataTable').style.display = 'table';
+        document.getElementById('empty-state').style.display = 'none';
+      }
+    }
+
+    function setFilter(filterType) {
+      document.getElementById('issue-filter').value = filterType;
+      loadData();
+    }
+
+    function updateSummaryCards() {
+      // Update counts
+      document.getElementById('total-count').textContent = summaryData.total || 0;
+      document.getElementById('no-image-count').textContent = summaryData.no_image || 0;
+      document.getElementById('no-description-count').textContent = summaryData.no_description || 0;
+      document.getElementById('no-category-count').textContent = summaryData.no_category || 0;
+      document.getElementById('no-price-count').textContent = summaryData.no_price || 0;
+      document.getElementById('no-sku-count').textContent = summaryData.no_sku || 0;
+      document.getElementById('not-taxable-count').textContent = summaryData.not_taxable || 0;
+      document.getElementById('tracking-disabled-count').textContent = summaryData.tracking_disabled || 0;
+      document.getElementById('no-vendor-count').textContent = summaryData.no_vendor || 0;
+      document.getElementById('no-stock-alert-count').textContent = summaryData.no_stock_alert || 0;
+
+      // Update card styling based on counts
+      const cards = document.querySelectorAll('.summary-card');
+      const currentFilter = document.getElementById('issue-filter').value;
+
+      cards.forEach(card => {
+        const filter = card.dataset.filter;
+        card.classList.remove('active', 'has-issues', 'critical');
+
+        if (filter === currentFilter) {
+          card.classList.add('active');
+        }
+
+        // Highlight cards with issues
+        if (filter && filter !== '') {
+          const count = getCountForFilter(filter);
+          if (count > 50) {
+            card.classList.add('critical');
+          } else if (count > 0) {
+            card.classList.add('has-issues');
+          }
+        }
+      });
+    }
+
+    function getCountForFilter(filter) {
+      switch(filter) {
+        case 'no_image': return summaryData.no_image || 0;
+        case 'no_description': return summaryData.no_description || 0;
+        case 'no_category': return summaryData.no_category || 0;
+        case 'no_price': return summaryData.no_price || 0;
+        case 'no_sku': return summaryData.no_sku || 0;
+        case 'not_taxable': return summaryData.not_taxable || 0;
+        case 'tracking_disabled': return summaryData.tracking_disabled || 0;
+        case 'no_vendor': return summaryData.no_vendor || 0;
+        case 'no_stock_alert': return summaryData.no_stock_alert || 0;
+        default: return summaryData.total || 0;
+      }
+    }
+
+    async function loadCategories() {
+      try {
+        const response = await fetch('/api/categories');
+        const data = await response.json();
+        const categories = data.categories || [];
+
+        const select = document.getElementById('category-filter');
+        select.innerHTML = '<option value="">All Categories</option>';
+
+        categories.sort((a, b) => a.name.localeCompare(b.name));
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat.id;
+          option.textContent = cat.name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load categories:', error);
+      }
+    }
+
+    async function loadData() {
+      const issueType = document.getElementById('issue-filter').value;
+      const categoryId = document.getElementById('category-filter').value;
+
+      showLoading();
+
+      try {
+        let url = '/api/catalog-audit?';
+        if (issueType) url += `issue_type=${issueType}&`;
+        if (categoryId) url += `category_id=${categoryId}&`;
+
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+        const result = await response.json();
+        allItems = result.items || [];
+        summaryData = result.summary || {};
+
+        updateSummaryCards();
+        renderTable(allItems);
+        showData();
+
+        document.getElementById('lastUpdated').textContent =
+          `${allItems.length} items • Last updated: ${new Date().toLocaleTimeString()}`;
+
+      } catch (error) {
+        console.error('Error loading data:', error);
+        showError(`Error: ${error.message}`);
+      }
+    }
+
+    function getIssuesForItem(item) {
+      const issues = [];
+
+      if (item.has_no_image) issues.push({ label: 'No Image', class: 'issue-critical' });
+      if (item.has_no_description) issues.push({ label: 'No Desc', class: 'issue-warning' });
+      if (item.has_no_category) issues.push({ label: 'No Category', class: 'issue-warning' });
+      if (item.has_no_price) issues.push({ label: 'No Price', class: 'issue-critical' });
+      if (item.has_no_sku) issues.push({ label: 'No SKU', class: 'issue-warning' });
+      if (item.is_not_taxable) issues.push({ label: 'Not Taxable', class: 'issue-info' });
+      if (item.has_tracking_disabled) issues.push({ label: 'No Tracking', class: 'issue-warning' });
+      if (item.vendor_count === 0) issues.push({ label: 'No Vendor', class: 'issue-warning' });
+      if (item.has_no_stock_alert) issues.push({ label: 'No Alert', class: 'issue-info' });
+
+      return issues;
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+
+      data.forEach(item => {
+        const row = document.createElement('tr');
+        const issues = getIssuesForItem(item);
+
+        // Image handling
+        const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+        const imageHtml = imageUrl
+          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+             <div class="no-image" style="display:none;">!</div>`
+          : `<div class="no-image">!</div>`;
+
+        // Issue badges
+        const issuesHtml = issues.length > 0
+          ? issues.map(i => `<span class="issue-badge ${i.class}">${i.label}</span>`).join('')
+          : '<span class="issue-badge issue-ok">OK</span>';
+
+        // Price formatting
+        const price = item.price_money ? `$${(item.price_money / 100).toFixed(2)}` : '-';
+
+        row.innerHTML = `
+          <td>${imageHtml}</td>
+          <td>
+            <div class="product-name">${escapeHtml(item.item_name || 'Unknown')}</div>
+            ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
+          </td>
+          <td><span class="sku">${escapeHtml(item.sku || '-')}</span></td>
+          <td>${escapeHtml(item.category_name || '-')}</td>
+          <td class="text-right">${price}</td>
+          <td class="text-right">${item.current_stock || 0}</td>
+          <td>${issuesHtml}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function filterTable() {
+      const searchTerm = document.getElementById('search').value.toLowerCase();
+
+      const filteredItems = allItems.filter(item => {
+        const name = (item.item_name || '').toLowerCase();
+        const variation = (item.variation_name || '').toLowerCase();
+        const sku = (item.sku || '').toLowerCase();
+
+        return name.includes(searchTerm) ||
+               variation.includes(searchTerm) ||
+               sku.includes(searchTerm);
+      });
+
+      renderTable(filteredItems);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadCategories();
+      await loadData();
+    });
+  </script>
+</body>
+</html>
