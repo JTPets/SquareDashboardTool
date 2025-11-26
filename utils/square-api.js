@@ -493,6 +493,18 @@ async function syncItem(obj, category_name) {
     const seoTitle = data.ecom_seo_data?.page_title || null;
     const seoDescription = data.ecom_seo_data?.page_description || null;
 
+    // Log e-commerce fields for debugging (only for first few items)
+    if (Math.random() < 0.01) { // Log ~1% of items to avoid spam
+        logger.debug('Item e-commerce fields sample', {
+            item_id: obj.id,
+            name: data.name,
+            ecom_visibility: data.ecom_visibility,
+            available_electronically: data.available_electronically,
+            available_for_pickup: data.available_for_pickup,
+            is_archived: data.is_archived
+        });
+    }
+
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
@@ -537,7 +549,7 @@ async function syncItem(obj, category_name) {
         data.modifier_list_info ? JSON.stringify(data.modifier_list_info) : null,
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
-        data.available_online || false,
+        data.available_electronically || false,  // Square uses available_electronically, not available_online
         data.available_for_pickup || false,
         seoTitle,
         seoDescription
@@ -551,6 +563,19 @@ async function syncItem(obj, category_name) {
 async function syncVariation(obj) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
+
+    // Log inventory alert fields for debugging (only for first few items)
+    if (Math.random() < 0.01) { // Log ~1% of items to avoid spam
+        logger.debug('Variation inventory fields sample', {
+            variation_id: obj.id,
+            sku: data.sku,
+            track_inventory: data.track_inventory,
+            inventory_alert_type: data.inventory_alert_type,
+            inventory_alert_threshold: data.inventory_alert_threshold,
+            stockable: data.stockable,
+            location_overrides_count: data.location_overrides?.length || 0
+        });
+    }
 
     // Insert/update variation
     await db.query(`
@@ -588,7 +613,7 @@ async function syncVariation(obj) {
         data.price_money?.amount || null,
         data.price_money?.currency || 'CAD',
         data.pricing_type || 'FIXED_PRICING',
-        data.track_inventory !== false,
+        data.track_inventory === true,  // Only true if explicitly enabled in Square
         data.inventory_alert_type || null,
         data.inventory_alert_threshold || null,
         obj.present_at_all_locations !== false,
