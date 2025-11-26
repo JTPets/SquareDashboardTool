@@ -448,14 +448,18 @@ async function syncItem(obj, category_name) {
         visibility = data.ecom_visibility; // Store as-is if unknown value
     }
 
+    // Extract SEO data from ecom_seo_data object
+    const seoTitle = data.ecom_seo_data?.page_title || null;
+    const seoDescription = data.ecom_seo_data?.page_description || null;
+
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
-            taxable, visibility, present_at_all_locations, present_at_location_ids,
+            taxable, tax_ids, visibility, present_at_all_locations, present_at_location_ids,
             absent_at_location_ids, modifier_list_info, item_options, images,
-            available_online, available_for_pickup, updated_at
+            available_online, available_for_pickup, seo_title, seo_description, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             description = EXCLUDED.description,
@@ -463,6 +467,7 @@ async function syncItem(obj, category_name) {
             category_name = EXCLUDED.category_name,
             product_type = EXCLUDED.product_type,
             taxable = EXCLUDED.taxable,
+            tax_ids = EXCLUDED.tax_ids,
             visibility = EXCLUDED.visibility,
             present_at_all_locations = EXCLUDED.present_at_all_locations,
             present_at_location_ids = EXCLUDED.present_at_location_ids,
@@ -472,6 +477,8 @@ async function syncItem(obj, category_name) {
             images = EXCLUDED.images,
             available_online = EXCLUDED.available_online,
             available_for_pickup = EXCLUDED.available_for_pickup,
+            seo_title = EXCLUDED.seo_title,
+            seo_description = EXCLUDED.seo_description,
             updated_at = CURRENT_TIMESTAMP
     `, [
         obj.id,
@@ -481,6 +488,7 @@ async function syncItem(obj, category_name) {
         category_name || null,
         data.product_type || null,
         data.is_taxable || false,
+        data.tax_ids ? JSON.stringify(data.tax_ids) : null,
         visibility,
         obj.present_at_all_locations !== false,
         obj.present_at_location_ids ? JSON.stringify(obj.present_at_location_ids) : null,
@@ -489,7 +497,9 @@ async function syncItem(obj, category_name) {
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
         data.available_online || false,
-        data.available_for_pickup || false
+        data.available_for_pickup || false,
+        seoTitle,
+        seoDescription
     ]);
 }
 
