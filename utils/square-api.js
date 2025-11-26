@@ -493,14 +493,20 @@ async function syncItem(obj, category_name) {
     const seoTitle = data.ecom_seo_data?.page_title || null;
     const seoDescription = data.ecom_seo_data?.page_description || null;
 
-    // Log e-commerce fields for debugging (only for first few items)
-    if (Math.random() < 0.01) { // Log ~1% of items to avoid spam
-        logger.debug('Item e-commerce fields sample', {
+    // Log e-commerce fields for debugging (increased to 5% to ensure samples)
+    if (Math.random() < 0.05) {
+        // Log ALL item_data keys to see what Square actually returns
+        logger.info('Item raw fields from Square', {
             item_id: obj.id,
             name: data.name,
+            all_item_data_keys: Object.keys(data),
             ecom_visibility: data.ecom_visibility,
             available_electronically: data.available_electronically,
             available_for_pickup: data.available_for_pickup,
+            is_available_electronically: data.is_available_electronically,
+            is_available_for_pickup: data.is_available_for_pickup,
+            ecom_available: data.ecom_available,
+            online_visibility: data.online_visibility,
             is_archived: data.is_archived
         });
     }
@@ -564,16 +570,19 @@ async function syncVariation(obj) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
 
-    // Log inventory alert fields for debugging (only for first few items)
-    if (Math.random() < 0.01) { // Log ~1% of items to avoid spam
-        logger.debug('Variation inventory fields sample', {
+    // Log inventory alert fields for debugging (increased to 5% to ensure samples)
+    if (Math.random() < 0.05) {
+        // Log ALL variation_data keys to see what Square actually returns
+        logger.info('Variation raw fields from Square', {
             variation_id: obj.id,
             sku: data.sku,
+            all_variation_data_keys: Object.keys(data),
             track_inventory: data.track_inventory,
             inventory_alert_type: data.inventory_alert_type,
             inventory_alert_threshold: data.inventory_alert_threshold,
             stockable: data.stockable,
-            location_overrides_count: data.location_overrides?.length || 0
+            stockable_conversion: data.stockable_conversion,
+            location_overrides: data.location_overrides ? data.location_overrides.slice(0, 2) : null
         });
     }
 
