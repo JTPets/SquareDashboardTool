@@ -220,12 +220,22 @@ async function syncCatalog() {
         let cursor = null;
 
         // Fetch ALL catalog objects in one pass - building maps first
+        // Use include_related_objects=true to get category associations
         logger.info('Starting catalog fetch');
         do {
-            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false${cursor ? `&cursor=${cursor}` : ''}`;
+            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false&include_related_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint);
 
             const objects = data.objects || [];
+            const relatedObjects = data.related_objects || [];
+
+            // Process related objects first (includes categories linked to items)
+            for (const obj of relatedObjects) {
+                if (obj.type === 'CATEGORY') {
+                    const categoryName = obj.category_data?.name || obj.name || 'Uncategorized';
+                    categoriesMap.set(obj.id, { name: categoryName });
+                }
+            }
 
             // Build maps (don't insert to DB yet - just collect)
             for (const obj of objects) {
@@ -252,11 +262,17 @@ async function syncCatalog() {
 
         } while (cursor);
 
+        // Log category details for debugging
+        const categoryList = Array.from(categoriesMap.entries()).map(([id, cat]) => ({
+            id: id.substring(0, 20) + '...',
+            name: cat.name
+        }));
         logger.info('All catalog objects fetched', {
             items: itemsMap.size,
             variations: variationsMap.size,
             images: imagesMap.size,
-            categories: categoriesMap.size
+            categories: categoriesMap.size,
+            categoryNames: categoryList.slice(0, 10) // Log first 10 categories for debugging
         });
 
         // Now process the maps - insert to database
@@ -285,10 +301,35 @@ async function syncCatalog() {
         // 3. Insert items with category names looked up from map
         for (const [id, itemObj] of itemsMap) {
             try {
-                // Look up category name from the map
                 const itemData = itemObj.item_data;
-                const category_name = itemData.category_id ? categoriesMap.get(itemData.category_id)?.name : null;
-                await syncItem(itemObj, category_name);
+
+                // Handle category assignment - check both deprecated category_id and newer categories array
+                let categoryId = null;
+                let categoryName = null;
+
+                // First check the newer 'categories' array (preferred)
+                if (itemData.categories && itemData.categories.length > 0) {
+                    // Use the first category (primary category)
+                    categoryId = itemData.categories[0].id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+
+                // Fallback to deprecated 'category_id' field if no categories array
+                if (!categoryId && itemData.category_id) {
+                    categoryId = itemData.category_id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+
+                // Also check 'reporting_category' as another fallback
+                if (!categoryId && itemData.reporting_category?.id) {
+                    categoryId = itemData.reporting_category.id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+
+                // Update the itemObj with resolved category info for syncItem
+                itemObj.item_data.category_id = categoryId;
+
+                await syncItem(itemObj, categoryName);
                 stats.items++;
                 syncedItemIds.add(id);
             } catch (error) {
