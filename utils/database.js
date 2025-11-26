@@ -193,12 +193,67 @@ async function close() {
     logger.info('Database pool closed');
 }
 
+/**
+ * Ensure database schema is up to date
+ * Runs on server startup to apply any missing columns/tables
+ */
+async function ensureSchema() {
+    logger.info('Checking database schema...');
+
+    const migrations = [
+        // Soft delete tracking (added in earlier migration)
+        { table: 'items', column: 'is_deleted', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
+        { table: 'items', column: 'deleted_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
+        { table: 'variations', column: 'is_deleted', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
+        { table: 'variations', column: 'deleted_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
+
+        // SEO and tax fields from Square API
+        { table: 'items', column: 'tax_ids', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS tax_ids JSONB' },
+        { table: 'items', column: 'seo_title', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_title TEXT' },
+        { table: 'items', column: 'seo_description', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_description TEXT' },
+    ];
+
+    let appliedCount = 0;
+
+    for (const migration of migrations) {
+        try {
+            // Check if column exists
+            const checkResult = await query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = $1 AND column_name = $2
+            `, [migration.table, migration.column]);
+
+            if (checkResult.rows.length === 0) {
+                // Column doesn't exist, apply migration
+                await query(migration.sql);
+                logger.info(`Schema migration applied: ${migration.table}.${migration.column}`);
+                appliedCount++;
+            }
+        } catch (error) {
+            logger.error(`Schema migration failed: ${migration.table}.${migration.column}`, {
+                error: error.message
+            });
+            // Continue with other migrations, don't fail completely
+        }
+    }
+
+    if (appliedCount > 0) {
+        logger.info(`Schema check complete: ${appliedCount} migrations applied`);
+    } else {
+        logger.info('Schema check complete: database is up to date');
+    }
+
+    return appliedCount;
+}
+
 module.exports = {
     query,
     getClient,
     transaction,
     batchUpsert,
     testConnection,
+    ensureSchema,
     close,
     pool
 };

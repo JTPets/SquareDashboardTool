@@ -4082,6 +4082,9 @@ async function startServer() {
 
         logger.info('Database connection successful');
 
+        // Ensure database schema is up to date
+        await db.ensureSchema();
+
         // Start server
         app.listen(PORT, () => {
             const banner = [
