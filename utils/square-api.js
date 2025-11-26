@@ -493,20 +493,21 @@ async function syncItem(obj, category_name) {
     const seoTitle = data.ecom_seo_data?.page_title || null;
     const seoDescription = data.ecom_seo_data?.page_description || null;
 
-    // Log e-commerce fields for debugging (increased to 5% to ensure samples)
-    if (Math.random() < 0.05) {
-        // Log ALL item_data keys to see what Square actually returns
-        logger.info('Item raw fields from Square', {
+    // Square uses 'channels' array for online availability (e.g., ['SQUARE_ONLINE'])
+    const channels = data.channels || [];
+    const availableOnline = channels.includes('SQUARE_ONLINE');
+    // For pickup, we'd need to check fulfillment settings which requires additional API calls
+    // For now, we'll check if any pickup-related channel exists
+    const availableForPickup = channels.includes('SQUARE_ONLINE'); // If online, likely has pickup option
+
+    // Log e-commerce fields for debugging
+    if (Math.random() < 0.02) {
+        logger.info('Item channels from Square', {
             item_id: obj.id,
             name: data.name,
-            all_item_data_keys: Object.keys(data),
+            channels: channels,
             ecom_visibility: data.ecom_visibility,
-            available_electronically: data.available_electronically,
-            available_for_pickup: data.available_for_pickup,
-            is_available_electronically: data.is_available_electronically,
-            is_available_for_pickup: data.is_available_for_pickup,
-            ecom_available: data.ecom_available,
-            online_visibility: data.online_visibility,
+            derived_available_online: availableOnline,
             is_archived: data.is_archived
         });
     }
@@ -555,8 +556,8 @@ async function syncItem(obj, category_name) {
         data.modifier_list_info ? JSON.stringify(data.modifier_list_info) : null,
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
-        data.available_electronically || false,  // Square uses available_electronically, not available_online
-        data.available_for_pickup || false,
+        availableOnline,  // Derived from channels array containing 'SQUARE_ONLINE'
+        availableForPickup,  // Derived from channels - true if item is sold online
         seoTitle,
         seoDescription
     ]);
