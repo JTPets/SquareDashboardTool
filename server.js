@@ -1578,8 +1578,8 @@ app.get('/api/catalog-audit', async (req, res) => {
             filteredData = result.rows.filter(r => r[issue_type] === true);
         }
 
-        // Calculate issue count per item
-        const itemsWithIssueCounts = filteredData.map(row => {
+        // Calculate issue count per item and resolve image URLs
+        const itemsWithIssueCounts = await Promise.all(filteredData.map(async (row) => {
             let issueCount = 0;
             const issues = [];
 
@@ -1604,32 +1604,27 @@ app.get('/api/catalog-audit', async (req, res) => {
             // Tax configuration
             if (row.no_tax_ids) { issues.push('No Tax IDs'); }
 
-            return {
-                ...row,
-                issue_count: issueCount,
-                issues: issues,
-                // Clean up internal fields
-                variation_images: undefined,
-                item_images: undefined
-            };
-        });
-
-        // Resolve image URLs for the response
-        const itemsWithImages = await Promise.all(itemsWithIssueCounts.map(async (row) => {
+            // Resolve image URLs BEFORE cleaning up the fields
             const imageUrls = await resolveImageUrls(
                 row.variation_images ? JSON.parse(row.variation_images || '[]') : null,
                 row.item_images ? JSON.parse(row.item_images || '[]') : null
             );
+
             return {
                 ...row,
-                image_urls: imageUrls
+                issue_count: issueCount,
+                issues: issues,
+                image_urls: imageUrls,
+                // Clean up internal fields AFTER using them
+                variation_images: undefined,
+                item_images: undefined
             };
         }));
 
         res.json({
             stats: stats,
-            count: itemsWithImages.length,
-            items: itemsWithImages
+            count: itemsWithIssueCounts.length,
+            items: itemsWithIssueCounts
         });
 
     } catch (error) {
