@@ -1120,5 +1120,5 @@ For issues or questions, contact: support@jtpets.com
 ---
 
 **Version**: 1.0.0
-**Last Updated**: 2024
+**Last Updated**: 2025
 **Platform**: Windows (Development) / Raspberry Pi (Production)

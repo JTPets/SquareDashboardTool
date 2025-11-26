@@ -1518,9 +1518,9 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                -- No reorder threshold: neither Square's inventory_alert_threshold nor JTPets' stock_alert_min is set
+                -- No reorder threshold: Square's inventory alert must be LOW_QUANTITY with threshold, or JTPets' stock_alert_min is set
                 (
-                    (inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
+                    (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
