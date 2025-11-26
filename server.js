@@ -1505,7 +1505,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             )
             SELECT
                 *,
-                -- Calculate audit flags
+                -- Calculate audit flags (focused on actual data quality issues)
                 (category_id IS NULL OR category_name IS NULL OR category_name = '') as missing_category,
                 (taxable = FALSE OR taxable IS NULL) as not_taxable,
                 (price_money IS NULL OR price_money = 0) as missing_price,
@@ -1515,11 +1515,15 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_STOCK') as low_stock_alert_off,
-                (stock_alert_min IS NULL OR stock_alert_min = 0) as missing_stock_min,
+                -- No reorder threshold: neither Square's inventory_alert_threshold nor JTPets' stock_alert_min is set
+                (
+                    (inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
+                    AND (stock_alert_min IS NULL OR stock_alert_min = 0)
+                ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
                 (unit_cost_cents IS NULL OR unit_cost_cents = 0) as missing_cost,
-                (visibility IS NULL OR visibility != 'PUBLIC') as visibility_issue,
+                -- E-commerce settings (requires catalog re-sync for correct data)
+                (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
                 (available_online = FALSE OR available_online IS NULL) as not_available_online,
                 (available_for_pickup = FALSE OR available_for_pickup IS NULL) as not_available_pickup
             FROM variation_data
@@ -1541,21 +1545,20 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_sku: result.rows.filter(r => r.missing_sku).length,
             missing_upc: result.rows.filter(r => r.missing_upc).length,
             stock_tracking_off: result.rows.filter(r => r.stock_tracking_off).length,
-            low_stock_alert_off: result.rows.filter(r => r.low_stock_alert_off).length,
-            missing_stock_min: result.rows.filter(r => r.missing_stock_min).length,
+            no_reorder_threshold: result.rows.filter(r => r.no_reorder_threshold).length,
             missing_vendor: result.rows.filter(r => r.missing_vendor).length,
             missing_cost: result.rows.filter(r => r.missing_cost).length,
-            visibility_issue: result.rows.filter(r => r.visibility_issue).length,
+            not_visible_online: result.rows.filter(r => r.not_visible_online).length,
             not_available_online: result.rows.filter(r => r.not_available_online).length,
             not_available_pickup: result.rows.filter(r => r.not_available_pickup).length
         };
 
-        // Count items with at least one issue
+        // Count items with at least one issue (excluding e-commerce settings from "issues" count)
         stats.items_with_issues = result.rows.filter(r =>
             r.missing_category || r.not_taxable || r.missing_price ||
             r.missing_description || r.missing_item_image || r.missing_sku ||
-            r.missing_upc || r.stock_tracking_off || r.low_stock_alert_off ||
-            r.missing_stock_min || r.missing_vendor || r.missing_cost
+            r.missing_upc || r.stock_tracking_off || r.no_reorder_threshold ||
+            r.missing_vendor || r.missing_cost
         ).length;
 
         // Filter by specific issue type if requested
@@ -1577,13 +1580,13 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
             if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
             if (row.stock_tracking_off) { issueCount++; issues.push('Stock Tracking Off'); }
-            if (row.low_stock_alert_off) { issueCount++; issues.push('Low Stock Alert Off'); }
-            if (row.missing_stock_min) { issueCount++; issues.push('No Min Stock'); }
+            if (row.no_reorder_threshold) { issueCount++; issues.push('No Reorder Threshold'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
-            if (row.visibility_issue) { issueCount++; issues.push('Not Public'); }
-            if (row.not_available_online) { issueCount++; issues.push('Not Online'); }
-            if (row.not_available_pickup) { issueCount++; issues.push('Not Pickup'); }
+            // E-commerce settings (informational, tracked separately)
+            if (row.not_visible_online) { issues.push('Not Visible Online'); }
+            if (row.not_available_online) { issues.push('Not Available Online'); }
+            if (row.not_available_pickup) { issues.push('Not Available Pickup'); }
 
             return {
                 ...row,

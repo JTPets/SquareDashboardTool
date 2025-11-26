@@ -231,7 +231,8 @@ async function syncCatalog() {
             for (const obj of objects) {
                 switch (obj.type) {
                     case 'ITEM':
-                        itemsMap.set(obj.id, obj.item_data);
+                        // Store full object to preserve top-level fields like present_at_all_locations
+                        itemsMap.set(obj.id, obj);
                         break;
                     case 'ITEM_VARIATION':
                         variationsMap.set(obj.id, obj.item_variation_data);
@@ -282,11 +283,12 @@ async function syncCatalog() {
         }
 
         // 3. Insert items with category names looked up from map
-        for (const [id, itemData] of itemsMap) {
+        for (const [id, itemObj] of itemsMap) {
             try {
                 // Look up category name from the map
+                const itemData = itemObj.item_data;
                 const category_name = itemData.category_id ? categoriesMap.get(itemData.category_id)?.name : null;
-                await syncItem({ id, item_data: itemData }, category_name);
+                await syncItem(itemObj, category_name);
                 stats.items++;
                 syncedItemIds.add(id);
             } catch (error) {
@@ -435,6 +437,17 @@ async function syncImage(obj) {
 async function syncItem(obj, category_name) {
     const data = obj.item_data;
 
+    // Square uses ecom_visibility in item_data for e-commerce visibility
+    // Values: UNINDEXED, VISIBLE, HIDDEN (map to our PRIVATE, PUBLIC, HIDDEN)
+    let visibility = 'PRIVATE';
+    if (data.ecom_visibility === 'VISIBLE') {
+        visibility = 'PUBLIC';
+    } else if (data.ecom_visibility === 'HIDDEN') {
+        visibility = 'HIDDEN';
+    } else if (data.ecom_visibility) {
+        visibility = data.ecom_visibility; // Store as-is if unknown value
+    }
+
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
@@ -468,7 +481,7 @@ async function syncItem(obj, category_name) {
         category_name || null,
         data.product_type || null,
         data.is_taxable || false,
-        obj.visibility || 'PRIVATE',
+        visibility,
         obj.present_at_all_locations !== false,
         obj.present_at_location_ids ? JSON.stringify(obj.present_at_location_ids) : null,
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,

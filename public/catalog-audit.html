@@ -345,21 +345,24 @@
       <input type="text" id="searchBox" placeholder="Search by product name or SKU..." oninput="filterData()">
       <select id="issueFilter" onchange="filterByIssue()">
         <option value="">All Issues</option>
-        <option value="missing_category">Missing Category</option>
-        <option value="not_taxable">Not Taxable</option>
-        <option value="missing_price">Missing Price</option>
-        <option value="missing_description">Missing Description</option>
-        <option value="missing_item_image">Missing Image</option>
-        <option value="missing_sku">Missing SKU</option>
-        <option value="missing_upc">Missing UPC/Barcode</option>
-        <option value="stock_tracking_off">Stock Tracking Off</option>
-        <option value="low_stock_alert_off">Low Stock Alert Off</option>
-        <option value="missing_stock_min">Missing Min Stock</option>
-        <option value="missing_vendor">Missing Vendor</option>
-        <option value="missing_cost">Missing Cost</option>
-        <option value="visibility_issue">Not Public</option>
-        <option value="not_available_online">Not Available Online</option>
-        <option value="not_available_pickup">Not Available Pickup</option>
+        <optgroup label="Data Quality">
+          <option value="missing_category">Missing Category</option>
+          <option value="not_taxable">Not Taxable</option>
+          <option value="missing_price">Missing Price</option>
+          <option value="missing_description">Missing Description</option>
+          <option value="missing_item_image">Missing Image</option>
+          <option value="missing_sku">Missing SKU</option>
+          <option value="missing_upc">Missing UPC/Barcode</option>
+          <option value="stock_tracking_off">Stock Tracking Off</option>
+          <option value="no_reorder_threshold">No Reorder Threshold</option>
+          <option value="missing_vendor">Missing Vendor</option>
+          <option value="missing_cost">Missing Cost</option>
+        </optgroup>
+        <optgroup label="E-Commerce Settings">
+          <option value="not_visible_online">Not Visible Online</option>
+          <option value="not_available_online">Not Available Online</option>
+          <option value="not_available_pickup">Not Available Pickup</option>
+        </optgroup>
       </select>
       <select id="categoryFilter" onchange="filterData()">
         <option value="">All Categories</option>
@@ -450,6 +453,7 @@
     let activeAuditCard = null;
 
     const AUDIT_TYPES = [
+      // Data Quality Issues
       { key: 'missing_category', label: 'No Category', severity: 'critical' },
       { key: 'not_taxable', label: 'Not Taxable', severity: 'warning' },
       { key: 'missing_price', label: 'No Price', severity: 'critical' },
@@ -458,11 +462,11 @@
       { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
       { key: 'missing_upc', label: 'No UPC', severity: 'info' },
       { key: 'stock_tracking_off', label: 'Stock Tracking Off', severity: 'critical' },
-      { key: 'low_stock_alert_off', label: 'Low Stock Alert Off', severity: 'warning' },
-      { key: 'missing_stock_min', label: 'No Min Stock', severity: 'warning' },
+      { key: 'no_reorder_threshold', label: 'No Reorder Threshold', severity: 'warning' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
-      { key: 'visibility_issue', label: 'Not Public', severity: 'info' },
+      // E-Commerce Settings
+      { key: 'not_visible_online', label: 'Not Visible Online', severity: 'info' },
       { key: 'not_available_online', label: 'Not Online', severity: 'info' },
       { key: 'not_available_pickup', label: 'Not Pickup', severity: 'info' }
     ];
@@ -713,10 +717,12 @@
 
     function getIssueBadgeClass(issue) {
       const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off'];
-      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'Low Stock Alert Off', 'No Min Stock', 'No Vendor', 'No Cost'];
+      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Reorder Threshold', 'No Vendor', 'No Cost'];
+      const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'Not Available Pickup'];
 
       if (criticalIssues.includes(issue)) return 'critical';
       if (warningIssues.includes(issue)) return 'warning';
+      if (infoIssues.includes(issue)) return 'info';
       return 'info';
     }
 
@@ -785,11 +791,10 @@
         'Missing SKU',
         'Missing UPC',
         'Stock Tracking Off',
-        'Low Stock Alert Off',
-        'Missing Min Stock',
+        'No Reorder Threshold',
         'Missing Vendor',
         'Missing Cost',
-        'Visibility Issue',
+        'Not Visible Online',
         'Not Available Online',
         'Not Available Pickup'
       ];
@@ -812,11 +817,10 @@
         item.missing_sku ? 'Yes' : 'No',
         item.missing_upc ? 'Yes' : 'No',
         item.stock_tracking_off ? 'Yes' : 'No',
-        item.low_stock_alert_off ? 'Yes' : 'No',
-        item.missing_stock_min ? 'Yes' : 'No',
+        item.no_reorder_threshold ? 'Yes' : 'No',
         item.missing_vendor ? 'Yes' : 'No',
         item.missing_cost ? 'Yes' : 'No',
-        item.visibility_issue ? 'Yes' : 'No',
+        item.not_visible_online ? 'Yes' : 'No',
         item.not_available_online ? 'Yes' : 'No',
         item.not_available_pickup ? 'Yes' : 'No'
       ]);
