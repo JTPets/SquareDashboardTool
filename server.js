@@ -1521,7 +1521,11 @@ app.get('/api/catalog-audit', async (req, res) => {
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
-                (unit_cost_cents IS NULL OR unit_cost_cents = 0) as missing_cost
+                (unit_cost_cents IS NULL OR unit_cost_cents = 0) as missing_cost,
+                -- E-commerce settings (requires catalog re-sync for correct data)
+                (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
+                (available_online = FALSE OR available_online IS NULL) as not_available_online,
+                (available_for_pickup = FALSE OR available_for_pickup IS NULL) as not_available_pickup
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
@@ -1543,10 +1547,13 @@ app.get('/api/catalog-audit', async (req, res) => {
             stock_tracking_off: result.rows.filter(r => r.stock_tracking_off).length,
             no_reorder_threshold: result.rows.filter(r => r.no_reorder_threshold).length,
             missing_vendor: result.rows.filter(r => r.missing_vendor).length,
-            missing_cost: result.rows.filter(r => r.missing_cost).length
+            missing_cost: result.rows.filter(r => r.missing_cost).length,
+            not_visible_online: result.rows.filter(r => r.not_visible_online).length,
+            not_available_online: result.rows.filter(r => r.not_available_online).length,
+            not_available_pickup: result.rows.filter(r => r.not_available_pickup).length
         };
 
-        // Count items with at least one issue
+        // Count items with at least one issue (excluding e-commerce settings from "issues" count)
         stats.items_with_issues = result.rows.filter(r =>
             r.missing_category || r.not_taxable || r.missing_price ||
             r.missing_description || r.missing_item_image || r.missing_sku ||
@@ -1576,6 +1583,10 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.no_reorder_threshold) { issueCount++; issues.push('No Reorder Threshold'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
+            // E-commerce settings (informational, tracked separately)
+            if (row.not_visible_online) { issues.push('Not Visible Online'); }
+            if (row.not_available_online) { issues.push('Not Available Online'); }
+            if (row.not_available_pickup) { issues.push('Not Available Pickup'); }
 
             return {
                 ...row,
