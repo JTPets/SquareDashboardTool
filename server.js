@@ -1439,6 +1439,186 @@ app.get('/api/deleted-items', async (req, res) => {
     }
 });
 
+// ==================== CATALOG AUDIT ENDPOINTS ====================
+
+/**
+ * GET /api/catalog-audit
+ * Get comprehensive catalog audit data - identifies items with missing/incomplete data
+ */
+app.get('/api/catalog-audit', async (req, res) => {
+    try {
+        const { location_id, issue_type } = req.query;
+
+        // Build comprehensive audit query
+        const query = `
+            WITH variation_data AS (
+                SELECT
+                    v.id as variation_id,
+                    v.sku,
+                    v.upc,
+                    v.name as variation_name,
+                    v.price_money,
+                    v.currency,
+                    v.track_inventory,
+                    v.inventory_alert_type,
+                    v.inventory_alert_threshold,
+                    v.stock_alert_min,
+                    v.images as variation_images,
+                    i.id as item_id,
+                    i.name as item_name,
+                    i.description,
+                    i.category_id,
+                    i.category_name,
+                    i.taxable,
+                    i.visibility,
+                    i.available_online,
+                    i.available_for_pickup,
+                    i.images as item_images,
+                    -- Check for vendor assignment
+                    (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id) as vendor_count,
+                    -- Get primary vendor info
+                    (SELECT ve.name
+                     FROM variation_vendors vv
+                     JOIN vendors ve ON vv.vendor_id = ve.id
+                     WHERE vv.variation_id = v.id
+                     ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
+                     LIMIT 1
+                    ) as vendor_name,
+                    -- Get unit cost
+                    (SELECT vv.unit_cost_money
+                     FROM variation_vendors vv
+                     WHERE vv.variation_id = v.id
+                     ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
+                     LIMIT 1
+                    ) as unit_cost_cents,
+                    -- Get current stock (sum across all locations or specific location)
+                    (SELECT COALESCE(SUM(ic.quantity), 0)
+                     FROM inventory_counts ic
+                     WHERE ic.catalog_object_id = v.id
+                       AND ic.state = 'IN_STOCK'
+                       ${location_id ? "AND ic.location_id = $1" : ""}
+                    ) as current_stock
+                FROM variations v
+                JOIN items i ON v.item_id = i.id
+                WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+                  AND COALESCE(i.is_deleted, FALSE) = FALSE
+            )
+            SELECT
+                *,
+                -- Calculate audit flags
+                (category_id IS NULL OR category_name IS NULL OR category_name = '') as missing_category,
+                (taxable = FALSE OR taxable IS NULL) as not_taxable,
+                (price_money IS NULL OR price_money = 0) as missing_price,
+                (description IS NULL OR description = '') as missing_description,
+                (item_images IS NULL OR item_images::text = '[]' OR item_images::text = 'null') as missing_item_image,
+                (variation_images IS NULL OR variation_images::text = '[]' OR variation_images::text = 'null') as missing_variation_image,
+                (sku IS NULL OR sku = '') as missing_sku,
+                (upc IS NULL OR upc = '') as missing_upc,
+                (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
+                (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_STOCK') as low_stock_alert_off,
+                (stock_alert_min IS NULL OR stock_alert_min = 0) as missing_stock_min,
+                (vendor_count = 0) as missing_vendor,
+                (unit_cost_cents IS NULL OR unit_cost_cents = 0) as missing_cost,
+                (visibility IS NULL OR visibility != 'PUBLIC') as visibility_issue,
+                (available_online = FALSE OR available_online IS NULL) as not_available_online,
+                (available_for_pickup = FALSE OR available_for_pickup IS NULL) as not_available_pickup
+            FROM variation_data
+            ORDER BY item_name, variation_name
+        `;
+
+        const params = location_id ? [location_id] : [];
+        const result = await db.query(query, params);
+
+        // Calculate aggregate statistics
+        const stats = {
+            total_items: result.rows.length,
+            missing_category: result.rows.filter(r => r.missing_category).length,
+            not_taxable: result.rows.filter(r => r.not_taxable).length,
+            missing_price: result.rows.filter(r => r.missing_price).length,
+            missing_description: result.rows.filter(r => r.missing_description).length,
+            missing_item_image: result.rows.filter(r => r.missing_item_image).length,
+            missing_variation_image: result.rows.filter(r => r.missing_variation_image).length,
+            missing_sku: result.rows.filter(r => r.missing_sku).length,
+            missing_upc: result.rows.filter(r => r.missing_upc).length,
+            stock_tracking_off: result.rows.filter(r => r.stock_tracking_off).length,
+            low_stock_alert_off: result.rows.filter(r => r.low_stock_alert_off).length,
+            missing_stock_min: result.rows.filter(r => r.missing_stock_min).length,
+            missing_vendor: result.rows.filter(r => r.missing_vendor).length,
+            missing_cost: result.rows.filter(r => r.missing_cost).length,
+            visibility_issue: result.rows.filter(r => r.visibility_issue).length,
+            not_available_online: result.rows.filter(r => r.not_available_online).length,
+            not_available_pickup: result.rows.filter(r => r.not_available_pickup).length
+        };
+
+        // Count items with at least one issue
+        stats.items_with_issues = result.rows.filter(r =>
+            r.missing_category || r.not_taxable || r.missing_price ||
+            r.missing_description || r.missing_item_image || r.missing_sku ||
+            r.missing_upc || r.stock_tracking_off || r.low_stock_alert_off ||
+            r.missing_stock_min || r.missing_vendor || r.missing_cost
+        ).length;
+
+        // Filter by specific issue type if requested
+        let filteredData = result.rows;
+        if (issue_type) {
+            filteredData = result.rows.filter(r => r[issue_type] === true);
+        }
+
+        // Calculate issue count per item
+        const itemsWithIssueCounts = filteredData.map(row => {
+            let issueCount = 0;
+            const issues = [];
+
+            if (row.missing_category) { issueCount++; issues.push('No Category'); }
+            if (row.not_taxable) { issueCount++; issues.push('Not Taxable'); }
+            if (row.missing_price) { issueCount++; issues.push('No Price'); }
+            if (row.missing_description) { issueCount++; issues.push('No Description'); }
+            if (row.missing_item_image) { issueCount++; issues.push('No Image'); }
+            if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
+            if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
+            if (row.stock_tracking_off) { issueCount++; issues.push('Stock Tracking Off'); }
+            if (row.low_stock_alert_off) { issueCount++; issues.push('Low Stock Alert Off'); }
+            if (row.missing_stock_min) { issueCount++; issues.push('No Min Stock'); }
+            if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
+            if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
+            if (row.visibility_issue) { issueCount++; issues.push('Not Public'); }
+            if (row.not_available_online) { issueCount++; issues.push('Not Online'); }
+            if (row.not_available_pickup) { issueCount++; issues.push('Not Pickup'); }
+
+            return {
+                ...row,
+                issue_count: issueCount,
+                issues: issues,
+                // Clean up internal fields
+                variation_images: undefined,
+                item_images: undefined
+            };
+        });
+
+        // Resolve image URLs for the response
+        const itemsWithImages = await Promise.all(itemsWithIssueCounts.map(async (row) => {
+            const imageUrls = await resolveImageUrls(
+                row.variation_images ? JSON.parse(row.variation_images || '[]') : null,
+                row.item_images ? JSON.parse(row.item_images || '[]') : null
+            );
+            return {
+                ...row,
+                image_urls: imageUrls
+            };
+        }));
+
+        res.json({
+            stats: stats,
+            count: itemsWithImages.length,
+            items: itemsWithImages
+        });
+
+    } catch (error) {
+        logger.error('Catalog audit error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
