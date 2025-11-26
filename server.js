@@ -1470,9 +1470,12 @@ app.get('/api/catalog-audit', async (req, res) => {
                     i.category_id,
                     i.category_name,
                     i.taxable,
+                    i.tax_ids,
                     i.visibility,
                     i.available_online,
                     i.available_for_pickup,
+                    i.seo_title,
+                    i.seo_description,
                     i.images as item_images,
                     -- Check for vendor assignment
                     (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id) as vendor_count,
@@ -1525,7 +1528,12 @@ app.get('/api/catalog-audit', async (req, res) => {
                 -- E-commerce settings (requires catalog re-sync for correct data)
                 (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
                 (available_online = FALSE OR available_online IS NULL) as not_available_online,
-                (available_for_pickup = FALSE OR available_for_pickup IS NULL) as not_available_pickup
+                (available_for_pickup = FALSE OR available_for_pickup IS NULL) as not_available_pickup,
+                -- SEO fields
+                (seo_title IS NULL OR seo_title = '') as missing_seo_title,
+                (seo_description IS NULL OR seo_description = '') as missing_seo_description,
+                -- Tax configuration
+                (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
@@ -1550,7 +1558,10 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_cost: result.rows.filter(r => r.missing_cost).length,
             not_visible_online: result.rows.filter(r => r.not_visible_online).length,
             not_available_online: result.rows.filter(r => r.not_available_online).length,
-            not_available_pickup: result.rows.filter(r => r.not_available_pickup).length
+            not_available_pickup: result.rows.filter(r => r.not_available_pickup).length,
+            missing_seo_title: result.rows.filter(r => r.missing_seo_title).length,
+            missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
+            no_tax_ids: result.rows.filter(r => r.no_tax_ids).length
         };
 
         // Count items with at least one issue (excluding e-commerce settings from "issues" count)
@@ -1587,6 +1598,11 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.not_visible_online) { issues.push('Not Visible Online'); }
             if (row.not_available_online) { issues.push('Not Available Online'); }
             if (row.not_available_pickup) { issues.push('Not Available Pickup'); }
+            // SEO fields
+            if (row.missing_seo_title) { issues.push('No SEO Title'); }
+            if (row.missing_seo_description) { issues.push('No SEO Description'); }
+            // Tax configuration
+            if (row.no_tax_ids) { issues.push('No Tax IDs'); }
 
             return {
                 ...row,

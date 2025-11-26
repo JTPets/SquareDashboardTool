@@ -89,6 +89,7 @@ CREATE TABLE items (
     category_name TEXT,
     product_type TEXT,
     taxable BOOLEAN DEFAULT FALSE,
+    tax_ids JSONB,
     visibility TEXT,
     present_at_all_locations BOOLEAN DEFAULT TRUE,
     present_at_location_ids JSONB,
@@ -98,6 +99,8 @@ CREATE TABLE items (
     images JSONB,
     available_online BOOLEAN DEFAULT FALSE,
     available_for_pickup BOOLEAN DEFAULT FALSE,
+    seo_title TEXT,
+    seo_description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -486,4 +489,28 @@ DO $$
 BEGIN
     RAISE NOTICE 'Cycle count system migration completed successfully!';
     RAISE NOTICE 'Created 4 new tables: count_history, count_queue_priority, count_queue_daily, count_sessions';
+END $$;
+
+-- ========================================
+-- MIGRATION: Add SEO and tax fields
+-- ========================================
+-- Adds tax_ids, seo_title, and seo_description from Square API
+
+-- Add tax_ids column to items table
+ALTER TABLE items ADD COLUMN IF NOT EXISTS tax_ids JSONB;
+
+-- Add SEO fields to items table
+ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_title TEXT;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_description TEXT;
+
+-- Add comments
+COMMENT ON COLUMN items.tax_ids IS 'Array of tax IDs applied to this item from Square';
+COMMENT ON COLUMN items.seo_title IS 'SEO page title from Square ecom_seo_data';
+COMMENT ON COLUMN items.seo_description IS 'SEO page description from Square ecom_seo_data';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'SEO and tax fields migration completed successfully!';
+    RAISE NOTICE 'Added columns: tax_ids, seo_title, seo_description to items table';
 END $$;
