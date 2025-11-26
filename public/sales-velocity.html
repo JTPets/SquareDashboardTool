@@ -138,6 +138,12 @@
       font-weight: 500;
       line-height: 1.3;
     }
+    .variation-name {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 400;
+      margin-top: 2px;
+    }
     .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
@@ -245,7 +251,7 @@
               <th>SKU</th>
               <th>Location</th>
               <th class="text-right">Total Sales</th>
-              <th class="text-right">Days Active</th>
+              <th class="text-right">Period</th>
               <th class="text-right">Daily Avg</th>
               <th>Velocity</th>
             </tr>
@@ -293,10 +299,10 @@
 
     function calculateStats(data) {
       const totalProducts = data.length;
-      const totalDailyAvg = data.reduce((sum, item) => sum + parseFloat(item.avg_daily_velocity || 0), 0);
+      const totalDailyAvg = data.reduce((sum, item) => sum + parseFloat(item.daily_avg_quantity || 0), 0);
       const avgDailySales = totalProducts > 0 ? (totalDailyAvg / totalProducts).toFixed(2) : 0;
-      const fastMovers = data.filter(item => parseFloat(item.avg_daily_velocity || 0) >= 1).length;
-      const slowMovers = data.filter(item => parseFloat(item.avg_daily_velocity || 0) < 0.1).length;
+      const fastMovers = data.filter(item => parseFloat(item.daily_avg_quantity || 0) >= 1).length;
+      const slowMovers = data.filter(item => parseFloat(item.daily_avg_quantity || 0) < 0.1).length;
 
       document.getElementById('totalProducts').textContent = totalProducts.toLocaleString();
       document.getElementById('avgDailySales').textContent = avgDailySales;
@@ -338,20 +344,21 @@
       tbody.innerHTML = '';
 
       // Sort by daily average descending
-      data.sort((a, b) => parseFloat(b.avg_daily_velocity || 0) - parseFloat(a.avg_daily_velocity || 0));
+      data.sort((a, b) => parseFloat(b.daily_avg_quantity || 0) - parseFloat(a.daily_avg_quantity || 0));
 
       data.forEach(item => {
         const row = document.createElement('tr');
-        const dailyAvg = parseFloat(item.avg_daily_velocity || 0);
+        const dailyAvg = parseFloat(item.daily_avg_quantity || 0);
 
         row.innerHTML = `
           <td>
-            <div class="product-name">${item.name || 'Unknown Product'}</div>
+            <div class="product-name">${item.item_name || 'Unknown Product'}</div>
+            ${item.variation_name ? `<div class="variation-name">${item.variation_name}</div>` : ''}
           </td>
           <td><span class="sku">${item.sku || '-'}</span></td>
           <td>${item.location_name || '-'}</td>
-          <td class="text-right"><strong>${parseFloat(item.total_quantity || 0).toFixed(1)}</strong></td>
-          <td class="text-right">${item.days_with_sales || 0}</td>
+          <td class="text-right"><strong>${parseFloat(item.total_quantity_sold || 0).toFixed(1)}</strong></td>
+          <td class="text-right">${item.period_days || '-'}</td>
           <td class="text-right"><strong>${dailyAvg.toFixed(2)}</strong></td>
           <td>${getVelocityBadge(dailyAvg)}</td>
         `;
