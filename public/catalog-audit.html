@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catalog Audit - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls input[type="text"] {
+      flex: 1;
+      min-width: 250px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+    .controls button {
+      background: #059669;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls button:hover { background: #047857; }
+    .controls button.secondary {
+      background: #6b7280;
+    }
+    .controls button.secondary:hover { background: #4b5563; }
+    .info-badge {
+      background: #dbeafe;
+      color: #1e40af;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-left: auto;
+    }
+
+    /* Audit Summary Cards */
+    .audit-summary {
+      padding: 20px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .audit-summary h2 {
+      font-size: 16px;
+      color: #374151;
+      margin-bottom: 15px;
+      font-weight: 600;
+    }
+    .audit-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .audit-card {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .audit-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .audit-card.active {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .audit-card.good {
+      border-left: 4px solid #10b981;
+    }
+    .audit-card.warning {
+      border-left: 4px solid #f59e0b;
+    }
+    .audit-card.critical {
+      border-left: 4px solid #ef4444;
+    }
+    .audit-card .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .audit-card .card-title {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    .audit-card .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .audit-card .card-percent {
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .audit-card.critical .card-value { color: #dc2626; }
+    .audit-card.warning .card-value { color: #d97706; }
+    .audit-card.good .card-value { color: #059669; }
+
+    /* Stats Row */
+    .stats {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      background: #1f2937;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .stat-card {
+      text-align: center;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #10b981;
+      margin-top: 5px;
+    }
+    .stat-value.alert { color: #ef4444; }
+
+    .table-container {
+      overflow-x: auto;
+      max-height: 55vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    tr:hover { background: #f9fafb; }
+
+    .product-image {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+    }
+    .no-image {
+      width: 50px;
+      height: 50px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 20px;
+      border: 1px solid #e5e7eb;
+    }
+    .product-name {
+      max-width: 250px;
+      white-space: normal;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .variation-name {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 400;
+      margin-top: 2px;
+    }
+    .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
+    .text-right { text-align: right; }
+
+    /* Issue badges */
+    .issue-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      margin: 2px;
+      white-space: nowrap;
+    }
+    .issue-badge.critical {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .issue-badge.warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .issue-badge.info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .issue-badge.ok {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .issue-count {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .issue-count.high { background: #fee2e2; color: #991b1b; }
+    .issue-count.medium { background: #fef3c7; color: #92400e; }
+    .issue-count.low { background: #dbeafe; color: #1e40af; }
+    .issue-count.none { background: #d1fae5; color: #065f46; }
+
+    .issues-cell {
+      max-width: 300px;
+    }
+
+    .sortable {
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      padding-right: 20px;
+    }
+    .sortable:hover { background: #e5e7eb; }
+    .sort-indicator {
+      position: absolute;
+      right: 5px;
+      font-size: 10px;
+      color: #6b7280;
+    }
+    .sort-indicator.asc::after { content: '\25B2'; color: #2563eb; }
+    .sort-indicator.desc::after { content: '\25BC'; color: #2563eb; }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #2563eb;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      text-align: center;
+      padding: 40px;
+      color: #dc2626;
+    }
+
+    /* Export button */
+    .export-btn {
+      background: #6366f1;
+    }
+    .export-btn:hover { background: #4f46e5; }
+
+    @media (max-width: 768px) {
+      .controls { flex-direction: column; align-items: stretch; }
+      .controls input, .controls select, .controls button { width: 100%; }
+      th, td { padding: 8px; font-size: 12px; }
+      .product-name { max-width: 150px; }
+      .audit-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Catalog Audit Report</h1>
+      <a href="/" class="back-button">Back to Dashboard</a>
+    </div>
+
+    <div class="controls">
+      <input type="text" id="searchBox" placeholder="Search by product name or SKU..." oninput="filterData()">
+      <select id="issueFilter" onchange="filterByIssue()">
+        <option value="">All Issues</option>
+        <option value="missing_category">Missing Category</option>
+        <option value="not_taxable">Not Taxable</option>
+        <option value="missing_price">Missing Price</option>
+        <option value="missing_description">Missing Description</option>
+        <option value="missing_item_image">Missing Image</option>
+        <option value="missing_sku">Missing SKU</option>
+        <option value="missing_upc">Missing UPC/Barcode</option>
+        <option value="stock_tracking_off">Stock Tracking Off</option>
+        <option value="low_stock_alert_off">Low Stock Alert Off</option>
+        <option value="missing_stock_min">Missing Min Stock</option>
+        <option value="missing_vendor">Missing Vendor</option>
+        <option value="missing_cost">Missing Cost</option>
+        <option value="visibility_issue">Not Public</option>
+        <option value="not_available_online">Not Available Online</option>
+        <option value="not_available_pickup">Not Available Pickup</option>
+      </select>
+      <select id="categoryFilter" onchange="filterData()">
+        <option value="">All Categories</option>
+      </select>
+      <select id="issueCountFilter" onchange="filterData()">
+        <option value="">Any Issue Count</option>
+        <option value="0">No Issues</option>
+        <option value="1-3">1-3 Issues</option>
+        <option value="4-6">4-6 Issues</option>
+        <option value="7+">7+ Issues</option>
+      </select>
+      <button onclick="loadData()">Refresh</button>
+      <button onclick="exportCSV()" class="export-btn">Export CSV</button>
+      <div class="info-badge" id="statusBadge">Loading...</div>
+    </div>
+
+    <div class="stats" id="statsBar" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-label">Total Products</div>
+        <div class="stat-value" id="totalProducts">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Items With Issues</div>
+        <div class="stat-value alert" id="itemsWithIssues">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Completion Rate</div>
+        <div class="stat-value" id="completionRate">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Critical Issues</div>
+        <div class="stat-value alert" id="criticalIssues">-</div>
+      </div>
+    </div>
+
+    <div class="audit-summary" id="auditSummary" style="display: none;">
+      <h2>Audit Summary (click to filter)</h2>
+      <div class="audit-grid" id="auditGrid"></div>
+    </div>
+
+    <div id="content">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading catalog audit data...</p>
+      </div>
+      <div class="error" style="display: none;">
+        <p id="errorMessage">Failed to load data</p>
+      </div>
+      <div class="table-container">
+        <table id="dataTable" style="display: none;">
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th onclick="sortTable('item_name')" class="sortable">
+                Product <span class="sort-indicator" id="sort-item_name"></span>
+              </th>
+              <th onclick="sortTable('sku')" class="sortable">
+                SKU <span class="sort-indicator" id="sort-sku"></span>
+              </th>
+              <th onclick="sortTable('category_name')" class="sortable">
+                Category <span class="sort-indicator" id="sort-category_name"></span>
+              </th>
+              <th onclick="sortTable('price_money')" class="sortable text-right">
+                Price <span class="sort-indicator" id="sort-price_money"></span>
+              </th>
+              <th onclick="sortTable('current_stock')" class="sortable text-right">
+                Stock <span class="sort-indicator" id="sort-current_stock"></span>
+              </th>
+              <th onclick="sortTable('issue_count')" class="sortable text-right">
+                Issues <span class="sort-indicator" id="sort-issue_count"></span>
+              </th>
+              <th>Issue Details</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allData = [];
+    let filteredData = [];
+    let auditStats = {};
+    let categories = new Set();
+    let currentSortField = null;
+    let sortDirections = {};
+    let activeAuditCard = null;
+
+    const AUDIT_TYPES = [
+      { key: 'missing_category', label: 'No Category', severity: 'critical' },
+      { key: 'not_taxable', label: 'Not Taxable', severity: 'warning' },
+      { key: 'missing_price', label: 'No Price', severity: 'critical' },
+      { key: 'missing_description', label: 'No Description', severity: 'warning' },
+      { key: 'missing_item_image', label: 'No Image', severity: 'warning' },
+      { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
+      { key: 'missing_upc', label: 'No UPC', severity: 'info' },
+      { key: 'stock_tracking_off', label: 'Stock Tracking Off', severity: 'critical' },
+      { key: 'low_stock_alert_off', label: 'Low Stock Alert Off', severity: 'warning' },
+      { key: 'missing_stock_min', label: 'No Min Stock', severity: 'warning' },
+      { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
+      { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
+      { key: 'visibility_issue', label: 'Not Public', severity: 'info' },
+      { key: 'not_available_online', label: 'Not Online', severity: 'info' },
+      { key: 'not_available_pickup', label: 'Not Pickup', severity: 'info' }
+    ];
+
+    function showLoading() {
+      document.querySelector('.loading').style.display = 'block';
+      document.querySelector('.error').style.display = 'none';
+      document.getElementById('dataTable').style.display = 'none';
+      document.getElementById('statsBar').style.display = 'none';
+      document.getElementById('auditSummary').style.display = 'none';
+    }
+
+    function showError(message) {
+      document.querySelector('.loading').style.display = 'none';
+      document.querySelector('.error').style.display = 'block';
+      document.getElementById('errorMessage').textContent = message;
+      document.getElementById('dataTable').style.display = 'none';
+      document.getElementById('statsBar').style.display = 'none';
+      document.getElementById('auditSummary').style.display = 'none';
+    }
+
+    function showData() {
+      document.querySelector('.loading').style.display = 'none';
+      document.querySelector('.error').style.display = 'none';
+      document.getElementById('dataTable').style.display = 'table';
+      document.getElementById('statsBar').style.display = 'grid';
+      document.getElementById('auditSummary').style.display = 'block';
+    }
+
+    function getSeverityClass(count, total) {
+      const percent = (count / total) * 100;
+      if (percent > 20) return 'critical';
+      if (percent > 5) return 'warning';
+      return 'good';
+    }
+
+    function renderAuditCards() {
+      const grid = document.getElementById('auditGrid');
+      grid.innerHTML = '';
+
+      const total = auditStats.total_items;
+
+      AUDIT_TYPES.forEach(audit => {
+        const count = auditStats[audit.key] || 0;
+        const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+        const severityClass = count === 0 ? 'good' : getSeverityClass(count, total);
+
+        const card = document.createElement('div');
+        card.className = `audit-card ${severityClass}`;
+        card.dataset.issueType = audit.key;
+        card.onclick = () => selectAuditCard(audit.key, card);
+
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="card-title">${audit.label}</span>
+          </div>
+          <div class="card-value">${count.toLocaleString()}</div>
+          <div class="card-percent">${percent}% of catalog</div>
+        `;
+
+        grid.appendChild(card);
+      });
+    }
+
+    function selectAuditCard(issueType, card) {
+      // Toggle selection
+      if (activeAuditCard === card) {
+        card.classList.remove('active');
+        activeAuditCard = null;
+        document.getElementById('issueFilter').value = '';
+        filterData();
+      } else {
+        // Deselect previous
+        if (activeAuditCard) {
+          activeAuditCard.classList.remove('active');
+        }
+        card.classList.add('active');
+        activeAuditCard = card;
+        document.getElementById('issueFilter').value = issueType;
+        filterByIssue();
+      }
+    }
+
+    function calculateStats(data) {
+      const total = auditStats.total_items;
+      const withIssues = auditStats.items_with_issues;
+      const completionRate = total > 0 ? (((total - withIssues) / total) * 100).toFixed(1) : 100;
+
+      // Count critical issues (missing category, price, sku, stock tracking)
+      const criticalCount = (auditStats.missing_category || 0) +
+                           (auditStats.missing_price || 0) +
+                           (auditStats.missing_sku || 0) +
+                           (auditStats.stock_tracking_off || 0);
+
+      document.getElementById('totalProducts').textContent = total.toLocaleString();
+      document.getElementById('itemsWithIssues').textContent = withIssues.toLocaleString();
+      document.getElementById('completionRate').textContent = completionRate + '%';
+      document.getElementById('criticalIssues').textContent = criticalCount.toLocaleString();
+    }
+
+    function filterByIssue() {
+      const issueType = document.getElementById('issueFilter').value;
+
+      // Update active card state
+      document.querySelectorAll('.audit-card').forEach(card => {
+        if (card.dataset.issueType === issueType) {
+          card.classList.add('active');
+          activeAuditCard = card;
+        } else {
+          card.classList.remove('active');
+        }
+      });
+
+      if (!issueType) {
+        activeAuditCard = null;
+      }
+
+      filterData();
+    }
+
+    function filterData() {
+      const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+      const issueFilter = document.getElementById('issueFilter').value;
+      const categoryFilter = document.getElementById('categoryFilter').value;
+      const issueCountFilter = document.getElementById('issueCountFilter').value;
+
+      filteredData = allData.filter(item => {
+        const matchesSearch = !searchTerm ||
+          (item.item_name && item.item_name.toLowerCase().includes(searchTerm)) ||
+          (item.variation_name && item.variation_name.toLowerCase().includes(searchTerm)) ||
+          (item.sku && item.sku.toLowerCase().includes(searchTerm));
+
+        const matchesIssue = !issueFilter || item[issueFilter] === true;
+
+        const matchesCategory = !categoryFilter ||
+          (categoryFilter === '__none__' && !item.category_name) ||
+          item.category_name === categoryFilter;
+
+        let matchesIssueCount = true;
+        if (issueCountFilter) {
+          const count = item.issue_count || 0;
+          switch (issueCountFilter) {
+            case '0': matchesIssueCount = count === 0; break;
+            case '1-3': matchesIssueCount = count >= 1 && count <= 3; break;
+            case '4-6': matchesIssueCount = count >= 4 && count <= 6; break;
+            case '7+': matchesIssueCount = count >= 7; break;
+          }
+        }
+
+        return matchesSearch && matchesIssue && matchesCategory && matchesIssueCount;
+      });
+
+      renderTable(filteredData);
+      document.getElementById('statusBadge').textContent =
+        `Showing ${filteredData.length} of ${allData.length} records`;
+    }
+
+    async function loadData() {
+      showLoading();
+
+      try {
+        const response = await fetch('/api/catalog-audit');
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+        const result = await response.json();
+        allData = result.items || [];
+        auditStats = result.stats || {};
+
+        if (allData.length === 0) {
+          showError('No catalog data available');
+          return;
+        }
+
+        // Populate category filter
+        categories = new Set(allData.map(item => item.category_name).filter(Boolean));
+        const categorySelect = document.getElementById('categoryFilter');
+        categorySelect.innerHTML = '<option value="">All Categories</option>';
+        categorySelect.innerHTML += '<option value="__none__">-- No Category --</option>';
+        Array.from(categories).sort().forEach(category => {
+          const option = document.createElement('option');
+          option.value = category;
+          option.textContent = category;
+          categorySelect.appendChild(option);
+        });
+
+        filteredData = allData;
+        renderAuditCards();
+        calculateStats(allData);
+        renderTable(filteredData);
+        showData();
+
+        document.getElementById('statusBadge').textContent =
+          `${allData.length} records - Updated: ${new Date().toLocaleTimeString()}`;
+
+      } catch (error) {
+        console.error('Error loading data:', error);
+        showError(`Error: ${error.message}`);
+      }
+    }
+
+    function sortTable(field) {
+      sortDirections[field] = !sortDirections[field];
+      const ascending = sortDirections[field];
+      currentSortField = field;
+
+      // Clear all sort indicators
+      document.querySelectorAll('.sort-indicator').forEach(el => {
+        el.className = 'sort-indicator';
+      });
+
+      // Set current indicator
+      const indicator = document.getElementById(`sort-${field}`);
+      if (indicator) {
+        indicator.className = `sort-indicator ${ascending ? 'asc' : 'desc'}`;
+      }
+
+      // Sort the data
+      filteredData.sort((a, b) => {
+        let aVal = a[field];
+        let bVal = b[field];
+
+        // Handle special cases
+        if (['item_name', 'variation_name', 'sku', 'category_name', 'vendor_name'].includes(field)) {
+          aVal = (aVal || '').toString().toLowerCase();
+          bVal = (bVal || '').toString().toLowerCase();
+        } else {
+          aVal = parseFloat(aVal) || 0;
+          bVal = parseFloat(bVal) || 0;
+        }
+
+        if (aVal === bVal) return 0;
+        if (ascending) {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+
+      renderTable(filteredData);
+    }
+
+    function getIssueCountClass(count) {
+      if (count === 0) return 'none';
+      if (count <= 3) return 'low';
+      if (count <= 6) return 'medium';
+      return 'high';
+    }
+
+    function getIssueBadgeClass(issue) {
+      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off'];
+      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'Low Stock Alert Off', 'No Min Stock', 'No Vendor', 'No Cost'];
+
+      if (criticalIssues.includes(issue)) return 'critical';
+      if (warningIssues.includes(issue)) return 'warning';
+      return 'info';
+    }
+
+    function renderTable(data) {
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+
+      data.forEach(item => {
+        const row = document.createElement('tr');
+        const price = (item.price_money || 0) / 100;
+        const stock = parseFloat(item.current_stock || 0);
+
+        // Get image URL
+        const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+        const imageHtml = imageUrl
+          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+             <div class="no-image" style="display:none;">?</div>`
+          : `<div class="no-image">?</div>`;
+
+        // Build issues display
+        const issues = item.issues || [];
+        const issuesHtml = issues.length > 0
+          ? issues.map(issue => `<span class="issue-badge ${getIssueBadgeClass(issue)}">${issue}</span>`).join('')
+          : '<span class="issue-badge ok">All Good</span>';
+
+        row.innerHTML = `
+          <td>${imageHtml}</td>
+          <td>
+            <div class="product-name">${escapeHtml(item.item_name || 'Unknown Product')}</div>
+            ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
+          </td>
+          <td><span class="sku">${escapeHtml(item.sku || '-')}</span></td>
+          <td>${escapeHtml(item.category_name || '-')}</td>
+          <td class="text-right">${price > 0 ? '$' + price.toFixed(2) : '-'}</td>
+          <td class="text-right">${stock.toFixed(0)}</td>
+          <td class="text-right">
+            <span class="issue-count ${getIssueCountClass(item.issue_count)}">${item.issue_count}</span>
+          </td>
+          <td class="issues-cell">${issuesHtml}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function exportCSV() {
+      if (filteredData.length === 0) {
+        alert('No data to export');
+        return;
+      }
+
+      const headers = [
+        'Item Name',
+        'Variation Name',
+        'SKU',
+        'UPC',
+        'Category',
+        'Price',
+        'Stock',
+        'Issue Count',
+        'Issues',
+        'Missing Category',
+        'Not Taxable',
+        'Missing Price',
+        'Missing Description',
+        'Missing Image',
+        'Missing SKU',
+        'Missing UPC',
+        'Stock Tracking Off',
+        'Low Stock Alert Off',
+        'Missing Min Stock',
+        'Missing Vendor',
+        'Missing Cost',
+        'Visibility Issue',
+        'Not Available Online',
+        'Not Available Pickup'
+      ];
+
+      const rows = filteredData.map(item => [
+        item.item_name || '',
+        item.variation_name || '',
+        item.sku || '',
+        item.upc || '',
+        item.category_name || '',
+        (item.price_money || 0) / 100,
+        item.current_stock || 0,
+        item.issue_count || 0,
+        (item.issues || []).join('; '),
+        item.missing_category ? 'Yes' : 'No',
+        item.not_taxable ? 'Yes' : 'No',
+        item.missing_price ? 'Yes' : 'No',
+        item.missing_description ? 'Yes' : 'No',
+        item.missing_item_image ? 'Yes' : 'No',
+        item.missing_sku ? 'Yes' : 'No',
+        item.missing_upc ? 'Yes' : 'No',
+        item.stock_tracking_off ? 'Yes' : 'No',
+        item.low_stock_alert_off ? 'Yes' : 'No',
+        item.missing_stock_min ? 'Yes' : 'No',
+        item.missing_vendor ? 'Yes' : 'No',
+        item.missing_cost ? 'Yes' : 'No',
+        item.visibility_issue ? 'Yes' : 'No',
+        item.not_available_online ? 'Yes' : 'No',
+        item.not_available_pickup ? 'Yes' : 'No'
+      ]);
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => {
+          const str = String(cell);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+          }
+          return str;
+        }).join(','))
+      ].join('\n');
+
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `catalog-audit-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Load data on page load
+    loadData();
+  </script>
+</body>
+</html>
