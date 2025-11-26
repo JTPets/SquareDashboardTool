@@ -1605,9 +1605,10 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.no_tax_ids) { issues.push('No Tax IDs'); }
 
             // Resolve image URLs BEFORE cleaning up the fields
+            // Note: JSONB columns are already parsed by pg driver, no JSON.parse needed
             const imageUrls = await resolveImageUrls(
-                row.variation_images ? JSON.parse(row.variation_images || '[]') : null,
-                row.item_images ? JSON.parse(row.item_images || '[]') : null
+                row.variation_images,
+                row.item_images
             );
 
             return {
