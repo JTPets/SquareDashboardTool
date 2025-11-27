@@ -1518,9 +1518,10 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                -- No reorder threshold: Square's inventory alert must be LOW_QUANTITY with threshold, or JTPets' stock_alert_min is set
+                -- No reorder threshold: Out of stock AND no minimum threshold set (Square or JTPets)
                 (
-                    (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
+                    current_stock <= 0
+                    AND (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
@@ -1589,7 +1590,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
             if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
             if (row.stock_tracking_off) { issueCount++; issues.push('Low Stock Alerts Off'); }
-            if (row.no_reorder_threshold) { issueCount++; issues.push('No Reorder Threshold'); }
+            if (row.no_reorder_threshold) { issueCount++; issues.push('OOS, No Min'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
             // E-commerce settings (informational, tracked separately)

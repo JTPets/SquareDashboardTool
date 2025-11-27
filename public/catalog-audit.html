@@ -354,7 +354,7 @@
           <option value="missing_sku">Missing SKU</option>
           <option value="missing_upc">Missing UPC/Barcode</option>
           <option value="stock_tracking_off">Low Stock Alerts Off</option>
-          <option value="no_reorder_threshold">No Reorder Threshold</option>
+          <option value="no_reorder_threshold">Out of Stock, No Min Set</option>
           <option value="missing_vendor">Missing Vendor</option>
           <option value="missing_cost">Missing Cost</option>
         </optgroup>
@@ -468,7 +468,7 @@
       { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
       { key: 'missing_upc', label: 'No UPC', severity: 'info' },
       { key: 'stock_tracking_off', label: 'Low Stock Alerts Off', severity: 'critical' },
-      { key: 'no_reorder_threshold', label: 'No Reorder Threshold', severity: 'warning' },
+      { key: 'no_reorder_threshold', label: 'OOS, No Min', severity: 'critical' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
       // E-Commerce Settings
@@ -726,8 +726,8 @@
     }
 
     function getIssueBadgeClass(issue) {
-      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off'];
-      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Reorder Threshold', 'No Vendor', 'No Cost', 'No Tax IDs'];
+      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off', 'OOS, No Min'];
+      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
       const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'No SEO Title', 'No SEO Description'];
 
       if (criticalIssues.includes(issue)) return 'critical';
@@ -801,7 +801,7 @@
         'Missing SKU',
         'Missing UPC',
         'Low Stock Alerts Off',
-        'No Reorder Threshold',
+        'OOS No Min Set',
         'Missing Vendor',
         'Missing Cost',
         'Not Visible Online',
