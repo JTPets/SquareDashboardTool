@@ -493,24 +493,10 @@ async function syncItem(obj, category_name) {
     const seoTitle = data.ecom_seo_data?.page_title || null;
     const seoDescription = data.ecom_seo_data?.page_description || null;
 
-    // Square uses 'channels' array for online availability (e.g., ['SQUARE_ONLINE'])
-    const channels = data.channels || [];
-    const availableOnline = channels.includes('SQUARE_ONLINE');
-    // For pickup, we'd need to check fulfillment settings which requires additional API calls
-    // For now, we'll check if any pickup-related channel exists
-    const availableForPickup = channels.includes('SQUARE_ONLINE'); // If online, likely has pickup option
-
-    // Log e-commerce fields for debugging (10% sample)
-    if (Math.random() < 0.10) {
-        logger.info('Item channels from Square', {
-            item_id: obj.id,
-            name: data.name,
-            channels: channels,
-            channels_raw: data.channels,
-            ecom_visibility: data.ecom_visibility,
-            derived_available_online: availableOnline
-        });
-    }
+    // Square uses ecom_visibility for online store availability
+    // VISIBLE = available online, HIDDEN/UNINDEXED = not available online
+    // Note: channels array contains channel IDs, not named values like 'SQUARE_ONLINE'
+    const availableOnline = data.ecom_visibility === 'VISIBLE';
 
     await db.query(`
         INSERT INTO items (
@@ -556,8 +542,8 @@ async function syncItem(obj, category_name) {
         data.modifier_list_info ? JSON.stringify(data.modifier_list_info) : null,
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
-        availableOnline,  // Derived from channels array containing 'SQUARE_ONLINE'
-        availableForPickup,  // Derived from channels - true if item is sold online
+        availableOnline,  // Derived from ecom_visibility === 'VISIBLE'
+        false,  // availableForPickup - Square doesn't expose this per-item via API
         seoTitle,
         seoDescription
     ]);
