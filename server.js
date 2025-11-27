@@ -1511,7 +1511,7 @@ app.get('/api/catalog-audit', async (req, res) => {
                     -- Sales velocity (91 day average)
                     COALESCE(sv91.daily_avg_quantity, 0) as daily_velocity,
                     COALESCE(sv91.weekly_avg_quantity, 0) as weekly_velocity,
-                    sv91.total_sold as total_sold_91d
+                    COALESCE(sv91.total_quantity_sold, 0) as total_sold_91d
                 FROM variations v
                 JOIN items i ON v.item_id = i.id
                 LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
