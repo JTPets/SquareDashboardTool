@@ -361,7 +361,6 @@
         <optgroup label="E-Commerce Settings">
           <option value="not_visible_online">Not Visible Online</option>
           <option value="not_available_online">Not Available Online</option>
-          <option value="not_available_pickup">Not Available Pickup</option>
         </optgroup>
         <optgroup label="SEO">
           <option value="missing_seo_title">Missing SEO Title</option>
@@ -475,7 +474,6 @@
       // E-Commerce Settings
       { key: 'not_visible_online', label: 'Not Visible Online', severity: 'info' },
       { key: 'not_available_online', label: 'Not Online', severity: 'info' },
-      { key: 'not_available_pickup', label: 'Not Pickup', severity: 'info' },
       // SEO
       { key: 'missing_seo_title', label: 'No SEO Title', severity: 'info' },
       { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
@@ -730,7 +728,7 @@
     function getIssueBadgeClass(issue) {
       const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off'];
       const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Reorder Threshold', 'No Vendor', 'No Cost', 'No Tax IDs'];
-      const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'Not Available Pickup', 'No SEO Title', 'No SEO Description'];
+      const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'No SEO Title', 'No SEO Description'];
 
       if (criticalIssues.includes(issue)) return 'critical';
       if (warningIssues.includes(issue)) return 'warning';
@@ -808,7 +806,6 @@
         'Missing Cost',
         'Not Visible Online',
         'Not Available Online',
-        'Not Available Pickup',
         'Missing SEO Title',
         'Missing SEO Description',
         'No Tax IDs'
@@ -837,7 +834,6 @@
         item.missing_cost ? 'Yes' : 'No',
         item.not_visible_online ? 'Yes' : 'No',
         item.not_available_online ? 'Yes' : 'No',
-        item.not_available_pickup ? 'Yes' : 'No',
         item.missing_seo_title ? 'Yes' : 'No',
         item.missing_seo_description ? 'Yes' : 'No',
         item.no_tax_ids ? 'Yes' : 'No'
