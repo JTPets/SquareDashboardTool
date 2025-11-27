@@ -150,6 +150,12 @@
       font-size: 12px;
       color: #6b7280;
     }
+    .audit-card .card-note {
+      font-size: 10px;
+      color: #9ca3af;
+      font-style: italic;
+      margin-top: 4px;
+    }
     .audit-card.critical .card-value { color: #dc2626; }
     .audit-card.warning .card-value { color: #d97706; }
     .audit-card.good .card-value { color: #059669; }
@@ -475,7 +481,7 @@
       { key: 'stock_tracking_off', label: 'Low Stock Alerts Off', severity: 'critical' },
       { key: 'no_reorder_threshold', label: 'OOS, No Min', severity: 'critical' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
-      { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
+      { key: 'missing_cost', label: 'No Cost', severity: 'warning', note: 'Excludes SAMPLE variations' },
       // E-Commerce Settings
       { key: 'not_visible_online', label: 'Not Visible Online', severity: 'info' },
       // SEO
@@ -539,6 +545,7 @@
           </div>
           <div class="card-value">${count.toLocaleString()}</div>
           <div class="card-percent">${percent}% of catalog</div>
+          ${audit.note ? `<div class="card-note">${audit.note}</div>` : ''}
         `;
 
         grid.appendChild(card);

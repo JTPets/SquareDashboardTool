@@ -1549,7 +1549,7 @@ app.get('/api/catalog-audit', async (req, res) => {
                     AND (location_stock_alert_min IS NULL)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
-                (unit_cost_cents IS NULL) as missing_cost,  -- Only NULL, not 0 (some items like samples are free)
+                (unit_cost_cents IS NULL AND UPPER(variation_name) NOT LIKE '%SAMPLE%') as missing_cost,  -- Excludes SAMPLE variations (samples are free)
                 -- E-commerce settings (requires catalog re-sync for correct data)
                 (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
                 -- SEO fields
