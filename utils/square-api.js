@@ -493,20 +493,21 @@ async function syncItem(obj, category_name) {
     const seoTitle = data.ecom_seo_data?.page_title || null;
     const seoDescription = data.ecom_seo_data?.page_description || null;
 
-    // Log e-commerce fields for debugging (increased to 5% to ensure samples)
-    if (Math.random() < 0.05) {
-        // Log ALL item_data keys to see what Square actually returns
-        logger.info('Item raw fields from Square', {
+    // Square uses 'channels' array for online availability (e.g., ['SQUARE_ONLINE'])
+    const channels = data.channels || [];
+    const availableOnline = channels.includes('SQUARE_ONLINE');
+    // For pickup, we'd need to check fulfillment settings which requires additional API calls
+    // For now, we'll check if any pickup-related channel exists
+    const availableForPickup = channels.includes('SQUARE_ONLINE'); // If online, likely has pickup option
+
+    // Log e-commerce fields for debugging
+    if (Math.random() < 0.02) {
+        logger.info('Item channels from Square', {
             item_id: obj.id,
             name: data.name,
-            all_item_data_keys: Object.keys(data),
+            channels: channels,
             ecom_visibility: data.ecom_visibility,
-            available_electronically: data.available_electronically,
-            available_for_pickup: data.available_for_pickup,
-            is_available_electronically: data.is_available_electronically,
-            is_available_for_pickup: data.is_available_for_pickup,
-            ecom_available: data.ecom_available,
-            online_visibility: data.online_visibility,
+            derived_available_online: availableOnline,
             is_archived: data.is_archived
         });
     }
@@ -555,8 +556,8 @@ async function syncItem(obj, category_name) {
         data.modifier_list_info ? JSON.stringify(data.modifier_list_info) : null,
         data.item_options ? JSON.stringify(data.item_options) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
-        data.available_electronically || false,  // Square uses available_electronically, not available_online
-        data.available_for_pickup || false,
+        availableOnline,  // Derived from channels array containing 'SQUARE_ONLINE'
+        availableForPickup,  // Derived from channels - true if item is sold online
         seoTitle,
         seoDescription
     ]);
@@ -570,19 +571,30 @@ async function syncVariation(obj) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
 
-    // Log inventory alert fields for debugging (increased to 5% to ensure samples)
-    if (Math.random() < 0.05) {
-        // Log ALL variation_data keys to see what Square actually returns
-        logger.info('Variation raw fields from Square', {
+    // Square stores inventory_alert settings per-location in location_overrides
+    // Extract from first location_override if not set at variation level
+    let inventoryAlertType = data.inventory_alert_type || null;
+    let inventoryAlertThreshold = data.inventory_alert_threshold || null;
+
+    if (data.location_overrides && data.location_overrides.length > 0) {
+        const firstOverride = data.location_overrides[0];
+        if (!inventoryAlertType && firstOverride.inventory_alert_type) {
+            inventoryAlertType = firstOverride.inventory_alert_type;
+        }
+        if (inventoryAlertThreshold === null && firstOverride.inventory_alert_threshold !== undefined) {
+            inventoryAlertThreshold = firstOverride.inventory_alert_threshold;
+        }
+    }
+
+    // Log inventory alert fields for debugging
+    if (Math.random() < 0.02) {
+        logger.info('Variation inventory fields from Square', {
             variation_id: obj.id,
             sku: data.sku,
-            all_variation_data_keys: Object.keys(data),
             track_inventory: data.track_inventory,
-            inventory_alert_type: data.inventory_alert_type,
-            inventory_alert_threshold: data.inventory_alert_threshold,
-            stockable: data.stockable,
-            stockable_conversion: data.stockable_conversion,
-            location_overrides: data.location_overrides ? data.location_overrides.slice(0, 2) : null
+            inventory_alert_type: inventoryAlertType,
+            inventory_alert_threshold: inventoryAlertThreshold,
+            location_overrides_count: data.location_overrides?.length || 0
         });
     }
 
@@ -623,8 +635,8 @@ async function syncVariation(obj) {
         data.price_money?.currency || 'CAD',
         data.pricing_type || 'FIXED_PRICING',
         data.track_inventory === true,  // Only true if explicitly enabled in Square
-        data.inventory_alert_type || null,
-        data.inventory_alert_threshold || null,
+        inventoryAlertType,  // From variation or first location_override
+        inventoryAlertThreshold,  // From variation or first location_override
         obj.present_at_all_locations !== false,
         obj.present_at_location_ids ? JSON.stringify(obj.present_at_location_ids) : null,
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,
