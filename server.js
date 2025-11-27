@@ -1518,16 +1518,16 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                -- No reorder threshold: Square's inventory alert must be LOW_QUANTITY with threshold, or JTPets' stock_alert_min is set
+                -- No reorder threshold: Out of stock AND no minimum threshold set (Square or JTPets)
                 (
-                    (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
+                    current_stock <= 0
+                    AND (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
-                (unit_cost_cents IS NULL OR unit_cost_cents = 0) as missing_cost,
+                (unit_cost_cents IS NULL) as missing_cost,  -- Only NULL, not 0 (some items like samples are free)
                 -- E-commerce settings (requires catalog re-sync for correct data)
                 (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
-                (available_online = FALSE OR available_online IS NULL) as not_available_online,
                 -- SEO fields
                 (seo_title IS NULL OR seo_title = '') as missing_seo_title,
                 (seo_description IS NULL OR seo_description = '') as missing_seo_description,
@@ -1556,7 +1556,6 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_vendor: result.rows.filter(r => r.missing_vendor).length,
             missing_cost: result.rows.filter(r => r.missing_cost).length,
             not_visible_online: result.rows.filter(r => r.not_visible_online).length,
-            not_available_online: result.rows.filter(r => r.not_available_online).length,
             missing_seo_title: result.rows.filter(r => r.missing_seo_title).length,
             missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
             no_tax_ids: result.rows.filter(r => r.no_tax_ids).length
@@ -1589,12 +1588,11 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
             if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
             if (row.stock_tracking_off) { issueCount++; issues.push('Low Stock Alerts Off'); }
-            if (row.no_reorder_threshold) { issueCount++; issues.push('No Reorder Threshold'); }
+            if (row.no_reorder_threshold) { issueCount++; issues.push('OOS, No Min'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
             // E-commerce settings (informational, tracked separately)
             if (row.not_visible_online) { issues.push('Not Visible Online'); }
-            if (row.not_available_online) { issues.push('Not Available Online'); }
             // SEO fields
             if (row.missing_seo_title) { issues.push('No SEO Title'); }
             if (row.missing_seo_description) { issues.push('No SEO Description'); }

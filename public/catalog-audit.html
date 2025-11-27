@@ -354,13 +354,12 @@
           <option value="missing_sku">Missing SKU</option>
           <option value="missing_upc">Missing UPC/Barcode</option>
           <option value="stock_tracking_off">Low Stock Alerts Off</option>
-          <option value="no_reorder_threshold">No Reorder Threshold</option>
+          <option value="no_reorder_threshold">Out of Stock, No Min Set</option>
           <option value="missing_vendor">Missing Vendor</option>
           <option value="missing_cost">Missing Cost</option>
         </optgroup>
         <optgroup label="E-Commerce Settings">
           <option value="not_visible_online">Not Visible Online</option>
-          <option value="not_available_online">Not Available Online</option>
         </optgroup>
         <optgroup label="SEO">
           <option value="missing_seo_title">Missing SEO Title</option>
@@ -468,12 +467,11 @@
       { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
       { key: 'missing_upc', label: 'No UPC', severity: 'info' },
       { key: 'stock_tracking_off', label: 'Low Stock Alerts Off', severity: 'critical' },
-      { key: 'no_reorder_threshold', label: 'No Reorder Threshold', severity: 'warning' },
+      { key: 'no_reorder_threshold', label: 'OOS, No Min', severity: 'critical' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
       // E-Commerce Settings
       { key: 'not_visible_online', label: 'Not Visible Online', severity: 'info' },
-      { key: 'not_available_online', label: 'Not Online', severity: 'info' },
       // SEO
       { key: 'missing_seo_title', label: 'No SEO Title', severity: 'info' },
       { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
@@ -726,9 +724,9 @@
     }
 
     function getIssueBadgeClass(issue) {
-      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off'];
-      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Reorder Threshold', 'No Vendor', 'No Cost', 'No Tax IDs'];
-      const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'No SEO Title', 'No SEO Description'];
+      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off', 'OOS, No Min'];
+      const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
+      const infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description'];
 
       if (criticalIssues.includes(issue)) return 'critical';
       if (warningIssues.includes(issue)) return 'warning';
@@ -801,11 +799,10 @@
         'Missing SKU',
         'Missing UPC',
         'Low Stock Alerts Off',
-        'No Reorder Threshold',
+        'OOS No Min Set',
         'Missing Vendor',
         'Missing Cost',
         'Not Visible Online',
-        'Not Available Online',
         'Missing SEO Title',
         'Missing SEO Description',
         'No Tax IDs'
@@ -833,7 +830,6 @@
         item.missing_vendor ? 'Yes' : 'No',
         item.missing_cost ? 'Yes' : 'No',
         item.not_visible_online ? 'Yes' : 'No',
-        item.not_available_online ? 'Yes' : 'No',
         item.missing_seo_title ? 'Yes' : 'No',
         item.missing_seo_description ? 'Yes' : 'No',
         item.no_tax_ids ? 'Yes' : 'No'
