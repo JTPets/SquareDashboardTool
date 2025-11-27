@@ -281,6 +281,9 @@
         // Defensive coding: ensure allItems is always an array
         allItems = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
 
+        // Hide items with <1 inventory - they can't expire if not in stock
+        allItems = allItems.filter(item => (item.quantity || 0) >= 1);
+
         if (allItems.length === 0) {
           tbody.innerHTML = '<tr><td colspan="9" class="loading">No items found. Please run sync first or adjust filters.</td></tr>';
           updateStats();

@@ -436,8 +436,8 @@
               <th onclick="sortTable('current_stock')" class="sortable text-right">
                 Stock <span class="sort-indicator" id="sort-current_stock"></span>
               </th>
-              <th onclick="sortTable('weekly_velocity')" class="sortable text-right">
-                Weekly Sales <span class="sort-indicator" id="sort-weekly_velocity"></span>
+              <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
+                Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
               </th>
               <th onclick="sortTable('days_of_stock')" class="sortable text-right">
                 Days Stock <span class="sort-indicator" id="sort-days_of_stock"></span>
@@ -740,6 +740,12 @@
       return 'info';
     }
 
+    // Format velocity value like reorder.html
+    function formatVelocity(val) {
+      if (!val || val === 0) return '-';
+      return parseFloat(val).toFixed(1);
+    }
+
     function renderTable(data) {
       const tbody = document.getElementById('tableBody');
       tbody.innerHTML = '';
@@ -748,7 +754,6 @@
         const row = document.createElement('tr');
         const price = (item.price_money || 0) / 100;
         const stock = parseFloat(item.current_stock || 0);
-        const weeklyVelocity = parseFloat(item.weekly_velocity || 0);
         const daysOfStock = item.days_of_stock;
 
         // Get image URL
@@ -764,8 +769,8 @@
           ? issues.map(issue => `<span class="issue-badge ${getIssueBadgeClass(issue)}">${issue}</span>`).join('')
           : '<span class="issue-badge ok">All Good</span>';
 
-        // Format velocity display
-        const velocityDisplay = weeklyVelocity > 0 ? weeklyVelocity.toFixed(1) : '-';
+        // Format velocity display (91d/182d/365d like reorder.html)
+        const velocityText = `${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}`;
         const daysDisplay = daysOfStock !== null ? daysOfStock : '-';
 
         row.innerHTML = `
@@ -778,7 +783,7 @@
           <td>${escapeHtml(item.category_name || '-')}</td>
           <td class="text-right">${price > 0 ? '$' + price.toFixed(2) : '-'}</td>
           <td class="text-right">${stock.toFixed(0)}</td>
-          <td class="text-right">${velocityDisplay}</td>
+          <td class="text-right"><small>${velocityText}</small></td>
           <td class="text-right">${daysDisplay}</td>
           <td class="text-right">
             <span class="issue-count ${getIssueCountClass(item.issue_count)}">${item.issue_count}</span>
@@ -803,7 +808,9 @@
         'Category',
         'Price',
         'Stock',
-        'Weekly Sales',
+        'Velocity 91d',
+        'Velocity 182d',
+        'Velocity 365d',
         'Days of Stock',
         'Issue Count',
         'Issues',
@@ -832,7 +839,9 @@
         item.category_name || '',
         (item.price_money || 0) / 100,
         item.current_stock || 0,
-        item.weekly_velocity || 0,
+        item.weekly_avg_91d || 0,
+        item.weekly_avg_182d || 0,
+        item.weekly_avg_365d || 0,
         item.days_of_stock || '',
         item.issue_count || 0,
         (item.issues || []).join('; '),

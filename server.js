@@ -1508,13 +1508,17 @@ app.get('/api/catalog-audit', async (req, res) => {
                        AND vls.stock_alert_min IS NOT NULL
                        AND vls.stock_alert_min > 0
                     ) as location_stock_alert_min,
-                    -- Sales velocity (91 day average)
+                    -- Sales velocity (all periods like reorder.html)
                     COALESCE(sv91.daily_avg_quantity, 0) as daily_velocity,
-                    COALESCE(sv91.weekly_avg_quantity, 0) as weekly_velocity,
+                    COALESCE(sv91.weekly_avg_quantity, 0) as weekly_avg_91d,
+                    COALESCE(sv182.weekly_avg_quantity, 0) as weekly_avg_182d,
+                    COALESCE(sv365.weekly_avg_quantity, 0) as weekly_avg_365d,
                     COALESCE(sv91.total_quantity_sold, 0) as total_sold_91d
                 FROM variations v
                 JOIN items i ON v.item_id = i.id
                 LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
+                LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
+                LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
                 WHERE COALESCE(v.is_deleted, FALSE) = FALSE
                   AND COALESCE(i.is_deleted, FALSE) = FALSE
             )
