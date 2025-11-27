@@ -571,19 +571,30 @@ async function syncVariation(obj) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
 
-    // Log inventory alert fields for debugging (increased to 5% to ensure samples)
-    if (Math.random() < 0.05) {
-        // Log ALL variation_data keys to see what Square actually returns
-        logger.info('Variation raw fields from Square', {
+    // Square stores inventory_alert settings per-location in location_overrides
+    // Extract from first location_override if not set at variation level
+    let inventoryAlertType = data.inventory_alert_type || null;
+    let inventoryAlertThreshold = data.inventory_alert_threshold || null;
+
+    if (data.location_overrides && data.location_overrides.length > 0) {
+        const firstOverride = data.location_overrides[0];
+        if (!inventoryAlertType && firstOverride.inventory_alert_type) {
+            inventoryAlertType = firstOverride.inventory_alert_type;
+        }
+        if (inventoryAlertThreshold === null && firstOverride.inventory_alert_threshold !== undefined) {
+            inventoryAlertThreshold = firstOverride.inventory_alert_threshold;
+        }
+    }
+
+    // Log inventory alert fields for debugging
+    if (Math.random() < 0.02) {
+        logger.info('Variation inventory fields from Square', {
             variation_id: obj.id,
             sku: data.sku,
-            all_variation_data_keys: Object.keys(data),
             track_inventory: data.track_inventory,
-            inventory_alert_type: data.inventory_alert_type,
-            inventory_alert_threshold: data.inventory_alert_threshold,
-            stockable: data.stockable,
-            stockable_conversion: data.stockable_conversion,
-            location_overrides: data.location_overrides ? data.location_overrides.slice(0, 2) : null
+            inventory_alert_type: inventoryAlertType,
+            inventory_alert_threshold: inventoryAlertThreshold,
+            location_overrides_count: data.location_overrides?.length || 0
         });
     }
 
@@ -624,8 +635,8 @@ async function syncVariation(obj) {
         data.price_money?.currency || 'CAD',
         data.pricing_type || 'FIXED_PRICING',
         data.track_inventory === true,  // Only true if explicitly enabled in Square
-        data.inventory_alert_type || null,
-        data.inventory_alert_threshold || null,
+        inventoryAlertType,  // From variation or first location_override
+        inventoryAlertThreshold,  // From variation or first location_override
         obj.present_at_all_locations !== false,
         obj.present_at_location_ids ? JSON.stringify(obj.present_at_location_ids) : null,
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,
