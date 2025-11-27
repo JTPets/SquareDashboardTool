@@ -1528,7 +1528,6 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (unit_cost_cents IS NULL) as missing_cost,  -- Only NULL, not 0 (some items like samples are free)
                 -- E-commerce settings (requires catalog re-sync for correct data)
                 (visibility IS NULL OR visibility NOT IN ('PUBLIC', 'VISIBLE')) as not_visible_online,
-                (available_online = FALSE OR available_online IS NULL) as not_available_online,
                 -- SEO fields
                 (seo_title IS NULL OR seo_title = '') as missing_seo_title,
                 (seo_description IS NULL OR seo_description = '') as missing_seo_description,
@@ -1557,7 +1556,6 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_vendor: result.rows.filter(r => r.missing_vendor).length,
             missing_cost: result.rows.filter(r => r.missing_cost).length,
             not_visible_online: result.rows.filter(r => r.not_visible_online).length,
-            not_available_online: result.rows.filter(r => r.not_available_online).length,
             missing_seo_title: result.rows.filter(r => r.missing_seo_title).length,
             missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
             no_tax_ids: result.rows.filter(r => r.no_tax_ids).length
@@ -1595,7 +1593,6 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
             // E-commerce settings (informational, tracked separately)
             if (row.not_visible_online) { issues.push('Not Visible Online'); }
-            if (row.not_available_online) { issues.push('Not Available Online'); }
             // SEO fields
             if (row.missing_seo_title) { issues.push('No SEO Title'); }
             if (row.missing_seo_description) { issues.push('No SEO Description'); }
