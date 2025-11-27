@@ -500,15 +500,15 @@ async function syncItem(obj, category_name) {
     // For now, we'll check if any pickup-related channel exists
     const availableForPickup = channels.includes('SQUARE_ONLINE'); // If online, likely has pickup option
 
-    // Log e-commerce fields for debugging
-    if (Math.random() < 0.02) {
+    // Log e-commerce fields for debugging (10% sample)
+    if (Math.random() < 0.10) {
         logger.info('Item channels from Square', {
             item_id: obj.id,
             name: data.name,
             channels: channels,
+            channels_raw: data.channels,
             ecom_visibility: data.ecom_visibility,
-            derived_available_online: availableOnline,
-            is_archived: data.is_archived
+            derived_available_online: availableOnline
         });
     }
 
