@@ -1500,7 +1500,14 @@ app.get('/api/catalog-audit', async (req, res) => {
                      WHERE ic.catalog_object_id = v.id
                        AND ic.state = 'IN_STOCK'
                        ${location_id ? "AND ic.location_id = $1" : ""}
-                    ) as current_stock
+                    ) as current_stock,
+                    -- Check if ANY location has a stock_alert_min set (for reorder threshold check)
+                    (SELECT MAX(vls.stock_alert_min)
+                     FROM variation_location_settings vls
+                     WHERE vls.variation_id = v.id
+                       AND vls.stock_alert_min IS NOT NULL
+                       AND vls.stock_alert_min > 0
+                    ) as location_stock_alert_min
                 FROM variations v
                 JOIN items i ON v.item_id = i.id
                 WHERE COALESCE(v.is_deleted, FALSE) = FALSE
@@ -1518,11 +1525,13 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                -- No reorder threshold: Out of stock AND no minimum threshold set (Square or JTPets)
+                -- No reorder threshold: Out of stock AND no minimum threshold set anywhere
+                -- Check: Square's inventory_alert, global stock_alert_min, OR location-specific stock_alert_min
                 (
                     current_stock <= 0
                     AND (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
+                    AND (location_stock_alert_min IS NULL)
                 ) as no_reorder_threshold,
                 (vendor_count = 0) as missing_vendor,
                 (unit_cost_cents IS NULL) as missing_cost,  -- Only NULL, not 0 (some items like samples are free)
