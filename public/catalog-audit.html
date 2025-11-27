@@ -436,6 +436,12 @@
               <th onclick="sortTable('current_stock')" class="sortable text-right">
                 Stock <span class="sort-indicator" id="sort-current_stock"></span>
               </th>
+              <th onclick="sortTable('weekly_velocity')" class="sortable text-right">
+                Weekly Sales <span class="sort-indicator" id="sort-weekly_velocity"></span>
+              </th>
+              <th onclick="sortTable('days_of_stock')" class="sortable text-right">
+                Days Stock <span class="sort-indicator" id="sort-days_of_stock"></span>
+              </th>
               <th onclick="sortTable('issue_count')" class="sortable text-right">
                 Issues <span class="sort-indicator" id="sort-issue_count"></span>
               </th>
@@ -742,6 +748,8 @@
         const row = document.createElement('tr');
         const price = (item.price_money || 0) / 100;
         const stock = parseFloat(item.current_stock || 0);
+        const weeklyVelocity = parseFloat(item.weekly_velocity || 0);
+        const daysOfStock = item.days_of_stock;
 
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
@@ -756,6 +764,10 @@
           ? issues.map(issue => `<span class="issue-badge ${getIssueBadgeClass(issue)}">${issue}</span>`).join('')
           : '<span class="issue-badge ok">All Good</span>';
 
+        // Format velocity display
+        const velocityDisplay = weeklyVelocity > 0 ? weeklyVelocity.toFixed(1) : '-';
+        const daysDisplay = daysOfStock !== null ? daysOfStock : '-';
+
         row.innerHTML = `
           <td>${imageHtml}</td>
           <td>
@@ -766,6 +778,8 @@
           <td>${escapeHtml(item.category_name || '-')}</td>
           <td class="text-right">${price > 0 ? '$' + price.toFixed(2) : '-'}</td>
           <td class="text-right">${stock.toFixed(0)}</td>
+          <td class="text-right">${velocityDisplay}</td>
+          <td class="text-right">${daysDisplay}</td>
           <td class="text-right">
             <span class="issue-count ${getIssueCountClass(item.issue_count)}">${item.issue_count}</span>
           </td>
@@ -789,6 +803,8 @@
         'Category',
         'Price',
         'Stock',
+        'Weekly Sales',
+        'Days of Stock',
         'Issue Count',
         'Issues',
         'Missing Category',
@@ -816,6 +832,8 @@
         item.category_name || '',
         (item.price_money || 0) / 100,
         item.current_stock || 0,
+        item.weekly_velocity || 0,
+        item.days_of_stock || '',
         item.issue_count || 0,
         (item.issues || []).join('; '),
         item.missing_category ? 'Yes' : 'No',

@@ -1507,14 +1507,25 @@ app.get('/api/catalog-audit', async (req, res) => {
                      WHERE vls.variation_id = v.id
                        AND vls.stock_alert_min IS NOT NULL
                        AND vls.stock_alert_min > 0
-                    ) as location_stock_alert_min
+                    ) as location_stock_alert_min,
+                    -- Sales velocity (91 day average)
+                    COALESCE(sv91.daily_avg_quantity, 0) as daily_velocity,
+                    COALESCE(sv91.weekly_avg_quantity, 0) as weekly_velocity,
+                    sv91.total_sold as total_sold_91d
                 FROM variations v
                 JOIN items i ON v.item_id = i.id
+                LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
                 WHERE COALESCE(v.is_deleted, FALSE) = FALSE
                   AND COALESCE(i.is_deleted, FALSE) = FALSE
             )
             SELECT
                 *,
+                -- Calculate days of stock remaining
+                CASE
+                    WHEN daily_velocity > 0 AND current_stock > 0
+                    THEN ROUND(current_stock / daily_velocity, 1)
+                    ELSE NULL
+                END as days_of_stock,
                 -- Calculate audit flags (focused on actual data quality issues)
                 (category_id IS NULL OR category_name IS NULL OR category_name = '') as missing_category,
                 (taxable = FALSE OR taxable IS NULL) as not_taxable,
