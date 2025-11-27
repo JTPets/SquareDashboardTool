@@ -353,7 +353,7 @@
           <option value="missing_item_image">Missing Image</option>
           <option value="missing_sku">Missing SKU</option>
           <option value="missing_upc">Missing UPC/Barcode</option>
-          <option value="stock_tracking_off">Stock Tracking Off</option>
+          <option value="stock_tracking_off">Low Stock Alerts Off</option>
           <option value="no_reorder_threshold">No Reorder Threshold</option>
           <option value="missing_vendor">Missing Vendor</option>
           <option value="missing_cost">Missing Cost</option>
@@ -468,7 +468,7 @@
       { key: 'missing_item_image', label: 'No Image', severity: 'warning' },
       { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
       { key: 'missing_upc', label: 'No UPC', severity: 'info' },
-      { key: 'stock_tracking_off', label: 'Stock Tracking Off', severity: 'critical' },
+      { key: 'stock_tracking_off', label: 'Low Stock Alerts Off', severity: 'critical' },
       { key: 'no_reorder_threshold', label: 'No Reorder Threshold', severity: 'warning' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning' },
@@ -728,7 +728,7 @@
     }
 
     function getIssueBadgeClass(issue) {
-      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off'];
+      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off'];
       const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Reorder Threshold', 'No Vendor', 'No Cost', 'No Tax IDs'];
       const infoIssues = ['No UPC', 'Not Visible Online', 'Not Available Online', 'Not Available Pickup', 'No SEO Title', 'No SEO Description'];
 
@@ -802,7 +802,7 @@
         'Missing Image',
         'Missing SKU',
         'Missing UPC',
-        'Stock Tracking Off',
+        'Low Stock Alerts Off',
         'No Reorder Threshold',
         'Missing Vendor',
         'Missing Cost',

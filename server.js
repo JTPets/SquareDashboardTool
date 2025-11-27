@@ -1590,7 +1590,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_item_image) { issueCount++; issues.push('No Image'); }
             if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
             if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
-            if (row.stock_tracking_off) { issueCount++; issues.push('Stock Tracking Off'); }
+            if (row.stock_tracking_off) { issueCount++; issues.push('Low Stock Alerts Off'); }
             if (row.no_reorder_threshold) { issueCount++; issues.push('No Reorder Threshold'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
