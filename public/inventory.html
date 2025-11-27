@@ -340,6 +340,7 @@
         <option value="in_stock">In Stock (> 0)</option>
         <option value="low_stock">Low Stock (< Min)</option>
         <option value="out_of_stock">Out of Stock (= 0)</option>
+        <option value="negative_stock">Negative Stock (< 0)</option>
       </select>
       <button onclick="loadData()">🔄 Refresh</button>
       <div class="info-badge" id="statusBadge">Loading...</div>
@@ -516,7 +517,8 @@
         const matchesStock = !stockFilter ||
           (stockFilter === 'in_stock' && qty > 0) ||
           (stockFilter === 'low_stock' && min > 0 && qty <= min) ||
-          (stockFilter === 'out_of_stock' && qty === 0);
+          (stockFilter === 'out_of_stock' && qty === 0) ||
+          (stockFilter === 'negative_stock' && qty < 0);
 
         return matchesSearch && matchesLocation && matchesCategory && matchesVendor && matchesStock;
       });
