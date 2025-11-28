@@ -659,7 +659,10 @@ async function syncVariation(obj) {
         }
     }
 
-    // Sync vendor information
+    // Sync vendor information - clear existing and replace with fresh data from Square
+    // First, delete all existing vendor relationships for this variation
+    await db.query('DELETE FROM variation_vendors WHERE variation_id = $1', [obj.id]);
+
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {
             try {
