@@ -677,54 +677,92 @@
       <!-- IMPORT TAB -->
       <div class="tab-content active" id="tab-import">
         <div class="import-section">
-          <div class="vendor-name-input" style="margin-bottom: 20px;">
-            <label for="default-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">
-              Default Vendor Name <span style="color: #6b7280; font-weight: normal;">(if not in file)</span>
-            </label>
-            <input type="text" id="default-vendor" placeholder="e.g., Rolf C. Hagen, Big Al's..."
-                   style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
-            <p style="margin-top: 6px; color: #6b7280; font-size: 12px;">
-              If your file has a Brand column, it will be used as vendor. Otherwise, enter the vendor name here.
-            </p>
-          </div>
 
-          <div class="import-box" id="import-box">
-            <h3>Upload Vendor Catalog</h3>
-            <p>Drag and drop a CSV or XLSX file, or click to select</p>
-            <input type="file" id="file-input" class="file-input" accept=".csv,.xlsx">
-            <button class="upload-btn" onclick="document.getElementById('file-input').click()">
-              Select File
-            </button>
-            <div class="file-info" id="file-info" style="display: none;">
-              <strong id="file-name"></strong>
-              <span id="file-size"></span>
+          <!-- STEP 1: File Upload -->
+          <div id="import-step-1">
+            <div class="step-header" style="margin-bottom: 20px;">
+              <h3 style="color: #374151; margin-bottom: 5px;">Step 1: Select File</h3>
+              <p style="color: #6b7280; font-size: 14px;">Upload a CSV or XLSX vendor catalog file</p>
+            </div>
+
+            <div class="import-box" id="import-box">
+              <h3>Upload Vendor Catalog</h3>
+              <p>Drag and drop a CSV or XLSX file, or click to select</p>
+              <input type="file" id="file-input" class="file-input" accept=".csv,.xlsx">
+              <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+                Select File
+              </button>
+              <div class="file-info" id="file-info" style="display: none;">
+                <strong id="file-name"></strong>
+                <span id="file-size"></span>
+              </div>
+            </div>
+
+            <div class="import-progress" id="preview-progress" style="display: none;">
+              <div class="spinner"></div>
+              <p>Analyzing file...</p>
             </div>
           </div>
 
-          <div class="import-progress" id="import-progress">
+          <!-- STEP 2: Column Mapping -->
+          <div id="import-step-2" style="display: none;">
+            <div class="step-header" style="margin-bottom: 20px;">
+              <h3 style="color: #374151; margin-bottom: 5px;">Step 2: Confirm Column Mappings</h3>
+              <p style="color: #6b7280; font-size: 14px;">
+                Review and adjust how columns are mapped.
+                <span id="row-count-info" style="font-weight: 500;"></span>
+              </p>
+            </div>
+
+            <div class="vendor-name-input" style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
+              <label for="default-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">
+                Default Vendor Name <span style="color: #6b7280; font-weight: normal;">(if no vendor/brand column mapped)</span>
+              </label>
+              <input type="text" id="default-vendor" placeholder="e.g., Rolf C. Hagen, Big Al's..."
+                     style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+            </div>
+
+            <div class="mapping-table-container" style="overflow-x: auto; margin-bottom: 20px;">
+              <table id="mapping-table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead>
+                  <tr style="background: #f3f4f6;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; width: 180px;">Original Column</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; width: 180px;">Map To</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb;">Sample Data (First 3 Rows)</th>
+                  </tr>
+                </thead>
+                <tbody id="mapping-body">
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mapping-legend" style="background: #fefce8; border: 1px solid #fef08a; border-radius: 6px; padding: 12px; margin-bottom: 20px; font-size: 13px;">
+              <strong style="color: #854d0e;">Required fields:</strong>
+              <span style="color: #713f12;">Product Name, Vendor Item #, Cost, and either Vendor Name/Brand or Default Vendor above</span>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+              <button onclick="resetImport()" style="padding: 12px 24px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                Start Over
+              </button>
+              <button onclick="confirmImport()" style="padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Confirm & Import
+              </button>
+            </div>
+          </div>
+
+          <!-- Import Progress -->
+          <div class="import-progress" id="import-progress" style="display: none;">
             <div class="spinner"></div>
             <p>Importing vendor catalog...</p>
           </div>
 
+          <!-- Import Result -->
           <div class="import-result" id="import-result">
             <h4 id="result-title"></h4>
             <div id="result-content"></div>
           </div>
 
-          <div class="expected-columns">
-            <h4>Expected Columns</h4>
-            <ul>
-              <li><strong>Vendor/Brand</strong> <span>(or use default above)</span></li>
-              <li><strong>Description</strong> <span>(Required - product name)</span></li>
-              <li><strong>Item Number</strong> <span>(Required - vendor's SKU)</span></li>
-              <li><strong>Net Price</strong> <span>(Required - your cost)</span></li>
-              <li><strong>UPC Code</strong> <span>(Optional - for matching)</span></li>
-              <li><strong>S.R.P.</strong> <span>(Optional - for margin calc)</span></li>
-            </ul>
-            <p style="margin-top: 15px; color: #6b7280; font-size: 13px;">
-              Column headers are flexible - we recognize variations like "Item Number", "Part Number", "Net Price", "S.R.P.", "Brand", etc.
-            </p>
-          </div>
         </div>
       </div>
 
@@ -798,6 +836,13 @@
   </div>
 
   <script>
+    // State for import flow
+    let currentFileData = null;
+    let currentFileName = null;
+    let currentFileType = null;
+    let previewData = null;
+    let fieldTypes = [];
+
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -841,7 +886,7 @@
       if (file) handleFile(file);
     });
 
-    // Handle file selection
+    // Handle file selection - Step 1: Preview
     async function handleFile(file) {
       // Validate file type
       const validTypes = ['.csv', '.xlsx'];
@@ -856,33 +901,169 @@
       document.getElementById('file-name').textContent = file.name;
       document.getElementById('file-size').textContent = ` (${formatBytes(file.size)})`;
 
-      // Show progress
-      document.getElementById('import-progress').classList.add('show');
+      // Show preview progress
+      document.getElementById('preview-progress').style.display = 'block';
       document.getElementById('import-result').classList.remove('show');
 
       try {
         // Read file as base64
         const base64 = await readFileAsBase64(file);
+        currentFileData = base64;
+        currentFileName = file.name;
+        currentFileType = ext === '.xlsx' ? 'xlsx' : 'csv';
 
-        // Get default vendor name if specified
-        const defaultVendorName = document.getElementById('default-vendor').value.trim();
-
-        // Send to API
-        const response = await fetch('/api/vendor-catalog/import', {
+        // Call preview API
+        const response = await fetch('/api/vendor-catalog/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             data: base64,
             fileName: file.name,
-            fileType: ext === '.xlsx' ? 'xlsx' : 'csv',
+            fileType: currentFileType
+          })
+        });
+
+        const result = await response.json();
+        document.getElementById('preview-progress').style.display = 'none';
+
+        if (!result.success) {
+          showImportError(result.error || 'Failed to preview file');
+          return;
+        }
+
+        previewData = result;
+
+        // Show row count info
+        document.getElementById('row-count-info').textContent =
+          `Found ${result.totalRows} data rows.`;
+
+        // Render the mapping table
+        renderMappingTable(result.columns, result.autoMappings, result.sampleValues);
+
+        // Switch to step 2
+        document.getElementById('import-step-1').style.display = 'none';
+        document.getElementById('import-step-2').style.display = 'block';
+
+      } catch (error) {
+        document.getElementById('preview-progress').style.display = 'none';
+        showImportError(error.message);
+      }
+    }
+
+    // Render the column mapping table with dropdowns
+    function renderMappingTable(columns, autoMappings, sampleValues) {
+      const tbody = document.getElementById('mapping-body');
+      tbody.innerHTML = '';
+
+      columns.forEach((col, index) => {
+        const row = document.createElement('tr');
+
+        // Original column header
+        const headerCell = document.createElement('td');
+        headerCell.style.fontWeight = '500';
+        headerCell.textContent = col;
+        row.appendChild(headerCell);
+
+        // Dropdown for mapping
+        const mapCell = document.createElement('td');
+        const select = document.createElement('select');
+        select.id = `mapping-${index}`;
+        select.dataset.column = col;
+        select.style.cssText = 'width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px;';
+
+        // Add field type options
+        select.innerHTML = '<option value="skip">(Skip this column)</option>';
+        fieldTypes.forEach(ft => {
+          const option = document.createElement('option');
+          option.value = ft.id;
+          option.textContent = ft.label + (ft.required ? ' *' : '');
+          if (autoMappings[col] === ft.id) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+
+        // Highlight auto-detected mappings
+        if (autoMappings[col] && autoMappings[col] !== 'skip') {
+          select.style.borderColor = '#10b981';
+          select.style.backgroundColor = '#ecfdf5';
+        }
+
+        mapCell.appendChild(select);
+        row.appendChild(mapCell);
+
+        // Sample data
+        const sampleCell = document.createElement('td');
+        sampleCell.style.fontSize = '13px';
+        sampleCell.style.color = '#6b7280';
+        const samples = sampleValues[col] || [];
+        sampleCell.innerHTML = samples.map((s, i) =>
+          `<div style="padding: 2px 0; ${i > 0 ? 'border-top: 1px solid #e5e7eb;' : ''}">${escapeHtml(s || '(empty)')}</div>`
+        ).join('');
+        row.appendChild(sampleCell);
+
+        tbody.appendChild(row);
+      });
+    }
+
+    // Confirm and perform import - Step 2
+    async function confirmImport() {
+      // Gather mappings from dropdowns
+      const mappings = {};
+      const selects = document.querySelectorAll('[id^="mapping-"]');
+      selects.forEach(select => {
+        const value = select.value;
+        if (value && value !== 'skip') {
+          mappings[select.dataset.column] = value;
+        }
+      });
+
+      // Validate required fields
+      const mappedFields = Object.values(mappings);
+      const hasVendorName = mappedFields.includes('vendor_name') || mappedFields.includes('brand');
+      const hasDefaultVendor = document.getElementById('default-vendor').value.trim().length > 0;
+
+      if (!hasVendorName && !hasDefaultVendor) {
+        alert('Please either map a Vendor Name/Brand column or enter a Default Vendor Name');
+        return;
+      }
+
+      if (!mappedFields.includes('product_name')) {
+        alert('Please map a column to Product Name (required)');
+        return;
+      }
+
+      if (!mappedFields.includes('vendor_item_number')) {
+        alert('Please map a column to Vendor Item # (required)');
+        return;
+      }
+
+      if (!mappedFields.includes('cost')) {
+        alert('Please map a column to Cost (required)');
+        return;
+      }
+
+      // Show import progress
+      document.getElementById('import-step-2').style.display = 'none';
+      document.getElementById('import-progress').style.display = 'block';
+
+      try {
+        const defaultVendorName = document.getElementById('default-vendor').value.trim();
+
+        const response = await fetch('/api/vendor-catalog/import-mapped', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: currentFileData,
+            fileName: currentFileName,
+            fileType: currentFileType,
+            mappings: mappings,
             defaultVendorName: defaultVendorName || null
           })
         });
 
         const result = await response.json();
-
-        // Hide progress
-        document.getElementById('import-progress').classList.remove('show');
+        document.getElementById('import-progress').style.display = 'none';
 
         // Show result
         const resultEl = document.getElementById('import-result');
@@ -903,37 +1084,84 @@
             html += `<p style="color: #d97706; margin-top: 10px;">${result.validationErrors.length} rows had validation errors and were skipped</p>`;
           }
 
+          html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Import Another File</button>`;
+
           document.getElementById('result-content').innerHTML = html;
 
           // Refresh stats
           loadStats();
         } else {
-          resultEl.classList.remove('success');
-          resultEl.classList.add('error');
-          document.getElementById('result-title').textContent = 'Import Failed';
-
-          let html = `<p>${result.error}</p>`;
-          if (result.validationErrors && result.validationErrors.length > 0) {
-            html += '<ul style="margin-top: 10px; font-size: 13px;">';
-            result.validationErrors.slice(0, 10).forEach(err => {
-              html += `<li>Row ${err.row}: ${err.errors.join(', ')}</li>`;
-            });
-            if (result.validationErrors.length > 10) {
-              html += `<li>...and ${result.validationErrors.length - 10} more errors</li>`;
-            }
-            html += '</ul>';
-          }
-          document.getElementById('result-content').innerHTML = html;
+          showImportError(result.error, result.validationErrors);
         }
 
       } catch (error) {
-        document.getElementById('import-progress').classList.remove('show');
+        document.getElementById('import-progress').style.display = 'none';
+        showImportError(error.message);
+      }
+    }
 
-        const resultEl = document.getElementById('import-result');
-        resultEl.classList.add('show', 'error');
-        resultEl.classList.remove('success');
-        document.getElementById('result-title').textContent = 'Import Error';
-        document.getElementById('result-content').innerHTML = `<p>${error.message}</p>`;
+    // Show import error
+    function showImportError(message, validationErrors) {
+      const resultEl = document.getElementById('import-result');
+      resultEl.classList.add('show', 'error');
+      resultEl.classList.remove('success');
+      document.getElementById('result-title').textContent = 'Import Failed';
+
+      let html = `<p>${escapeHtml(message)}</p>`;
+      if (validationErrors && validationErrors.length > 0) {
+        html += '<ul style="margin-top: 10px; font-size: 13px;">';
+        validationErrors.slice(0, 10).forEach(err => {
+          html += `<li>Row ${err.row}: ${err.errors.join(', ')}</li>`;
+        });
+        if (validationErrors.length > 10) {
+          html += `<li>...and ${validationErrors.length - 10} more errors</li>`;
+        }
+        html += '</ul>';
+      }
+
+      html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer;">Try Again</button>`;
+
+      document.getElementById('result-content').innerHTML = html;
+    }
+
+    // Reset import to step 1
+    function resetImport() {
+      // Clear state
+      currentFileData = null;
+      currentFileName = null;
+      currentFileType = null;
+      previewData = null;
+
+      // Reset UI
+      document.getElementById('import-step-1').style.display = 'block';
+      document.getElementById('import-step-2').style.display = 'none';
+      document.getElementById('import-progress').style.display = 'none';
+      document.getElementById('preview-progress').style.display = 'none';
+      document.getElementById('import-result').classList.remove('show', 'success', 'error');
+      document.getElementById('file-info').style.display = 'none';
+      document.getElementById('file-input').value = '';
+      document.getElementById('default-vendor').value = '';
+      document.getElementById('mapping-body').innerHTML = '';
+    }
+
+    // Load field types for dropdowns
+    async function loadFieldTypes() {
+      try {
+        const response = await fetch('/api/vendor-catalog/field-types');
+        const data = await response.json();
+        fieldTypes = data.fieldTypes || [];
+      } catch (error) {
+        console.error('Failed to load field types:', error);
+        // Fallback field types
+        fieldTypes = [
+          { id: 'vendor_name', label: 'Vendor Name', required: false },
+          { id: 'brand', label: 'Brand', required: false },
+          { id: 'product_name', label: 'Product Name', required: true },
+          { id: 'vendor_item_number', label: 'Vendor Item #', required: true },
+          { id: 'upc', label: 'UPC/GTIN', required: false },
+          { id: 'cost', label: 'Cost', required: true },
+          { id: 'price', label: 'Price (SRP)', required: false }
+        ];
       }
     }
 
@@ -1235,6 +1463,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       loadStats();
       loadVendors();
+      loadFieldTypes();
     });
   </script>
 </body>

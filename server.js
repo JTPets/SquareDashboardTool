@@ -1754,6 +1754,125 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
 });
 
 /**
+ * POST /api/vendor-catalog/preview
+ * Preview file contents and get auto-detected column mappings
+ */
+app.post('/api/vendor-catalog/preview', async (req, res) => {
+    try {
+        const { data, fileType, fileName } = req.body;
+
+        if (!data) {
+            return res.status(400).json({
+                error: 'Missing file data',
+                message: 'Please provide file data in the request body'
+            });
+        }
+
+        // Determine file type
+        let type = fileType;
+        if (!type && fileName) {
+            type = fileName.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'csv';
+        }
+        if (!type) {
+            type = 'csv';
+        }
+
+        // Convert base64 to buffer for XLSX, or use string for CSV
+        let fileData;
+        if (type === 'xlsx') {
+            fileData = Buffer.from(data, 'base64');
+        } else {
+            try {
+                fileData = Buffer.from(data, 'base64').toString('utf-8');
+            } catch {
+                fileData = data;
+            }
+        }
+
+        const preview = await vendorCatalog.previewFile(fileData, type);
+        res.json(preview);
+
+    } catch (error) {
+        logger.error('Vendor catalog preview error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/vendor-catalog/import-mapped
+ * Import vendor catalog with explicit column mappings
+ */
+app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
+    try {
+        const { data, fileType, fileName, columnMappings, defaultVendorName } = req.body;
+
+        if (!data) {
+            return res.status(400).json({
+                error: 'Missing file data',
+                message: 'Please provide file data in the request body'
+            });
+        }
+
+        // Determine file type
+        let type = fileType;
+        if (!type && fileName) {
+            type = fileName.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'csv';
+        }
+        if (!type) {
+            type = 'csv';
+        }
+
+        // Convert base64 to buffer for XLSX, or use string for CSV
+        let fileData;
+        if (type === 'xlsx') {
+            fileData = Buffer.from(data, 'base64');
+        } else {
+            try {
+                fileData = Buffer.from(data, 'base64').toString('utf-8');
+            } catch {
+                fileData = data;
+            }
+        }
+
+        const result = await vendorCatalog.importWithMappings(fileData, type, {
+            columnMappings: columnMappings || {},
+            defaultVendorName: defaultVendorName || null
+        });
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Imported ${result.stats.imported} items from vendor catalog`,
+                batchId: result.batchId,
+                stats: result.stats,
+                validationErrors: result.validationErrors,
+                fieldMap: result.fieldMap,
+                duration: result.duration
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                error: result.error,
+                batchId: result.batchId,
+                validationErrors: result.validationErrors,
+                fieldMap: result.fieldMap
+            });
+        }
+    } catch (error) {
+        logger.error('Vendor catalog import-mapped error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/vendor-catalog/field-types
+ * Get supported field types for column mapping
+ */
+app.get('/api/vendor-catalog/field-types', (req, res) => {
+    res.json({ fieldTypes: vendorCatalog.FIELD_TYPES });
+});
+
+/**
  * GET /api/vendor-catalog
  * Search and list vendor catalog items
  */

@@ -761,8 +761,263 @@ async function getStats() {
     return result.rows[0];
 }
 
+/**
+ * Supported field types for mapping
+ */
+const FIELD_TYPES = [
+    { id: 'vendor_name', label: 'Vendor Name', required: false, description: 'Vendor/supplier name' },
+    { id: 'brand', label: 'Brand', required: false, description: 'Brand name (used as vendor if no vendor column)' },
+    { id: 'product_name', label: 'Product Name', required: true, description: 'Product description/title' },
+    { id: 'vendor_item_number', label: 'Vendor Item #', required: true, description: "Vendor's SKU or part number" },
+    { id: 'upc', label: 'UPC/GTIN', required: false, description: 'Barcode for matching' },
+    { id: 'cost', label: 'Cost', required: true, description: 'Your cost from vendor' },
+    { id: 'price', label: 'Price (SRP)', required: false, description: 'Suggested retail price' },
+    { id: 'skip', label: '(Skip)', required: false, description: 'Ignore this column' }
+];
+
+/**
+ * Preview file contents and auto-detect column mappings
+ * @param {string|Buffer} data - File content
+ * @param {string} fileType - 'csv' or 'xlsx'
+ * @returns {Promise<Object>} Preview data with headers, sample rows, and suggested mappings
+ */
+async function previewFile(data, fileType) {
+    // Parse file
+    let parsed;
+    if (fileType === 'xlsx') {
+        parsed = await parseXLSX(data);
+    } else {
+        parsed = parseCSV(data);
+    }
+
+    const { headers, rows } = parsed;
+
+    // Auto-detect mappings for each column
+    const columns = headers.map((header, index) => {
+        const autoDetected = normalizeHeader(header);
+
+        // Get sample values from first 3 rows
+        const sampleValues = rows.slice(0, 3).map(row => {
+            const value = row[header];
+            // Truncate long values for display
+            if (value === null || value === undefined) return '';
+            const str = String(value);
+            return str.length > 50 ? str.substring(0, 47) + '...' : str;
+        });
+
+        return {
+            index,
+            originalHeader: header,
+            suggestedMapping: autoDetected || 'skip',
+            sampleValues
+        };
+    });
+
+    return {
+        totalRows: rows.length,
+        columns,
+        fieldTypes: FIELD_TYPES
+    };
+}
+
+/**
+ * Import with explicit column mappings
+ * @param {string|Buffer} data - File content
+ * @param {string} fileType - 'csv' or 'xlsx'
+ * @param {Object} options - Import options
+ * @param {Object} options.columnMappings - Map of column index/header to field type
+ * @param {string} options.defaultVendorName - Default vendor name
+ * @returns {Promise<Object>} Import result
+ */
+async function importWithMappings(data, fileType, options = {}) {
+    const startTime = Date.now();
+    const batchId = generateBatchId();
+    const { columnMappings, defaultVendorName } = options;
+
+    logger.info('Starting vendor catalog import with explicit mappings', {
+        fileType,
+        batchId,
+        defaultVendorName,
+        mappingCount: columnMappings ? Object.keys(columnMappings).length : 0
+    });
+
+    try {
+        // Parse file
+        let parsed;
+        if (fileType === 'xlsx') {
+            parsed = await parseXLSX(data);
+        } else {
+            parsed = parseCSV(data);
+        }
+
+        const { headers, rows } = parsed;
+
+        logger.info('Parsed vendor catalog file', {
+            batchId,
+            headers,
+            rowCount: rows.length
+        });
+
+        // Build field map from explicit mappings or fall back to auto-detect
+        const fieldMap = {};
+        headers.forEach((header, index) => {
+            // Check explicit mappings by index first, then by header name
+            let mapping = null;
+            if (columnMappings) {
+                mapping = columnMappings[index] || columnMappings[header];
+            }
+
+            // Fall back to auto-detection if no explicit mapping
+            if (!mapping || mapping === 'auto') {
+                mapping = normalizeHeader(header);
+            }
+
+            // Skip if mapping is 'skip' or null
+            if (mapping && mapping !== 'skip') {
+                fieldMap[header] = mapping;
+            }
+        });
+
+        // Validate required fields
+        const mappedFields = Object.values(fieldMap);
+        const hasVendorOrBrand = mappedFields.includes('vendor_name') || mappedFields.includes('brand') || defaultVendorName;
+
+        const missingRequired = [];
+        if (!mappedFields.includes('product_name')) missingRequired.push('product_name');
+        if (!mappedFields.includes('vendor_item_number')) missingRequired.push('vendor_item_number');
+        if (!mappedFields.includes('cost')) missingRequired.push('cost');
+        if (!hasVendorOrBrand) missingRequired.push('vendor_name (or brand)');
+
+        if (missingRequired.length > 0) {
+            return {
+                success: false,
+                batchId,
+                error: `Missing required field mappings: ${missingRequired.join(', ')}`,
+                fieldMap
+            };
+        }
+
+        // Transform rows using the field map
+        const items = [];
+        const errors = [];
+
+        rows.forEach((row, index) => {
+            const rowNum = index + 2;
+            const item = {};
+
+            // Map row values to standard fields
+            Object.entries(row).forEach(([header, value]) => {
+                const field = fieldMap[header];
+                if (field) {
+                    item[field] = value;
+                }
+            });
+
+            // Validate and transform
+            const rowErrors = [];
+
+            // Vendor name
+            let vendorName = item.vendor_name || item.brand || defaultVendorName;
+            if (!vendorName || String(vendorName).trim() === '') {
+                rowErrors.push('Missing vendor name');
+            } else {
+                item.vendor_name = String(vendorName).trim();
+            }
+
+            // Product name
+            if (!item.product_name || String(item.product_name).trim() === '') {
+                rowErrors.push('Missing product name');
+            } else {
+                item.product_name = String(item.product_name).trim();
+            }
+
+            // Vendor item number
+            if (!item.vendor_item_number || String(item.vendor_item_number).trim() === '') {
+                rowErrors.push('Missing vendor item number');
+            } else {
+                item.vendor_item_number = String(item.vendor_item_number).trim();
+            }
+
+            // Cost
+            const costCents = parseMoney(item.cost);
+            if (costCents === null || costCents < 0) {
+                rowErrors.push(`Invalid cost: ${item.cost}`);
+            } else {
+                item.cost_cents = costCents;
+            }
+
+            // Price (optional)
+            if (item.price !== undefined && item.price !== null && item.price !== '') {
+                const priceCents = parseMoney(item.price);
+                if (priceCents === null || priceCents < 0) {
+                    rowErrors.push(`Invalid price: ${item.price}`);
+                } else {
+                    item.price_cents = priceCents;
+                }
+            } else {
+                item.price_cents = null;
+            }
+
+            // UPC
+            item.upc = cleanUPC(item.upc);
+
+            // Calculate margin
+            item.margin_percent = calculateMargin(item.cost_cents, item.price_cents);
+
+            if (rowErrors.length > 0) {
+                errors.push({ row: rowNum, errors: rowErrors, data: item });
+            } else {
+                items.push(item);
+            }
+        });
+
+        if (items.length === 0) {
+            return {
+                success: false,
+                batchId,
+                error: 'No valid rows to import',
+                validationErrors: errors
+            };
+        }
+
+        // Import valid items
+        const stats = await importItems(items, batchId);
+
+        const duration = Date.now() - startTime;
+        logger.info('Vendor catalog import complete', {
+            batchId,
+            duration,
+            ...stats
+        });
+
+        return {
+            success: true,
+            batchId,
+            duration,
+            stats,
+            validationErrors: errors,
+            fieldMap
+        };
+
+    } catch (error) {
+        logger.error('Vendor catalog import failed', {
+            batchId,
+            error: error.message,
+            stack: error.stack
+        });
+
+        return {
+            success: false,
+            batchId,
+            error: error.message
+        };
+    }
+}
+
 module.exports = {
     importVendorCatalog,
+    importWithMappings,
+    previewFile,
     searchVendorCatalog,
     getImportBatches,
     deleteImportBatch,
@@ -771,5 +1026,7 @@ module.exports = {
     generateBatchId,
     parseCSV,
     parseXLSX,
-    validateAndTransform
+    validateAndTransform,
+    normalizeHeader,
+    FIELD_TYPES
 };
