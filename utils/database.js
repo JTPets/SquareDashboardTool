@@ -215,6 +215,43 @@ async function ensureSchema() {
 
     let appliedCount = 0;
 
+    // Check if vendor_catalog_items table exists
+    const tableCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'vendor_catalog_items'
+    `);
+
+    if (tableCheck.rows.length === 0) {
+        logger.info('Creating vendor_catalog_items table...');
+        await query(`
+            CREATE TABLE IF NOT EXISTS vendor_catalog_items (
+                id SERIAL PRIMARY KEY,
+                vendor_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+                vendor_name TEXT NOT NULL,
+                vendor_item_number TEXT NOT NULL,
+                product_name TEXT NOT NULL,
+                upc TEXT,
+                cost_cents INTEGER NOT NULL,
+                price_cents INTEGER,
+                margin_percent DECIMAL(5,2),
+                matched_variation_id TEXT REFERENCES variations(id) ON DELETE SET NULL,
+                match_method TEXT,
+                import_batch_id TEXT,
+                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(vendor_id, vendor_item_number, import_batch_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor ON vendor_catalog_items(vendor_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_upc ON vendor_catalog_items(upc) WHERE upc IS NOT NULL');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor_item ON vendor_catalog_items(vendor_item_number)');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_matched ON vendor_catalog_items(matched_variation_id) WHERE matched_variation_id IS NOT NULL');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC)');
+        logger.info('Created vendor_catalog_items table with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
