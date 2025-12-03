@@ -1694,7 +1694,7 @@ const vendorCatalog = require('./utils/vendor-catalog');
  */
 app.post('/api/vendor-catalog/import', async (req, res) => {
     try {
-        const { data, fileType, fileName } = req.body;
+        const { data, fileType, fileName, defaultVendorName } = req.body;
 
         if (!data) {
             return res.status(400).json({
@@ -1725,7 +1725,9 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
             }
         }
 
-        const result = await vendorCatalog.importVendorCatalog(fileData, type);
+        const result = await vendorCatalog.importVendorCatalog(fileData, type, {
+            defaultVendorName: defaultVendorName || null
+        });
 
         if (result.success) {
             res.json({

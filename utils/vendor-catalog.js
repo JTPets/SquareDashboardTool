@@ -97,39 +97,52 @@ function calculateMargin(costCents, priceCents) {
 function normalizeHeader(header) {
     if (!header) return null;
 
-    const normalized = String(header).toLowerCase().trim();
+    const normalized = String(header).toLowerCase().trim().replace(/[.\s]+/g, ' ').trim();
 
     // Vendor name mappings
     if (['vendor', 'vendor_name', 'vendor name', 'supplier', 'supplier_name'].includes(normalized)) {
         return 'vendor_name';
     }
 
+    // Brand mappings (can be used as vendor name if vendor not specified)
+    if (['brand', 'brand name', 'manufacturer', 'mfg', 'mfr'].includes(normalized)) {
+        return 'brand';
+    }
+
     // Product name mappings
-    if (['name', 'product_name', 'product name', 'item_name', 'item name', 'description', 'item', 'product'].includes(normalized)) {
+    if (['name', 'product_name', 'product name', 'item_name', 'item name', 'description',
+         'item description', 'product description', 'item', 'product', 'title'].includes(normalized)) {
         return 'product_name';
     }
 
     // UPC/GTIN mappings
-    if (['upc', 'gtin', 'barcode', 'upc/gtin', 'ean', 'upc_code', 'gtin_code', 'upc code'].includes(normalized)) {
+    if (['upc', 'gtin', 'barcode', 'upc/gtin', 'ean', 'upc_code', 'gtin_code', 'upc code',
+         'upc number', 'barcode number', 'gtin number'].includes(normalized)) {
         return 'upc';
     }
 
     // Vendor item number mappings
     if (['vendor_item_number', 'vendor item number', 'vendor_sku', 'vendor sku', 'part_number',
          'part number', 'item_number', 'item number', 'sku', 'vendor_code', 'vendor code',
-         'item#', 'item #', 'part#', 'part #', 'catalog_number', 'catalog number'].includes(normalized)) {
+         'item#', 'item #', 'part#', 'part #', 'catalog_number', 'catalog number',
+         'product number', 'product_number', 'model', 'model number', 'model_number',
+         'item no', 'item no.', 'part no', 'part no.', 'catalog no', 'catalog no.'].includes(normalized)) {
         return 'vendor_item_number';
     }
 
-    // Cost mappings
-    if (['cost', 'unit_cost', 'unit cost', 'wholesale', 'wholesale_price', 'our_cost', 'our cost',
-         'dealer_cost', 'dealer cost', 'cost_price', 'cost price', 'buy_price', 'buy price'].includes(normalized)) {
+    // Cost mappings (net price = actual cost after discounts)
+    if (['cost', 'unit_cost', 'unit cost', 'wholesale', 'wholesale_price', 'wholesale price',
+         'our_cost', 'our cost', 'dealer_cost', 'dealer cost', 'cost_price', 'cost price',
+         'buy_price', 'buy price', 'net_price', 'net price', 'net cost', 'net',
+         'your cost', 'your price', 'dealer price', 'distributor cost', 'dist cost'].includes(normalized)) {
         return 'cost';
     }
 
-    // Price mappings
+    // Price mappings (SRP = Suggested Retail Price)
     if (['price', 'retail', 'retail_price', 'retail price', 'msrp', 'list_price', 'list price',
-         'sell_price', 'sell price', 'suggested_retail', 'suggested retail', 'srp'].includes(normalized)) {
+         'sell_price', 'sell price', 'suggested_retail', 'suggested retail', 'srp', 's r p',
+         'suggested retail price', 'retail value', 'map', 'map price', 'sale price',
+         'customer price', 'resale', 'resale price'].includes(normalized)) {
         return 'price';
     }
 
@@ -266,9 +279,10 @@ async function parseXLSX(buffer) {
  * Validate and transform imported data
  * @param {Array<Object>} rows - Raw data rows
  * @param {Array<string>} headers - Column headers
+ * @param {string} defaultVendorName - Optional default vendor name for files without vendor column
  * @returns {Object} Validation result with items and errors
  */
-function validateAndTransform(rows, headers) {
+function validateAndTransform(rows, headers, defaultVendorName = null) {
     // Map headers to our standard fields
     const fieldMap = {};
     headers.forEach(header => {
@@ -278,10 +292,17 @@ function validateAndTransform(rows, headers) {
         }
     });
 
-    // Check required fields
+    // Check required fields - brand can substitute for vendor_name
     const mappedFields = Object.values(fieldMap);
-    const requiredFields = ['vendor_name', 'product_name', 'vendor_item_number', 'cost'];
+    const hasVendorOrBrand = mappedFields.includes('vendor_name') || mappedFields.includes('brand') || defaultVendorName;
+
+    // Adjusted required fields - vendor can come from brand or default
+    const requiredFields = ['product_name', 'vendor_item_number', 'cost'];
     const missingRequired = requiredFields.filter(f => !mappedFields.includes(f));
+
+    if (!hasVendorOrBrand) {
+        missingRequired.unshift('vendor_name (or brand)');
+    }
 
     if (missingRequired.length > 0) {
         return {
@@ -312,11 +333,12 @@ function validateAndTransform(rows, headers) {
         // Validate and transform
         const rowErrors = [];
 
-        // Vendor name (required)
-        if (!item.vendor_name || String(item.vendor_name).trim() === '') {
+        // Vendor name (required) - can come from vendor_name, brand, or default
+        let vendorName = item.vendor_name || item.brand || defaultVendorName;
+        if (!vendorName || String(vendorName).trim() === '') {
             rowErrors.push('Missing vendor name');
         } else {
-            item.vendor_name = String(item.vendor_name).trim();
+            item.vendor_name = String(vendorName).trim();
         }
 
         // Product name (required)
@@ -518,13 +540,16 @@ async function importItems(items, batchId) {
  * Main import function - handles CSV or XLSX
  * @param {string|Buffer} data - File content (string for CSV, Buffer for XLSX)
  * @param {string} fileType - 'csv' or 'xlsx'
+ * @param {Object} options - Import options
+ * @param {string} options.defaultVendorName - Default vendor name for files without vendor column
  * @returns {Promise<Object>} Import result
  */
-async function importVendorCatalog(data, fileType) {
+async function importVendorCatalog(data, fileType, options = {}) {
     const startTime = Date.now();
     const batchId = generateBatchId();
+    const { defaultVendorName } = options;
 
-    logger.info('Starting vendor catalog import', { fileType, batchId });
+    logger.info('Starting vendor catalog import', { fileType, batchId, defaultVendorName });
 
     try {
         // Parse file
@@ -542,7 +567,7 @@ async function importVendorCatalog(data, fileType) {
         });
 
         // Validate and transform
-        const validation = validateAndTransform(parsed.rows, parsed.headers);
+        const validation = validateAndTransform(parsed.rows, parsed.headers, defaultVendorName);
 
         if (!validation.valid && validation.items.length === 0) {
             return {

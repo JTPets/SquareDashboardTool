@@ -677,6 +677,17 @@
       <!-- IMPORT TAB -->
       <div class="tab-content active" id="tab-import">
         <div class="import-section">
+          <div class="vendor-name-input" style="margin-bottom: 20px;">
+            <label for="default-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">
+              Default Vendor Name <span style="color: #6b7280; font-weight: normal;">(if not in file)</span>
+            </label>
+            <input type="text" id="default-vendor" placeholder="e.g., Rolf C. Hagen, Big Al's..."
+                   style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+            <p style="margin-top: 6px; color: #6b7280; font-size: 12px;">
+              If your file has a Brand column, it will be used as vendor. Otherwise, enter the vendor name here.
+            </p>
+          </div>
+
           <div class="import-box" id="import-box">
             <h3>Upload Vendor Catalog</h3>
             <p>Drag and drop a CSV or XLSX file, or click to select</p>
@@ -703,15 +714,15 @@
           <div class="expected-columns">
             <h4>Expected Columns</h4>
             <ul>
-              <li><strong>Vendor Name</strong> <span>(Required)</span></li>
-              <li><strong>Product Name</strong> <span>(Required)</span></li>
-              <li><strong>Vendor Item #</strong> <span>(Required)</span></li>
-              <li><strong>Cost</strong> <span>(Required)</span></li>
-              <li><strong>UPC/GTIN</strong> <span>(Optional)</span></li>
-              <li><strong>Price</strong> <span>(Optional - for margin calc)</span></li>
+              <li><strong>Vendor/Brand</strong> <span>(or use default above)</span></li>
+              <li><strong>Description</strong> <span>(Required - product name)</span></li>
+              <li><strong>Item Number</strong> <span>(Required - vendor's SKU)</span></li>
+              <li><strong>Net Price</strong> <span>(Required - your cost)</span></li>
+              <li><strong>UPC Code</strong> <span>(Optional - for matching)</span></li>
+              <li><strong>S.R.P.</strong> <span>(Optional - for margin calc)</span></li>
             </ul>
             <p style="margin-top: 15px; color: #6b7280; font-size: 13px;">
-              Column headers are flexible - we recognize common variations like "Vendor SKU", "Part Number", "Retail Price", etc.
+              Column headers are flexible - we recognize variations like "Item Number", "Part Number", "Net Price", "S.R.P.", "Brand", etc.
             </p>
           </div>
         </div>
@@ -853,6 +864,9 @@
         // Read file as base64
         const base64 = await readFileAsBase64(file);
 
+        // Get default vendor name if specified
+        const defaultVendorName = document.getElementById('default-vendor').value.trim();
+
         // Send to API
         const response = await fetch('/api/vendor-catalog/import', {
           method: 'POST',
@@ -860,7 +874,8 @@
           body: JSON.stringify({
             data: base64,
             fileName: file.name,
-            fileType: ext === '.xlsx' ? 'xlsx' : 'csv'
+            fileType: ext === '.xlsx' ? 'xlsx' : 'csv',
+            defaultVendorName: defaultVendorName || null
           })
         });
 
