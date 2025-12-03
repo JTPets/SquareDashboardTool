@@ -514,3 +514,57 @@ BEGIN
     RAISE NOTICE 'SEO and tax fields migration completed successfully!';
     RAISE NOTICE 'Added columns: tax_ids, seo_title, seo_description to items table';
 END $$;
+
+-- ========================================
+-- MIGRATION: Add Vendor Catalog Import System
+-- ========================================
+-- Stores imported vendor catalogs for rapid lookup and margin tracking
+
+-- Create vendor_catalog_items table for storing imported vendor product catalogs
+CREATE TABLE IF NOT EXISTS vendor_catalog_items (
+    id SERIAL PRIMARY KEY,
+    vendor_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+    vendor_name TEXT NOT NULL,                    -- Denormalized for quick lookup
+    vendor_item_number TEXT NOT NULL,             -- Vendor's SKU/part number
+    product_name TEXT NOT NULL,                   -- Product name from vendor
+    upc TEXT,                                     -- UPC/GTIN for matching
+    cost_cents INTEGER NOT NULL,                  -- Vendor cost in cents
+    price_cents INTEGER,                          -- Suggested retail price in cents
+    -- Calculated fields
+    margin_percent DECIMAL(5,2),                  -- Calculated margin percentage
+    -- Matching to our catalog
+    matched_variation_id TEXT REFERENCES variations(id) ON DELETE SET NULL,
+    match_method TEXT,                            -- How it was matched: 'upc', 'vendor_item_number', 'manual', null
+    -- Import tracking
+    import_batch_id TEXT,                         -- Groups items from same import
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Ensure unique vendor item per vendor per batch (allows updates)
+    UNIQUE(vendor_id, vendor_item_number, import_batch_id)
+);
+
+-- Create indexes for efficient lookups
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor ON vendor_catalog_items(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_upc ON vendor_catalog_items(upc) WHERE upc IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor_item ON vendor_catalog_items(vendor_item_number);
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_matched ON vendor_catalog_items(matched_variation_id) WHERE matched_variation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC);
+
+-- Comments for documentation
+COMMENT ON TABLE vendor_catalog_items IS 'Imported vendor product catalogs for lookup and margin tracking';
+COMMENT ON COLUMN vendor_catalog_items.vendor_item_number IS 'Vendor SKU/part number for this product';
+COMMENT ON COLUMN vendor_catalog_items.upc IS 'UPC/GTIN barcode for matching to our catalog';
+COMMENT ON COLUMN vendor_catalog_items.cost_cents IS 'Vendor cost to us in cents';
+COMMENT ON COLUMN vendor_catalog_items.price_cents IS 'Suggested retail price in cents';
+COMMENT ON COLUMN vendor_catalog_items.margin_percent IS 'Calculated margin: ((price - cost) / price) * 100';
+COMMENT ON COLUMN vendor_catalog_items.matched_variation_id IS 'Link to our catalog variation if matched';
+COMMENT ON COLUMN vendor_catalog_items.match_method IS 'How the match was made: upc, vendor_item_number, manual';
+COMMENT ON COLUMN vendor_catalog_items.import_batch_id IS 'Groups items from the same import operation';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Vendor catalog import migration completed successfully!';
+    RAISE NOTICE 'Created vendor_catalog_items table with indexes';
+END $$;

@@ -1,0 +1,1627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vendor Catalog Import - JT Pets</title>
+  <style>
+    /* BASE STYLES */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+
+    /* CONTAINER */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    /* HEADER */
+    .header {
+      background: #7c3aed;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .header a {
+      color: white;
+      text-decoration: none;
+      padding: 8px 16px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .header a:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* STATS BAR */
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .stat {
+      text-align: center;
+      min-width: 120px;
+    }
+
+    .stat-number {
+      font-size: 24px;
+      font-weight: bold;
+      color: #10b981;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    /* TABS */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .tab {
+      padding: 15px 25px;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.15s;
+    }
+
+    .tab:hover {
+      color: #374151;
+      background: #f3f4f6;
+    }
+
+    .tab.active {
+      border-bottom-color: #7c3aed;
+      color: #7c3aed;
+      background: white;
+    }
+
+    /* CONTENT SECTIONS */
+    .content {
+      padding: 30px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* IMPORT SECTION */
+    .import-section {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .import-box {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      background: #f9fafb;
+      transition: all 0.2s;
+    }
+
+    .import-box:hover {
+      border-color: #7c3aed;
+      background: #faf5ff;
+    }
+
+    .import-box.dragover {
+      border-color: #7c3aed;
+      background: #f3e8ff;
+    }
+
+    .import-box h3 {
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    .import-box p {
+      color: #6b7280;
+      margin-bottom: 20px;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .upload-btn {
+      background: #7c3aed;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .upload-btn:hover {
+      background: #6d28d9;
+    }
+
+    .file-info {
+      margin-top: 20px;
+      padding: 15px;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .expected-columns {
+      margin-top: 30px;
+      padding: 20px;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .expected-columns h4 {
+      margin-bottom: 15px;
+      color: #374151;
+    }
+
+    .expected-columns ul {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .expected-columns li {
+      padding: 8px 12px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .expected-columns li strong {
+      color: #7c3aed;
+    }
+
+    .expected-columns li span {
+      color: #6b7280;
+      font-size: 12px;
+    }
+
+    /* IMPORT PROGRESS */
+    .import-progress {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      background: #eff6ff;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .import-progress.show {
+      display: block;
+    }
+
+    .import-progress .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #dbeafe;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* IMPORT RESULT */
+    .import-result {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 6px;
+    }
+
+    .import-result.show {
+      display: block;
+    }
+
+    .import-result.success {
+      background: #ecfdf5;
+      border: 1px solid #10b981;
+    }
+
+    .import-result.error {
+      background: #fef2f2;
+      border: 1px solid #ef4444;
+    }
+
+    .import-result h4 {
+      margin-bottom: 10px;
+    }
+
+    .import-result.success h4 {
+      color: #059669;
+    }
+
+    .import-result.error h4 {
+      color: #dc2626;
+    }
+
+    /* SEARCH SECTION */
+    .search-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .search-bar input,
+    .search-bar select {
+      padding: 10px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .search-bar input {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .search-bar button {
+      padding: 10px 20px;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .search-bar button:hover {
+      background: #6d28d9;
+    }
+
+    /* LOOKUP SECTION */
+    .lookup-section {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .lookup-input {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+    }
+
+    .lookup-input input {
+      flex: 1;
+      padding: 15px 20px;
+      border: 2px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 18px;
+      text-align: center;
+    }
+
+    .lookup-input input:focus {
+      outline: none;
+      border-color: #7c3aed;
+    }
+
+    .lookup-input button {
+      padding: 15px 30px;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .lookup-result {
+      display: none;
+    }
+
+    .lookup-result.show {
+      display: block;
+    }
+
+    .lookup-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+    }
+
+    .lookup-card h4 {
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    .lookup-card .our-item {
+      background: #ecfdf5;
+      border-color: #10b981;
+    }
+
+    .lookup-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .lookup-detail {
+      padding: 10px;
+      background: white;
+      border-radius: 4px;
+    }
+
+    .lookup-detail label {
+      display: block;
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .lookup-detail span {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .lookup-detail span.price {
+      color: #059669;
+    }
+
+    .lookup-detail span.cost {
+      color: #dc2626;
+    }
+
+    /* TABLE */
+    .table-container {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+      position: sticky;
+      top: 0;
+    }
+
+    tr:hover {
+      background: #f9fafb;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .badge-matched {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge-unmatched {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .money {
+      font-family: monospace;
+    }
+
+    .money.cost {
+      color: #dc2626;
+    }
+
+    .money.price {
+      color: #059669;
+    }
+
+    .margin {
+      font-weight: 600;
+    }
+
+    .margin.good {
+      color: #059669;
+    }
+
+    .margin.warning {
+      color: #d97706;
+    }
+
+    .margin.bad {
+      color: #dc2626;
+    }
+
+    /* BATCHES SECTION */
+    .batch-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .batch-info h4 {
+      margin-bottom: 5px;
+      color: #374151;
+    }
+
+    .batch-info p {
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .batch-stats {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .batch-stat {
+      text-align: center;
+    }
+
+    .batch-stat .value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #7c3aed;
+    }
+
+    .batch-stat .label {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+    }
+
+    .delete-btn {
+      background: #fee2e2;
+      color: #dc2626;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .delete-btn:hover {
+      background: #fecaca;
+    }
+
+    /* LOADING */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    /* EMPTY STATE */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+
+    .empty-state h3 {
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    /* FOOTER */
+    .footer {
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .footer a {
+      color: #7c3aed;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+
+      .header {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+      }
+
+      .stats-bar {
+        flex-direction: column;
+        gap: 15px;
+      }
+
+      .tabs {
+        overflow-x: auto;
+      }
+
+      .tab {
+        white-space: nowrap;
+        padding: 12px 15px;
+      }
+
+      .content {
+        padding: 15px;
+      }
+
+      .batch-card {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HEADER -->
+    <div class="header">
+      <h1>Vendor Catalog Import</h1>
+      <div class="header-actions">
+        <a href="/">Back to Dashboard</a>
+      </div>
+    </div>
+
+    <!-- STATS BAR -->
+    <div class="stats-bar" id="stats-bar">
+      <div class="stat">
+        <div class="stat-number" id="stat-total">--</div>
+        <div class="stat-label">Total Items</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-vendors">--</div>
+        <div class="stat-label">Vendors</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-matched">--</div>
+        <div class="stat-label">Matched to Catalog</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="stat-margin">--</div>
+        <div class="stat-label">Avg Margin</div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <div class="tab active" data-tab="import">Import</div>
+      <div class="tab" data-tab="lookup">Quick Lookup</div>
+      <div class="tab" data-tab="browse">Browse Catalog</div>
+      <div class="tab" data-tab="batches">Import History</div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <!-- IMPORT TAB -->
+      <div class="tab-content active" id="tab-import">
+        <div class="import-section">
+
+          <!-- STEP 1: File Upload -->
+          <div id="import-step-1">
+            <div class="step-header" style="margin-bottom: 20px;">
+              <h3 style="color: #374151; margin-bottom: 5px;">Step 1: Select File</h3>
+              <p style="color: #6b7280; font-size: 14px;">Upload a CSV or XLSX vendor catalog file</p>
+            </div>
+
+            <div class="import-box" id="import-box">
+              <h3>Upload Vendor Catalog</h3>
+              <p>Drag and drop a CSV or XLSX file, or click to select</p>
+              <input type="file" id="file-input" class="file-input" accept=".csv,.xlsx">
+              <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+                Select File
+              </button>
+              <div class="file-info" id="file-info" style="display: none;">
+                <strong id="file-name"></strong>
+                <span id="file-size"></span>
+              </div>
+            </div>
+
+            <div class="import-progress" id="preview-progress" style="display: none;">
+              <div class="spinner"></div>
+              <p>Analyzing file...</p>
+            </div>
+          </div>
+
+          <!-- STEP 2: Column Mapping -->
+          <div id="import-step-2" style="display: none;">
+            <div class="step-header" style="margin-bottom: 20px;">
+              <h3 style="color: #374151; margin-bottom: 5px;">Step 2: Configure Import</h3>
+              <p style="color: #6b7280; font-size: 14px;">
+                Select vendor, name this import, and confirm column mappings.
+                <span id="row-count-info" style="font-weight: 500;"></span>
+              </p>
+            </div>
+
+            <!-- Vendor and Import Name Selection -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; padding: 15px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;">
+              <div>
+                <label for="import-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #166534;">
+                  Vendor <span style="color: #dc2626;">*</span>
+                </label>
+                <select id="import-vendor" style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; background: white;">
+                  <option value="">-- Select Vendor --</option>
+                </select>
+              </div>
+              <div>
+                <label for="import-name" style="display: block; margin-bottom: 8px; font-weight: 500; color: #166534;">
+                  Catalog Name <span style="color: #6b7280; font-weight: normal;">(e.g., "2025 Price List")</span>
+                </label>
+                <input type="text" id="import-name" placeholder="e.g., 2025 Price List, Spring Catalog..."
+                       style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+              </div>
+            </div>
+
+            <h4 style="color: #374151; margin-bottom: 10px;">Column Mappings</h4>
+            <div class="mapping-table-container" style="overflow-x: auto; margin-bottom: 20px;">
+              <table id="mapping-table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead>
+                  <tr style="background: #f3f4f6;">
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; width: 180px;">Original Column</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb; width: 180px;">Map To</th>
+                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e7eb;">Sample Data (First 3 Rows)</th>
+                  </tr>
+                </thead>
+                <tbody id="mapping-body">
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mapping-legend" style="background: #fefce8; border: 1px solid #fef08a; border-radius: 6px; padding: 12px; margin-bottom: 20px; font-size: 13px;">
+              <strong style="color: #854d0e;">Required:</strong>
+              <span style="color: #713f12;">Select a Vendor above, then map Product Name, Vendor Item #, and Cost columns. Brand and Price (SRP) are optional.</span>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+              <button onclick="resetImport()" style="padding: 12px 24px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                Start Over
+              </button>
+              <button onclick="confirmImport()" style="padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Confirm & Import
+              </button>
+            </div>
+          </div>
+
+          <!-- Import Progress -->
+          <div class="import-progress" id="import-progress" style="display: none;">
+            <div class="spinner"></div>
+            <p>Importing vendor catalog...</p>
+          </div>
+
+          <!-- Import Result -->
+          <div class="import-result" id="import-result">
+            <h4 id="result-title"></h4>
+            <div id="result-content"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- LOOKUP TAB -->
+      <div class="tab-content" id="tab-lookup">
+        <div class="lookup-section">
+          <h3 style="text-align: center; margin-bottom: 20px; color: #374151;">Quick UPC Lookup</h3>
+          <div class="lookup-input">
+            <input type="text" id="lookup-upc" placeholder="Enter UPC/GTIN..." onkeypress="if(event.key === 'Enter') lookupUPC()">
+            <button onclick="lookupUPC()">Lookup</button>
+          </div>
+
+          <div class="lookup-result" id="lookup-result">
+            <!-- Results will be inserted here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- BROWSE TAB -->
+      <div class="tab-content" id="tab-browse">
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search by name, vendor item #, or UPC..." onkeypress="if(event.key === 'Enter') searchCatalog()">
+          <select id="vendor-filter">
+            <option value="">All Vendors</option>
+          </select>
+          <select id="match-filter">
+            <option value="">All Items</option>
+            <option value="true">Matched Only</option>
+            <option value="false">Unmatched Only</option>
+          </select>
+          <button onclick="searchCatalog()">Search</button>
+        </div>
+
+        <div class="table-container">
+          <table id="catalog-table">
+            <thead>
+              <tr>
+                <th>Vendor</th>
+                <th>Vendor Item #</th>
+                <th>Product Name</th>
+                <th>UPC</th>
+                <th>Cost</th>
+                <th>Price</th>
+                <th>Margin</th>
+                <th>Match Status</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-body">
+              <tr><td colspan="8" class="loading">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- BATCHES TAB -->
+      <div class="tab-content" id="tab-batches">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h3 style="color: #374151;">Import History</h3>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #6b7280; cursor: pointer;">
+            <input type="checkbox" id="show-archived-checkbox" onchange="loadBatches(this.checked)" style="cursor: pointer;">
+            Show Archived
+          </label>
+        </div>
+        <div id="batches-list">
+          <div class="loading">Loading batches...</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <a href="/">Back to Dashboard</a> |
+      <a href="/api/vendor-catalog" target="_blank">API: Browse</a> |
+      <a href="/api/vendor-catalog/stats" target="_blank">API: Stats</a>
+    </div>
+  </div>
+
+  <script>
+    // State for import flow
+    let currentFileData = null;
+    let currentFileName = null;
+    let currentFileType = null;
+    let previewData = null;
+    let fieldTypes = [];
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+
+        // Load data for specific tabs
+        if (tab.dataset.tab === 'browse') {
+          searchCatalog();
+        } else if (tab.dataset.tab === 'batches') {
+          loadBatches();
+        }
+      });
+    });
+
+    // Drag and drop
+    const importBox = document.getElementById('import-box');
+
+    importBox.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      importBox.classList.add('dragover');
+    });
+
+    importBox.addEventListener('dragleave', () => {
+      importBox.classList.remove('dragover');
+    });
+
+    importBox.addEventListener('drop', (e) => {
+      e.preventDefault();
+      importBox.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+
+    // File input change
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleFile(file);
+    });
+
+    // Handle file selection - Step 1: Preview
+    async function handleFile(file) {
+      // Validate file type
+      const validTypes = ['.csv', '.xlsx'];
+      const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+      if (!validTypes.includes(ext)) {
+        alert('Please select a CSV or XLSX file');
+        return;
+      }
+
+      // Show file info
+      document.getElementById('file-info').style.display = 'block';
+      document.getElementById('file-name').textContent = file.name;
+      document.getElementById('file-size').textContent = ` (${formatBytes(file.size)})`;
+
+      // Show preview progress
+      document.getElementById('preview-progress').style.display = 'block';
+      document.getElementById('import-result').classList.remove('show');
+
+      try {
+        // Read file as base64
+        const base64 = await readFileAsBase64(file);
+        currentFileData = base64;
+        currentFileName = file.name;
+        currentFileType = ext === '.xlsx' ? 'xlsx' : 'csv';
+
+        // Call preview API
+        const response = await fetch('/api/vendor-catalog/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: base64,
+            fileName: file.name,
+            fileType: currentFileType
+          })
+        });
+
+        const result = await response.json();
+        document.getElementById('preview-progress').style.display = 'none';
+
+        if (!result.success) {
+          showImportError(result.error || 'Failed to preview file');
+          return;
+        }
+
+        previewData = result;
+
+        // Show row count info
+        document.getElementById('row-count-info').textContent =
+          `Found ${result.totalRows} data rows.`;
+
+        // Render the mapping table
+        renderMappingTable(result.columns, result.autoMappings, result.sampleValues);
+
+        // Populate vendor dropdown
+        await populateImportVendorDropdown();
+
+        // Switch to step 2
+        document.getElementById('import-step-1').style.display = 'none';
+        document.getElementById('import-step-2').style.display = 'block';
+
+      } catch (error) {
+        document.getElementById('preview-progress').style.display = 'none';
+        showImportError(error.message);
+      }
+    }
+
+    // Render the column mapping table with dropdowns
+    function renderMappingTable(columns, autoMappings, sampleValues) {
+      const tbody = document.getElementById('mapping-body');
+      tbody.innerHTML = '';
+
+      columns.forEach((col, index) => {
+        const row = document.createElement('tr');
+
+        // Original column header
+        const headerCell = document.createElement('td');
+        headerCell.style.fontWeight = '500';
+        headerCell.textContent = col;
+        row.appendChild(headerCell);
+
+        // Dropdown for mapping
+        const mapCell = document.createElement('td');
+        const select = document.createElement('select');
+        select.id = `mapping-${index}`;
+        select.dataset.column = col;
+        select.style.cssText = 'width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px;';
+
+        // Add field type options
+        select.innerHTML = '<option value="skip">(Skip this column)</option>';
+        fieldTypes.forEach(ft => {
+          const option = document.createElement('option');
+          option.value = ft.id;
+          option.textContent = ft.label + (ft.required ? ' *' : '');
+          if (autoMappings[col] === ft.id) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+
+        // Highlight auto-detected mappings
+        if (autoMappings[col] && autoMappings[col] !== 'skip') {
+          select.style.borderColor = '#10b981';
+          select.style.backgroundColor = '#ecfdf5';
+        }
+
+        mapCell.appendChild(select);
+        row.appendChild(mapCell);
+
+        // Sample data
+        const sampleCell = document.createElement('td');
+        sampleCell.style.fontSize = '13px';
+        sampleCell.style.color = '#6b7280';
+        const samples = sampleValues[col] || [];
+        sampleCell.innerHTML = samples.map((s, i) =>
+          `<div style="padding: 2px 0; ${i > 0 ? 'border-top: 1px solid #e5e7eb;' : ''}">${escapeHtml(s || '(empty)')}</div>`
+        ).join('');
+        row.appendChild(sampleCell);
+
+        tbody.appendChild(row);
+      });
+    }
+
+    // Confirm and perform import - Step 2
+    async function confirmImport() {
+      // Validate vendor selection
+      const vendorSelect = document.getElementById('import-vendor');
+      const vendorId = vendorSelect.value;
+      const vendorName = vendorSelect.options[vendorSelect.selectedIndex]?.text || '';
+
+      if (!vendorId) {
+        alert('Please select a vendor for this import');
+        return;
+      }
+
+      // Gather mappings from dropdowns
+      const mappings = {};
+      const selects = document.querySelectorAll('[id^="mapping-"]');
+      selects.forEach(select => {
+        const value = select.value;
+        if (value && value !== 'skip') {
+          mappings[select.dataset.column] = value;
+        }
+      });
+
+      // Validate required fields
+      const mappedFields = Object.values(mappings);
+
+      if (!mappedFields.includes('product_name')) {
+        alert('Please map a column to Product Name (required)');
+        return;
+      }
+
+      if (!mappedFields.includes('vendor_item_number')) {
+        alert('Please map a column to Vendor Item # (required)');
+        return;
+      }
+
+      if (!mappedFields.includes('cost')) {
+        alert('Please map a column to Cost (required)');
+        return;
+      }
+
+      // Show import progress
+      document.getElementById('import-step-2').style.display = 'none';
+      document.getElementById('import-progress').style.display = 'block';
+
+      try {
+        const importName = document.getElementById('import-name').value.trim();
+
+        const response = await fetch('/api/vendor-catalog/import-mapped', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: currentFileData,
+            fileName: currentFileName,
+            fileType: currentFileType,
+            mappings: mappings,
+            vendorId: vendorId,
+            vendorName: vendorName,
+            importName: importName || null
+          })
+        });
+
+        const result = await response.json();
+        document.getElementById('import-progress').style.display = 'none';
+
+        // Show result
+        const resultEl = document.getElementById('import-result');
+        resultEl.classList.add('show');
+
+        if (result.success) {
+          resultEl.classList.remove('error');
+          resultEl.classList.add('success');
+          document.getElementById('result-title').textContent = 'Import Successful!';
+
+          let html = `
+            <p><strong>Vendor:</strong> ${escapeHtml(result.vendorName)}</p>
+            ${result.importName ? `<p><strong>Catalog:</strong> ${escapeHtml(result.importName)}</p>` : ''}
+            <p><strong>${result.stats.imported}</strong> items imported</p>
+            <p><strong>${result.stats.matched}</strong> items matched to our catalog</p>
+          `;
+
+          // Show price update report if there are differences
+          if (result.stats.priceUpdatesCount > 0) {
+            html += `
+              <div style="margin-top: 15px; padding: 15px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+                <h4 style="color: #92400e; margin-bottom: 10px;">Price Update Report</h4>
+                <p style="font-size: 14px; color: #78350f;">
+                  <strong>${result.stats.priceUpdatesCount}</strong> items have price differences vs. our catalog
+                  (${result.stats.priceIncreasesCount} increases, ${result.stats.priceDecreasesCount} decreases)
+                </p>
+                <div style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                  <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                    <thead>
+                      <tr style="background: #fef08a;">
+                        <th style="padding: 6px; text-align: left;">Our SKU</th>
+                        <th style="padding: 6px; text-align: left;">Item</th>
+                        <th style="padding: 6px; text-align: right;">Our Price</th>
+                        <th style="padding: 6px; text-align: right;">Vendor SRP</th>
+                        <th style="padding: 6px; text-align: right;">Diff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+            `;
+            result.stats.priceUpdates.slice(0, 20).forEach(p => {
+              const diffColor = p.action === 'price_increase' ? '#059669' : '#dc2626';
+              const diffSign = p.price_diff_cents > 0 ? '+' : '';
+              html += `
+                <tr>
+                  <td style="padding: 4px 6px;"><code>${escapeHtml(p.our_sku || '-')}</code></td>
+                  <td style="padding: 4px 6px;">${escapeHtml(p.our_item_name || p.product_name)}</td>
+                  <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
+                  <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.vendor_srp_cents)}</td>
+                  <td style="padding: 4px 6px; text-align: right; color: ${diffColor}; font-weight: 600;">
+                    ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)
+                  </td>
+                </tr>
+              `;
+            });
+            if (result.stats.priceUpdates.length > 20) {
+              html += `<tr><td colspan="5" style="padding: 6px; text-align: center; color: #6b7280;">...and ${result.stats.priceUpdates.length - 20} more</td></tr>`;
+            }
+            html += '</tbody></table></div></div>';
+          }
+
+          if (result.validationErrors && result.validationErrors.length > 0) {
+            html += `<p style="color: #d97706; margin-top: 10px;">${result.validationErrors.length} rows had validation errors and were skipped</p>`;
+          }
+
+          html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Import Another File</button>`;
+
+          document.getElementById('result-content').innerHTML = html;
+
+          // Refresh stats
+          loadStats();
+        } else {
+          showImportError(result.error, result.validationErrors);
+        }
+
+      } catch (error) {
+        document.getElementById('import-progress').style.display = 'none';
+        showImportError(error.message);
+      }
+    }
+
+    // Show import error
+    function showImportError(message, validationErrors) {
+      const resultEl = document.getElementById('import-result');
+      resultEl.classList.add('show', 'error');
+      resultEl.classList.remove('success');
+      document.getElementById('result-title').textContent = 'Import Failed';
+
+      let html = `<p>${escapeHtml(message)}</p>`;
+      if (validationErrors && validationErrors.length > 0) {
+        html += '<ul style="margin-top: 10px; font-size: 13px;">';
+        validationErrors.slice(0, 10).forEach(err => {
+          html += `<li>Row ${err.row}: ${err.errors.join(', ')}</li>`;
+        });
+        if (validationErrors.length > 10) {
+          html += `<li>...and ${validationErrors.length - 10} more errors</li>`;
+        }
+        html += '</ul>';
+      }
+
+      html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer;">Try Again</button>`;
+
+      document.getElementById('result-content').innerHTML = html;
+    }
+
+    // Reset import to step 1
+    function resetImport() {
+      // Clear state
+      currentFileData = null;
+      currentFileName = null;
+      currentFileType = null;
+      previewData = null;
+
+      // Reset UI
+      document.getElementById('import-step-1').style.display = 'block';
+      document.getElementById('import-step-2').style.display = 'none';
+      document.getElementById('import-progress').style.display = 'none';
+      document.getElementById('preview-progress').style.display = 'none';
+      document.getElementById('import-result').classList.remove('show', 'success', 'error');
+      document.getElementById('file-info').style.display = 'none';
+      document.getElementById('file-input').value = '';
+      document.getElementById('import-vendor').value = '';
+      document.getElementById('import-name').value = '';
+      document.getElementById('mapping-body').innerHTML = '';
+    }
+
+    // Populate import vendor dropdown
+    async function populateImportVendorDropdown() {
+      try {
+        const response = await fetch('/api/vendors');
+        const data = await response.json();
+
+        const select = document.getElementById('import-vendor');
+        // Clear existing options except first
+        select.innerHTML = '<option value="">-- Select Vendor --</option>';
+
+        data.vendors.forEach(vendor => {
+          const option = document.createElement('option');
+          option.value = vendor.id;
+          option.textContent = vendor.name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load vendors for import:', error);
+      }
+    }
+
+    // Load field types for dropdowns
+    async function loadFieldTypes() {
+      try {
+        const response = await fetch('/api/vendor-catalog/field-types');
+        const data = await response.json();
+        fieldTypes = data.fieldTypes || [];
+      } catch (error) {
+        console.error('Failed to load field types:', error);
+        // Fallback field types
+        fieldTypes = [
+          { id: 'vendor_name', label: 'Vendor Name', required: false },
+          { id: 'brand', label: 'Brand', required: false },
+          { id: 'product_name', label: 'Product Name', required: true },
+          { id: 'vendor_item_number', label: 'Vendor Item #', required: true },
+          { id: 'upc', label: 'UPC/GTIN', required: false },
+          { id: 'cost', label: 'Cost', required: true },
+          { id: 'price', label: 'Price (SRP)', required: false }
+        ];
+      }
+    }
+
+    // Read file as base64
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Format bytes
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // Format money
+    function formatMoney(cents) {
+      if (cents === null || cents === undefined) return '-';
+      return '$' + (cents / 100).toFixed(2);
+    }
+
+    // Format margin
+    function formatMargin(margin) {
+      if (margin === null || margin === undefined) return '-';
+      const marginClass = margin >= 40 ? 'good' : margin >= 25 ? 'warning' : 'bad';
+      return `<span class="margin ${marginClass}">${margin.toFixed(1)}%</span>`;
+    }
+
+    // Load stats
+    async function loadStats() {
+      try {
+        const response = await fetch('/api/vendor-catalog/stats');
+        const stats = await response.json();
+
+        document.getElementById('stat-total').textContent = stats.total_items?.toLocaleString() || '0';
+        document.getElementById('stat-vendors').textContent = stats.vendor_count?.toLocaleString() || '0';
+        document.getElementById('stat-matched').textContent = stats.matched_items?.toLocaleString() || '0';
+        document.getElementById('stat-margin').textContent = stats.avg_margin ? stats.avg_margin.toFixed(1) + '%' : '-';
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      }
+    }
+
+    // Load vendors for filter
+    async function loadVendors() {
+      try {
+        const response = await fetch('/api/vendors');
+        const data = await response.json();
+
+        const select = document.getElementById('vendor-filter');
+        data.vendors.forEach(vendor => {
+          const option = document.createElement('option');
+          option.value = vendor.id;
+          option.textContent = vendor.name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load vendors:', error);
+      }
+    }
+
+    // Search catalog
+    async function searchCatalog() {
+      const search = document.getElementById('search-input').value;
+      const vendorId = document.getElementById('vendor-filter').value;
+      const matchFilter = document.getElementById('match-filter').value;
+
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (vendorId) params.set('vendor_id', vendorId);
+      if (matchFilter === 'true') params.set('matched_only', 'true');
+
+      const tbody = document.getElementById('catalog-body');
+      tbody.innerHTML = '<tr><td colspan="8" class="loading">Searching...</td></tr>';
+
+      try {
+        const response = await fetch('/api/vendor-catalog?' + params.toString());
+        const data = await response.json();
+
+        if (data.items.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No items found</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.vendor_name)}</td>
+            <td><code>${escapeHtml(item.vendor_item_number)}</code></td>
+            <td>${escapeHtml(item.product_name)}</td>
+            <td>${item.upc ? `<code>${item.upc}</code>` : '-'}</td>
+            <td class="money cost">${formatMoney(item.cost_cents)}</td>
+            <td class="money price">${formatMoney(item.price_cents)}</td>
+            <td>${formatMargin(parseFloat(item.margin_percent))}</td>
+            <td>${item.matched_variation_id
+              ? `<span class="badge badge-matched">Matched (${item.match_method})</span>`
+              : '<span class="badge badge-unmatched">Unmatched</span>'}</td>
+          </tr>
+        `).join('');
+
+      } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="8" class="error">Error: ${error.message}</td></tr>`;
+      }
+    }
+
+    // Lookup UPC
+    async function lookupUPC() {
+      const upc = document.getElementById('lookup-upc').value.trim();
+      if (!upc) {
+        alert('Please enter a UPC');
+        return;
+      }
+
+      const resultEl = document.getElementById('lookup-result');
+      resultEl.innerHTML = '<div class="loading">Looking up...</div>';
+      resultEl.classList.add('show');
+
+      try {
+        const response = await fetch(`/api/vendor-catalog/lookup/${encodeURIComponent(upc)}`);
+        const data = await response.json();
+
+        let html = '';
+
+        // Our catalog item
+        if (data.ourCatalogItem) {
+          const item = data.ourCatalogItem;
+          html += `
+            <div class="lookup-card our-item" style="background: #ecfdf5; border-color: #10b981;">
+              <h4 style="color: #059669;">Our Catalog Item</h4>
+              <div class="lookup-details">
+                <div class="lookup-detail">
+                  <label>SKU</label>
+                  <span>${item.sku || '-'}</span>
+                </div>
+                <div class="lookup-detail">
+                  <label>Product</label>
+                  <span>${escapeHtml(item.item_name || item.variation_name)}</span>
+                </div>
+                <div class="lookup-detail">
+                  <label>Category</label>
+                  <span>${escapeHtml(item.category_name || '-')}</span>
+                </div>
+                <div class="lookup-detail">
+                  <label>Our Price</label>
+                  <span class="price">${formatMoney(item.price_money)}</span>
+                </div>
+                <div class="lookup-detail">
+                  <label>Current Cost</label>
+                  <span class="cost">${formatMoney(item.current_cost_cents)}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        // Vendor items
+        if (data.vendorItems.length > 0) {
+          html += '<h4 style="margin: 20px 0 10px; color: #374151;">Vendor Catalog Entries</h4>';
+          data.vendorItems.forEach(item => {
+            const margin = item.price_cents && item.cost_cents
+              ? ((item.price_cents - item.cost_cents) / item.price_cents * 100).toFixed(1)
+              : null;
+            html += `
+              <div class="lookup-card">
+                <h4>${escapeHtml(item.vendor_name)}</h4>
+                <div class="lookup-details">
+                  <div class="lookup-detail">
+                    <label>Vendor Item #</label>
+                    <span>${escapeHtml(item.vendor_item_number)}</span>
+                  </div>
+                  <div class="lookup-detail">
+                    <label>Product Name</label>
+                    <span>${escapeHtml(item.product_name)}</span>
+                  </div>
+                  <div class="lookup-detail">
+                    <label>Cost</label>
+                    <span class="cost">${formatMoney(item.cost_cents)}</span>
+                  </div>
+                  <div class="lookup-detail">
+                    <label>Suggested Price</label>
+                    <span class="price">${formatMoney(item.price_cents)}</span>
+                  </div>
+                  ${margin ? `
+                  <div class="lookup-detail">
+                    <label>Margin</label>
+                    <span>${formatMargin(parseFloat(margin))}</span>
+                  </div>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          });
+        }
+
+        if (!data.ourCatalogItem && data.vendorItems.length === 0) {
+          html = `
+            <div class="empty-state">
+              <h3>No Results Found</h3>
+              <p>No items found with UPC: ${escapeHtml(upc)}</p>
+            </div>
+          `;
+        }
+
+        resultEl.innerHTML = html;
+
+      } catch (error) {
+        resultEl.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+
+    // Load batches
+    async function loadBatches(includeArchived = false) {
+      const container = document.getElementById('batches-list');
+      container.innerHTML = '<div class="loading">Loading batches...</div>';
+
+      try {
+        const url = includeArchived
+          ? '/api/vendor-catalog/batches?include_archived=true'
+          : '/api/vendor-catalog/batches';
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.batches.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h3>No Import History</h3>
+              <p>Import your first vendor catalog to see it here.</p>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = data.batches.map(batch => {
+          const isArchived = batch.is_archived;
+          const cardStyle = isArchived ? 'opacity: 0.6; background: #f3f4f6;' : '';
+
+          return `
+            <div class="batch-card" style="${cardStyle}">
+              <div class="batch-info">
+                <h4>
+                  ${escapeHtml(batch.vendor_name)}
+                  ${batch.import_name ? `<span style="font-weight: normal; color: #6b7280;"> - ${escapeHtml(batch.import_name)}</span>` : ''}
+                  ${isArchived ? '<span style="font-size: 12px; color: #9ca3af; margin-left: 8px;">(Archived)</span>' : ''}
+                </h4>
+                <p style="font-size: 13px;">
+                  Batch: <code style="font-size: 11px;">${batch.import_batch_id}</code><br>
+                  Imported: ${new Date(batch.imported_at).toLocaleString()}
+                </p>
+              </div>
+              <div class="batch-stats">
+                <div class="batch-stat">
+                  <div class="value">${batch.item_count}</div>
+                  <div class="label">Items</div>
+                </div>
+                <div class="batch-stat">
+                  <div class="value">${batch.matched_count}</div>
+                  <div class="label">Matched</div>
+                </div>
+                <div class="batch-stat">
+                  <div class="value">${batch.avg_margin ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
+                  <div class="label">Avg Margin</div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                  ${isArchived
+                    ? `<button onclick="unarchiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
+                    : `<button onclick="archiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
+                  }
+                  <button class="delete-btn" onclick="deleteBatch('${batch.import_batch_id}')" style="font-size: 12px;">Delete</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+      } catch (error) {
+        container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+      }
+    }
+
+    // Archive batch
+    async function archiveBatch(batchId) {
+      if (!confirm(`Archive this import? It will be hidden but still searchable.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/archive`, {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
+          loadStats();
+        } else {
+          alert('Failed to archive batch: ' + result.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Unarchive batch
+    async function unarchiveBatch(batchId) {
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/unarchive`, {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
+          loadStats();
+        } else {
+          alert('Failed to unarchive batch: ' + result.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Delete batch
+    async function deleteBatch(batchId) {
+      if (!confirm(`Permanently delete this import? This cannot be undone.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}`, {
+          method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
+          loadStats();
+        } else {
+          alert('Failed to delete batch: ' + result.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Escape HTML
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStats();
+      loadVendors();
+      loadFieldTypes();
+    });
+  </script>
+</body>
+</html>

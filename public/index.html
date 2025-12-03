@@ -490,6 +490,14 @@
         <a href="deleted-items.html">View Deleted</a>
       </div>
 
+      <!-- VENDOR CATALOG IMPORT -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>📥 Vendor Catalog Import</h2>
+        <p>Import vendor catalogs from CSV/XLSX for rapid lookup. Track costs, prices, and margins across vendors.</p>
+        <a href="vendor-catalog.html">Import Catalog</a>
+      </div>
+
       <!-- CATALOG AUDIT -->
       <div class="tool-card critical">
         <div class="tag new">NEW</div>
@@ -525,7 +533,7 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (49 Total)</h3>
+      <h3>📚 Raw API Endpoints (54 Total)</h3>
       <div class="api-grid">
 
         <div class="api-category">
@@ -605,6 +613,15 @@
           <h4>🏪 Vendors & Locations</h4>
           <a href="/api/vendors" target="_blank">GET /api/vendors</a>
           <a href="/api/locations" target="_blank">GET /api/locations</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📥 Vendor Catalog Import</h4>
+          <a href="/api/vendor-catalog" target="_blank">GET /api/vendor-catalog</a>
+          <a href="/api/vendor-catalog/stats" target="_blank">GET /api/vendor-catalog/stats</a>
+          <a href="/api/vendor-catalog/batches" target="_blank">GET /api/vendor-catalog/batches</a>
+          <a href="#" onclick="alert('Use POST with JSON body')" target="_blank">POST /api/vendor-catalog/import</a>
+          <a href="#" onclick="alert('Use GET with UPC param')" target="_blank">GET /api/vendor-catalog/lookup/:upc</a>
         </div>
 
         <div class="api-category">
