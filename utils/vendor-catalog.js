@@ -85,7 +85,10 @@ function calculateMargin(costCents, priceCents) {
     if (!priceCents || priceCents <= 0 || !costCents) {
         return null;
     }
-    return ((priceCents - costCents) / priceCents) * 100;
+    const margin = ((priceCents - costCents) / priceCents) * 100;
+    // Cap to DECIMAL(5,2) range (-999.99 to 999.99) to prevent database overflow
+    // Values outside this range indicate data errors (e.g., cost > price)
+    return Math.max(-999.99, Math.min(999.99, margin));
 }
 
 /**
