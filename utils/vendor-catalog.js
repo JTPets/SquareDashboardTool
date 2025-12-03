@@ -111,7 +111,8 @@ function normalizeHeader(header) {
 
     // Product name mappings
     if (['name', 'product_name', 'product name', 'item_name', 'item name', 'description',
-         'item description', 'product description', 'item', 'product', 'title'].includes(normalized)) {
+         'item description', 'product description', 'item', 'product', 'title',
+         'english description', 'eng description', 'product title', 'item title'].includes(normalized)) {
         return 'product_name';
     }
 
@@ -130,16 +131,17 @@ function normalizeHeader(header) {
         return 'vendor_item_number';
     }
 
-    // Cost mappings (net price = actual cost after discounts)
+    // Cost mappings (net price = actual cost after discounts, LIST = dealer list price)
     if (['cost', 'unit_cost', 'unit cost', 'wholesale', 'wholesale_price', 'wholesale price',
          'our_cost', 'our cost', 'dealer_cost', 'dealer cost', 'cost_price', 'cost price',
          'buy_price', 'buy price', 'net_price', 'net price', 'net cost', 'net',
-         'your cost', 'your price', 'dealer price', 'distributor cost', 'dist cost'].includes(normalized)) {
+         'your cost', 'your price', 'dealer price', 'distributor cost', 'dist cost',
+         'list', 'dealer list', 'dealer list price'].includes(normalized)) {
         return 'cost';
     }
 
     // Price mappings (SRP = Suggested Retail Price)
-    if (['price', 'retail', 'retail_price', 'retail price', 'msrp', 'list_price', 'list price',
+    if (['price', 'retail', 'retail_price', 'retail price', 'msrp', 'list price', 'list_price',
          'sell_price', 'sell price', 'suggested_retail', 'suggested retail', 'srp', 's r p',
          'suggested retail price', 'retail value', 'map', 'map price', 'sale price',
          'customer price', 'resale', 'resale price'].includes(normalized)) {
