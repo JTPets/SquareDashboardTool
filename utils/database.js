@@ -228,6 +228,7 @@ async function ensureSchema() {
                 id SERIAL PRIMARY KEY,
                 vendor_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
                 vendor_name TEXT NOT NULL,
+                brand TEXT,
                 vendor_item_number TEXT NOT NULL,
                 product_name TEXT NOT NULL,
                 upc TEXT,
@@ -237,6 +238,8 @@ async function ensureSchema() {
                 matched_variation_id TEXT REFERENCES variations(id) ON DELETE SET NULL,
                 match_method TEXT,
                 import_batch_id TEXT,
+                import_name TEXT,
+                is_archived BOOLEAN DEFAULT FALSE,
                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(vendor_id, vendor_item_number, import_batch_id)
@@ -248,8 +251,40 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_matched ON vendor_catalog_items(matched_variation_id) WHERE matched_variation_id IS NOT NULL');
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC)');
+        await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_archived ON vendor_catalog_items(is_archived) WHERE is_archived = TRUE');
         logger.info('Created vendor_catalog_items table with indexes');
         appliedCount++;
+    } else {
+        // Add new columns to existing table if they don't exist
+        const columnMigrations = [
+            { column: 'brand', sql: 'ALTER TABLE vendor_catalog_items ADD COLUMN IF NOT EXISTS brand TEXT' },
+            { column: 'import_name', sql: 'ALTER TABLE vendor_catalog_items ADD COLUMN IF NOT EXISTS import_name TEXT' },
+            { column: 'is_archived', sql: 'ALTER TABLE vendor_catalog_items ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' }
+        ];
+
+        for (const migration of columnMigrations) {
+            try {
+                const colCheck = await query(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'vendor_catalog_items' AND column_name = $1
+                `, [migration.column]);
+
+                if (colCheck.rows.length === 0) {
+                    await query(migration.sql);
+                    logger.info(`Added ${migration.column} column to vendor_catalog_items`);
+                    appliedCount++;
+                }
+            } catch (err) {
+                logger.error(`Failed to add ${migration.column} column`, { error: err.message });
+            }
+        }
+
+        // Add archived index if missing
+        try {
+            await query('CREATE INDEX IF NOT EXISTS idx_vendor_catalog_archived ON vendor_catalog_items(is_archived) WHERE is_archived = TRUE');
+        } catch (err) {
+            // Index may already exist
+        }
     }
 
     for (const migration of migrations) {

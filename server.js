@@ -1790,7 +1790,25 @@ app.post('/api/vendor-catalog/preview', async (req, res) => {
         }
 
         const preview = await vendorCatalog.previewFile(fileData, type);
-        res.json(preview);
+
+        // Transform response for frontend compatibility
+        const columns = preview.columns.map(c => c.originalHeader);
+        const autoMappings = {};
+        const sampleValues = {};
+
+        preview.columns.forEach(c => {
+            autoMappings[c.originalHeader] = c.suggestedMapping;
+            sampleValues[c.originalHeader] = c.sampleValues;
+        });
+
+        res.json({
+            success: true,
+            totalRows: preview.totalRows,
+            columns,
+            autoMappings,
+            sampleValues,
+            fieldTypes: preview.fieldTypes
+        });
 
     } catch (error) {
         logger.error('Vendor catalog preview error', { error: error.message, stack: error.stack });
@@ -1801,15 +1819,24 @@ app.post('/api/vendor-catalog/preview', async (req, res) => {
 /**
  * POST /api/vendor-catalog/import-mapped
  * Import vendor catalog with explicit column mappings
+ * Requires: vendorId (selected vendor), columnMappings
+ * Optional: importName (catalog name like "ABC Corp 2025 Price List")
  */
 app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
     try {
-        const { data, fileType, fileName, columnMappings, defaultVendorName } = req.body;
+        const { data, fileType, fileName, columnMappings, vendorId, vendorName, importName } = req.body;
 
         if (!data) {
             return res.status(400).json({
                 error: 'Missing file data',
                 message: 'Please provide file data in the request body'
+            });
+        }
+
+        if (!vendorId) {
+            return res.status(400).json({
+                error: 'Missing vendor',
+                message: 'Please select a vendor for this import'
             });
         }
 
@@ -1836,7 +1863,9 @@ app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
 
         const result = await vendorCatalog.importWithMappings(fileData, type, {
             columnMappings: columnMappings || {},
-            defaultVendorName: defaultVendorName || null
+            vendorId,
+            vendorName: vendorName || 'Unknown Vendor',
+            importName: importName || null
         });
 
         if (result.success) {
@@ -1847,7 +1876,9 @@ app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
                 stats: result.stats,
                 validationErrors: result.validationErrors,
                 fieldMap: result.fieldMap,
-                duration: result.duration
+                duration: result.duration,
+                importName: result.importName,
+                vendorName: result.vendorName
             });
         } else {
             res.status(400).json({
@@ -1943,10 +1974,14 @@ app.get('/api/vendor-catalog/lookup/:upc', async (req, res) => {
 /**
  * GET /api/vendor-catalog/batches
  * List import batches with summary stats
+ * Query params: include_archived=true to include archived imports
  */
 app.get('/api/vendor-catalog/batches', async (req, res) => {
     try {
-        const batches = await vendorCatalog.getImportBatches();
+        const { include_archived } = req.query;
+        const batches = await vendorCatalog.getImportBatches({
+            includeArchived: include_archived === 'true'
+        });
         res.json({
             count: batches.length,
             batches
@@ -1958,8 +1993,56 @@ app.get('/api/vendor-catalog/batches', async (req, res) => {
 });
 
 /**
+ * POST /api/vendor-catalog/batches/:batchId/archive
+ * Archive an import batch (soft delete - keeps for searches)
+ */
+app.post('/api/vendor-catalog/batches/:batchId/archive', async (req, res) => {
+    try {
+        const { batchId } = req.params;
+
+        if (!batchId) {
+            return res.status(400).json({ error: 'Batch ID is required' });
+        }
+
+        const archivedCount = await vendorCatalog.archiveImportBatch(batchId);
+        res.json({
+            success: true,
+            message: `Archived ${archivedCount} items from batch ${batchId}`,
+            archivedCount
+        });
+    } catch (error) {
+        logger.error('Archive vendor catalog batch error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/vendor-catalog/batches/:batchId/unarchive
+ * Unarchive an import batch
+ */
+app.post('/api/vendor-catalog/batches/:batchId/unarchive', async (req, res) => {
+    try {
+        const { batchId } = req.params;
+
+        if (!batchId) {
+            return res.status(400).json({ error: 'Batch ID is required' });
+        }
+
+        const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId);
+        res.json({
+            success: true,
+            message: `Unarchived ${unarchivedCount} items from batch ${batchId}`,
+            unarchivedCount
+        });
+    } catch (error) {
+        logger.error('Unarchive vendor catalog batch error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * DELETE /api/vendor-catalog/batches/:batchId
- * Delete an import batch
+ * Permanently delete an import batch
  */
 app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
     try {
@@ -1972,7 +2055,7 @@ app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
         const deletedCount = await vendorCatalog.deleteImportBatch(batchId);
         res.json({
             success: true,
-            message: `Deleted ${deletedCount} items from batch ${batchId}`,
+            message: `Permanently deleted ${deletedCount} items from batch ${batchId}`,
             deletedCount
         });
     } catch (error) {

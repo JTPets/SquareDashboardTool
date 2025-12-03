@@ -707,21 +707,33 @@
           <!-- STEP 2: Column Mapping -->
           <div id="import-step-2" style="display: none;">
             <div class="step-header" style="margin-bottom: 20px;">
-              <h3 style="color: #374151; margin-bottom: 5px;">Step 2: Confirm Column Mappings</h3>
+              <h3 style="color: #374151; margin-bottom: 5px;">Step 2: Configure Import</h3>
               <p style="color: #6b7280; font-size: 14px;">
-                Review and adjust how columns are mapped.
+                Select vendor, name this import, and confirm column mappings.
                 <span id="row-count-info" style="font-weight: 500;"></span>
               </p>
             </div>
 
-            <div class="vendor-name-input" style="margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px;">
-              <label for="default-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">
-                Default Vendor Name <span style="color: #6b7280; font-weight: normal;">(if no vendor/brand column mapped)</span>
-              </label>
-              <input type="text" id="default-vendor" placeholder="e.g., Rolf C. Hagen, Big Al's..."
-                     style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+            <!-- Vendor and Import Name Selection -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; padding: 15px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;">
+              <div>
+                <label for="import-vendor" style="display: block; margin-bottom: 8px; font-weight: 500; color: #166534;">
+                  Vendor <span style="color: #dc2626;">*</span>
+                </label>
+                <select id="import-vendor" style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; background: white;">
+                  <option value="">-- Select Vendor --</option>
+                </select>
+              </div>
+              <div>
+                <label for="import-name" style="display: block; margin-bottom: 8px; font-weight: 500; color: #166534;">
+                  Catalog Name <span style="color: #6b7280; font-weight: normal;">(e.g., "2025 Price List")</span>
+                </label>
+                <input type="text" id="import-name" placeholder="e.g., 2025 Price List, Spring Catalog..."
+                       style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+              </div>
             </div>
 
+            <h4 style="color: #374151; margin-bottom: 10px;">Column Mappings</h4>
             <div class="mapping-table-container" style="overflow-x: auto; margin-bottom: 20px;">
               <table id="mapping-table" style="width: 100%; border-collapse: collapse; font-size: 14px;">
                 <thead>
@@ -737,8 +749,8 @@
             </div>
 
             <div class="mapping-legend" style="background: #fefce8; border: 1px solid #fef08a; border-radius: 6px; padding: 12px; margin-bottom: 20px; font-size: 13px;">
-              <strong style="color: #854d0e;">Required fields:</strong>
-              <span style="color: #713f12;">Product Name, Vendor Item #, Cost, and either Vendor Name/Brand or Default Vendor above</span>
+              <strong style="color: #854d0e;">Required:</strong>
+              <span style="color: #713f12;">Select a Vendor above, then map Product Name, Vendor Item #, and Cost columns. Brand and Price (SRP) are optional.</span>
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
@@ -819,7 +831,13 @@
 
       <!-- BATCHES TAB -->
       <div class="tab-content" id="tab-batches">
-        <h3 style="margin-bottom: 20px; color: #374151;">Import History</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h3 style="color: #374151;">Import History</h3>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #6b7280; cursor: pointer;">
+            <input type="checkbox" id="show-archived-checkbox" onchange="loadBatches(this.checked)" style="cursor: pointer;">
+            Show Archived
+          </label>
+        </div>
         <div id="batches-list">
           <div class="loading">Loading batches...</div>
         </div>
@@ -940,6 +958,9 @@
         // Render the mapping table
         renderMappingTable(result.columns, result.autoMappings, result.sampleValues);
 
+        // Populate vendor dropdown
+        await populateImportVendorDropdown();
+
         // Switch to step 2
         document.getElementById('import-step-1').style.display = 'none';
         document.getElementById('import-step-2').style.display = 'block';
@@ -1008,6 +1029,16 @@
 
     // Confirm and perform import - Step 2
     async function confirmImport() {
+      // Validate vendor selection
+      const vendorSelect = document.getElementById('import-vendor');
+      const vendorId = vendorSelect.value;
+      const vendorName = vendorSelect.options[vendorSelect.selectedIndex]?.text || '';
+
+      if (!vendorId) {
+        alert('Please select a vendor for this import');
+        return;
+      }
+
       // Gather mappings from dropdowns
       const mappings = {};
       const selects = document.querySelectorAll('[id^="mapping-"]');
@@ -1020,13 +1051,6 @@
 
       // Validate required fields
       const mappedFields = Object.values(mappings);
-      const hasVendorName = mappedFields.includes('vendor_name') || mappedFields.includes('brand');
-      const hasDefaultVendor = document.getElementById('default-vendor').value.trim().length > 0;
-
-      if (!hasVendorName && !hasDefaultVendor) {
-        alert('Please either map a Vendor Name/Brand column or enter a Default Vendor Name');
-        return;
-      }
 
       if (!mappedFields.includes('product_name')) {
         alert('Please map a column to Product Name (required)');
@@ -1048,7 +1072,7 @@
       document.getElementById('import-progress').style.display = 'block';
 
       try {
-        const defaultVendorName = document.getElementById('default-vendor').value.trim();
+        const importName = document.getElementById('import-name').value.trim();
 
         const response = await fetch('/api/vendor-catalog/import-mapped', {
           method: 'POST',
@@ -1058,7 +1082,9 @@
             fileName: currentFileName,
             fileType: currentFileType,
             mappings: mappings,
-            defaultVendorName: defaultVendorName || null
+            vendorId: vendorId,
+            vendorName: vendorName,
+            importName: importName || null
           })
         });
 
@@ -1075,10 +1101,54 @@
           document.getElementById('result-title').textContent = 'Import Successful!';
 
           let html = `
+            <p><strong>Vendor:</strong> ${escapeHtml(result.vendorName)}</p>
+            ${result.importName ? `<p><strong>Catalog:</strong> ${escapeHtml(result.importName)}</p>` : ''}
             <p><strong>${result.stats.imported}</strong> items imported</p>
             <p><strong>${result.stats.matched}</strong> items matched to our catalog</p>
-            <p>Batch ID: <code>${result.batchId}</code></p>
           `;
+
+          // Show price update report if there are differences
+          if (result.stats.priceUpdatesCount > 0) {
+            html += `
+              <div style="margin-top: 15px; padding: 15px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+                <h4 style="color: #92400e; margin-bottom: 10px;">Price Update Report</h4>
+                <p style="font-size: 14px; color: #78350f;">
+                  <strong>${result.stats.priceUpdatesCount}</strong> items have price differences vs. our catalog
+                  (${result.stats.priceIncreasesCount} increases, ${result.stats.priceDecreasesCount} decreases)
+                </p>
+                <div style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                  <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                    <thead>
+                      <tr style="background: #fef08a;">
+                        <th style="padding: 6px; text-align: left;">Our SKU</th>
+                        <th style="padding: 6px; text-align: left;">Item</th>
+                        <th style="padding: 6px; text-align: right;">Our Price</th>
+                        <th style="padding: 6px; text-align: right;">Vendor SRP</th>
+                        <th style="padding: 6px; text-align: right;">Diff</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+            `;
+            result.stats.priceUpdates.slice(0, 20).forEach(p => {
+              const diffColor = p.action === 'price_increase' ? '#059669' : '#dc2626';
+              const diffSign = p.price_diff_cents > 0 ? '+' : '';
+              html += `
+                <tr>
+                  <td style="padding: 4px 6px;"><code>${escapeHtml(p.our_sku || '-')}</code></td>
+                  <td style="padding: 4px 6px;">${escapeHtml(p.our_item_name || p.product_name)}</td>
+                  <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
+                  <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.vendor_srp_cents)}</td>
+                  <td style="padding: 4px 6px; text-align: right; color: ${diffColor}; font-weight: 600;">
+                    ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)
+                  </td>
+                </tr>
+              `;
+            });
+            if (result.stats.priceUpdates.length > 20) {
+              html += `<tr><td colspan="5" style="padding: 6px; text-align: center; color: #6b7280;">...and ${result.stats.priceUpdates.length - 20} more</td></tr>`;
+            }
+            html += '</tbody></table></div></div>';
+          }
 
           if (result.validationErrors && result.validationErrors.length > 0) {
             html += `<p style="color: #d97706; margin-top: 10px;">${result.validationErrors.length} rows had validation errors and were skipped</p>`;
@@ -1140,8 +1210,30 @@
       document.getElementById('import-result').classList.remove('show', 'success', 'error');
       document.getElementById('file-info').style.display = 'none';
       document.getElementById('file-input').value = '';
-      document.getElementById('default-vendor').value = '';
+      document.getElementById('import-vendor').value = '';
+      document.getElementById('import-name').value = '';
       document.getElementById('mapping-body').innerHTML = '';
+    }
+
+    // Populate import vendor dropdown
+    async function populateImportVendorDropdown() {
+      try {
+        const response = await fetch('/api/vendors');
+        const data = await response.json();
+
+        const select = document.getElementById('import-vendor');
+        // Clear existing options except first
+        select.innerHTML = '<option value="">-- Select Vendor --</option>';
+
+        data.vendors.forEach(vendor => {
+          const option = document.createElement('option');
+          option.value = vendor.id;
+          option.textContent = vendor.name;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load vendors for import:', error);
+      }
     }
 
     // Load field types for dropdowns
@@ -1380,12 +1472,15 @@
     }
 
     // Load batches
-    async function loadBatches() {
+    async function loadBatches(includeArchived = false) {
       const container = document.getElementById('batches-list');
       container.innerHTML = '<div class="loading">Loading batches...</div>';
 
       try {
-        const response = await fetch('/api/vendor-catalog/batches');
+        const url = includeArchived
+          ? '/api/vendor-catalog/batches?include_archived=true'
+          : '/api/vendor-catalog/batches';
+        const response = await fetch(url);
         const data = await response.json();
 
         if (data.batches.length === 0) {
@@ -1398,39 +1493,100 @@
           return;
         }
 
-        container.innerHTML = data.batches.map(batch => `
-          <div class="batch-card">
-            <div class="batch-info">
-              <h4>${escapeHtml(batch.vendor_name)}</h4>
-              <p>Batch: ${batch.import_batch_id}<br>
-              Imported: ${new Date(batch.imported_at).toLocaleString()}</p>
+        container.innerHTML = data.batches.map(batch => {
+          const isArchived = batch.is_archived;
+          const cardStyle = isArchived ? 'opacity: 0.6; background: #f3f4f6;' : '';
+
+          return `
+            <div class="batch-card" style="${cardStyle}">
+              <div class="batch-info">
+                <h4>
+                  ${escapeHtml(batch.vendor_name)}
+                  ${batch.import_name ? `<span style="font-weight: normal; color: #6b7280;"> - ${escapeHtml(batch.import_name)}</span>` : ''}
+                  ${isArchived ? '<span style="font-size: 12px; color: #9ca3af; margin-left: 8px;">(Archived)</span>' : ''}
+                </h4>
+                <p style="font-size: 13px;">
+                  Batch: <code style="font-size: 11px;">${batch.import_batch_id}</code><br>
+                  Imported: ${new Date(batch.imported_at).toLocaleString()}
+                </p>
+              </div>
+              <div class="batch-stats">
+                <div class="batch-stat">
+                  <div class="value">${batch.item_count}</div>
+                  <div class="label">Items</div>
+                </div>
+                <div class="batch-stat">
+                  <div class="value">${batch.matched_count}</div>
+                  <div class="label">Matched</div>
+                </div>
+                <div class="batch-stat">
+                  <div class="value">${batch.avg_margin ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
+                  <div class="label">Avg Margin</div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                  ${isArchived
+                    ? `<button onclick="unarchiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
+                    : `<button onclick="archiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
+                  }
+                  <button class="delete-btn" onclick="deleteBatch('${batch.import_batch_id}')" style="font-size: 12px;">Delete</button>
+                </div>
+              </div>
             </div>
-            <div class="batch-stats">
-              <div class="batch-stat">
-                <div class="value">${batch.item_count}</div>
-                <div class="label">Items</div>
-              </div>
-              <div class="batch-stat">
-                <div class="value">${batch.matched_count}</div>
-                <div class="label">Matched</div>
-              </div>
-              <div class="batch-stat">
-                <div class="value">${batch.avg_margin ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
-                <div class="label">Avg Margin</div>
-              </div>
-              <button class="delete-btn" onclick="deleteBatch('${batch.import_batch_id}')">Delete</button>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
 
       } catch (error) {
         container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
       }
     }
 
+    // Archive batch
+    async function archiveBatch(batchId) {
+      if (!confirm(`Archive this import? It will be hidden but still searchable.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/archive`, {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
+          loadStats();
+        } else {
+          alert('Failed to archive batch: ' + result.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Unarchive batch
+    async function unarchiveBatch(batchId) {
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/unarchive`, {
+          method: 'POST'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
+          loadStats();
+        } else {
+          alert('Failed to unarchive batch: ' + result.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
     // Delete batch
     async function deleteBatch(batchId) {
-      if (!confirm(`Are you sure you want to delete batch ${batchId}?`)) {
+      if (!confirm(`Permanently delete this import? This cannot be undone.`)) {
         return;
       }
 
@@ -1441,7 +1597,8 @@
         const result = await response.json();
 
         if (result.success) {
-          loadBatches();
+          const showArchived = document.getElementById('show-archived-checkbox')?.checked || false;
+          loadBatches(showArchived);
           loadStats();
         } else {
           alert('Failed to delete batch: ' + result.error);

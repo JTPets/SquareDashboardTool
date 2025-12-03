@@ -428,76 +428,138 @@ async function findOrCreateVendor(vendorName) {
 
 /**
  * Try to match vendor catalog item to our catalog
+ * Checks across entire catalog - items can have multiple vendors
  * @param {Object} item - Vendor catalog item
- * @returns {Promise<Object>} Match result with variation_id and method
+ * @returns {Promise<Object>} Match result with variation_id, method, and all matches
  */
 async function matchToOurCatalog(item) {
-    // Try UPC match first (most reliable)
+    const allMatches = [];
+
+    // Try UPC match first (most reliable) - find ALL matching variations
     if (item.upc) {
-        const upcMatch = await db.query(
-            'SELECT id FROM variations WHERE upc = $1 AND (is_deleted = FALSE OR is_deleted IS NULL) LIMIT 1',
-            [item.upc]
-        );
-        if (upcMatch.rows.length > 0) {
-            return { variation_id: upcMatch.rows[0].id, method: 'upc' };
+        const upcMatches = await db.query(`
+            SELECT v.id, v.sku, v.name as variation_name, v.price_money,
+                   i.name as item_name, i.id as item_id
+            FROM variations v
+            LEFT JOIN items i ON v.item_id = i.id
+            WHERE v.upc = $1 AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
+        `, [item.upc]);
+
+        for (const match of upcMatches.rows) {
+            allMatches.push({
+                variation_id: match.id,
+                method: 'upc',
+                sku: match.sku,
+                variation_name: match.variation_name,
+                item_name: match.item_name,
+                our_price_cents: match.price_money
+            });
         }
     }
 
-    // Try vendor item number match (check supplier_item_number in variations)
+    // Also try vendor item number match (check supplier_item_number and sku)
     if (item.vendor_item_number) {
-        const vendorSkuMatch = await db.query(
-            'SELECT id FROM variations WHERE supplier_item_number = $1 AND (is_deleted = FALSE OR is_deleted IS NULL) LIMIT 1',
-            [item.vendor_item_number]
-        );
-        if (vendorSkuMatch.rows.length > 0) {
-            return { variation_id: vendorSkuMatch.rows[0].id, method: 'vendor_item_number' };
+        const vendorSkuMatches = await db.query(`
+            SELECT v.id, v.sku, v.name as variation_name, v.price_money,
+                   i.name as item_name, i.id as item_id
+            FROM variations v
+            LEFT JOIN items i ON v.item_id = i.id
+            WHERE (v.supplier_item_number = $1 OR v.sku = $1)
+                  AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
+                  AND v.id NOT IN (SELECT unnest($2::text[]))
+        `, [item.vendor_item_number, allMatches.map(m => m.variation_id)]);
+
+        for (const match of vendorSkuMatches.rows) {
+            allMatches.push({
+                variation_id: match.id,
+                method: 'vendor_item_number',
+                sku: match.sku,
+                variation_name: match.variation_name,
+                item_name: match.item_name,
+                our_price_cents: match.price_money
+            });
         }
     }
 
-    return { variation_id: null, method: null };
+    // Return first match as primary, but include all matches
+    if (allMatches.length > 0) {
+        return {
+            variation_id: allMatches[0].variation_id,
+            method: allMatches[0].method,
+            allMatches
+        };
+    }
+
+    return { variation_id: null, method: null, allMatches: [] };
 }
 
 /**
  * Import vendor catalog items into database
  * @param {Array<Object>} items - Validated items to import
  * @param {string} batchId - Import batch ID
- * @returns {Promise<Object>} Import statistics
+ * @param {Object} options - Import options
+ * @param {string} options.vendorId - Selected vendor ID
+ * @param {string} options.vendorName - Selected vendor name
+ * @param {string} options.importName - User-defined import name
+ * @returns {Promise<Object>} Import statistics with price update report
  */
-async function importItems(items, batchId) {
+async function importItems(items, batchId, options = {}) {
+    const { vendorId, vendorName, importName } = options;
+
     const stats = {
         total: items.length,
         imported: 0,
         matched: 0,
-        newVendors: new Set(),
         errors: []
     };
 
-    // Group items by vendor name
-    const vendorCache = {};
+    // Track price differences for report
+    const priceUpdates = [];
 
     for (const item of items) {
         try {
-            // Get or create vendor
-            if (!vendorCache[item.vendor_name]) {
-                vendorCache[item.vendor_name] = await findOrCreateVendor(item.vendor_name);
-            }
-            const vendorId = vendorCache[item.vendor_name];
-
             // Try to match to our catalog
             const match = await matchToOurCatalog(item);
             if (match.variation_id) {
                 stats.matched++;
+
+                // Check for price differences on matched items
+                for (const m of match.allMatches) {
+                    if (m.our_price_cents && item.price_cents) {
+                        const priceDiff = item.price_cents - m.our_price_cents;
+                        const priceDiffPercent = (priceDiff / m.our_price_cents) * 100;
+
+                        if (Math.abs(priceDiffPercent) >= 1) { // Report differences >= 1%
+                            priceUpdates.push({
+                                vendor_item_number: item.vendor_item_number,
+                                product_name: item.product_name,
+                                brand: item.brand || null,
+                                upc: item.upc,
+                                our_sku: m.sku,
+                                our_item_name: m.item_name || m.variation_name,
+                                our_price_cents: m.our_price_cents,
+                                vendor_srp_cents: item.price_cents,
+                                vendor_cost_cents: item.cost_cents,
+                                price_diff_cents: priceDiff,
+                                price_diff_percent: priceDiffPercent,
+                                match_method: m.method,
+                                action: priceDiff > 0 ? 'price_increase' : 'price_decrease'
+                            });
+                        }
+                    }
+                }
             }
 
-            // Insert catalog item
+            // Insert catalog item with brand stored separately
             await db.query(`
                 INSERT INTO vendor_catalog_items (
-                    vendor_id, vendor_name, vendor_item_number, product_name,
+                    vendor_id, vendor_name, brand, vendor_item_number, product_name,
                     upc, cost_cents, price_cents, margin_percent,
-                    matched_variation_id, match_method, import_batch_id, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+                    matched_variation_id, match_method, import_batch_id, import_name, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
                 ON CONFLICT (vendor_id, vendor_item_number, import_batch_id)
                 DO UPDATE SET
+                    brand = EXCLUDED.brand,
                     product_name = EXCLUDED.product_name,
                     upc = EXCLUDED.upc,
                     cost_cents = EXCLUDED.cost_cents,
@@ -505,10 +567,12 @@ async function importItems(items, batchId) {
                     margin_percent = EXCLUDED.margin_percent,
                     matched_variation_id = EXCLUDED.matched_variation_id,
                     match_method = EXCLUDED.match_method,
+                    import_name = EXCLUDED.import_name,
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 vendorId,
-                item.vendor_name,
+                vendorName,
+                item.brand || null,
                 item.vendor_item_number,
                 item.product_name,
                 item.upc,
@@ -517,7 +581,8 @@ async function importItems(items, batchId) {
                 item.margin_percent,
                 match.variation_id,
                 match.method,
-                batchId
+                batchId,
+                importName || null
             ]);
 
             stats.imported++;
@@ -534,7 +599,12 @@ async function importItems(items, batchId) {
         }
     }
 
-    stats.newVendors = Object.keys(vendorCache).length;
+    // Add price update report to stats
+    stats.priceUpdates = priceUpdates;
+    stats.priceUpdatesCount = priceUpdates.length;
+    stats.priceIncreasesCount = priceUpdates.filter(p => p.action === 'price_increase').length;
+    stats.priceDecreasesCount = priceUpdates.filter(p => p.action === 'price_decrease').length;
+
     return stats;
 }
 
@@ -687,23 +757,57 @@ async function searchVendorCatalog(options = {}) {
 
 /**
  * Get import batches summary
+ * @param {Object} options - Filter options
+ * @param {boolean} options.includeArchived - Include archived imports
  * @returns {Promise<Array>} List of import batches with stats
  */
-async function getImportBatches() {
+async function getImportBatches(options = {}) {
+    const { includeArchived = false } = options;
+
     const result = await db.query(`
         SELECT
             import_batch_id,
+            vendor_id,
             vendor_name,
+            import_name,
+            is_archived,
             COUNT(*) as item_count,
             COUNT(matched_variation_id) as matched_count,
             MIN(imported_at) as imported_at,
             AVG(margin_percent) as avg_margin
         FROM vendor_catalog_items
-        GROUP BY import_batch_id, vendor_name
+        ${includeArchived ? '' : 'WHERE (is_archived = FALSE OR is_archived IS NULL)'}
+        GROUP BY import_batch_id, vendor_id, vendor_name, import_name, is_archived
         ORDER BY imported_at DESC
-        LIMIT 50
+        LIMIT 100
     `);
     return result.rows;
+}
+
+/**
+ * Archive an import batch (soft delete - keeps for searches)
+ * @param {string} batchId - Batch ID to archive
+ * @returns {Promise<number>} Number of items archived
+ */
+async function archiveImportBatch(batchId) {
+    const result = await db.query(
+        'UPDATE vendor_catalog_items SET is_archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1',
+        [batchId]
+    );
+    return result.rowCount;
+}
+
+/**
+ * Unarchive an import batch
+ * @param {string} batchId - Batch ID to unarchive
+ * @returns {Promise<number>} Number of items unarchived
+ */
+async function unarchiveImportBatch(batchId) {
+    const result = await db.query(
+        'UPDATE vendor_catalog_items SET is_archived = FALSE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1',
+        [batchId]
+    );
+    return result.rowCount;
 }
 
 /**
@@ -763,14 +867,15 @@ async function getStats() {
 
 /**
  * Supported field types for mapping
+ * Note: Vendor is selected from dropdown, not mapped from file
+ * Brand is metadata only, stored separately
  */
 const FIELD_TYPES = [
-    { id: 'vendor_name', label: 'Vendor Name', required: false, description: 'Vendor/supplier name' },
-    { id: 'brand', label: 'Brand', required: false, description: 'Brand name (used as vendor if no vendor column)' },
+    { id: 'brand', label: 'Brand', required: false, description: 'Brand/manufacturer name (metadata only)' },
     { id: 'product_name', label: 'Product Name', required: true, description: 'Product description/title' },
     { id: 'vendor_item_number', label: 'Vendor Item #', required: true, description: "Vendor's SKU or part number" },
-    { id: 'upc', label: 'UPC/GTIN', required: false, description: 'Barcode for matching' },
-    { id: 'cost', label: 'Cost', required: true, description: 'Your cost from vendor' },
+    { id: 'upc', label: 'UPC/GTIN', required: false, description: 'Barcode for matching to catalog' },
+    { id: 'cost', label: 'Cost', required: true, description: 'Your cost from this vendor' },
     { id: 'price', label: 'Price (SRP)', required: false, description: 'Suggested retail price' },
     { id: 'skip', label: '(Skip)', required: false, description: 'Ignore this column' }
 ];
@@ -826,18 +931,30 @@ async function previewFile(data, fileType) {
  * @param {string} fileType - 'csv' or 'xlsx'
  * @param {Object} options - Import options
  * @param {Object} options.columnMappings - Map of column index/header to field type
- * @param {string} options.defaultVendorName - Default vendor name
- * @returns {Promise<Object>} Import result
+ * @param {string} options.vendorId - Selected vendor ID (required)
+ * @param {string} options.vendorName - Selected vendor name
+ * @param {string} options.importName - User-defined catalog name (e.g., "ABC Corp 2025 Price List")
+ * @returns {Promise<Object>} Import result with price update report
  */
 async function importWithMappings(data, fileType, options = {}) {
     const startTime = Date.now();
     const batchId = generateBatchId();
-    const { columnMappings, defaultVendorName } = options;
+    const { columnMappings, vendorId, vendorName, importName } = options;
+
+    // Validate vendor is selected
+    if (!vendorId) {
+        return {
+            success: false,
+            error: 'Please select a vendor for this import'
+        };
+    }
 
     logger.info('Starting vendor catalog import with explicit mappings', {
         fileType,
         batchId,
-        defaultVendorName,
+        vendorId,
+        vendorName,
+        importName,
         mappingCount: columnMappings ? Object.keys(columnMappings).length : 0
     });
 
@@ -878,15 +995,13 @@ async function importWithMappings(data, fileType, options = {}) {
             }
         });
 
-        // Validate required fields
+        // Validate required fields (vendor comes from selection, not file)
         const mappedFields = Object.values(fieldMap);
-        const hasVendorOrBrand = mappedFields.includes('vendor_name') || mappedFields.includes('brand') || defaultVendorName;
 
         const missingRequired = [];
         if (!mappedFields.includes('product_name')) missingRequired.push('product_name');
         if (!mappedFields.includes('vendor_item_number')) missingRequired.push('vendor_item_number');
         if (!mappedFields.includes('cost')) missingRequired.push('cost');
-        if (!hasVendorOrBrand) missingRequired.push('vendor_name (or brand)');
 
         if (missingRequired.length > 0) {
             return {
@@ -916,29 +1031,26 @@ async function importWithMappings(data, fileType, options = {}) {
             // Validate and transform
             const rowErrors = [];
 
-            // Vendor name
-            let vendorName = item.vendor_name || item.brand || defaultVendorName;
-            if (!vendorName || String(vendorName).trim() === '') {
-                rowErrors.push('Missing vendor name');
-            } else {
-                item.vendor_name = String(vendorName).trim();
+            // Brand (optional metadata from file)
+            if (item.brand) {
+                item.brand = String(item.brand).trim();
             }
 
-            // Product name
+            // Product name (required)
             if (!item.product_name || String(item.product_name).trim() === '') {
                 rowErrors.push('Missing product name');
             } else {
                 item.product_name = String(item.product_name).trim();
             }
 
-            // Vendor item number
+            // Vendor item number (required)
             if (!item.vendor_item_number || String(item.vendor_item_number).trim() === '') {
                 rowErrors.push('Missing vendor item number');
             } else {
                 item.vendor_item_number = String(item.vendor_item_number).trim();
             }
 
-            // Cost
+            // Cost (required)
             const costCents = parseMoney(item.cost);
             if (costCents === null || costCents < 0) {
                 rowErrors.push(`Invalid cost: ${item.cost}`);
@@ -980,14 +1092,20 @@ async function importWithMappings(data, fileType, options = {}) {
             };
         }
 
-        // Import valid items
-        const stats = await importItems(items, batchId);
+        // Import valid items with vendor info
+        const stats = await importItems(items, batchId, {
+            vendorId,
+            vendorName,
+            importName
+        });
 
         const duration = Date.now() - startTime;
         logger.info('Vendor catalog import complete', {
             batchId,
             duration,
-            ...stats
+            imported: stats.imported,
+            matched: stats.matched,
+            priceUpdatesCount: stats.priceUpdatesCount
         });
 
         return {
@@ -996,7 +1114,9 @@ async function importWithMappings(data, fileType, options = {}) {
             duration,
             stats,
             validationErrors: errors,
-            fieldMap
+            fieldMap,
+            importName,
+            vendorName
         };
 
     } catch (error) {
@@ -1020,6 +1140,8 @@ module.exports = {
     previewFile,
     searchVendorCatalog,
     getImportBatches,
+    archiveImportBatch,
+    unarchiveImportBatch,
     deleteImportBatch,
     lookupByUPC,
     getStats,
@@ -1028,5 +1150,6 @@ module.exports = {
     parseXLSX,
     validateAndTransform,
     normalizeHeader,
+    matchToOurCatalog,
     FIELD_TYPES
 };
