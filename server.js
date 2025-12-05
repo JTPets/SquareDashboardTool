@@ -1824,7 +1824,9 @@ app.post('/api/vendor-catalog/preview', async (req, res) => {
  */
 app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
     try {
-        const { data, fileType, fileName, columnMappings, vendorId, vendorName, importName } = req.body;
+        // Accept both 'mappings' (frontend) and 'columnMappings' (API) for compatibility
+        const { data, fileType, fileName, columnMappings, mappings, vendorId, vendorName, importName } = req.body;
+        const resolvedMappings = columnMappings || mappings;
 
         if (!data) {
             return res.status(400).json({
@@ -1862,7 +1864,7 @@ app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
         }
 
         const result = await vendorCatalog.importWithMappings(fileData, type, {
-            columnMappings: columnMappings || {},
+            columnMappings: resolvedMappings || {},
             vendorId,
             vendorName: vendorName || 'Unknown Vendor',
             importName: importName || null

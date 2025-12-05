@@ -130,21 +130,23 @@ function normalizeHeader(header) {
          'part number', 'item_number', 'item number', 'sku', 'vendor_code', 'vendor code',
          'item#', 'item #', 'part#', 'part #', 'catalog_number', 'catalog number',
          'product number', 'product_number', 'model', 'model number', 'model_number',
-         'item no', 'item no.', 'part no', 'part no.', 'catalog no', 'catalog no.'].includes(normalized)) {
+         'item no', 'item no.', 'part no', 'part no.', 'catalog no', 'catalog no.',
+         'code', 'item code', 'item_code', 'product code', 'product_code'].includes(normalized)) {
         return 'vendor_item_number';
     }
 
-    // Cost mappings (net price = actual cost after discounts, LIST = dealer list price)
+    // Cost mappings (in B2B vendor catalogs, "price" typically means wholesale cost to retailer)
+    // net price = actual cost after discounts, LIST = dealer list price
     if (['cost', 'unit_cost', 'unit cost', 'wholesale', 'wholesale_price', 'wholesale price',
          'our_cost', 'our cost', 'dealer_cost', 'dealer cost', 'cost_price', 'cost price',
          'buy_price', 'buy price', 'net_price', 'net price', 'net cost', 'net',
          'your cost', 'your price', 'dealer price', 'distributor cost', 'dist cost',
-         'list', 'dealer list', 'dealer list price'].includes(normalized)) {
+         'list', 'dealer list', 'dealer list price', 'price', 'new price', 'new_price'].includes(normalized)) {
         return 'cost';
     }
 
-    // Price mappings (SRP = Suggested Retail Price)
-    if (['price', 'retail', 'retail_price', 'retail price', 'msrp', 'list price', 'list_price',
+    // Price mappings (SRP = Suggested Retail Price, for end consumer pricing)
+    if (['retail', 'retail_price', 'retail price', 'msrp', 'list price', 'list_price',
          'sell_price', 'sell price', 'suggested_retail', 'suggested retail', 'srp', 's r p',
          'suggested retail price', 'retail value', 'map', 'map price', 'sale price',
          'customer price', 'resale', 'resale price'].includes(normalized)) {
