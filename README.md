@@ -62,7 +62,140 @@ For detailed production readiness assessment, see the comprehensive audit result
 - **Node.js**: Version 18.0.0 or higher
 - **PostgreSQL**: Version 14.0 or higher
 - **Square Account**: With API access token
-- **Windows 10/11**: For development (will deploy to Raspberry Pi later)
+- **Git**: For cloning the repository
+- **Text Editor**: nano, vim, or VS Code for editing configuration files
+
+## System Dependencies Installation
+
+Choose the instructions for your operating system:
+
+### Ubuntu/Debian (including Raspberry Pi OS)
+
+```bash
+# Update package list
+sudo apt update
+
+# Install Node.js 18+ (using NodeSource repository)
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Verify Node.js installation
+node --version  # Should show v18.x.x or higher
+npm --version
+
+# Install PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Install Git (if not already installed)
+sudo apt install -y git
+
+# Install text editor (nano is beginner-friendly)
+sudo apt install -y nano
+
+# Optional: Install curl for API testing
+sudo apt install -y curl
+```
+
+### RHEL/CentOS/Fedora
+
+```bash
+# Install Node.js 18+ (using NodeSource repository)
+curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo dnf install -y nodejs
+
+# Verify Node.js installation
+node --version
+npm --version
+
+# Install PostgreSQL
+sudo dnf install -y postgresql-server postgresql-contrib
+
+# Initialize and start PostgreSQL
+sudo postgresql-setup --initdb
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Install Git and text editor
+sudo dnf install -y git nano curl
+```
+
+### macOS
+
+```bash
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install Node.js 18+
+brew install node@18
+echo 'export PATH="/opt/homebrew/opt/node@18/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# Verify Node.js installation
+node --version
+npm --version
+
+# Install PostgreSQL
+brew install postgresql@14
+brew services start postgresql@14
+
+# Git is usually pre-installed on macOS, but if not:
+brew install git
+
+# nano is pre-installed on macOS
+```
+
+### Windows 10/11
+
+1. **Install Node.js**:
+   - Download from [nodejs.org](https://nodejs.org/) (LTS version 18+)
+   - Run the installer and follow prompts
+   - Verify: Open Command Prompt and run `node --version`
+
+2. **Install PostgreSQL**:
+   - Download from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/)
+   - Run the installer
+   - **Remember the password you set for the postgres user!**
+   - Keep default port 5432
+   - Add PostgreSQL bin to PATH when prompted
+
+3. **Install Git**:
+   - Download from [git-scm.com](https://git-scm.com/download/win)
+   - Run installer with default options
+   - This includes Git Bash which provides a Unix-like terminal
+
+4. **Text Editor** (choose one):
+   - **VS Code**: Download from [code.visualstudio.com](https://code.visualstudio.com/)
+   - **Notepad++**: Download from [notepad-plus-plus.org](https://notepad-plus-plus.org/)
+   - Or use built-in Notepad for simple edits
+
+### Raspberry Pi OS (ARM)
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js 18+ for ARM
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+
+# Start and enable PostgreSQL
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Install other dependencies
+sudo apt install -y git nano curl
+
+# Verify installations
+node --version
+psql --version
+```
 
 ## Installation
 
@@ -73,38 +206,116 @@ git clone <repository-url>
 cd SquareDashboardTool
 ```
 
-### 2. Install Dependencies
+### 2. Install Node.js Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Database Setup
+This will install all required packages including:
+- `express` - Web server framework
+- `pg` - PostgreSQL database client
+- `exceljs` - Excel file generation (for vendor catalog imports)
+- `winston` - Logging system
+- `nodemailer` - Email notifications
+- And other dependencies listed in `package.json`
 
-Create a PostgreSQL database:
+### 3. PostgreSQL Database Setup
+
+#### Set PostgreSQL Password (Linux/Mac - First Time Setup)
+
+By default, PostgreSQL uses "peer" authentication. You need to set a password:
 
 ```bash
-# Using psql command line
-psql -U postgres
-CREATE DATABASE jtpets_beta;
+# Switch to postgres user
+sudo -u postgres psql
+
+# Set a password for the postgres user
+ALTER USER postgres WITH PASSWORD 'your_secure_password';
+
+# Exit psql
 \q
 ```
 
-Run the schema to create all tables:
+#### Configure PostgreSQL for Password Authentication (Linux)
 
 ```bash
-psql -U postgres -d jtpets_beta -f database/schema.sql
+# Edit pg_hba.conf to allow password authentication
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+
+# Find the line that looks like:
+# local   all             all                                     peer
+# Change 'peer' to 'md5':
+# local   all             all                                     md5
+
+# Also find and change:
+# host    all             all             127.0.0.1/32            peer
+# to:
+# host    all             all             127.0.0.1/32            md5
+
+# Save and exit (Ctrl+X, then Y, then Enter in nano)
+
+# Restart PostgreSQL to apply changes
+sudo systemctl restart postgresql
+```
+
+#### Create the Database
+
+```bash
+# Connect to PostgreSQL
+psql -U postgres -h localhost
+
+# When prompted, enter the password you set above
+
+# Create the database
+CREATE DATABASE jtpets_beta;
+
+# Verify it was created
+\l
+
+# Exit
+\q
+```
+
+#### Run the Database Schema
+
+```bash
+# Apply the schema to create all tables
+psql -U postgres -h localhost -d jtpets_beta -f database/schema.sql
 ```
 
 ### 4. Environment Configuration
 
-Copy the example environment file and configure:
+Copy the example environment file:
 
 ```bash
+# Linux/Mac
+cp .env.example .env
+
+# Windows (Command Prompt)
 copy .env.example .env
+
+# Windows (PowerShell)
+Copy-Item .env.example .env
 ```
 
 Edit `.env` with your actual values:
+
+```bash
+# Linux/Mac - using nano
+nano .env
+
+# Linux/Mac - using vim
+vim .env
+
+# Windows - using notepad
+notepad .env
+
+# Or use VS Code (any platform)
+code .env
+```
+
+Update these required values in `.env`:
 
 ```env
 SQUARE_ACCESS_TOKEN=your_actual_square_token
@@ -960,6 +1171,124 @@ Example log entry:
 ```
 
 ## Troubleshooting
+
+### Installation Issues
+
+#### PostgreSQL Not Found / Command 'psql' Not Found
+
+**Error:** `psql: command not found` or `'psql' is not recognized`
+
+**Solutions:**
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl start postgresql
+```
+
+**Linux (RHEL/CentOS/Fedora):**
+```bash
+sudo dnf install -y postgresql-server postgresql-contrib
+sudo postgresql-setup --initdb
+sudo systemctl start postgresql
+```
+
+**macOS:**
+```bash
+brew install postgresql@14
+brew services start postgresql@14
+```
+
+**Windows:**
+- Ensure PostgreSQL bin folder is in your PATH
+- Default location: `C:\Program Files\PostgreSQL\14\bin`
+- Add to PATH via System Properties → Environment Variables
+
+#### PostgreSQL Peer Authentication Failed
+
+**Error:** `Peer authentication failed for user "postgres"`
+
+**Cause:** PostgreSQL is configured to use peer authentication instead of password.
+
+**Solution:**
+```bash
+# Edit pg_hba.conf
+sudo nano /etc/postgresql/*/main/pg_hba.conf
+
+# Change 'peer' to 'md5' for local connections:
+# local   all   all   md5
+# host    all   all   127.0.0.1/32   md5
+
+# Restart PostgreSQL
+sudo systemctl restart postgresql
+```
+
+#### Node.js Version Too Old
+
+**Error:** `SyntaxError: Unexpected token` or ES module errors
+
+**Cause:** Node.js version is below 18.0.0
+
+**Solution:**
+```bash
+# Check current version
+node --version
+
+# If below 18, upgrade using NodeSource:
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+#### npm install Fails with Permission Error
+
+**Error:** `EACCES: permission denied` during npm install
+
+**Solution:**
+```bash
+# DON'T use sudo with npm install. Instead, fix permissions:
+sudo chown -R $(whoami) ~/.npm
+sudo chown -R $(whoami) /usr/local/lib/node_modules
+
+# Or use a Node version manager (nvm):
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc
+nvm install 18
+nvm use 18
+```
+
+#### Module Not Found Errors
+
+**Error:** `Cannot find module 'exceljs'` or similar
+
+**Cause:** Dependencies not installed or corrupted.
+
+**Solution:**
+```bash
+# Remove node_modules and reinstall
+rm -rf node_modules
+rm package-lock.json
+npm install
+```
+
+#### Cannot Create Database (Permission Denied)
+
+**Error:** `permission denied to create database`
+
+**Solution:**
+```bash
+# Connect as postgres superuser
+sudo -u postgres psql
+
+# Create database as superuser
+CREATE DATABASE jtpets_beta;
+
+# Grant permissions
+GRANT ALL PRIVILEGES ON DATABASE jtpets_beta TO postgres;
+\q
+```
+
+### Runtime Issues
 
 ### Database Connection Failed
 
