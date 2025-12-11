@@ -338,6 +338,31 @@
       .product-name { max-width: 150px; }
       .editable-input { width: 50px; font-size: 12px; }
     }
+
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      color: white;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      transform: translateX(120%);
+      transition: transform 0.3s ease;
+      max-width: 400px;
+    }
+    .toast.active {
+      transform: translateX(0);
+    }
+    .toast.success {
+      background: #10b981;
+    }
+    .toast.error {
+      background: #ef4444;
+    }
   </style>
 </head>
 <body>
@@ -683,7 +708,13 @@
             </td>
             <td class="sku">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">${item.current_stock}</td>
-            <td class="text-right">${item.stock_alert_min || '-'}</td>
+            <td class="text-right editable-cell">
+              <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"
+                   onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
+                   title="Click to edit - syncs to Square">
+                ${item.stock_alert_min ? item.stock_alert_min : '-'}
+              </div>
+            </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
                    onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
@@ -1079,18 +1110,34 @@
         input.disabled = true;
 
         try {
-          const response = await fetch(`/api/variations/${variationId}/extended`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              [field]: newValue
-            })
-          });
+          let response;
+
+          // Use different endpoint for min stock (syncs to Square)
+          if (field === 'stock_alert_min') {
+            response = await fetch(`/api/variations/${variationId}/min-stock`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                min_stock: newValue
+              })
+            });
+          } else {
+            response = await fetch(`/api/variations/${variationId}/extended`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                [field]: newValue
+              })
+            });
+          }
 
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
           }
 
           // Update local data
@@ -1099,6 +1146,11 @@
           // Re-render entire table to recalculate order quantities
           renderTable();
           updateFooter();
+
+          // Show success toast for min stock (Square sync)
+          if (field === 'stock_alert_min') {
+            showToast('Min stock updated and synced to Square!', 'success');
+          }
 
         } catch (error) {
           console.error('Failed to save field:', error);
@@ -1135,6 +1187,17 @@
       return div.innerHTML;
     }
 
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type}`;
+      toast.classList.add('active');
+
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 3000);
+    }
+
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', async () => {
       await loadConfig();
@@ -1152,5 +1215,8 @@
       }
     });
   </script>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
 </body>
 </html>
