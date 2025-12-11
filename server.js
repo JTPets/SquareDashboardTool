@@ -2367,6 +2367,13 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                  ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_name,
+                -- Get primary vendor cost for comparison
+                (SELECT vv4.unit_cost_money
+                 FROM variation_vendors vv4
+                 WHERE vv4.variation_id = v.id
+                 ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
+                 LIMIT 1
+                ) as primary_vendor_cost,
                 v.case_pack_quantity,
                 v.reorder_multiple,
                 -- Prefer location-specific settings over global
@@ -2594,6 +2601,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     vendor_code: row.vendor_code || 'N/A',
                     is_primary_vendor: row.current_vendor_id === row.primary_vendor_id,
                     primary_vendor_name: row.primary_vendor_name,
+                    primary_vendor_cost: parseInt(row.primary_vendor_cost) || 0,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
                     images: row.images,  // Include images for URL resolution
