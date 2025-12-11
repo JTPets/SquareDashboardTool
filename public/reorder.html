@@ -132,6 +132,8 @@
       margin-top: 2px;
     }
     .sku { font-family: monospace; font-size: 12px; color: #6b7280; }
+    .clickable { cursor: pointer; }
+    .clickable:hover { background-color: #e0f2fe; }
 
     .priority-badge {
       display: inline-block;
@@ -707,7 +709,7 @@
               <div class="product-name">${escapeHtml(item.item_name)}</div>
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
             </td>
-            <td class="sku">${escapeHtml(item.sku || '-')}</td>
+            <td class="sku clickable" onclick="copyToClipboard('${escapeHtml(item.sku || '')}', 'SKU')" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">
               ${item.current_stock}
               ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
@@ -746,7 +748,7 @@
             <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
             <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
-            <td>${escapeHtml(item.vendor_code)}</td>
+            <td class="clickable" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="Click to copy Vendor Code">${escapeHtml(item.vendor_code)}</td>
           </tr>
         `;
       }).join('');
@@ -1189,6 +1191,14 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    function copyToClipboard(text, label) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(`${label} copied: ${text}`, 'success');
+      }).catch(err => {
+        showToast('Failed to copy', 'error');
+      });
     }
 
     function showToast(message, type = '') {
