@@ -3020,6 +3020,8 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
                 i.name as item_name,
                 i.category_name,
                 i.images as item_images,
+                COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0) as available_quantity,
+                COALESCE(SUM(CASE WHEN ic.state = 'RESERVED_FOR_SALE' THEN ic.quantity ELSE 0 END), 0) as committed_quantity,
                 COALESCE(SUM(ic.quantity), 0) as current_inventory,
                 TRUE as is_priority,
                 ch.last_counted_date,
@@ -3029,7 +3031,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             FROM count_queue_priority cqp
             JOIN variations v ON cqp.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
             LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
             WHERE cqp.completed = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
@@ -3050,6 +3052,8 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
                 i.name as item_name,
                 i.category_name,
                 i.images as item_images,
+                COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0) as available_quantity,
+                COALESCE(SUM(CASE WHEN ic.state = 'RESERVED_FOR_SALE' THEN ic.quantity ELSE 0 END), 0) as committed_quantity,
                 COALESCE(SUM(ic.quantity), 0) as current_inventory,
                 FALSE as is_priority,
                 ch.last_counted_date,
@@ -3059,7 +3063,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             FROM count_queue_daily cqd
             JOIN variations v ON cqd.catalog_object_id = v.id
             JOIN items i ON v.item_id = i.id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
             LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
             LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
             WHERE cqd.completed = FALSE
