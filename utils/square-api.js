@@ -1190,14 +1190,24 @@ async function syncCommittedInventory() {
         // Track committed quantities: Map<variationId:locationId, quantity>
         const committedQuantities = new Map();
 
-        // Search for open invoices (unpaid, scheduled, partially paid)
+        // Search for open invoices - Square doesn't support status filtering,
+        // so we fetch all and filter in code
         let cursor = null;
         let invoicesProcessed = 0;
+        const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID'];
 
         do {
             const requestBody = {
-                location_ids: locationIds,
-                limit: 100
+                query: {
+                    filter: {
+                        location_ids: locationIds
+                    },
+                    sort: {
+                        field: 'INVOICE_SORT_DATE',
+                        order: 'DESC'
+                    }
+                },
+                limit: 200
             };
 
             if (cursor) {
@@ -1206,23 +1216,17 @@ async function syncCommittedInventory() {
 
             const data = await makeSquareRequest('/v2/invoices/search', {
                 method: 'POST',
-                body: JSON.stringify({
-                    query: {
-                        filter: {
-                            location_ids: locationIds,
-                            status: ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID']
-                        }
-                    },
-                    limit: 100,
-                    cursor: cursor
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const invoices = data.invoices || [];
             cursor = data.cursor;
 
             for (const invoice of invoices) {
-                // Skip if no primary recipient or location
+                // Filter by status in code (Square API doesn't support status filter)
+                if (!openStatuses.includes(invoice.status)) continue;
+
+                // Skip if no location
                 if (!invoice.location_id) continue;
 
                 // Get the full invoice details to get line items
