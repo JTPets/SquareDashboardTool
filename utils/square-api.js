@@ -741,6 +741,13 @@ async function syncInventory() {
 
                 const counts = data.counts || [];
 
+                // Log counts by state for debugging
+                const stateCount = counts.reduce((acc, c) => {
+                    acc[c.state] = (acc[c.state] || 0) + 1;
+                    return acc;
+                }, {});
+                logger.info('Inventory counts by state', { batch: Math.floor(i / batchSize) + 1, states: stateCount });
+
                 for (const count of counts) {
                     await db.query(`
                         INSERT INTO inventory_counts (
