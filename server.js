@@ -2390,20 +2390,20 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 COALESCE(vls.stock_alert_max, v.stock_alert_max) as stock_alert_max,
                 COALESCE(vls.preferred_stock_level, v.preferred_stock_level) as preferred_stock_level,
                 ve.lead_time_days,
-                -- Calculate days until stockout (fixed to handle zero/negative stock)
+                -- Calculate days until stockout based on AVAILABLE quantity (not total on-hand)
                 CASE
-                    WHEN sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) > 0
-                    THEN ROUND(COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity, 1)
-                    WHEN COALESCE(ic.quantity, 0) <= 0
+                    WHEN sv91.daily_avg_quantity > 0 AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
+                    THEN ROUND((COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity, 1)
+                    WHEN (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= 0
                     THEN 0
                     ELSE 999
                 END as days_until_stockout,
                 -- Base suggested quantity (supply_days worth of inventory)
                 ROUND(COALESCE(sv91.daily_avg_quantity, 0) * $1, 2) as base_suggested_qty,
-                -- Whether currently at or below minimum stock (prefer location-specific)
+                -- Whether currently at or below minimum stock based on AVAILABLE quantity
                 CASE
                     WHEN COALESCE(vls.stock_alert_min, v.stock_alert_min) IS NOT NULL
-                         AND COALESCE(ic.quantity, 0) <= COALESCE(vls.stock_alert_min, v.stock_alert_min)
+                         AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= COALESCE(vls.stock_alert_min, v.stock_alert_min)
                     THEN TRUE
                     ELSE FALSE
                 END as below_minimum
@@ -2426,21 +2426,21 @@ app.get('/api/reorder-suggestions', async (req, res) => {
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND (
-                  -- ALWAYS SHOW: Out of stock items (regardless of supply_days or sales velocity)
-                  COALESCE(ic.quantity, 0) <= 0
+                  -- ALWAYS SHOW: Out of available stock (available = on_hand - committed)
+                  (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= 0
 
                   OR
 
-                  -- ALWAYS SHOW: Items at or below alert threshold (regardless of supply_days)
+                  -- ALWAYS SHOW: Items at or below alert threshold based on AVAILABLE quantity
                   (COALESCE(vls.stock_alert_min, v.stock_alert_min) IS NOT NULL
-                      AND COALESCE(ic.quantity, 0) <= COALESCE(vls.stock_alert_min, v.stock_alert_min))
+                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= COALESCE(vls.stock_alert_min, v.stock_alert_min))
 
                   OR
 
-                  -- APPLY SUPPLY_DAYS: Items with stock that will run out within supply_days period
+                  -- APPLY SUPPLY_DAYS: Items with available stock that will run out within supply_days period
                   -- Only applies to items with active sales velocity (sv91.daily_avg_quantity > 0)
                   (sv91.daily_avg_quantity > 0
-                      AND COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity < $1)
+                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity < $1)
               )
         `;
 
@@ -2469,6 +2469,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
         const suggestions = result.rows
             .map(row => {
                 const currentStock = parseFloat(row.current_stock) || 0;
+                const committedQty = parseInt(row.committed_quantity) || 0;
+                const availableQty = currentStock - committedQty;  // Use available for calculations
                 const dailyAvg = parseFloat(row.daily_avg_quantity) || 0;
                 // Round up base suggested quantity to whole number
                 const baseSuggestedQty = Math.ceil(parseFloat(row.base_suggested_qty) || 0);
@@ -2481,16 +2483,16 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 const leadTime = parseInt(row.lead_time_days) || 7;
                 const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
-                // Don't suggest if already above max (null = unlimited, so skip this check)
-                if (stockAlertMax !== null && currentStock >= stockAlertMax) {
+                // Don't suggest if AVAILABLE already above max (null = unlimited, so skip this check)
+                if (stockAlertMax !== null && availableQty >= stockAlertMax) {
                     return null;
                 }
 
                 // FILTERING LOGIC (must match SQL WHERE clause):
-                // 1. ALWAYS include out-of-stock items (quantity <= 0), regardless of supply_days
-                // 2. ALWAYS include items below alert threshold, regardless of supply_days
+                // 1. ALWAYS include out-of-available-stock items (available <= 0), regardless of supply_days
+                // 2. ALWAYS include items below alert threshold based on available, regardless of supply_days
                 // 3. Include items that will stockout within supply_days period (only if has velocity)
-                const isOutOfStock = currentStock <= 0;
+                const isOutOfStock = availableQty <= 0;
                 const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < supplyDaysNum;
                 if (!needsReorder) {
                     return null;
@@ -2550,8 +2552,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     targetQty = Math.max(stockAlertMin + 1, targetQty);
                 }
 
-                // Calculate suggested quantity (round up to ensure minimum of 1)
-                let suggestedQty = Math.ceil(Math.max(0, targetQty - currentStock));
+                // Calculate suggested quantity based on AVAILABLE stock (round up to ensure minimum of 1)
+                let suggestedQty = Math.ceil(Math.max(0, targetQty - availableQty));
 
                 // Round up to case pack
                 if (casePack > 1) {
@@ -2563,10 +2565,10 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     suggestedQty = Math.ceil(suggestedQty / reorderMultiple) * reorderMultiple;
                 }
 
-                // Don't exceed max stock level (round up final quantity)
+                // Don't exceed max stock level based on AVAILABLE (round up final quantity)
                 // If stockAlertMax is null (unlimited), don't cap the quantity
                 const finalQty = stockAlertMax !== null
-                    ? Math.ceil(Math.min(suggestedQty, stockAlertMax - currentStock))
+                    ? Math.ceil(Math.min(suggestedQty, stockAlertMax - availableQty))
                     : Math.ceil(suggestedQty);
 
                 if (finalQty <= 0) {
@@ -2579,9 +2581,6 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 // Subtract pending PO quantity from suggested order
                 const adjustedQty = Math.max(0, finalQty - pendingPoQty);
                 const orderCost = (adjustedQty * unitCost) / 100;
-
-                const committedQty = parseInt(row.committed_quantity) || 0;
-                const availableQty = parseInt(row.available_quantity) || 0;
 
                 // Skip if nothing to order after accounting for pending POs
                 if (adjustedQty <= 0) {
