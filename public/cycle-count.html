@@ -670,8 +670,9 @@ SKU-003"></textarea>
       const expectedQty = Number(systemCount);  // Ensure it's a number for accurate comparison
       const notes = document.getElementById('count-notes').value.trim() || null;
 
-      // Automatically determine if the count is accurate
+      // Automatically determine if the count is accurate (has variance)
       const isAccurate = (actualQty === expectedQty);
+      const hasVariance = !isAccurate;
 
       // Close modal (this resets currentCountItem, systemCount to null/0)
       closeCountModal();
@@ -680,10 +681,11 @@ SKU-003"></textarea>
       const btn = document.querySelector(`#item-${itemId} .mark-counted-btn`);
       if (btn) {
         btn.disabled = true;
-        btn.textContent = '⏳ Marking...';
+        btn.textContent = hasVariance ? '⏳ Syncing to Square...' : '⏳ Marking...';
       }
 
       try {
+        // Step 1: Record the count locally
         const response = await fetch(`/api/cycle-counts/${itemId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -700,12 +702,61 @@ SKU-003"></textarea>
 
         const result = await response.json();
 
+        // Step 2: If there's a variance, automatically push update to Square
+        let syncResult = null;
+        let syncError = null;
+
+        if (hasVariance) {
+          if (btn) btn.textContent = '⏳ Pushing to Square...';
+
+          try {
+            const syncResponse = await fetch(`/api/cycle-counts/${itemId}/sync-to-square`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                actual_quantity: actualQty
+              })
+            });
+
+            const syncData = await syncResponse.json();
+
+            if (!syncResponse.ok) {
+              // Handle specific error cases
+              if (syncResponse.status === 409 && syncData.action_required === 'sync_inventory') {
+                syncError = {
+                  type: 'inventory_mismatch',
+                  message: syncData.error,
+                  details: syncData.details
+                };
+              } else {
+                syncError = {
+                  type: 'general',
+                  message: syncData.error || 'Failed to sync to Square'
+                };
+              }
+            } else {
+              syncResult = syncData;
+            }
+          } catch (err) {
+            syncError = {
+              type: 'network',
+              message: 'Network error syncing to Square: ' + err.message
+            };
+          }
+        }
+
         // Visual feedback
         const card = document.getElementById(`item-${itemId}`);
         card.classList.add('counted');
         if (btn) {
           btn.classList.add('counted');
-          btn.textContent = '✅ Counted';
+          if (hasVariance && syncResult) {
+            btn.textContent = '✅ Synced to Square';
+          } else if (hasVariance && syncError) {
+            btn.textContent = '⚠️ Counted (Sync Failed)';
+          } else {
+            btn.textContent = '✅ Counted';
+          }
         }
 
         // Remove from pending list (find by ID)
@@ -722,11 +773,20 @@ SKU-003"></textarea>
         const completionRate = target > 0 ? Math.round(((target - remaining) / target) * 100) : 0;
         document.getElementById('completion-rate').textContent = `${completionRate}%`;
 
-        // Show success message with completion status
-        if (result.is_complete) {
+        // Show appropriate success/error message
+        if (syncError) {
+          if (syncError.type === 'inventory_mismatch') {
+            showToast(`Count recorded, but Square sync failed: Inventory changed. Please sync inventory first. (Square: ${syncError.details?.square_quantity}, DB: ${syncError.details?.database_quantity})`, 'error');
+          } else {
+            showToast(`Count recorded, but Square sync failed: ${syncError.message}`, 'error');
+          }
+        } else if (syncResult) {
+          const variance = syncResult.variance !== 0 ? ` (${syncResult.variance > 0 ? '+' : ''}${syncResult.variance})` : '';
+          showToast(`Synced to Square! ${syncResult.previous_quantity} → ${syncResult.new_quantity}${variance}`, 'success');
+        } else if (result.is_complete) {
           showToast('✅ Item counted! 100% COMPLETE - Report being sent!', 'success');
         } else {
-          showToast(`Item marked as counted! ${remaining} items remaining`, 'success');
+          showToast(`Count verified! ${remaining} items remaining`, 'success');
         }
 
         // Remove card after animation

@@ -3105,6 +3105,181 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
 });
 
 /**
+ * POST /api/cycle-counts/:id/sync-to-square
+ * Push the cycle count adjustment to Square
+ * Verifies Square's current inventory matches our DB before updating
+ */
+app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { actual_quantity, location_id } = req.body;
+
+        // Validate catalog_object_id
+        if (!id || id === 'null' || id === 'undefined') {
+            logger.error('Invalid catalog_object_id for Square sync', { id, body: req.body });
+            return res.status(400).json({
+                error: 'Invalid item ID. Please refresh the page and try again.'
+            });
+        }
+
+        // Validate actual_quantity
+        if (actual_quantity === null || actual_quantity === undefined || isNaN(parseInt(actual_quantity))) {
+            return res.status(400).json({
+                error: 'Actual quantity is required for Square sync.'
+            });
+        }
+
+        const actualQty = parseInt(actual_quantity);
+
+        // Get the variation details
+        const variationResult = await db.query(
+            `SELECT v.id, v.sku, v.name, v.item_id, i.name as item_name, v.track_inventory
+             FROM variations v
+             JOIN items i ON v.item_id = i.id
+             WHERE v.id = $1`,
+            [id]
+        );
+
+        if (variationResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found' });
+        }
+
+        const variation = variationResult.rows[0];
+
+        // Check if inventory tracking is enabled
+        if (!variation.track_inventory) {
+            return res.status(400).json({
+                error: 'Inventory tracking is not enabled for this item in Square.'
+            });
+        }
+
+        // Determine which location to use
+        let targetLocationId = location_id;
+
+        if (!targetLocationId) {
+            // Get the primary/first active location
+            const locationResult = await db.query(
+                'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+            );
+
+            if (locationResult.rows.length === 0) {
+                return res.status(400).json({
+                    error: 'No active locations found. Please sync locations first.'
+                });
+            }
+
+            targetLocationId = locationResult.rows[0].id;
+        }
+
+        // Get our stored inventory count from the database
+        const dbInventoryResult = await db.query(
+            `SELECT quantity, updated_at
+             FROM inventory_counts
+             WHERE catalog_object_id = $1
+               AND location_id = $2
+               AND state = 'IN_STOCK'`,
+            [id, targetLocationId]
+        );
+
+        const dbQuantity = dbInventoryResult.rows.length > 0
+            ? parseInt(dbInventoryResult.rows[0].quantity) || 0
+            : 0;
+
+        const dbUpdatedAt = dbInventoryResult.rows.length > 0
+            ? dbInventoryResult.rows[0].updated_at
+            : null;
+
+        // Fetch current inventory from Square to verify it matches our DB
+        logger.info('Verifying Square inventory before sync', {
+            catalogObjectId: id,
+            locationId: targetLocationId,
+            dbQuantity
+        });
+
+        const squareQuantity = await squareApi.getSquareInventoryCount(id, targetLocationId);
+
+        // Compare Square's current inventory with our database
+        if (squareQuantity !== dbQuantity) {
+            logger.warn('Square inventory mismatch detected', {
+                catalogObjectId: id,
+                locationId: targetLocationId,
+                squareQuantity,
+                dbQuantity,
+                dbUpdatedAt
+            });
+
+            return res.status(409).json({
+                error: 'Inventory has changed in Square since last sync. Please sync inventory first before updating counts.',
+                details: {
+                    square_quantity: squareQuantity,
+                    database_quantity: dbQuantity,
+                    last_synced: dbUpdatedAt
+                },
+                action_required: 'sync_inventory'
+            });
+        }
+
+        // Inventory matches - proceed with the update to Square
+        logger.info('Square inventory verified, proceeding with update', {
+            catalogObjectId: id,
+            locationId: targetLocationId,
+            currentQuantity: squareQuantity,
+            newQuantity: actualQty
+        });
+
+        // Update Square inventory
+        const updateResult = await squareApi.setSquareInventoryCount(
+            id,
+            targetLocationId,
+            actualQty,
+            `Cycle count adjustment - SKU: ${variation.sku || 'N/A'}`
+        );
+
+        // Update our local database with the new quantity
+        await db.query(
+            `INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, updated_at)
+             VALUES ($1, $2, 'IN_STOCK', $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (catalog_object_id, location_id, state)
+             DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP`,
+            [id, targetLocationId, actualQty]
+        );
+
+        // Update the count_history to mark it as synced
+        await db.query(
+            `UPDATE count_history
+             SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']'
+             WHERE catalog_object_id = $1`,
+            [id]
+        );
+
+        logger.info('Square inventory sync complete', {
+            catalogObjectId: id,
+            sku: variation.sku,
+            itemName: variation.item_name,
+            locationId: targetLocationId,
+            previousQuantity: squareQuantity,
+            newQuantity: actualQty,
+            variance: actualQty - squareQuantity
+        });
+
+        res.json({
+            success: true,
+            catalog_object_id: id,
+            sku: variation.sku,
+            item_name: variation.item_name,
+            location_id: targetLocationId,
+            previous_quantity: squareQuantity,
+            new_quantity: actualQty,
+            variance: actualQty - squareQuantity
+        });
+
+    } catch (error) {
+        logger.error('Sync to Square error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/cycle-counts/send-now
  * Add item(s) to priority queue
  */
