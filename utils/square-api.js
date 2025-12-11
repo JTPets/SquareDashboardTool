@@ -1167,6 +1167,147 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 }
 
 /**
+ * Sync committed inventory from open/unpaid invoices
+ * This calculates quantities reserved for invoices that haven't been paid yet
+ * @returns {Promise<number>} Number of committed inventory records synced
+ */
+async function syncCommittedInventory() {
+    logger.info('Starting committed inventory sync from invoices');
+
+    try {
+        // Get all active locations
+        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE');
+        const locationIds = locationsResult.rows.map(r => r.id);
+
+        if (locationIds.length === 0) {
+            logger.warn('No active locations found for committed inventory sync');
+            return 0;
+        }
+
+        // Clear existing RESERVED_FOR_SALE records before recalculating
+        await db.query("DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE'");
+
+        // Track committed quantities: Map<variationId:locationId, quantity>
+        const committedQuantities = new Map();
+
+        // Search for open invoices (unpaid, scheduled, partially paid)
+        let cursor = null;
+        let invoicesProcessed = 0;
+
+        do {
+            const requestBody = {
+                location_ids: locationIds,
+                limit: 100
+            };
+
+            if (cursor) {
+                requestBody.cursor = cursor;
+            }
+
+            const data = await makeSquareRequest('/v2/invoices/search', {
+                method: 'POST',
+                body: JSON.stringify({
+                    query: {
+                        filter: {
+                            location_ids: locationIds,
+                            status: ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID']
+                        }
+                    },
+                    limit: 100,
+                    cursor: cursor
+                })
+            });
+
+            const invoices = data.invoices || [];
+            cursor = data.cursor;
+
+            for (const invoice of invoices) {
+                // Skip if no primary recipient or location
+                if (!invoice.location_id) continue;
+
+                // Get the full invoice details to get line items
+                // The search endpoint may not return all line item details
+                try {
+                    const invoiceDetail = await makeSquareRequest(`/v2/invoices/${invoice.id}`, {
+                        method: 'GET'
+                    });
+
+                    const fullInvoice = invoiceDetail.invoice;
+                    if (!fullInvoice || !fullInvoice.order_id) continue;
+
+                    // Fetch the order to get line items with catalog_object_id
+                    const orderData = await makeSquareRequest(`/v2/orders/${fullInvoice.order_id}`, {
+                        method: 'GET'
+                    });
+
+                    const order = orderData.order;
+                    if (!order || !order.line_items) continue;
+
+                    for (const lineItem of order.line_items) {
+                        const variationId = lineItem.catalog_object_id;
+                        const locationId = order.location_id || invoice.location_id;
+                        const quantity = parseInt(lineItem.quantity) || 0;
+
+                        if (!variationId || quantity <= 0) continue;
+
+                        const key = `${variationId}:${locationId}`;
+                        const existing = committedQuantities.get(key) || 0;
+                        committedQuantities.set(key, existing + quantity);
+                    }
+
+                    invoicesProcessed++;
+                } catch (error) {
+                    logger.warn('Failed to process invoice for committed inventory', {
+                        invoice_id: invoice.id,
+                        error: error.message
+                    });
+                }
+
+                // Small delay to avoid rate limiting
+                await sleep(50);
+            }
+        } while (cursor);
+
+        // Insert committed quantities into inventory_counts
+        let recordsInserted = 0;
+        for (const [key, quantity] of committedQuantities) {
+            const [variationId, locationId] = key.split(':');
+
+            try {
+                await db.query(`
+                    INSERT INTO inventory_counts (
+                        catalog_object_id, location_id, state, quantity, updated_at
+                    )
+                    VALUES ($1, $2, 'RESERVED_FOR_SALE', $3, CURRENT_TIMESTAMP)
+                    ON CONFLICT (catalog_object_id, location_id, state) DO UPDATE SET
+                        quantity = EXCLUDED.quantity,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [variationId, locationId, quantity]);
+                recordsInserted++;
+            } catch (error) {
+                logger.warn('Failed to insert committed inventory record', {
+                    variation_id: variationId,
+                    location_id: locationId,
+                    quantity,
+                    error: error.message
+                });
+            }
+        }
+
+        logger.info('Committed inventory sync complete', {
+            invoices_processed: invoicesProcessed,
+            committed_records: recordsInserted,
+            total_committed_items: committedQuantities.size
+        });
+
+        return recordsInserted;
+    } catch (error) {
+        logger.error('Committed inventory sync failed', { error: error.message, stack: error.stack });
+        throw error;
+    }
+}
+
+/**
  * Run full sync of all data from Square
  * @returns {Promise<Object>} Sync summary
  */
@@ -1181,6 +1322,7 @@ async function fullSync() {
         vendors: 0,
         catalog: {},
         inventory: 0,
+        committedInventory: 0,
         salesVelocity: {}
     };
 
@@ -1213,7 +1355,14 @@ async function fullSync() {
             summary.errors.push(`Inventory: ${error.message}`);
         }
 
-        // Step 5: Sync sales velocity for multiple periods
+        // Step 5: Sync committed inventory from open invoices
+        try {
+            summary.committedInventory = await syncCommittedInventory();
+        } catch (error) {
+            summary.errors.push(`Committed inventory: ${error.message}`);
+        }
+
+        // Step 6: Sync sales velocity for multiple periods
         for (const days of [91, 182, 365]) {
             try {
                 summary.salesVelocity[`${days}d`] = await syncSalesVelocity(days);
@@ -1244,6 +1393,7 @@ module.exports = {
     syncVendors,
     syncCatalog,
     syncInventory,
+    syncCommittedInventory,
     syncSalesVelocity,
     fullSync,
     getSquareInventoryCount,
