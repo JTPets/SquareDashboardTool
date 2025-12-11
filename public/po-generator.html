@@ -730,7 +730,9 @@
         const data = await response.json();
 
         allSuggestions = data.suggestions || [];
+        // Default all items to selected
         selectedItems.clear();
+        allSuggestions.forEach(item => selectedItems.add(item.variation_id));
         adjustedQuantities.clear(); // Clear adjusted quantities on new load
 
         // Populate category filter
@@ -757,6 +759,7 @@
 
         filterSuggestions();
         document.getElementById('summary-container').style.display = 'block';
+        document.getElementById('select-all-checkbox').checked = true;
         updateSummary();
       } catch (error) {
         console.error('Failed to load suggestions:', error);
@@ -845,7 +848,10 @@
                 <td><small>${escapeHtml(item.category_name || '-')}</small></td>
                 <td class="text-nowrap">${escapeHtml(item.sku || '-')}</td>
                 <td>${escapeHtml(item.location_name || 'All')}</td>
-                <td class="text-right">${item.current_stock}</td>
+                <td class="text-right">
+                  ${item.current_stock}
+                  ${item.committed_quantity > 0 ? `<div style="font-size: 10px; color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</div>` : ''}
+                </td>
                 <td class="text-right ${getDaysClass(item.days_until_stockout)}">
                   ${item.days_until_stockout < 999 ? item.days_until_stockout.toFixed(1) : '∞'}
                 </td>
@@ -861,6 +867,7 @@
                     style="width: 70px; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; text-align: center; font-weight: 600;"
                   />
                   <div style="font-size: 10px; color: #6b7280; margin-top: 2px;">Suggested: ${Math.ceil(item.final_suggested_qty)}</div>
+                  ${item.pending_po_quantity > 0 ? `<div style="font-size: 10px; color: #3b82f6; margin-top: 2px;" title="${item.pending_po_quantity} units pending in unreceived POs">📦 ${item.pending_po_quantity} on order</div>` : ''}
                 </td>
                 <td class="text-right">${item.case_pack_quantity || '-'}</td>
                 <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
