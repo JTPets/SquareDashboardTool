@@ -1067,16 +1067,18 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
 }
 
 /**
- * Update inventory alert threshold (min stock) for a variation in Square
+ * Update inventory alert threshold (min stock) for a variation at a specific location in Square
+ * Uses location_overrides to set location-specific low stock alerts
  * @param {string} catalogObjectId - The variation ID
+ * @param {string} locationId - The location ID for the alert
  * @param {number|null} threshold - The new threshold value (null to disable alerts)
  * @returns {Promise<Object>} Result of the catalog update
  */
-async function setSquareInventoryAlertThreshold(catalogObjectId, threshold) {
-    logger.info('Updating Square inventory alert threshold', { catalogObjectId, threshold });
+async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, threshold) {
+    logger.info('Updating Square inventory alert threshold', { catalogObjectId, locationId, threshold });
 
     try {
-        // First, retrieve the current catalog object to get its version
+        // First, retrieve the current catalog object to get its version and existing overrides
         const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`);
 
         if (!retrieveData.object) {
@@ -1089,11 +1091,30 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, threshold) {
             throw new Error(`Object is not a variation: ${currentObject.type}`);
         }
 
-        // Build the update request
-        const idempotencyKey = `alert-threshold-${catalogObjectId}-${Date.now()}`;
+        const currentVariationData = currentObject.item_variation_data || {};
+        const existingOverrides = currentVariationData.location_overrides || [];
 
         // Determine alert type based on threshold
         const alertType = (threshold !== null && threshold > 0) ? 'LOW_QUANTITY' : 'NONE';
+
+        // Build new location_overrides array
+        // Keep existing overrides for other locations, update/add the one for our location
+        let newOverrides = existingOverrides.filter(o => o.location_id !== locationId);
+
+        // Add/update the override for our target location
+        const newOverride = {
+            location_id: locationId,
+            inventory_alert_type: alertType
+        };
+
+        if (alertType === 'LOW_QUANTITY' && threshold !== null) {
+            newOverride.inventory_alert_threshold = threshold;
+        }
+
+        newOverrides.push(newOverride);
+
+        // Build the update request
+        const idempotencyKey = `alert-threshold-${catalogObjectId}-${locationId}-${Date.now()}`;
 
         const updateBody = {
             idempotency_key: idempotencyKey,
@@ -1102,25 +1123,20 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, threshold) {
                 id: catalogObjectId,
                 version: currentObject.version,
                 item_variation_data: {
-                    ...currentObject.item_variation_data,
-                    inventory_alert_type: alertType,
-                    inventory_alert_threshold: threshold !== null ? threshold : undefined
+                    ...currentVariationData,
+                    location_overrides: newOverrides
                 }
             }
         };
-
-        // Remove undefined threshold if alert type is NONE
-        if (alertType === 'NONE') {
-            delete updateBody.object.item_variation_data.inventory_alert_threshold;
-        }
 
         const data = await makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
             body: JSON.stringify(updateBody)
         });
 
-        logger.info('Square inventory alert threshold updated', {
+        logger.info('Square inventory alert threshold updated (location-specific)', {
             catalogObjectId,
+            locationId,
             threshold,
             alertType,
             newVersion: data.catalog_object?.version
@@ -1134,6 +1150,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, threshold) {
     } catch (error) {
         logger.error('Failed to update Square inventory alert threshold', {
             catalogObjectId,
+            locationId,
             threshold,
             error: error.message,
             stack: error.stack

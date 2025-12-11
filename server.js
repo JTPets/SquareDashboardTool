@@ -1004,11 +1004,12 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
 /**
  * PATCH /api/variations/:id/min-stock
  * Update min stock (inventory alert threshold) and sync to Square
+ * Uses location-specific overrides in Square
  */
 app.patch('/api/variations/:id/min-stock', async (req, res) => {
     try {
         const { id } = req.params;
-        const { min_stock } = req.body;
+        const { min_stock, location_id } = req.body;
 
         // Validate input
         if (min_stock !== null && (typeof min_stock !== 'number' || min_stock < 0)) {
@@ -1034,19 +1035,39 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
         const variation = variationResult.rows[0];
         const previousValue = variation.inventory_alert_threshold;
 
-        // Push update to Square
+        // Determine which location to use
+        let targetLocationId = location_id;
+
+        if (!targetLocationId) {
+            // Get the primary/first active location
+            const locationResult = await db.query(
+                'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+            );
+
+            if (locationResult.rows.length === 0) {
+                return res.status(400).json({
+                    error: 'No active locations found. Please sync locations first.'
+                });
+            }
+
+            targetLocationId = locationResult.rows[0].id;
+        }
+
+        // Push update to Square (location-specific)
         logger.info('Updating min stock in Square', {
             variationId: id,
             sku: variation.sku,
+            locationId: targetLocationId,
             previousValue,
             newValue: min_stock
         });
 
         try {
-            await squareApi.setSquareInventoryAlertThreshold(id, min_stock);
+            await squareApi.setSquareInventoryAlertThreshold(id, targetLocationId, min_stock);
         } catch (squareError) {
             logger.error('Failed to update Square inventory alert threshold', {
                 variationId: id,
+                locationId: targetLocationId,
                 error: squareError.message
             });
             return res.status(500).json({
@@ -1055,7 +1076,7 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             });
         }
 
-        // Update local database
+        // Update local database (variation-level)
         await db.query(
             `UPDATE variations
              SET inventory_alert_threshold = $1,
@@ -1070,10 +1091,20 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             ]
         );
 
+        // Also update location-specific settings if table exists
+        await db.query(
+            `INSERT INTO variation_location_settings (variation_id, location_id, stock_alert_min, updated_at)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+             ON CONFLICT (variation_id, location_id)
+             DO UPDATE SET stock_alert_min = EXCLUDED.stock_alert_min, updated_at = CURRENT_TIMESTAMP`,
+            [id, targetLocationId, min_stock]
+        );
+
         logger.info('Min stock updated successfully', {
             variationId: id,
             sku: variation.sku,
             itemName: variation.item_name,
+            locationId: targetLocationId,
             previousValue,
             newValue: min_stock
         });
@@ -1082,6 +1113,7 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             success: true,
             variation_id: id,
             sku: variation.sku,
+            location_id: targetLocationId,
             previous_value: previousValue,
             new_value: min_stock,
             synced_to_square: true
