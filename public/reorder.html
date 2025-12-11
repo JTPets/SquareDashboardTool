@@ -1194,11 +1194,34 @@
     }
 
     function copyToClipboard(text, label) {
-      navigator.clipboard.writeText(text).then(() => {
+      if (!text || text === '-') return;
+
+      // Try modern clipboard API first, with fallback
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast(`${label} copied: ${text}`, 'success');
+        }).catch(() => {
+          fallbackCopy(text, label);
+        });
+      } else {
+        fallbackCopy(text, label);
+      }
+    }
+
+    function fallbackCopy(text, label) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
         showToast(`${label} copied: ${text}`, 'success');
-      }).catch(err => {
+      } catch (err) {
         showToast('Failed to copy', 'error');
-      });
+      }
+      document.body.removeChild(textarea);
     }
 
     function showToast(message, type = '') {
