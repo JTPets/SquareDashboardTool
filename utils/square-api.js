@@ -1067,6 +1067,82 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
 }
 
 /**
+ * Update inventory alert threshold (min stock) for a variation in Square
+ * @param {string} catalogObjectId - The variation ID
+ * @param {number|null} threshold - The new threshold value (null to disable alerts)
+ * @returns {Promise<Object>} Result of the catalog update
+ */
+async function setSquareInventoryAlertThreshold(catalogObjectId, threshold) {
+    logger.info('Updating Square inventory alert threshold', { catalogObjectId, threshold });
+
+    try {
+        // First, retrieve the current catalog object to get its version
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`);
+
+        if (!retrieveData.object) {
+            throw new Error(`Catalog object not found: ${catalogObjectId}`);
+        }
+
+        const currentObject = retrieveData.object;
+
+        if (currentObject.type !== 'ITEM_VARIATION') {
+            throw new Error(`Object is not a variation: ${currentObject.type}`);
+        }
+
+        // Build the update request
+        const idempotencyKey = `alert-threshold-${catalogObjectId}-${Date.now()}`;
+
+        // Determine alert type based on threshold
+        const alertType = (threshold !== null && threshold > 0) ? 'LOW_QUANTITY' : 'NONE';
+
+        const updateBody = {
+            idempotency_key: idempotencyKey,
+            object: {
+                type: 'ITEM_VARIATION',
+                id: catalogObjectId,
+                version: currentObject.version,
+                item_variation_data: {
+                    ...currentObject.item_variation_data,
+                    inventory_alert_type: alertType,
+                    inventory_alert_threshold: threshold !== null ? threshold : undefined
+                }
+            }
+        };
+
+        // Remove undefined threshold if alert type is NONE
+        if (alertType === 'NONE') {
+            delete updateBody.object.item_variation_data.inventory_alert_threshold;
+        }
+
+        const data = await makeSquareRequest('/v2/catalog/object', {
+            method: 'POST',
+            body: JSON.stringify(updateBody)
+        });
+
+        logger.info('Square inventory alert threshold updated', {
+            catalogObjectId,
+            threshold,
+            alertType,
+            newVersion: data.catalog_object?.version
+        });
+
+        return {
+            success: true,
+            catalog_object: data.catalog_object,
+            id_mappings: data.id_mappings
+        };
+    } catch (error) {
+        logger.error('Failed to update Square inventory alert threshold', {
+            catalogObjectId,
+            threshold,
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
+
+/**
  * Run full sync of all data from Square
  * @returns {Promise<Object>} Sync summary
  */
@@ -1147,5 +1223,6 @@ module.exports = {
     syncSalesVelocity,
     fullSync,
     getSquareInventoryCount,
-    setSquareInventoryCount
+    setSquareInventoryCount,
+    setSquareInventoryAlertThreshold
 };

@@ -1002,6 +1002,98 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
 });
 
 /**
+ * PATCH /api/variations/:id/min-stock
+ * Update min stock (inventory alert threshold) and sync to Square
+ */
+app.patch('/api/variations/:id/min-stock', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { min_stock } = req.body;
+
+        // Validate input
+        if (min_stock !== null && (typeof min_stock !== 'number' || min_stock < 0)) {
+            return res.status(400).json({
+                error: 'min_stock must be a non-negative number or null'
+            });
+        }
+
+        // Get variation details
+        const variationResult = await db.query(
+            `SELECT v.id, v.sku, v.name, v.item_id, v.track_inventory,
+                    v.inventory_alert_threshold, i.name as item_name
+             FROM variations v
+             JOIN items i ON v.item_id = i.id
+             WHERE v.id = $1`,
+            [id]
+        );
+
+        if (variationResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found' });
+        }
+
+        const variation = variationResult.rows[0];
+        const previousValue = variation.inventory_alert_threshold;
+
+        // Push update to Square
+        logger.info('Updating min stock in Square', {
+            variationId: id,
+            sku: variation.sku,
+            previousValue,
+            newValue: min_stock
+        });
+
+        try {
+            await squareApi.setSquareInventoryAlertThreshold(id, min_stock);
+        } catch (squareError) {
+            logger.error('Failed to update Square inventory alert threshold', {
+                variationId: id,
+                error: squareError.message
+            });
+            return res.status(500).json({
+                error: 'Failed to update Square: ' + squareError.message,
+                square_error: true
+            });
+        }
+
+        // Update local database
+        await db.query(
+            `UPDATE variations
+             SET inventory_alert_threshold = $1,
+                 inventory_alert_type = $2,
+                 stock_alert_min = $1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [
+                min_stock,
+                min_stock !== null && min_stock > 0 ? 'LOW_QUANTITY' : 'NONE',
+                id
+            ]
+        );
+
+        logger.info('Min stock updated successfully', {
+            variationId: id,
+            sku: variation.sku,
+            itemName: variation.item_name,
+            previousValue,
+            newValue: min_stock
+        });
+
+        res.json({
+            success: true,
+            variation_id: id,
+            sku: variation.sku,
+            previous_value: previousValue,
+            new_value: min_stock,
+            synced_to_square: true
+        });
+
+    } catch (error) {
+        logger.error('Update min stock error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/variations/bulk-update-extended
  * Bulk update custom fields by SKU
  */

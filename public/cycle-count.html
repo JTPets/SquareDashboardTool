@@ -11,7 +11,7 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
       background-color: #f5f5f7;
-      padding-bottom: 80px;
+      padding-bottom: 20px;
       line-height: 1.4;
       overscroll-behavior-y: contain;
     }
@@ -281,18 +281,6 @@
       100% { transform: rotate(360deg); }
     }
 
-    .bottom-bar {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: white;
-      padding: 15px;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-      display: flex;
-      gap: 10px;
-    }
-
     .modal {
       display: none;
       position: fixed;
@@ -380,11 +368,6 @@
         max-width: 600px;
         margin: 0 auto;
       }
-      .bottom-bar {
-        max-width: 600px;
-        left: 50%;
-        transform: translateX(-50%);
-      }
     }
   </style>
 </head>
@@ -408,6 +391,9 @@
   </div>
 
   <div class="toolbar">
+    <button class="btn btn-secondary" onclick="window.location.href='/'">
+      🏠 Home
+    </button>
     <button class="btn btn-secondary" onclick="showSendNowModal()">
       📌 Send Now
     </button>
@@ -418,7 +404,7 @@
       🔄 Refresh
     </button>
     <button class="btn btn-secondary" onclick="window.location.href='/cycle-count-history.html'">
-      📊 View History
+      📊 History
     </button>
   </div>
 
@@ -427,15 +413,6 @@
       <div class="loading-spinner"></div>
       <p>Loading cycle count items...</p>
     </div>
-  </div>
-
-  <div class="bottom-bar">
-    <button class="btn btn-success" style="flex: 2;" onclick="emailReport()" id="email-btn">
-      📧 Email Report
-    </button>
-    <button class="btn btn-secondary" onclick="window.location.href='/'">
-      🏠 Home
-    </button>
   </div>
 
   <!-- Send Now Modal -->
@@ -886,33 +863,6 @@ SKU-003"></textarea>
       } finally {
         btn.disabled = false;
         btn.textContent = '⚡ Generate Batch';
-      }
-    }
-
-    async function emailReport() {
-      const btn = document.getElementById('email-btn');
-      btn.disabled = true;
-      btn.textContent = '📧 Sending...';
-
-      try {
-        const response = await fetch('/api/cycle-counts/email-report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to send report');
-        }
-
-        showToast('Report sent successfully!', 'success');
-
-      } catch (error) {
-        console.error('Email report failed:', error);
-        showToast('Error: ' + error.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '📧 Email Report';
       }
     }
 
