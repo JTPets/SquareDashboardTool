@@ -2341,6 +2341,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 ic.location_id as location_id,
                 l.name as location_name,
                 COALESCE(ic.quantity, 0) as current_stock,
+                COALESCE(ic_committed.quantity, 0) as committed_quantity,
+                COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0) as available_quantity,
                 sv91.daily_avg_quantity,
                 sv91.weekly_avg_quantity,
                 sv91.weekly_avg_quantity as weekly_avg_91d,
@@ -2365,6 +2367,13 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                  ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_name,
+                -- Get primary vendor cost for comparison
+                (SELECT vv4.unit_cost_money
+                 FROM variation_vendors vv4
+                 WHERE vv4.variation_id = v.id
+                 ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
+                 LIMIT 1
+                ) as primary_vendor_cost,
                 v.case_pack_quantity,
                 v.reorder_multiple,
                 -- Prefer location-specific settings over global
@@ -2398,6 +2407,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
                 AND ic.state = 'IN_STOCK'
+            LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id
+                AND ic_committed.state = 'RESERVED_FOR_SALE'
+                AND ic_committed.location_id = ic.location_id
             LEFT JOIN locations l ON ic.location_id = l.id
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
                 AND ic.location_id = vls.location_id
@@ -2555,6 +2567,9 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 const unitCost = parseInt(row.unit_cost_cents) || 0;
                 const orderCost = (finalQty * unitCost) / 100;
 
+                const committedQty = parseInt(row.committed_quantity) || 0;
+                const availableQty = parseInt(row.available_quantity) || 0;
+
                 return {
                     variation_id: row.variation_id,
                     item_name: row.item_name,
@@ -2563,6 +2578,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     location_id: locationId,
                     location_name: locationName,
                     current_stock: currentStock,
+                    committed_quantity: committedQty,
+                    available_quantity: availableQty,
                     daily_avg_quantity: dailyAvg,
                     weekly_avg_quantity: parseFloat(row.weekly_avg_quantity) || 0,
                     weekly_avg_91d: parseFloat(row.weekly_avg_91d) || 0,
@@ -2584,6 +2601,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     vendor_code: row.vendor_code || 'N/A',
                     is_primary_vendor: row.current_vendor_id === row.primary_vendor_id,
                     primary_vendor_name: row.primary_vendor_name,
+                    primary_vendor_cost: parseInt(row.primary_vendor_cost) || 0,
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
                     images: row.images,  // Include images for URL resolution

@@ -677,8 +677,9 @@
 
         // Secondary vendor highlighting
         const rowClass = item.is_primary_vendor ? '' : 'secondary-vendor';
+        const primaryCostDisplay = (item.primary_vendor_cost / 100).toFixed(2);
         const vendorWarning = !item.is_primary_vendor
-          ? `<br><span class="vendor-warning" title="Primary vendor: ${escapeHtml(item.primary_vendor_name)}">⚠️ Alt Vendor</span>`
+          ? `<br><span class="vendor-warning" title="Primary vendor: ${escapeHtml(item.primary_vendor_name)} @ $${primaryCostDisplay}">⚠️ Alt ($${primaryCostDisplay})</span>`
           : '';
 
         // Get image URL
@@ -707,7 +708,10 @@
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
             </td>
             <td class="sku">${escapeHtml(item.sku || '-')}</td>
-            <td class="text-right">${item.current_stock}</td>
+            <td class="text-right">
+              ${item.current_stock}
+              ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
+            </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"
                    onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
