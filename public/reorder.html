@@ -552,8 +552,10 @@
         const data = await response.json();
 
         allSuggestions = data.suggestions || [];
+        // Default all items to selected
         selectedItems.clear();
-        document.getElementById('select-all').checked = false;
+        allSuggestions.forEach(item => selectedItems.add(item.variation_id));
+        document.getElementById('select-all').checked = true;
 
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
