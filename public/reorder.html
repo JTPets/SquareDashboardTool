@@ -707,7 +707,10 @@
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
             </td>
             <td class="sku">${escapeHtml(item.sku || '-')}</td>
-            <td class="text-right">${item.current_stock}</td>
+            <td class="text-right">
+              ${item.current_stock}
+              ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
+            </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"
                    onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
