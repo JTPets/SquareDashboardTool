@@ -471,6 +471,12 @@ SKU-003"></textarea>
         <label class="form-label">Notes (optional):</label>
         <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
       </div>
+      <div class="form-group" style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f0fdf4; border-radius: 8px; border: 1px solid #86efac;">
+        <input type="checkbox" id="sync-to-square" style="width: 20px; height: 20px; cursor: pointer;">
+        <label for="sync-to-square" style="cursor: pointer; font-size: 14px; color: #166534; font-weight: 500;">
+          Update Square inventory (push changes)
+        </label>
+      </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeCountModal()">Cancel</button>
         <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn">Submit Count</button>
@@ -634,6 +640,7 @@ SKU-003"></textarea>
 
     function closeCountModal() {
       document.getElementById('count-modal').classList.remove('active');
+      document.getElementById('sync-to-square').checked = false;
       currentCountItem = null;
       currentCountIndex = null;
       systemCount = 0;
@@ -669,6 +676,7 @@ SKU-003"></textarea>
       const itemId = currentCountItem;
       const expectedQty = Number(systemCount);  // Ensure it's a number for accurate comparison
       const notes = document.getElementById('count-notes').value.trim() || null;
+      const syncToSquare = document.getElementById('sync-to-square').checked;
 
       // Automatically determine if the count is accurate
       const isAccurate = (actualQty === expectedQty);
@@ -680,10 +688,11 @@ SKU-003"></textarea>
       const btn = document.querySelector(`#item-${itemId} .mark-counted-btn`);
       if (btn) {
         btn.disabled = true;
-        btn.textContent = '⏳ Marking...';
+        btn.textContent = syncToSquare ? '⏳ Syncing...' : '⏳ Marking...';
       }
 
       try {
+        // Step 1: Record the count locally
         const response = await fetch(`/api/cycle-counts/${itemId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -700,12 +709,61 @@ SKU-003"></textarea>
 
         const result = await response.json();
 
+        // Step 2: If sync to Square is checked, push the update
+        let syncResult = null;
+        let syncError = null;
+
+        if (syncToSquare) {
+          if (btn) btn.textContent = '⏳ Pushing to Square...';
+
+          try {
+            const syncResponse = await fetch(`/api/cycle-counts/${itemId}/sync-to-square`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                actual_quantity: actualQty
+              })
+            });
+
+            const syncData = await syncResponse.json();
+
+            if (!syncResponse.ok) {
+              // Handle specific error cases
+              if (syncResponse.status === 409 && syncData.action_required === 'sync_inventory') {
+                syncError = {
+                  type: 'inventory_mismatch',
+                  message: syncData.error,
+                  details: syncData.details
+                };
+              } else {
+                syncError = {
+                  type: 'general',
+                  message: syncData.error || 'Failed to sync to Square'
+                };
+              }
+            } else {
+              syncResult = syncData;
+            }
+          } catch (err) {
+            syncError = {
+              type: 'network',
+              message: 'Network error syncing to Square: ' + err.message
+            };
+          }
+        }
+
         // Visual feedback
         const card = document.getElementById(`item-${itemId}`);
         card.classList.add('counted');
         if (btn) {
           btn.classList.add('counted');
-          btn.textContent = '✅ Counted';
+          if (syncToSquare && syncResult) {
+            btn.textContent = '✅ Synced to Square';
+          } else if (syncToSquare && syncError) {
+            btn.textContent = '⚠️ Counted (Sync Failed)';
+          } else {
+            btn.textContent = '✅ Counted';
+          }
         }
 
         // Remove from pending list (find by ID)
@@ -722,8 +780,17 @@ SKU-003"></textarea>
         const completionRate = target > 0 ? Math.round(((target - remaining) / target) * 100) : 0;
         document.getElementById('completion-rate').textContent = `${completionRate}%`;
 
-        // Show success message with completion status
-        if (result.is_complete) {
+        // Show appropriate success/error message
+        if (syncError) {
+          if (syncError.type === 'inventory_mismatch') {
+            showToast(`Count recorded, but Square sync failed: Inventory changed. Please sync inventory first. (Square: ${syncError.details?.square_quantity}, DB: ${syncError.details?.database_quantity})`, 'error');
+          } else {
+            showToast(`Count recorded, but Square sync failed: ${syncError.message}`, 'error');
+          }
+        } else if (syncResult) {
+          const variance = syncResult.variance !== 0 ? ` (variance: ${syncResult.variance > 0 ? '+' : ''}${syncResult.variance})` : '';
+          showToast(`Synced to Square! ${syncResult.previous_quantity} → ${syncResult.new_quantity}${variance}`, 'success');
+        } else if (result.is_complete) {
           showToast('✅ Item counted! 100% COMPLETE - Report being sent!', 'success');
         } else {
           showToast(`Item marked as counted! ${remaining} items remaining`, 'success');

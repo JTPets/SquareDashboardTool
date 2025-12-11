@@ -963,6 +963,110 @@ async function syncSalesVelocity(periodDays = 91) {
 }
 
 /**
+ * Get current inventory count from Square for a specific variation and location
+ * @param {string} catalogObjectId - The variation ID
+ * @param {string} locationId - The location ID
+ * @returns {Promise<number>} Current quantity in Square
+ */
+async function getSquareInventoryCount(catalogObjectId, locationId) {
+    logger.info('Fetching inventory count from Square', { catalogObjectId, locationId });
+
+    try {
+        const requestBody = {
+            catalog_object_ids: [catalogObjectId],
+            location_ids: [locationId],
+            states: ['IN_STOCK']
+        };
+
+        const data = await makeSquareRequest('/v2/inventory/counts/batch-retrieve', {
+            method: 'POST',
+            body: JSON.stringify(requestBody)
+        });
+
+        const counts = data.counts || [];
+
+        // Find the matching count
+        const count = counts.find(c =>
+            c.catalog_object_id === catalogObjectId &&
+            c.location_id === locationId &&
+            c.state === 'IN_STOCK'
+        );
+
+        const quantity = count ? parseInt(count.quantity) || 0 : 0;
+        logger.info('Square inventory count retrieved', { catalogObjectId, locationId, quantity });
+
+        return quantity;
+    } catch (error) {
+        logger.error('Failed to get Square inventory count', {
+            catalogObjectId,
+            locationId,
+            error: error.message
+        });
+        throw error;
+    }
+}
+
+/**
+ * Adjust inventory in Square using physical count
+ * Sets the inventory to the specified quantity (not a delta)
+ * @param {string} catalogObjectId - The variation ID
+ * @param {string} locationId - The location ID
+ * @param {number} quantity - The new absolute quantity to set
+ * @param {string} reason - Reason for the adjustment (for memo)
+ * @returns {Promise<Object>} Result of the inventory change
+ */
+async function setSquareInventoryCount(catalogObjectId, locationId, quantity, reason = 'Cycle count adjustment') {
+    logger.info('Setting Square inventory count', { catalogObjectId, locationId, quantity, reason });
+
+    try {
+        // Generate idempotency key for the request
+        const idempotencyKey = `cycle-count-${catalogObjectId}-${locationId}-${Date.now()}`;
+
+        const requestBody = {
+            idempotency_key: idempotencyKey,
+            changes: [{
+                type: 'PHYSICAL_COUNT',
+                physical_count: {
+                    catalog_object_id: catalogObjectId,
+                    state: 'IN_STOCK',
+                    location_id: locationId,
+                    quantity: quantity.toString(),
+                    occurred_at: new Date().toISOString(),
+                    reference_id: `cycle-count-${Date.now()}`
+                }
+            }]
+        };
+
+        const data = await makeSquareRequest('/v2/inventory/changes/batch-create', {
+            method: 'POST',
+            body: JSON.stringify(requestBody)
+        });
+
+        logger.info('Square inventory updated successfully', {
+            catalogObjectId,
+            locationId,
+            newQuantity: quantity,
+            changes: data.changes?.length || 0
+        });
+
+        return {
+            success: true,
+            changes: data.changes || [],
+            counts: data.counts || []
+        };
+    } catch (error) {
+        logger.error('Failed to set Square inventory count', {
+            catalogObjectId,
+            locationId,
+            quantity,
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
+
+/**
  * Run full sync of all data from Square
  * @returns {Promise<Object>} Sync summary
  */
@@ -1041,5 +1145,7 @@ module.exports = {
     syncCatalog,
     syncInventory,
     syncSalesVelocity,
-    fullSync
+    fullSync,
+    getSquareInventoryCount,
+    setSquareInventoryCount
 };
