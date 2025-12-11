@@ -215,6 +215,10 @@
       background: #d1fae5;
       color: #065f46;
     }
+    .badge-committed {
+      background: #fef3c7;
+      color: #92400e;
+    }
 
     .item-actions {
       padding: 15px;
@@ -437,8 +441,9 @@ SKU-003"></textarea>
     <div class="modal-content">
       <h2 class="modal-title">📋 Confirm Count</h2>
       <div class="form-group">
-        <label class="form-label">System Inventory:</label>
-        <div style="font-size: 24px; font-weight: 700; color: #667eea; margin-bottom: 16px;" id="modal-system-count">0</div>
+        <label class="form-label">System On Hand (expect to find):</label>
+        <div style="font-size: 24px; font-weight: 700; color: #667eea; margin-bottom: 4px;" id="modal-system-count">0</div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 16px;" id="modal-committed-info"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Actual Physical Count:</label>
@@ -562,7 +567,8 @@ SKU-003"></textarea>
                   <span class="badge badge-price">${price}</span>
                   ${item.category_name ? `<span class="badge badge-category">${escapeHtml(item.category_name)}</span>` : ''}
                   ${item.is_priority ? '<span class="badge badge-priority">⚡ Priority</span>' : ''}
-                  <span class="badge badge-inventory">📦 ${item.current_inventory} in stock</span>
+                  <span class="badge badge-inventory">📦 ${item.current_inventory} on hand</span>
+                  ${item.committed_quantity > 0 ? `<span class="badge badge-committed">${item.available_quantity} avail / ${item.committed_quantity} committed</span>` : ''}
                   ${getLastCountedBadge(item)}
                 </div>
               </div>
@@ -599,6 +605,16 @@ SKU-003"></textarea>
 
       // Set system count
       document.getElementById('modal-system-count').textContent = systemCount;
+
+      // Show committed quantity breakdown if any
+      const committedInfo = document.getElementById('modal-committed-info');
+      const committed = Number(item.committed_quantity) || 0;
+      const available = Number(item.available_quantity) || 0;
+      if (committed > 0) {
+        committedInfo.innerHTML = `<span style="color: #92400e;">⚠️ ${available} available + ${committed} committed (in invoices/orders)</span>`;
+      } else {
+        committedInfo.textContent = '';
+      }
 
       // Reset form
       document.getElementById('actual-count').value = '';

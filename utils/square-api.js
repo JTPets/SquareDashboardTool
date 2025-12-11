@@ -730,7 +730,7 @@ async function syncInventory() {
             const requestBody = {
                 catalog_object_ids: batch,
                 location_ids: locationIds,
-                states: ['IN_STOCK']
+                states: ['IN_STOCK', 'RESERVED_FOR_SALE']
             };
 
             try {
