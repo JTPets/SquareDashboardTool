@@ -733,6 +733,7 @@
               <strong>${casesToOrder}</strong>
               <br><small style="color: #6b7280;">(${actualUnits} units)</small>
               ${cappedByMax ? '<br><small style="color: #f59e0b;">⚠️ Capped at max</small>' : ''}
+              ${item.pending_po_quantity > 0 ? `<br><small style="color: #3b82f6;" title="${item.pending_po_quantity} units pending in unreceived POs">📦 ${item.pending_po_quantity} on order</small>` : ''}
             </td>
             <td class="text-right editable-cell">
               <input type="number"

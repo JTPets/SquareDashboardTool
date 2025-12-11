@@ -2374,6 +2374,15 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                  ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_cost,
+                -- Get pending quantity from unreceived purchase orders
+                COALESCE((
+                    SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
+                    FROM purchase_order_items poi
+                    JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                    WHERE poi.variation_id = v.id
+                      AND po.status NOT IN ('RECEIVED', 'CANCELLED')
+                      AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
+                ), 0) as pending_po_quantity,
                 v.case_pack_quantity,
                 v.reorder_multiple,
                 -- Prefer location-specific settings over global
@@ -2565,10 +2574,19 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 }
 
                 const unitCost = parseInt(row.unit_cost_cents) || 0;
-                const orderCost = (finalQty * unitCost) / 100;
+                const pendingPoQty = parseInt(row.pending_po_quantity) || 0;
+
+                // Subtract pending PO quantity from suggested order
+                const adjustedQty = Math.max(0, finalQty - pendingPoQty);
+                const orderCost = (adjustedQty * unitCost) / 100;
 
                 const committedQty = parseInt(row.committed_quantity) || 0;
                 const availableQty = parseInt(row.available_quantity) || 0;
+
+                // Skip if nothing to order after accounting for pending POs
+                if (adjustedQty <= 0) {
+                    return null;
+                }
 
                 return {
                     variation_id: row.variation_id,
@@ -2594,7 +2612,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     base_suggested_qty: baseSuggestedQty,
                     case_pack_quantity: casePack,
                     case_pack_adjusted_qty: suggestedQty,
-                    final_suggested_qty: finalQty,
+                    pending_po_quantity: pendingPoQty,
+                    final_suggested_qty: adjustedQty,
                     unit_cost_cents: unitCost,
                     order_cost: orderCost,
                     vendor_name: row.vendor_name,
