@@ -471,12 +471,6 @@ SKU-003"></textarea>
         <label class="form-label">Notes (optional):</label>
         <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
       </div>
-      <div class="form-group" style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f0fdf4; border-radius: 8px; border: 1px solid #86efac;">
-        <input type="checkbox" id="sync-to-square" style="width: 20px; height: 20px; cursor: pointer;">
-        <label for="sync-to-square" style="cursor: pointer; font-size: 14px; color: #166534; font-weight: 500;">
-          Update Square inventory (push changes)
-        </label>
-      </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeCountModal()">Cancel</button>
         <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn">Submit Count</button>
@@ -640,7 +634,6 @@ SKU-003"></textarea>
 
     function closeCountModal() {
       document.getElementById('count-modal').classList.remove('active');
-      document.getElementById('sync-to-square').checked = false;
       currentCountItem = null;
       currentCountIndex = null;
       systemCount = 0;
@@ -676,10 +669,10 @@ SKU-003"></textarea>
       const itemId = currentCountItem;
       const expectedQty = Number(systemCount);  // Ensure it's a number for accurate comparison
       const notes = document.getElementById('count-notes').value.trim() || null;
-      const syncToSquare = document.getElementById('sync-to-square').checked;
 
-      // Automatically determine if the count is accurate
+      // Automatically determine if the count is accurate (has variance)
       const isAccurate = (actualQty === expectedQty);
+      const hasVariance = !isAccurate;
 
       // Close modal (this resets currentCountItem, systemCount to null/0)
       closeCountModal();
@@ -688,7 +681,7 @@ SKU-003"></textarea>
       const btn = document.querySelector(`#item-${itemId} .mark-counted-btn`);
       if (btn) {
         btn.disabled = true;
-        btn.textContent = syncToSquare ? '⏳ Syncing...' : '⏳ Marking...';
+        btn.textContent = hasVariance ? '⏳ Syncing to Square...' : '⏳ Marking...';
       }
 
       try {
@@ -709,11 +702,11 @@ SKU-003"></textarea>
 
         const result = await response.json();
 
-        // Step 2: If sync to Square is checked, push the update
+        // Step 2: If there's a variance, automatically push update to Square
         let syncResult = null;
         let syncError = null;
 
-        if (syncToSquare) {
+        if (hasVariance) {
           if (btn) btn.textContent = '⏳ Pushing to Square...';
 
           try {
@@ -757,9 +750,9 @@ SKU-003"></textarea>
         card.classList.add('counted');
         if (btn) {
           btn.classList.add('counted');
-          if (syncToSquare && syncResult) {
+          if (hasVariance && syncResult) {
             btn.textContent = '✅ Synced to Square';
-          } else if (syncToSquare && syncError) {
+          } else if (hasVariance && syncError) {
             btn.textContent = '⚠️ Counted (Sync Failed)';
           } else {
             btn.textContent = '✅ Counted';
@@ -788,12 +781,12 @@ SKU-003"></textarea>
             showToast(`Count recorded, but Square sync failed: ${syncError.message}`, 'error');
           }
         } else if (syncResult) {
-          const variance = syncResult.variance !== 0 ? ` (variance: ${syncResult.variance > 0 ? '+' : ''}${syncResult.variance})` : '';
+          const variance = syncResult.variance !== 0 ? ` (${syncResult.variance > 0 ? '+' : ''}${syncResult.variance})` : '';
           showToast(`Synced to Square! ${syncResult.previous_quantity} → ${syncResult.new_quantity}${variance}`, 'success');
         } else if (result.is_complete) {
           showToast('✅ Item counted! 100% COMPLETE - Report being sent!', 'success');
         } else {
-          showToast(`Item marked as counted! ${remaining} items remaining`, 'success');
+          showToast(`Count verified! ${remaining} items remaining`, 'success');
         }
 
         // Remove card after animation
