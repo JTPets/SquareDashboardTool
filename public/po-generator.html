@@ -848,7 +848,10 @@
                 <td><small>${escapeHtml(item.category_name || '-')}</small></td>
                 <td class="text-nowrap">${escapeHtml(item.sku || '-')}</td>
                 <td>${escapeHtml(item.location_name || 'All')}</td>
-                <td class="text-right">${item.current_stock}</td>
+                <td class="text-right">
+                  ${item.current_stock}
+                  ${item.committed_quantity > 0 ? `<div style="font-size: 10px; color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</div>` : ''}
+                </td>
                 <td class="text-right ${getDaysClass(item.days_until_stockout)}">
                   ${item.days_until_stockout < 999 ? item.days_until_stockout.toFixed(1) : '∞'}
                 </td>
