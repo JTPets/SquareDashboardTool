@@ -17,6 +17,18 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
 /**
+ * Generate a unique idempotency key for Square API requests
+ * Combines a prefix, timestamp, and random component to ensure uniqueness
+ * @param {string} prefix - Prefix to identify the operation type
+ * @returns {string} Unique idempotency key
+ */
+function generateIdempotencyKey(prefix) {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 10);
+    return `${prefix}-${timestamp}-${random}`;
+}
+
+/**
  * Make a Square API request with error handling and retry logic
  * @param {string} endpoint - API endpoint path
  * @param {Object} options - Fetch options
@@ -1027,7 +1039,7 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
 
     try {
         // Generate idempotency key for the request
-        const idempotencyKey = `cycle-count-${catalogObjectId}-${locationId}-${Date.now()}`;
+        const idempotencyKey = generateIdempotencyKey(`cycle-count-${catalogObjectId}-${locationId}`);
 
         const requestBody = {
             idempotency_key: idempotencyKey,
@@ -1121,7 +1133,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
         newOverrides.push(newOverride);
 
         // Build the update request
-        const idempotencyKey = `alert-threshold-${catalogObjectId}-${locationId}-${Date.now()}`;
+        const idempotencyKey = generateIdempotencyKey(`alert-threshold-${catalogObjectId}-${locationId}`);
 
         const updateBody = {
             idempotency_key: idempotencyKey,
