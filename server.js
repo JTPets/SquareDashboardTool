@@ -1041,11 +1041,11 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
         if (!targetLocationId) {
             // First try to get the location where this item has inventory
             const inventoryLocationResult = await db.query(
-                `SELECT il.location_id
-                 FROM inventory_levels il
-                 JOIN locations l ON il.location_id = l.id
-                 WHERE il.variation_id = $1 AND l.active = TRUE
-                 ORDER BY il.quantity DESC NULLS LAST
+                `SELECT ic.location_id
+                 FROM inventory_counts ic
+                 JOIN locations l ON ic.location_id = l.id
+                 WHERE ic.catalog_object_id = $1 AND l.active = TRUE AND ic.state = 'IN_STOCK'
+                 ORDER BY ic.quantity DESC NULLS LAST
                  LIMIT 1`,
                 [id]
             );
