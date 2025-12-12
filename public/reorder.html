@@ -308,6 +308,15 @@
       border-color: #dc2626;
     }
 
+    .order-qty-input {
+      width: 70px;
+      font-weight: 600;
+    }
+
+    .order-qty-input:not(:placeholder-shown) {
+      background: #f0fdf4;
+    }
+
     .editable-display {
       cursor: pointer;
       padding: 4px 8px;
@@ -475,6 +484,8 @@
     let selectedItems = new Set();
     // Track pending min-stock saves to prevent rapid-fire requests
     const pendingMinStockSaves = new Map();
+    // Track user-edited order quantities (cases) by variation_id
+    const editedOrderQtys = new Map();
 
     // Load configuration from server
     async function loadConfig() {
@@ -557,8 +568,9 @@
         const data = await response.json();
 
         allSuggestions = data.suggestions || [];
-        // Default all items to selected
+        // Default all items to selected, clear any edited quantities
         selectedItems.clear();
+        editedOrderQtys.clear();
         allSuggestions.forEach(item => selectedItems.add(item.variation_id));
         document.getElementById('select-all').checked = true;
 
@@ -736,9 +748,19 @@
             </td>
             <td class="text-right ${daysClass}">${daysText}</td>
             <td class="text-right"><small>${velocityText}</small></td>
-            <td class="text-right">
-              <strong>${casesToOrder}</strong>
-              <br><small style="color: #6b7280;">(${actualUnits} units)</small>
+            <td class="text-right editable-cell">
+              <input type="number"
+                     class="editable-input order-qty-input"
+                     value="${editedOrderQtys.has(item.variation_id) ? editedOrderQtys.get(item.variation_id) : casesToOrder}"
+                     placeholder="${casesToOrder}"
+                     min="0"
+                     data-field="order_qty"
+                     data-variation-id="${item.variation_id}"
+                     data-suggested="${casesToOrder}"
+                     onchange="updateOrderQty(this)"
+                     onblur="updateOrderQty(this)"
+                     onkeydown="if(event.key==='Enter') this.blur()">
+              <br><small style="color: #6b7280;" id="units-${item.variation_id}">(${actualUnits} units)</small>
               ${cappedByMax ? '<br><small style="color: #f59e0b;">⚠️ Capped at max</small>' : ''}
               ${item.pending_po_quantity > 0 ? `<br><small style="color: #3b82f6;" title="${item.pending_po_quantity} units pending in unreceived POs">📦 ${item.pending_po_quantity} on order</small>` : ''}
             </td>
@@ -793,19 +815,26 @@
 
     function updateFooter() {
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
-      // Calculate total cost based on cases (respecting stock max)
+      // Calculate total cost based on cases (respecting stock max and user edits)
       const totalCost = selectedSuggestions.reduce((sum, item) => {
-        // Apply stock maximum logic
-        let suggestedQty = item.final_suggested_qty;
-        if (item.stock_alert_max && item.stock_alert_max > 0) {
-          const projectedStock = item.current_stock + suggestedQty;
-          if (projectedStock > item.stock_alert_max) {
-            suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+        const casePack = item.case_pack_quantity || 1;
+        let casesToOrder;
+
+        // Check if user has edited this quantity
+        if (editedOrderQtys.has(item.variation_id)) {
+          casesToOrder = editedOrderQtys.get(item.variation_id);
+        } else {
+          // Apply stock maximum logic for suggested qty
+          let suggestedQty = item.final_suggested_qty;
+          if (item.stock_alert_max && item.stock_alert_max > 0) {
+            const projectedStock = item.current_stock + suggestedQty;
+            if (projectedStock > item.stock_alert_max) {
+              suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+            }
           }
+          casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         }
 
-        const casePack = item.case_pack_quantity || 1;
-        const casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         const actualUnits = casesToOrder * casePack;
         return sum + (actualUnits * item.unit_cost_cents / 100);
       }, 0);
@@ -847,18 +876,25 @@
       const supplyDays = parseInt(document.getElementById('supply-days').value);
 
       const items = selectedSuggestions.map(item => {
-        // Apply stock maximum logic
-        let suggestedQty = item.final_suggested_qty;
-        if (item.stock_alert_max && item.stock_alert_max > 0) {
-          const projectedStock = item.current_stock + suggestedQty;
-          if (projectedStock > item.stock_alert_max) {
-            suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+        const casePack = item.case_pack_quantity || 1;
+        let casesToOrder;
+
+        // Check if user has edited this quantity
+        if (editedOrderQtys.has(item.variation_id)) {
+          casesToOrder = editedOrderQtys.get(item.variation_id);
+        } else {
+          // Apply stock maximum logic for suggested qty
+          let suggestedQty = item.final_suggested_qty;
+          if (item.stock_alert_max && item.stock_alert_max > 0) {
+            const projectedStock = item.current_stock + suggestedQty;
+            if (projectedStock > item.stock_alert_max) {
+              suggestedQty = Math.max(0, item.stock_alert_max - item.current_stock);
+            }
           }
+          casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         }
 
         // Calculate actual units to order (cases × case pack)
-        const casePack = item.case_pack_quantity || 1;
-        const casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         const actualUnits = casesToOrder * casePack;
 
         return {
@@ -896,8 +932,9 @@
         const result = await response.json();
         alert(`Purchase Order ${result.purchase_order.po_number} created successfully!\nTotal: $${(result.purchase_order.total_cents / 100).toFixed(2)}`);
 
-        // Reset selections
+        // Reset selections and edited quantities
         selectedItems.clear();
+        editedOrderQtys.clear();
         document.getElementById('select-all').checked = false;
         renderTable();
         updateFooter();
@@ -1064,6 +1101,52 @@
       } finally {
         input.disabled = false;
       }
+    }
+
+    // Update order quantity (cases) when user edits
+    function updateOrderQty(input) {
+      const variationId = input.dataset.variationId;
+      const value = input.value.trim();
+      const suggestedQty = parseInt(input.dataset.suggested, 10) || 0;
+
+      const item = allSuggestions.find(s => s.variation_id === variationId);
+      if (!item) return;
+
+      const casePack = item.case_pack_quantity || 1;
+
+      if (value === '' || parseInt(value, 10) === suggestedQty) {
+        // Revert to suggested - remove from edited map
+        editedOrderQtys.delete(variationId);
+        input.value = suggestedQty;
+        input.classList.remove('saved');
+      } else {
+        const newCases = parseInt(value, 10);
+        if (isNaN(newCases) || newCases < 0) {
+          input.value = editedOrderQtys.get(variationId) || suggestedQty;
+          return;
+        }
+        editedOrderQtys.set(variationId, newCases);
+        input.classList.add('saved');
+        setTimeout(() => input.classList.remove('saved'), 1500);
+      }
+
+      // Update units display
+      const finalCases = editedOrderQtys.has(variationId) ? editedOrderQtys.get(variationId) : suggestedQty;
+      const actualUnits = finalCases * casePack;
+      const unitsEl = document.getElementById(`units-${variationId}`);
+      if (unitsEl) {
+        unitsEl.textContent = `(${actualUnits} units)`;
+        if (editedOrderQtys.has(variationId)) {
+          unitsEl.style.color = '#059669';
+          unitsEl.style.fontWeight = '600';
+        } else {
+          unitsEl.style.color = '#6b7280';
+          unitsEl.style.fontWeight = 'normal';
+        }
+      }
+
+      // Update footer totals
+      updateFooter();
     }
 
     // Enter edit mode for stock maximum field
