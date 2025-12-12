@@ -374,6 +374,9 @@
         <optgroup label="Tax">
           <option value="no_tax_ids">No Tax IDs</option>
         </optgroup>
+        <optgroup label="Location">
+          <option value="location_mismatch">Location Mismatch</option>
+        </optgroup>
       </select>
       <select id="categoryFilter" onchange="filterData()">
         <option value="">All Categories</option>
@@ -488,7 +491,8 @@
       { key: 'missing_seo_title', label: 'No SEO Title', severity: 'info' },
       { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
       // Tax
-      { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' }
+      { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' },
+      { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' }
     ];
 
     function showLoading() {
@@ -739,9 +743,10 @@
     function getIssueBadgeClass(issue) {
       const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off', 'OOS, No Min'];
       const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
+      const criticalIssues2 = ['Location Mismatch'];  // Additional critical issues
       const infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description'];
 
-      if (criticalIssues.includes(issue)) return 'critical';
+      if (criticalIssues.includes(issue) || criticalIssues2.includes(issue)) return 'critical';
       if (warningIssues.includes(issue)) return 'warning';
       if (infoIssues.includes(issue)) return 'info';
       return 'info';
@@ -835,7 +840,8 @@
         'Not Visible Online',
         'Missing SEO Title',
         'Missing SEO Description',
-        'No Tax IDs'
+        'No Tax IDs',
+        'Location Mismatch'
       ];
 
       const rows = filteredData.map(item => [
@@ -866,7 +872,8 @@
         item.not_visible_online ? 'Yes' : 'No',
         item.missing_seo_title ? 'Yes' : 'No',
         item.missing_seo_description ? 'Yes' : 'No',
-        item.no_tax_ids ? 'Yes' : 'No'
+        item.no_tax_ids ? 'Yes' : 'No',
+        item.location_mismatch ? 'Yes' : 'No'
       ]);
 
       const csvContent = [
