@@ -1601,6 +1601,8 @@ app.get('/api/catalog-audit', async (req, res) => {
                     i.seo_title,
                     i.seo_description,
                     i.images as item_images,
+                    i.present_at_all_locations as item_present_at_all,
+                    v.present_at_all_locations as variation_present_at_all,
                     -- Check for vendor assignment
                     (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id) as vendor_count,
                     -- Get primary vendor info
@@ -1680,7 +1682,9 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (seo_title IS NULL OR seo_title = '') as missing_seo_title,
                 (seo_description IS NULL OR seo_description = '') as missing_seo_description,
                 -- Tax configuration
-                (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids
+                (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids,
+                -- Location mismatch: variation enabled at all locations but parent item is not
+                (variation_present_at_all = TRUE AND item_present_at_all = FALSE) as location_mismatch
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
@@ -1706,7 +1710,8 @@ app.get('/api/catalog-audit', async (req, res) => {
             not_visible_online: result.rows.filter(r => r.not_visible_online).length,
             missing_seo_title: result.rows.filter(r => r.missing_seo_title).length,
             missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
-            no_tax_ids: result.rows.filter(r => r.no_tax_ids).length
+            no_tax_ids: result.rows.filter(r => r.no_tax_ids).length,
+            location_mismatch: result.rows.filter(r => r.location_mismatch).length
         };
 
         // Count items with at least one issue (excluding e-commerce settings from "issues" count)
@@ -1714,7 +1719,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             r.missing_category || r.not_taxable || r.missing_price ||
             r.missing_description || r.missing_item_image || r.missing_sku ||
             r.missing_upc || r.stock_tracking_off || r.no_reorder_threshold ||
-            r.missing_vendor || r.missing_cost
+            r.missing_vendor || r.missing_cost || r.location_mismatch
         ).length;
 
         // Filter by specific issue type if requested
@@ -1739,6 +1744,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.no_reorder_threshold) { issueCount++; issues.push('OOS, No Min'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
+            if (row.location_mismatch) { issueCount++; issues.push('Location Mismatch'); }
             // E-commerce settings (informational, tracked separately)
             if (row.not_visible_online) { issues.push('Not Visible Online'); }
             // SEO fields
