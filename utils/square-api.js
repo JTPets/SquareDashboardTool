@@ -4,6 +4,7 @@
  */
 
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 const db = require('./database');
 const logger = require('./logger');
 
@@ -18,14 +19,12 @@ const RETRY_DELAY_MS = 1000;
 
 /**
  * Generate a unique idempotency key for Square API requests
- * Combines a prefix, timestamp, and random component to ensure uniqueness
+ * Uses crypto.randomUUID() for guaranteed uniqueness
  * @param {string} prefix - Prefix to identify the operation type
  * @returns {string} Unique idempotency key
  */
 function generateIdempotencyKey(prefix) {
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(2, 10);
-    return `${prefix}-${timestamp}-${random}`;
+    return `${prefix}-${crypto.randomUUID()}`;
 }
 
 /**
@@ -62,9 +61,24 @@ async function makeSquareRequest(endpoint, options = {}) {
                     continue;
                 }
 
-                // Handle auth errors
+                // Handle auth errors - don't retry
                 if (response.status === 401) {
                     throw new Error('Square API authentication failed. Check your access token.');
+                }
+
+                // Check for non-retryable errors (idempotency conflicts, version conflicts)
+                const errorCodes = (data.errors || []).map(e => e.code);
+                const nonRetryableErrors = [
+                    'IDEMPOTENCY_KEY_REUSED',
+                    'VERSION_MISMATCH',
+                    'CONFLICT',
+                    'INVALID_REQUEST_ERROR'
+                ];
+                const hasNonRetryableError = errorCodes.some(code => nonRetryableErrors.includes(code));
+
+                if (response.status === 400 || response.status === 409 || hasNonRetryableError) {
+                    // Don't retry validation errors, conflicts, or idempotency issues
+                    throw new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
                 }
 
                 throw new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);

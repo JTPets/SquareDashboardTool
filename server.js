@@ -1039,18 +1039,33 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
         let targetLocationId = location_id;
 
         if (!targetLocationId) {
-            // Get the primary/first active location
-            const locationResult = await db.query(
-                'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+            // First try to get the location where this item has inventory
+            const inventoryLocationResult = await db.query(
+                `SELECT il.location_id
+                 FROM inventory_levels il
+                 JOIN locations l ON il.location_id = l.id
+                 WHERE il.variation_id = $1 AND l.active = TRUE
+                 ORDER BY il.quantity DESC NULLS LAST
+                 LIMIT 1`,
+                [id]
             );
 
-            if (locationResult.rows.length === 0) {
-                return res.status(400).json({
-                    error: 'No active locations found. Please sync locations first.'
-                });
-            }
+            if (inventoryLocationResult.rows.length > 0) {
+                targetLocationId = inventoryLocationResult.rows[0].location_id;
+            } else {
+                // Fall back to the primary/first active location
+                const locationResult = await db.query(
+                    'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+                );
 
-            targetLocationId = locationResult.rows[0].id;
+                if (locationResult.rows.length === 0) {
+                    return res.status(400).json({
+                        error: 'No active locations found. Please sync locations first.'
+                    });
+                }
+
+                targetLocationId = locationResult.rows[0].id;
+            }
         }
 
         // Push update to Square (location-specific)
