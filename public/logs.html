@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>System Logs - JT Pets Inventory</title>
+  <title>System Logs - Square Dashboard Addon</title>
   <style>
     * {
       margin: 0;
@@ -435,7 +435,7 @@
                 <td class="log-timestamp">${log.timestamp || '--'}</td>
                 <td><span class="log-level ${log.level}">${log.level}</span></td>
                 <td class="log-message">${escapeHtml(log.message || '')}</td>
-                <td>${log.service || 'jtpets-inventory'}</td>
+                <td>${log.service || 'square-dashboard-addon'}</td>
               </tr>
             `).join('')}
           </tbody>

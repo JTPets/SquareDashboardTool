@@ -43,7 +43,7 @@ const logger = winston.createLogger({
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
-  defaultMeta: { service: 'jtpets-inventory' },
+  defaultMeta: { service: 'square-dashboard-addon' },
   transports: [
     fileRotateTransport,
     errorRotateTransport,

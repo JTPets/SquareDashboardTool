@@ -10,7 +10,7 @@ const logger = require('./logger');
 const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
     host: process.env.DB_HOST || 'localhost',
-    database: process.env.DB_NAME || 'jtpets_beta',
+    database: process.env.DB_NAME || 'square_dashboard_addon',
     password: process.env.DB_PASSWORD,
     port: parseInt(process.env.DB_PORT || '5432'),
     max: 20, // Maximum number of clients in the pool
@@ -364,12 +364,12 @@ async function ensureSchema() {
         // Insert default settings
         await query(`
             INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
-                ('website_base_url', 'https://jtpets.ca', 'Base URL for product links'),
+                ('website_base_url', 'https://your-store-url.com', 'Base URL for product links'),
                 ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
                 ('default_condition', 'new', 'Default product condition'),
                 ('default_availability', 'in_stock', 'Default availability when stock > 0'),
                 ('currency', 'CAD', 'Default currency code'),
-                ('feed_title', 'JT Pets Product Feed', 'Feed title for GMC'),
+                ('feed_title', 'Product Feed', 'Feed title for GMC'),
                 ('adult_content', 'no', 'Default adult content flag'),
                 ('is_bundle', 'no', 'Default bundle flag')
             ON CONFLICT (setting_key) DO NOTHING

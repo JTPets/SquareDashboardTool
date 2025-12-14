@@ -1,4 +1,4 @@
--- JTPets Inventory Management System - Database Schema
+-- Square Dashboard Addon Tool - Database Schema
 -- PostgreSQL 14+
 
 -- Drop existing tables (in reverse order of dependencies)
@@ -106,7 +106,7 @@ CREATE TABLE items (
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
--- 7. Item variations (SKUs) from Square catalog with JTPets extensions
+-- 7. Item variations (SKUs) from Square catalog with custom extensions
 CREATE TABLE variations (
     id TEXT PRIMARY KEY,
     item_id TEXT NOT NULL,
@@ -125,7 +125,7 @@ CREATE TABLE variations (
     item_option_values JSONB,
     custom_attributes JSONB,
     images JSONB,
-    -- JTPets custom fields
+    -- Custom fields for inventory management
     case_pack_quantity INTEGER,
     stock_alert_min INTEGER,
     stock_alert_max INTEGER,
@@ -290,7 +290,7 @@ COMMENT ON TABLE vendors IS 'Suppliers and vendors for purchasing inventory';
 COMMENT ON TABLE categories IS 'Product categories from Square catalog';
 COMMENT ON TABLE images IS 'Product images from Square catalog';
 COMMENT ON TABLE items IS 'Products from Square catalog';
-COMMENT ON TABLE variations IS 'Product variations (SKUs) with JTPets inventory extensions';
+COMMENT ON TABLE variations IS 'Product variations (SKUs) with inventory extensions';
 COMMENT ON TABLE variation_vendors IS 'Vendor pricing and codes for each variation';
 COMMENT ON TABLE inventory_counts IS 'Current inventory levels synchronized from Square';
 COMMENT ON TABLE sales_velocity IS 'Sales velocity calculations for demand forecasting';
@@ -308,13 +308,13 @@ COMMENT ON COLUMN sales_velocity.period_days IS 'Number of days in the calculati
 COMMENT ON COLUMN purchase_orders.supply_days_override IS 'Override default supply days for this specific order';
 
 -- Grant permissions (adjust as needed for your setup)
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO jtpets_user;
--- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO jtpets_user;
+-- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO app_user;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 -- Success message
 DO $$
 BEGIN
-    RAISE NOTICE 'JTPets Inventory System schema created successfully!';
+    RAISE NOTICE 'Square Dashboard Addon Tool schema created successfully!';
     RAISE NOTICE 'Core tables created: 13';
     RAISE NOTICE 'Indexes created: 19';
 END $$;
@@ -623,12 +623,12 @@ CREATE TABLE IF NOT EXISTS gmc_settings (
 
 -- Insert default GMC settings
 INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
-    ('website_base_url', 'https://jtpets.ca', 'Base URL for product links'),
+    ('website_base_url', 'https://your-store-url.com', 'Base URL for product links'),
     ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
     ('default_condition', 'new', 'Default product condition'),
     ('default_availability', 'in_stock', 'Default availability when stock > 0'),
     ('currency', 'CAD', 'Default currency code'),
-    ('feed_title', 'JT Pets Product Feed', 'Feed title for GMC'),
+    ('feed_title', 'Product Feed', 'Feed title for GMC'),
     ('adult_content', 'no', 'Default adult content flag'),
     ('is_bundle', 'no', 'Default bundle flag')
 ON CONFLICT (setting_key) DO NOTHING;

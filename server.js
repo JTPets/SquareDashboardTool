@@ -1,5 +1,5 @@
 /**
- * JTPets Inventory Management System - Main Server
+ * Square Dashboard Addon Tool - Main Server
  * Express API server with Square POS integration
  */
 
@@ -181,7 +181,7 @@ app.put('/api/settings/env', async (req, res) => {
         const envPath = path.join(__dirname, '.env');
 
         // Build .env content
-        let content = '# JT Pets Environment Configuration\n';
+        let content = '# Square Dashboard Addon Tool - Environment Configuration\n';
         content += '# Updated: ' + new Date().toISOString() + '\n\n';
 
         // Group variables
@@ -290,7 +290,7 @@ app.get('/api/logs/download', async (req, res) => {
         const today = new Date().toISOString().split('T')[0];
         const logFile = path.join(logsDir, `app-${today}.log`);
 
-        res.download(logFile, `jtpets-logs-${today}.log`);
+        res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
 
     } catch (error) {
         res.status(404).json({ error: 'Log file not found' });
@@ -607,7 +607,7 @@ async function runAutomatedBackup() {
 
     const dbHost = process.env.DB_HOST || 'localhost';
     const dbPort = process.env.DB_PORT || '5432';
-    const dbName = process.env.DB_NAME || 'jtpets_beta';
+    const dbName = process.env.DB_NAME || 'square_dashboard_addon';
     const dbUser = process.env.DB_USER || 'postgres';
     const dbPassword = process.env.DB_PASSWORD || '';
 
@@ -1228,7 +1228,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
 
 /**
  * PATCH /api/variations/:id/extended
- * Update JTPets custom fields on a variation
+ * Update custom fields on a variation
  * Automatically syncs case_pack_quantity to Square if changed
  */
 app.patch('/api/variations/:id/extended', async (req, res) => {
@@ -2157,13 +2157,13 @@ app.get('/api/square/custom-attributes', async (req, res) => {
 
 /**
  * POST /api/square/custom-attributes/init
- * Initialize JTPets custom attribute definitions in Square
+ * Initialize custom attribute definitions in Square
  * Creates: case_pack_quantity (NUMBER), brand (STRING)
  */
 app.post('/api/square/custom-attributes/init', async (req, res) => {
     try {
-        logger.info('Initializing JTPets custom attribute definitions');
-        const result = await squareApi.initializeJTPetsCustomAttributes();
+        logger.info('Initializing custom attribute definitions');
+        const result = await squareApi.initializeCustomAttributes();
         res.json(result);
     } catch (error) {
         logger.error('Init custom attributes error', { error: error.message });
@@ -4419,7 +4419,7 @@ async function sendCycleCountReport() {
             </table>
 
             <p style="margin-top: 20px; font-size: 12px; color: #666;">
-                <em>This report was generated automatically by the JTPets Inventory Management System.</em>
+                <em>This report was generated automatically by Square Dashboard Addon Tool.</em>
             </p>
         `;
 
@@ -5975,12 +5975,12 @@ app.get('/api/database/export', async (req, res) => {
 
         const dbHost = process.env.DB_HOST || 'localhost';
         const dbPort = process.env.DB_PORT || '5432';
-        const dbName = process.env.DB_NAME || 'jtpets_beta';
+        const dbName = process.env.DB_NAME || 'square_dashboard_addon';
         const dbUser = process.env.DB_USER || 'postgres';
         const dbPassword = process.env.DB_PASSWORD || '';
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `jtpets_backup_${timestamp}.sql`;
+        const filename = `square_dashboard_addon_backup_${timestamp}.sql`;
 
         logger.info('Starting database export', { database: dbName });
 
@@ -6086,7 +6086,7 @@ app.post('/api/database/import', async (req, res) => {
 
         const dbHost = process.env.DB_HOST || 'localhost';
         const dbPort = process.env.DB_PORT || '5432';
-        const dbName = process.env.DB_NAME || 'jtpets_beta';
+        const dbName = process.env.DB_NAME || 'square_dashboard_addon';
         const dbUser = process.env.DB_USER || 'postgres';
         const dbPassword = process.env.DB_PASSWORD || '';
 
@@ -6171,7 +6171,7 @@ app.get('/api/database/info', async (req, res) => {
                 pg_database_size(pg_database.datname) as size_bytes
             FROM pg_database
             WHERE datname = $1
-        `, [process.env.DB_NAME || 'jtpets_beta']);
+        `, [process.env.DB_NAME || 'square_dashboard_addon']);
 
         // Get table counts
         const tablesResult = await db.query(`
@@ -6193,7 +6193,7 @@ app.get('/api/database/info', async (req, res) => {
             connection: {
                 host: process.env.DB_HOST || 'localhost',
                 port: process.env.DB_PORT || '5432',
-                database: process.env.DB_NAME || 'jtpets_beta',
+                database: process.env.DB_NAME || 'square_dashboard_addon',
                 user: process.env.DB_USER || 'postgres'
             }
         });
@@ -6269,11 +6269,11 @@ async function startServer() {
         app.listen(PORT, () => {
             const banner = [
                 '='.repeat(60),
-                'JTPets Inventory Management System',
+                'Square Dashboard Addon Tool',
                 '='.repeat(60),
                 `Server running on port ${PORT}`,
                 `Environment: ${process.env.NODE_ENV || 'development'}`,
-                `Database: ${process.env.DB_NAME || 'jtpets_beta'}`,
+                `Database: ${process.env.DB_NAME || 'square_dashboard_addon'}`,
                 '='.repeat(60),
                 'API Endpoints (40 total):',
                 '  GET    /api/health',
@@ -6319,7 +6319,7 @@ async function startServer() {
                 '',
                 '  SQUARE CUSTOM ATTRIBUTES:',
                 '  GET    /api/square/custom-attributes              (list definitions)',
-                '  POST   /api/square/custom-attributes/init         (initialize JTPets attrs)',
+                '  POST   /api/square/custom-attributes/init         (initialize custom attrs)',
                 '  POST   /api/square/custom-attributes/definition   (create/update definition)',
                 '  PUT    /api/square/custom-attributes/:objectId    (update values on object)',
                 '  POST   /api/square/custom-attributes/push/case-pack    (push case packs)',

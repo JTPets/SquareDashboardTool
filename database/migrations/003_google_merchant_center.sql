@@ -53,12 +53,12 @@ CREATE TABLE IF NOT EXISTS gmc_settings (
 
 -- Insert default GMC settings
 INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
-    ('website_base_url', 'https://jtpets.ca', 'Base URL for product links'),
+    ('website_base_url', 'https://your-store-url.com', 'Base URL for product links'),
     ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
     ('default_condition', 'new', 'Default product condition'),
     ('default_availability', 'in_stock', 'Default availability when stock > 0'),
     ('currency', 'CAD', 'Default currency code'),
-    ('feed_title', 'JT Pets Product Feed', 'Feed title for GMC'),
+    ('feed_title', 'Product Feed', 'Feed title for GMC'),
     ('adult_content', 'no', 'Default adult content flag'),
     ('is_bundle', 'no', 'Default bundle flag')
 ON CONFLICT (setting_key) DO NOTHING;

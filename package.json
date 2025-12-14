@@ -1,7 +1,7 @@
 {
-  "name": "jtpets-inventory-system",
+  "name": "square-dashboard-addon",
   "version": "1.0.0",
-  "description": "Complete inventory management system for JTPets with Square POS integration",
+  "description": "Square Dashboard Addon Tool - Inventory management, reorder suggestions, and analytics for Square POS",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -12,10 +12,12 @@
     "inventory",
     "square",
     "pos",
-    "pet-supply",
-    "reorder"
+    "dashboard",
+    "addon",
+    "reorder",
+    "analytics"
   ],
-  "author": "JTPets",
+  "author": "Square Dashboard Addon Tool",
   "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
