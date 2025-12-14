@@ -163,15 +163,15 @@ This document tracks items that need to be addressed before submitting to the Sq
 ## App Listing Requirements
 
 ### 8. Support Contact Information
-**Status:** Needs Configuration
+**Status:** Implemented
 **Priority:** HIGH
 **Requirement:** Your App Marketplace listing and app provide a support email address, phone number, or other channel.
 
 **Implementation Tasks:**
-- [ ] Configure support email in production
-- [ ] Add support link/email to app footer (public/index.html)
-- [ ] Create support documentation page
-- [ ] Set up support email monitoring
+- [x] Configure support email in production (JTPets@JTPets.ca)
+- [x] Add support link/email to app footer (public/index.html)
+- [x] Create support documentation page (public/support.html)
+- [ ] Set up support email monitoring (external task)
 
 ---
 
@@ -206,7 +206,7 @@ This document tracks items that need to be addressed before submitting to the Sq
 | Webhook event handling | ❌ TODO | HIGH |
 | Refund request handling | ❌ TODO | HIGH |
 | OAuth revocation handling | ❌ TODO | HIGH |
-| Support contact in app | ⚠️ Configure | HIGH |
+| Support contact in app | ✅ Done | - |
 | Technical requirements docs | ⚠️ Partial | MEDIUM |
 | Cursor-based pagination | ✅ Done | - |
 | Location selector UI | ✅ Done | - |
