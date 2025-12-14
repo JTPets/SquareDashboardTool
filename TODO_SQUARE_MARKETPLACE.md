@@ -209,6 +209,8 @@ This document tracks items that need to be addressed before submitting to the Sq
 | Support contact in app | ⚠️ Configure | HIGH |
 | Technical requirements docs | ⚠️ Partial | MEDIUM |
 | Cursor-based pagination | ✅ Done | - |
+| Location selector UI | ✅ Done | - |
+| Location Custom Attributes | N/A (not used) | - |
 | Circuit breaker | ❌ Optional | MEDIUM |
 | Request ID tracking | ❌ Optional | LOW |
 
@@ -569,6 +571,49 @@ If using Booking Custom Attributes:
 - [ ] Allow bookings to be canceled by sellers
 
 **Documentation:** https://developer.squareup.com/docs/bookings-api/overview
+
+---
+
+### CURRENT: Locations API Requirements
+**Status:** Implemented (location selector in UI)
+**Priority:** Review for marketplace compliance
+
+**Current Implementation:**
+- Location connection method: Seller selects locations from a field in the user interface
+- Uses Location Custom Attributes API: NO
+- Multi-location support: YES (inventory, reorder suggestions, PO generation)
+
+**Location Selection Requirements (UI Selector):**
+- [x] App provides UI for seller to select their desired Square locations
+- [x] Location selector populated from Square Locations API
+- [x] Active/inactive location status respected
+- [x] Location filtering available on inventory views
+- [x] Location filtering available on reorder suggestions
+- [x] Location filtering available on purchase order generation
+- [ ] Store selected location preferences per user/session
+- [ ] Handle location addition/removal gracefully (new locations from Square)
+- [ ] Validate location access permissions before operations
+
+**Core Location Requirements:**
+- [x] Retrieve merchant's locations via Locations API
+- [x] Store location data locally (locations table)
+- [x] Support operations across multiple locations
+- [x] Display location names in UI dropdowns and reports
+- [ ] Handle location timezone differences for reporting
+- [ ] Refresh location list on demand or periodically
+
+**Conditional Requirements:**
+If app allows location-specific settings:
+- [ ] Store settings per location
+- [ ] Provide UI for per-location configuration
+
+If app uses Location Custom Attributes API:
+- [ ] Create custom attribute definitions for locations
+- [ ] Read custom attribute values from locations
+- [ ] Write custom attribute values to locations
+- [ ] Handle attribute definition changes gracefully
+
+**Documentation:** https://developer.squareup.com/docs/locations-api/overview
 
 ---
 
