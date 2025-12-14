@@ -83,12 +83,7 @@
       max-height: 65vh;
       overflow-y: auto;
     }
-    table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 14px;
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
     th {
       background: #f9fafb;
@@ -101,14 +96,6 @@
       letter-spacing: 0.5px;
       white-space: nowrap;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    thead {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    thead th {
-      background: #f9fafb;
     }
     tr:hover { background: #f9fafb; }
     tr.selected { background: #dbeafe; }
@@ -181,31 +168,6 @@
     .velocity-moderate { color: #f59e0b; }
     .velocity-slow { color: #6b7280; }
     .velocity-none { color: #ef4444; font-style: italic; }
-
-    /* Expiry styling */
-    .expiry-warning {
-      background-color: #fef2f2 !important;
-      border-left: 3px solid #dc2626;
-    }
-    .expiry-critical { color: #dc2626; font-weight: 600; }
-    .expiry-soon { color: #f59e0b; font-weight: 600; }
-    .expiry-ok { color: #6b7280; }
-    .expiry-none { color: #9ca3af; font-style: italic; }
-    .expiry-badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .expiry-badge.critical {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .expiry-badge.warning {
-      background: #fef3c7;
-      color: #92400e;
-    }
 
     .secondary-vendor {
       background-color: #fff3cd !important;
@@ -388,141 +350,6 @@
       .editable-input { width: 50px; font-size: 12px; }
     }
 
-    /* Preview Modal */
-    .preview-modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 2000;
-      align-items: center;
-      justify-content: center;
-    }
-    .preview-modal.active { display: flex; }
-    .preview-modal-content {
-      background: white;
-      border-radius: 8px;
-      max-width: 900px;
-      width: 95%;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-    }
-    .preview-modal-header {
-      padding: 20px 25px;
-      border-bottom: 2px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: #f9fafb;
-      position: sticky;
-      top: 0;
-    }
-    .preview-modal-header h2 { font-size: 20px; margin: 0; color: #1f2937; }
-    .preview-modal-close {
-      background: none;
-      border: none;
-      font-size: 28px;
-      cursor: pointer;
-      color: #6b7280;
-      padding: 0;
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-    }
-    .preview-modal-close:hover { background: #e5e7eb; color: #1f2937; }
-    .preview-modal-body { padding: 25px; }
-    .preview-info {
-      background: #f0f9ff;
-      border: 1px solid #bae6fd;
-      padding: 16px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-    }
-    .preview-info h3 { font-size: 16px; margin-bottom: 12px; color: #0c4a6e; }
-    .preview-info-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 12px;
-      font-size: 14px;
-    }
-    .preview-info-item { display: flex; flex-direction: column; }
-    .preview-info-label {
-      font-size: 11px;
-      color: #0369a1;
-      font-weight: 600;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-    }
-    .preview-info-value { color: #0c4a6e; font-weight: 600; }
-    .preview-items-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      margin-top: 15px;
-    }
-    .preview-items-table thead { background: #f9fafb; }
-    .preview-items-table th {
-      text-align: left;
-      padding: 10px;
-      font-weight: 600;
-      color: #374151;
-      border-bottom: 2px solid #e5e7eb;
-    }
-    .preview-items-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
-    .preview-items-table tfoot td {
-      font-weight: 600;
-      background: #f9fafb;
-      border-top: 2px solid #e5e7eb;
-    }
-    .preview-modal-footer {
-      padding: 20px 25px;
-      border-top: 2px solid #e5e7eb;
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      background: #f9fafb;
-      position: sticky;
-      bottom: 0;
-    }
-    .preview-note {
-      background: #fffbeb;
-      border: 1px solid #fbbf24;
-      padding: 12px;
-      border-radius: 6px;
-      font-size: 13px;
-      margin-top: 15px;
-    }
-    .success-message {
-      background: #d1fae5;
-      color: #065f46;
-      padding: 15px 20px;
-      border-radius: 6px;
-      margin: 15px 0;
-    }
-    .success-message a {
-      display: inline-block;
-      margin: 8px 8px 0 0;
-      padding: 8px 16px;
-      background: #10b981;
-      color: white;
-      text-decoration: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-    }
-    .success-message a:hover { background: #059669; }
-    .success-message a.secondary {
-      background: #6b7280;
-    }
-    .success-message a.secondary:hover { background: #4b5563; }
-
     /* Toast notifications */
     .toast {
       position: fixed;
@@ -579,11 +406,6 @@
         <option value="urgency">Urgency</option>
         <option value="vendor">Vendor</option>
       </select>
-
-      <label for="category-select">Category:</label>
-      <select id="category-select" onchange="filterByCategory()">
-        <option value="">All Categories</option>
-      </select>
     </div>
 
     <div class="table-container">
@@ -615,9 +437,6 @@
             <th onclick="sortTable('days_until_stockout')" class="sortable text-right">
               Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
             </th>
-            <th onclick="sortTable('days_until_expiry')" class="sortable text-right" title="Expiration date - highlighted if within 120 days">
-              Expiry <span class="sort-indicator" id="sort-days_until_expiry"></span>
-            </th>
             <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
               Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
             </th>
@@ -643,7 +462,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="17" class="loading">Loading suggestions...</td>
+            <td colspan="16" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -662,9 +481,7 @@
 
   <script>
     let allSuggestions = [];
-    let filteredSuggestions = [];
     let selectedItems = new Set();
-    let previewPOData = null;
     // Track pending min-stock saves to prevent rapid-fire requests
     const pendingMinStockSaves = new Map();
     // Track user-edited order quantities (cases) by variation_id
@@ -744,27 +561,23 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="17" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="16" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
         const data = await response.json();
 
         allSuggestions = data.suggestions || [];
-        filteredSuggestions = [...allSuggestions];
         // Default all items to selected, clear any edited quantities
         selectedItems.clear();
         editedOrderQtys.clear();
         allSuggestions.forEach(item => selectedItems.add(item.variation_id));
         document.getElementById('select-all').checked = true;
 
-        // Populate category filter
-        populateCategoryFilter();
-
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="17" class="empty-state">
+              <td colspan="16" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -786,7 +599,7 @@
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="17" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="16" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -819,38 +632,10 @@
       }
     }
 
-    function populateCategoryFilter() {
-      const categories = [...new Set(allSuggestions.map(item => item.category_name).filter(Boolean))].sort();
-      const select = document.getElementById('category-select');
-      const currentValue = select.value;
-      select.innerHTML = '<option value="">All Categories</option>';
-      categories.forEach(cat => {
-        const option = document.createElement('option');
-        option.value = cat;
-        option.textContent = cat;
-        select.appendChild(option);
-      });
-      // Restore selection if still valid
-      if (currentValue && categories.includes(currentValue)) {
-        select.value = currentValue;
-      }
-    }
-
-    function filterByCategory() {
-      const categoryFilter = document.getElementById('category-select').value;
-      if (categoryFilter) {
-        filteredSuggestions = allSuggestions.filter(item => item.category_name === categoryFilter);
-      } else {
-        filteredSuggestions = [...allSuggestions];
-      }
-      renderTable();
-      updateFooter();
-    }
-
     function renderTable() {
       const tbody = document.getElementById('suggestions-body');
 
-      tbody.innerHTML = filteredSuggestions.map((item, index) => {
+      tbody.innerHTML = allSuggestions.map((item, index) => {
         const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
                          item.days_until_stockout < 7 ? 'days-critical' :
                          item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
@@ -925,32 +710,8 @@
              <div class="no-image" style="display:none;">📦</div>`
           : `<div class="no-image">📦</div>`;
 
-        // Expiration date handling
-        const expiresWithin120Days = item.days_until_expiry !== null && item.days_until_expiry <= 120;
-        const expiryRowClass = expiresWithin120Days ? 'expiry-warning' : '';
-        let expiryHtml = '';
-        if (item.does_not_expire) {
-          expiryHtml = '<span class="expiry-none">Never</span>';
-        } else if (item.expiration_date) {
-          const expiryDate = new Date(item.expiration_date);
-          const formattedDate = expiryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          const daysLeft = item.days_until_expiry;
-          if (daysLeft !== null && daysLeft <= 30) {
-            expiryHtml = `<span class="expiry-badge critical" title="${daysLeft} days until expiry">${formattedDate}</span>`;
-          } else if (daysLeft !== null && daysLeft <= 120) {
-            expiryHtml = `<span class="expiry-badge warning" title="${daysLeft} days until expiry">${formattedDate}</span>`;
-          } else {
-            expiryHtml = `<span class="expiry-ok">${formattedDate}</span>`;
-          }
-        } else {
-          expiryHtml = '<span class="expiry-none">-</span>';
-        }
-
-        // Combine row classes
-        let combinedRowClass = [rowClass, expiryRowClass].filter(c => c).join(' ');
-
         return `
-          <tr class="${isSelected ? 'selected' : ''} ${combinedRowClass}" data-id="${item.variation_id}">
+          <tr class="${isSelected ? 'selected' : ''} ${rowClass}" data-id="${item.variation_id}">
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
@@ -986,7 +747,6 @@
               </div>
             </td>
             <td class="text-right ${daysClass}">${daysText}</td>
-            <td class="text-right">${expiryHtml}</td>
             <td class="text-right"><small>${velocityText}</small></td>
             <td class="text-right editable-cell">
               <input type="number"
@@ -1088,26 +848,28 @@
       const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
 
       if (selectedSuggestions.length === 0) {
-        showToast('Please select at least one item to create a purchase order.', 'error');
+        alert('Please select at least one item to create a purchase order.');
         return;
       }
 
       const vendorId = document.getElementById('vendor-select').value;
       if (!vendorId) {
-        showToast('Please select a specific vendor to create a purchase order.', 'error');
+        alert('Please select a specific vendor to create a purchase order.');
         return;
       }
 
       // Check if all selected items are from the same vendor
       const vendors = new Set(selectedSuggestions.map(s => s.vendor_name));
       if (vendors.size > 1) {
-        showToast('Selected items are from multiple vendors. Please filter by vendor first.', 'error');
+        alert('Selected items are from multiple vendors. Please select items from a single vendor or filter by vendor first.');
         return;
       }
 
-      const locationId = document.getElementById('location-select').value;
+      // For now, we need a location ID - let's prompt user or use default
+      // In a real implementation, you'd add a location selector to the UI
+      const locationId = prompt('Enter Location ID (or leave blank for default):') || null;
       if (!locationId) {
-        showToast('Please select a specific location to create a purchase order.', 'error');
+        alert('Location ID is required to create a purchase order.');
         return;
       }
 
@@ -1117,9 +879,11 @@
         const casePack = item.case_pack_quantity || 1;
         let casesToOrder;
 
+        // Check if user has edited this quantity
         if (editedOrderQtys.has(item.variation_id)) {
           casesToOrder = editedOrderQtys.get(item.variation_id);
         } else {
+          // Apply stock maximum logic for suggested qty
           let suggestedQty = item.final_suggested_qty;
           if (item.stock_alert_max && item.stock_alert_max > 0) {
             const projectedStock = item.current_stock + suggestedQty;
@@ -1130,20 +894,17 @@
           casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
         }
 
+        // Calculate actual units to order (cases × case pack)
         const actualUnits = casesToOrder * casePack;
 
         return {
           variation_id: item.variation_id,
-          quantity_ordered: actualUnits,
-          unit_cost_cents: item.unit_cost_cents,
-          item_name: item.item_name,
-          variation_name: item.variation_name,
-          sku: item.sku
+          quantity_ordered: actualUnits, // Order in full cases
+          unit_cost_cents: item.unit_cost_cents
         };
       });
 
-      // Store PO data for preview
-      previewPOData = {
+      const poData = {
         vendor_id: vendorId,
         location_id: locationId,
         supply_days_override: supplyDays,
@@ -1152,123 +913,15 @@
         created_by: 'Reorder System'
       };
 
-      // Show preview modal
-      showPreviewModal();
-    }
-
-    function showPreviewModal() {
-      const modal = document.getElementById('preview-modal');
-      const modalBody = document.getElementById('preview-modal-body');
-
-      const vendorSelect = document.getElementById('vendor-select');
-      const locationSelect = document.getElementById('location-select');
-      const vendorName = vendorSelect.options[vendorSelect.selectedIndex].text;
-      const locationName = locationSelect.options[locationSelect.selectedIndex].text;
-
-      const totalCents = previewPOData.items.reduce((sum, item) => {
-        return sum + (item.quantity_ordered * item.unit_cost_cents);
-      }, 0);
-      const totalCost = (totalCents / 100).toFixed(2);
-      const totalUnits = previewPOData.items.reduce((sum, item) => sum + item.quantity_ordered, 0);
-
-      const itemsHTML = previewPOData.items.map(item => `
-        <tr>
-          <td>
-            <strong>${escapeHtml(item.item_name)}</strong>
-            ${item.variation_name ? `<br><small>${escapeHtml(item.variation_name)}</small>` : ''}
-          </td>
-          <td>${escapeHtml(item.sku || '-')}</td>
-          <td class="text-right">${item.quantity_ordered}</td>
-          <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
-          <td class="text-right">$${((item.quantity_ordered * item.unit_cost_cents) / 100).toFixed(2)}</td>
-        </tr>
-      `).join('');
-
-      modalBody.innerHTML = `
-        <div class="preview-info">
-          <h3>Purchase Order Summary</h3>
-          <div class="preview-info-grid">
-            <div class="preview-info-item">
-              <span class="preview-info-label">Vendor</span>
-              <span class="preview-info-value">${escapeHtml(vendorName)}</span>
-            </div>
-            <div class="preview-info-item">
-              <span class="preview-info-label">Location</span>
-              <span class="preview-info-value">${escapeHtml(locationName)}</span>
-            </div>
-            <div class="preview-info-item">
-              <span class="preview-info-label">Supply Days</span>
-              <span class="preview-info-value">${previewPOData.supply_days_override}</span>
-            </div>
-            <div class="preview-info-item">
-              <span class="preview-info-label">Total Items</span>
-              <span class="preview-info-value">${previewPOData.items.length}</span>
-            </div>
-            <div class="preview-info-item">
-              <span class="preview-info-label">Total Units</span>
-              <span class="preview-info-value">${totalUnits}</span>
-            </div>
-            <div class="preview-info-item">
-              <span class="preview-info-label">Total Cost</span>
-              <span class="preview-info-value" style="font-size: 18px; color: #059669;">$${totalCost}</span>
-            </div>
-          </div>
-        </div>
-
-        <h3 style="font-size: 16px; margin-bottom: 10px; color: #374151;">Items to Order</h3>
-        <div style="max-height: 300px; overflow-y: auto;">
-          <table class="preview-items-table">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>SKU</th>
-                <th class="text-right">Quantity</th>
-                <th class="text-right">Unit Cost</th>
-                <th class="text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHTML}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colspan="4" class="text-right"><strong>Grand Total:</strong></td>
-                <td class="text-right"><strong>$${totalCost}</strong></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div class="preview-note">
-          <strong>Note:</strong> The purchase order will be created as a DRAFT. You can edit it before submitting.
-        </div>
-      `;
-
-      modal.classList.add('active');
-    }
-
-    function closePreviewModal() {
-      const modal = document.getElementById('preview-modal');
-      modal.classList.remove('active');
-      previewPOData = null;
-    }
-
-    async function confirmCreatePO() {
-      if (!previewPOData) return;
-
-      const confirmBtn = document.getElementById('confirm-create-btn');
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Creating...';
+      const btn = document.getElementById('create-po-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating PO...';
 
       try {
-        // Remove display fields before sending
-        const cleanItems = previewPOData.items.map(({ item_name, variation_name, sku, ...rest }) => rest);
-        const cleanData = { ...previewPOData, items: cleanItems };
-
         const response = await fetch('/api/purchase-orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(cleanData)
+          body: JSON.stringify(poData)
         });
 
         if (!response.ok) {
@@ -1277,31 +930,7 @@
         }
 
         const result = await response.json();
-        const poNumber = result.purchase_order.po_number;
-        const totalCost = (result.purchase_order.total_cents / 100).toFixed(2);
-
-        closePreviewModal();
-
-        // Show success message with export links
-        const successDiv = document.createElement('div');
-        successDiv.className = 'success-message';
-        successDiv.id = 'po-success-message';
-        successDiv.innerHTML = `
-          <strong>Purchase Order ${poNumber} created successfully!</strong><br>
-          Total: $${totalCost} | ${previewPOData.items.length} items<br>
-          <a href="/purchase-orders.html">View & Edit PO</a>
-          <a href="/api/purchase-orders/${poNumber}/export-xlsx" download="PO_${poNumber}.xlsx" class="secondary">Export XLSX</a>
-          <a href="/api/purchase-orders/${poNumber}/export-csv" download="PO_${poNumber}.csv" class="secondary">Export CSV</a>
-        `;
-
-        // Insert at top of container
-        const container = document.querySelector('.container');
-        const existingMsg = document.getElementById('po-success-message');
-        if (existingMsg) existingMsg.remove();
-        container.insertBefore(successDiv, container.children[1]);
-
-        // Scroll to top to show message
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        alert(`Purchase Order ${result.purchase_order.po_number} created successfully!\nTotal: $${(result.purchase_order.total_cents / 100).toFixed(2)}`);
 
         // Reset selections and edited quantities
         selectedItems.clear();
@@ -1312,19 +941,12 @@
 
       } catch (error) {
         console.error('Failed to create PO:', error);
-        showToast('Failed to create purchase order: ' + error.message, 'error');
+        alert('Failed to create purchase order: ' + error.message);
       } finally {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = 'Confirm & Create PO';
+        btn.disabled = false;
+        btn.textContent = 'Create Purchase Order';
       }
     }
-
-    // Close preview modal when clicking outside
-    document.getElementById('preview-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'preview-modal') {
-        closePreviewModal();
-      }
-    });
 
     // Click-to-sort functionality
     let currentSortField = null;
@@ -1379,7 +1001,6 @@
           case 'current_stock':
           case 'stock_alert_min':
           case 'days_until_stockout':
-          case 'days_until_expiry':
           case 'daily_avg_quantity':
           case 'weekly_avg_91d':
           case 'weekly_avg_182d':
@@ -1389,14 +1010,8 @@
           case 'unit_cost_cents':
           case 'order_cost':
             // Numeric comparison (handle null/undefined)
-            // For expiry, null means no expiration set - sort to end
-            if (field === 'days_until_expiry') {
-              aVal = aVal === null ? 99999 : parseFloat(aVal);
-              bVal = bVal === null ? 99999 : parseFloat(bVal);
-            } else {
-              aVal = parseFloat(aVal) || 0;
-              bVal = parseFloat(bVal) || 0;
-            }
+            aVal = parseFloat(aVal) || 0;
+            bVal = parseFloat(bVal) || 0;
             break;
         }
 
@@ -1409,14 +1024,6 @@
           return aVal < bVal ? 1 : -1;
         }
       });
-
-      // Re-apply category filter to update filteredSuggestions with sorted data
-      const categoryFilter = document.getElementById('category-select').value;
-      if (categoryFilter) {
-        filteredSuggestions = allSuggestions.filter(item => item.category_name === categoryFilter);
-      } else {
-        filteredSuggestions = [...allSuggestions];
-      }
 
       // Re-render table with sorted data
       renderTable();
@@ -1751,23 +1358,6 @@
       }
     });
   </script>
-
-  <!-- Preview Modal -->
-  <div id="preview-modal" class="preview-modal">
-    <div class="preview-modal-content">
-      <div class="preview-modal-header">
-        <h2>Review Purchase Order</h2>
-        <button class="preview-modal-close" onclick="closePreviewModal()">&times;</button>
-      </div>
-      <div class="preview-modal-body" id="preview-modal-body">
-        <!-- Content inserted dynamically -->
-      </div>
-      <div class="preview-modal-footer">
-        <button class="btn btn-secondary" onclick="closePreviewModal()">Cancel</button>
-        <button class="btn btn-primary" id="confirm-create-btn" onclick="confirmCreatePO()">Confirm & Create PO</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>
