@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #1f2937;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .tab {
+      padding: 15px 25px;
+      cursor: pointer;
+      font-weight: 500;
+      color: #6b7280;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: #374151; background: #f3f4f6; }
+    .tab.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      background: white;
+    }
+
+    /* Tab Content */
+    .tab-content {
+      display: none;
+      padding: 30px;
+    }
+    .tab-content.active { display: block; }
+
+    /* Section */
+    .section {
+      margin-bottom: 30px;
+    }
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .section-desc {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    /* Connection Status Cards */
+    .connection-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .connection-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      background: #f9fafb;
+    }
+    .connection-card.connected {
+      border-left: 4px solid #10b981;
+      background: #f0fdf4;
+    }
+    .connection-card.disconnected {
+      border-left: 4px solid #ef4444;
+      background: #fef2f2;
+    }
+    .connection-card.warning {
+      border-left: 4px solid #f59e0b;
+      background: #fffbeb;
+    }
+    .connection-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .connection-icon {
+      font-size: 24px;
+    }
+    .connection-name {
+      font-weight: 600;
+      color: #111827;
+    }
+    .connection-status {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 12px;
+    }
+    .connection-card button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-secondary:hover { background: #4b5563; }
+
+    /* Settings Form */
+    .settings-form {
+      display: grid;
+      gap: 20px;
+    }
+    .form-group {
+      display: grid;
+      grid-template-columns: 250px 1fr auto;
+      gap: 15px;
+      align-items: start;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+    }
+    .form-group.sensitive {
+      background: #fef3c7;
+      border-color: #fde68a;
+    }
+    .form-label {
+      font-weight: 500;
+      color: #374151;
+      padding-top: 8px;
+    }
+    .form-label small {
+      display: block;
+      font-weight: 400;
+      color: #6b7280;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .form-input.masked {
+      -webkit-text-security: disc;
+    }
+    .form-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-icon {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn-icon:hover { background: #f3f4f6; }
+
+    /* Save Bar */
+    .save-bar {
+      position: sticky;
+      bottom: 0;
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      display: none;
+    }
+    .save-bar.visible { display: flex; }
+    .save-bar .changes-text {
+      font-size: 14px;
+    }
+    .save-bar button {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .save-bar .btn-save { background: #10b981; color: white; }
+    .save-bar .btn-save:hover { background: #059669; }
+    .save-bar .btn-cancel { background: #6b7280; color: white; margin-right: 10px; }
+    .save-bar .btn-cancel:hover { background: #4b5563; }
+
+    /* Alert Boxes */
+    .alert {
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .alert.info {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1e40af;
+    }
+    .alert.warning {
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+    .alert.success {
+      background: #d1fae5;
+      border: 1px solid #6ee7b7;
+      color: #065f46;
+    }
+    .alert.error {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #991b1b;
+    }
+
+    /* Token Generator */
+    .token-generator {
+      background: #f3f4f6;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+    .token-generator h4 {
+      margin-bottom: 10px;
+      color: #374151;
+    }
+    .token-generator p {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 15px;
+    }
+    .token-display {
+      font-family: monospace;
+      background: white;
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      word-break: break-all;
+      margin-bottom: 10px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .form-group {
+        grid-template-columns: 1fr;
+      }
+      .connection-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>System Settings</h1>
+      <a href="index.html" class="back-button">Back to Dashboard</a>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="connections">Connections</div>
+      <div class="tab" data-tab="environment">Environment Variables</div>
+      <div class="tab" data-tab="api-tokens">API Tokens</div>
+      <div class="tab" data-tab="sync">Sync Settings</div>
+    </div>
+
+    <!-- Connections Tab -->
+    <div class="tab-content active" id="tab-connections">
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Service Connections</div>
+            <div class="section-desc">Status of external service integrations</div>
+          </div>
+        </div>
+
+        <div class="connection-grid">
+          <!-- Square -->
+          <div class="connection-card" id="square-connection">
+            <div class="connection-header">
+              <span class="connection-icon">🟦</span>
+              <span class="connection-name">Square API</span>
+            </div>
+            <div class="connection-status" id="square-status">Checking...</div>
+            <button class="btn-primary" onclick="testSquareConnection()">Test Connection</button>
+          </div>
+
+          <!-- Database -->
+          <div class="connection-card" id="database-connection">
+            <div class="connection-header">
+              <span class="connection-icon">🗄️</span>
+              <span class="connection-name">PostgreSQL Database</span>
+            </div>
+            <div class="connection-status" id="database-status">Checking...</div>
+            <button class="btn-primary" onclick="testDatabaseConnection()">Test Connection</button>
+          </div>
+
+          <!-- Google -->
+          <div class="connection-card" id="google-connection">
+            <div class="connection-header">
+              <span class="connection-icon">📊</span>
+              <span class="connection-name">Google Sheets</span>
+            </div>
+            <div class="connection-status" id="google-status">Checking...</div>
+            <div id="google-actions"></div>
+          </div>
+
+          <!-- Email -->
+          <div class="connection-card" id="email-connection">
+            <div class="connection-header">
+              <span class="connection-icon">📧</span>
+              <span class="connection-name">Email (SMTP)</span>
+            </div>
+            <div class="connection-status" id="email-status">Checking...</div>
+            <button class="btn-primary" onclick="testEmailConnection()">Send Test Email</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Environment Variables Tab -->
+    <div class="tab-content" id="tab-environment">
+      <div class="alert warning">
+        <strong>Caution:</strong> Changes to environment variables require a server restart to take effect.
+        Incorrect values may cause the application to malfunction.
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Environment Configuration</div>
+            <div class="section-desc">Configure application environment variables</div>
+          </div>
+          <button class="btn-secondary" onclick="reloadEnv()">Reload from File</button>
+        </div>
+
+        <div class="settings-form" id="env-form">
+          <!-- Will be populated dynamically -->
+          <div class="alert info">Loading environment variables...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Tokens Tab -->
+    <div class="tab-content" id="tab-api-tokens">
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Square API Configuration</div>
+            <div class="section-desc">Manage Square API access tokens</div>
+          </div>
+        </div>
+
+        <div class="alert info">
+          To get a new Square access token:
+          <ol style="margin-top: 10px; margin-left: 20px;">
+            <li>Log in to your <a href="https://developer.squareup.com/apps" target="_blank">Square Developer Dashboard</a></li>
+            <li>Select your application</li>
+            <li>Go to "Credentials" tab</li>
+            <li>Copy the "Access Token" for Production or Sandbox</li>
+            <li>Paste it in the Environment Variables tab under SQUARE_ACCESS_TOKEN</li>
+          </ol>
+        </div>
+
+        <div class="connection-card" style="margin-top: 20px;">
+          <div class="connection-header">
+            <span class="connection-icon">🔑</span>
+            <span class="connection-name">Current Token Status</span>
+          </div>
+          <div class="connection-status" id="token-status">Checking...</div>
+          <div id="token-info" style="font-size: 13px; color: #6b7280; margin-top: 10px;"></div>
+        </div>
+
+        <div class="token-generator">
+          <h4>Generate Local API Token</h4>
+          <p>Generate a secure random token for internal API authentication.</p>
+          <button class="btn-primary" onclick="generateLocalToken()">Generate Token</button>
+          <div class="token-display" id="generated-token" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Settings Tab -->
+    <div class="tab-content" id="tab-sync">
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Sync Configuration</div>
+            <div class="section-desc">Configure automatic synchronization intervals</div>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Catalog Sync Interval
+              <small>How often to sync catalog data from Square</small>
+            </label>
+            <input type="text" class="form-input" id="sync-catalog" value="Loading...">
+            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Inventory Sync Interval
+              <small>How often to sync inventory counts</small>
+            </label>
+            <input type="text" class="form-input" id="sync-inventory" value="Loading...">
+            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Sales Velocity Sync Interval
+              <small>How often to sync sales data</small>
+            </label>
+            <input type="text" class="form-input" id="sync-sales" value="Loading...">
+            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+          <button class="btn-success" onclick="saveSyncSettings()">Save Sync Settings</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">GMC Feed Auto-Sync</div>
+            <div class="section-desc">Automatically sync Google Merchant Center feed to Google Sheets</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            Google Spreadsheet ID
+            <small>The ID from the Google Sheets URL</small>
+          </label>
+          <input type="text" class="form-input" id="gmc-sheet-id" placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
+          <button class="btn-primary" onclick="saveGmcSheetId()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Bar (sticky at bottom when changes made) -->
+    <div class="save-bar" id="save-bar">
+      <span class="changes-text">You have unsaved changes</span>
+      <div>
+        <button class="btn-cancel" onclick="discardChanges()">Discard</button>
+        <button class="btn-save" onclick="saveChanges()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let originalEnv = {};
+    let currentEnv = {};
+    let hasChanges = false;
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Load all statuses on page load
+    async function loadAllStatuses() {
+      await Promise.all([
+        checkSquareStatus(),
+        checkDatabaseStatus(),
+        checkGoogleStatus(),
+        checkEmailStatus(),
+        loadEnvVariables(),
+        loadSyncSettings(),
+        checkTokenStatus()
+      ]);
+    }
+
+    // Square status
+    async function checkSquareStatus() {
+      const card = document.getElementById('square-connection');
+      const status = document.getElementById('square-status');
+      try {
+        const response = await fetch('/api/health');
+        const data = await response.json();
+        if (data.square === 'connected') {
+          card.className = 'connection-card connected';
+          status.textContent = 'Connected - API responding';
+        } else {
+          card.className = 'connection-card disconnected';
+          status.textContent = 'Not connected';
+        }
+      } catch (e) {
+        card.className = 'connection-card disconnected';
+        status.textContent = 'Error checking status';
+      }
+    }
+
+    async function testSquareConnection() {
+      const status = document.getElementById('square-status');
+      status.textContent = 'Testing...';
+      try {
+        const response = await fetch('/api/locations');
+        const data = await response.json();
+        if (data.length > 0) {
+          status.textContent = `Connected - Found ${data.length} location(s)`;
+          document.getElementById('square-connection').className = 'connection-card connected';
+        } else {
+          status.textContent = 'Connected but no locations found';
+        }
+      } catch (e) {
+        status.textContent = 'Connection failed: ' + e.message;
+        document.getElementById('square-connection').className = 'connection-card disconnected';
+      }
+    }
+
+    // Database status
+    async function checkDatabaseStatus() {
+      const card = document.getElementById('database-connection');
+      const status = document.getElementById('database-status');
+      try {
+        const response = await fetch('/api/health');
+        const data = await response.json();
+        if (data.database === 'connected') {
+          card.className = 'connection-card connected';
+          status.textContent = 'Connected';
+        } else {
+          card.className = 'connection-card disconnected';
+          status.textContent = 'Not connected';
+        }
+      } catch (e) {
+        card.className = 'connection-card disconnected';
+        status.textContent = 'Error checking status';
+      }
+    }
+
+    async function testDatabaseConnection() {
+      const status = document.getElementById('database-status');
+      status.textContent = 'Testing...';
+      try {
+        const response = await fetch('/api/database/info');
+        const data = await response.json();
+        if (data.connected) {
+          status.textContent = `Connected - ${data.tables || 0} tables`;
+          document.getElementById('database-connection').className = 'connection-card connected';
+        } else {
+          status.textContent = 'Not connected';
+          document.getElementById('database-connection').className = 'connection-card disconnected';
+        }
+      } catch (e) {
+        status.textContent = 'Connection failed: ' + e.message;
+        document.getElementById('database-connection').className = 'connection-card disconnected';
+      }
+    }
+
+    // Google status
+    async function checkGoogleStatus() {
+      const card = document.getElementById('google-connection');
+      const status = document.getElementById('google-status');
+      const actions = document.getElementById('google-actions');
+      try {
+        const response = await fetch('/api/google/status');
+        const data = await response.json();
+
+        if (!data.configured) {
+          card.className = 'connection-card warning';
+          status.textContent = 'Not configured - Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET';
+          actions.innerHTML = '';
+        } else if (!data.authenticated) {
+          card.className = 'connection-card disconnected';
+          status.textContent = 'Not connected';
+          actions.innerHTML = '<button class="btn-primary" onclick="window.location.href=\'/api/google/auth\'">Connect</button>';
+        } else {
+          card.className = 'connection-card connected';
+          status.textContent = 'Connected';
+          actions.innerHTML = '<button class="btn-danger" onclick="disconnectGoogle()">Disconnect</button>';
+        }
+      } catch (e) {
+        card.className = 'connection-card warning';
+        status.textContent = 'Error checking status';
+      }
+    }
+
+    async function disconnectGoogle() {
+      if (!confirm('Disconnect from Google?')) return;
+      await fetch('/api/google/disconnect', { method: 'POST' });
+      checkGoogleStatus();
+    }
+
+    // Email status
+    async function checkEmailStatus() {
+      const card = document.getElementById('email-connection');
+      const status = document.getElementById('email-status');
+      try {
+        const response = await fetch('/api/config');
+        const data = await response.json();
+        if (data.email_configured) {
+          card.className = 'connection-card connected';
+          status.textContent = 'Configured';
+        } else {
+          card.className = 'connection-card warning';
+          status.textContent = 'Not configured - Add SMTP settings';
+        }
+      } catch (e) {
+        card.className = 'connection-card warning';
+        status.textContent = 'Error checking status';
+      }
+    }
+
+    async function testEmailConnection() {
+      const status = document.getElementById('email-status');
+      status.textContent = 'Sending test email...';
+      try {
+        const response = await fetch('/api/test-email', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          status.textContent = 'Test email sent successfully!';
+          document.getElementById('email-connection').className = 'connection-card connected';
+        } else {
+          status.textContent = 'Failed: ' + (data.error || 'Unknown error');
+        }
+      } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+      }
+    }
+
+    // Environment variables
+    async function loadEnvVariables() {
+      const form = document.getElementById('env-form');
+      try {
+        const response = await fetch('/api/settings/env');
+        const data = await response.json();
+
+        if (!data.success) {
+          form.innerHTML = '<div class="alert error">' + (data.error || 'Failed to load settings') + '</div>';
+          return;
+        }
+
+        originalEnv = { ...data.variables };
+        currentEnv = { ...data.variables };
+
+        // Define which variables are sensitive
+        const sensitiveKeys = ['SQUARE_ACCESS_TOKEN', 'DB_PASSWORD', 'GOOGLE_CLIENT_SECRET', 'SMTP_PASS', 'EMAIL_PASSWORD'];
+
+        // Define variable groups and descriptions
+        const varInfo = {
+          PORT: { group: 'Server', desc: 'Server port number' },
+          NODE_ENV: { group: 'Server', desc: 'Environment (development/production)' },
+          DB_HOST: { group: 'Database', desc: 'Database host' },
+          DB_PORT: { group: 'Database', desc: 'Database port' },
+          DB_NAME: { group: 'Database', desc: 'Database name' },
+          DB_USER: { group: 'Database', desc: 'Database user' },
+          DB_PASSWORD: { group: 'Database', desc: 'Database password' },
+          SQUARE_ACCESS_TOKEN: { group: 'Square', desc: 'Square API access token' },
+          SQUARE_ENVIRONMENT: { group: 'Square', desc: 'sandbox or production' },
+          GOOGLE_CLIENT_ID: { group: 'Google', desc: 'Google OAuth client ID' },
+          GOOGLE_CLIENT_SECRET: { group: 'Google', desc: 'Google OAuth client secret' },
+          SMTP_HOST: { group: 'Email', desc: 'SMTP server host' },
+          SMTP_PORT: { group: 'Email', desc: 'SMTP server port' },
+          SMTP_USER: { group: 'Email', desc: 'SMTP username' },
+          SMTP_PASS: { group: 'Email', desc: 'SMTP password' },
+          EMAIL_FROM: { group: 'Email', desc: 'From email address' },
+          EMAIL_TO: { group: 'Email', desc: 'Default recipient email' }
+        };
+
+        let html = '';
+        for (const [key, value] of Object.entries(data.variables)) {
+          const info = varInfo[key] || { group: 'Other', desc: '' };
+          const isSensitive = sensitiveKeys.includes(key);
+          const maskedClass = isSensitive ? 'masked' : '';
+          const sensitiveClass = isSensitive ? 'sensitive' : '';
+
+          html += `
+            <div class="form-group ${sensitiveClass}">
+              <label class="form-label">
+                ${key}
+                <small>${info.desc}</small>
+              </label>
+              <input type="text" class="form-input ${maskedClass}"
+                     data-key="${key}"
+                     value="${escapeHtml(value || '')}"
+                     onchange="markChanged('${key}', this.value)">
+              <div class="form-actions">
+                ${isSensitive ? `<button class="btn-icon" onclick="toggleMask(this)" title="Show/Hide">👁️</button>` : ''}
+                <button class="btn-icon" onclick="copyValue('${key}')" title="Copy">📋</button>
+              </div>
+            </div>
+          `;
+        }
+
+        form.innerHTML = html || '<div class="alert info">No environment variables found</div>';
+
+      } catch (e) {
+        form.innerHTML = '<div class="alert error">Error loading environment variables: ' + e.message + '</div>';
+      }
+    }
+
+    function markChanged(key, value) {
+      currentEnv[key] = value;
+      hasChanges = JSON.stringify(currentEnv) !== JSON.stringify(originalEnv);
+      document.getElementById('save-bar').classList.toggle('visible', hasChanges);
+    }
+
+    function toggleMask(btn) {
+      const input = btn.closest('.form-group').querySelector('.form-input');
+      input.classList.toggle('masked');
+    }
+
+    function copyValue(key) {
+      const input = document.querySelector(`[data-key="${key}"]`);
+      navigator.clipboard.writeText(input.value);
+      alert('Copied to clipboard');
+    }
+
+    async function saveChanges() {
+      try {
+        const response = await fetch('/api/settings/env', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variables: currentEnv })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+          originalEnv = { ...currentEnv };
+          hasChanges = false;
+          document.getElementById('save-bar').classList.remove('visible');
+          alert('Settings saved! Restart the server for changes to take effect.');
+        } else {
+          alert('Error: ' + (data.error || 'Failed to save'));
+        }
+      } catch (e) {
+        alert('Error saving: ' + e.message);
+      }
+    }
+
+    function discardChanges() {
+      currentEnv = { ...originalEnv };
+      loadEnvVariables();
+      hasChanges = false;
+      document.getElementById('save-bar').classList.remove('visible');
+    }
+
+    async function reloadEnv() {
+      await loadEnvVariables();
+      alert('Reloaded from file');
+    }
+
+    // Sync settings
+    async function loadSyncSettings() {
+      try {
+        const response = await fetch('/api/config');
+        const data = await response.json();
+
+        document.getElementById('sync-catalog').value = data.sync_intervals?.catalog || 60;
+        document.getElementById('sync-inventory').value = data.sync_intervals?.inventory || 15;
+        document.getElementById('sync-sales').value = data.sync_intervals?.sales || 60;
+
+        // Load GMC sheet ID
+        const gmcResponse = await fetch('/api/gmc/settings');
+        const gmcData = await gmcResponse.json();
+        if (gmcData.settings) {
+          const sheetSetting = gmcData.settings.find(s => s.setting_key === 'google_sheet_id');
+          if (sheetSetting) {
+            document.getElementById('gmc-sheet-id').value = sheetSetting.setting_value || '';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load sync settings:', e);
+      }
+    }
+
+    async function saveSyncSettings() {
+      alert('Sync interval settings are configured in the .env file. Update SYNC_CATALOG_INTERVAL, SYNC_INVENTORY_INTERVAL, and SYNC_SALES_INTERVAL.');
+    }
+
+    async function saveGmcSheetId() {
+      const sheetId = document.getElementById('gmc-sheet-id').value.trim();
+      if (!sheetId) {
+        alert('Please enter a spreadsheet ID');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/gmc/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: { google_sheet_id: sheetId }
+          })
+        });
+        const data = await response.json();
+        if (data.success) {
+          alert('Spreadsheet ID saved! Feed will sync to this sheet after each Square sync.');
+        } else {
+          alert('Error: ' + (data.error || 'Failed to save'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    // Token status
+    async function checkTokenStatus() {
+      const status = document.getElementById('token-status');
+      const info = document.getElementById('token-info');
+      try {
+        const response = await fetch('/api/config');
+        const data = await response.json();
+
+        if (data.square_connected) {
+          status.textContent = 'Valid - API connection working';
+          info.innerHTML = `Environment: <strong>${data.square_environment || 'Unknown'}</strong>`;
+        } else {
+          status.textContent = 'Invalid or missing token';
+          info.textContent = 'Configure SQUARE_ACCESS_TOKEN in Environment Variables';
+        }
+      } catch (e) {
+        status.textContent = 'Unable to check status';
+      }
+    }
+
+    function generateLocalToken() {
+      const token = 'jtpets_' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const display = document.getElementById('generated-token');
+      display.textContent = token;
+      display.style.display = 'block';
+
+      navigator.clipboard.writeText(token);
+      alert('Token generated and copied to clipboard!');
+    }
+
+    // Handle OAuth callback
+    function handleOAuthCallback() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('google_connected')) {
+        alert('Successfully connected to Google!');
+        window.history.replaceState({}, '', window.location.pathname);
+        checkGoogleStatus();
+      } else if (params.get('google_error')) {
+        alert('Google connection failed: ' + params.get('google_error'));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      handleOAuthCallback();
+      loadAllStatuses();
+    });
+  </script>
+</body>
+</html>

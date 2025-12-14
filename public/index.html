@@ -498,9 +498,24 @@
         <a href="catalog-audit.html">Run Audit</a>
       </div>
 
-      <!-- SYSTEM HEALTH -->
+      <!-- GMC FEED VIEWER -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>🛒 Google Merchant Feed</h2>
+        <p>View and manage Google Merchant Center feed. Check for missing images, GTINs, brands, and sync to Google Sheets.</p>
+        <a href="gmc-feed.html">View Feed</a>
+      </div>
+
+      <!-- SYSTEM SETTINGS -->
       <div class="tool-card api">
         <div class="tag new">NEW</div>
+        <h2>⚙️ System Settings</h2>
+        <p>Configure API connections, environment variables, and service integrations. Manage Square, Google, and email settings.</p>
+        <a href="settings.html">Open Settings</a>
+      </div>
+
+      <!-- SYSTEM HEALTH -->
+      <div class="tool-card api">
         <h2>💚 System Health Check</h2>
         <p>Monitor database connection, sync status, and system performance.</p>
         <a href="/api/health" target="_blank">Check Health</a>
@@ -525,7 +540,7 @@
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (54 Total)</h3>
+      <h3>📚 Raw API Endpoints (68 Total)</h3>
       <div class="api-grid">
 
         <div class="api-category">
@@ -650,6 +665,31 @@
           <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/receive</a>
           <a href="#" onclick="alert('Use DELETE with PO ID')" target="_blank">DELETE /api/purchase-orders/:id</a>
           <a href="#" onclick="alert('Use GET with PO number')" target="_blank">GET /api/purchase-orders/:po_number/export-csv</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🛒 Google Merchant Center</h4>
+          <a href="/api/gmc/feed" target="_blank">GET /api/gmc/feed</a>
+          <a href="/api/gmc/feed.tsv" target="_blank">GET /api/gmc/feed.tsv</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/generate</a>
+          <a href="/api/gmc/settings" target="_blank">GET /api/gmc/settings</a>
+          <a href="/api/gmc/brands" target="_blank">GET /api/gmc/brands</a>
+          <a href="/api/gmc/taxonomy" target="_blank">GET /api/gmc/taxonomy</a>
+          <a href="/api/gmc/history" target="_blank">GET /api/gmc/history</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/sync-sheet</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📊 Google OAuth</h4>
+          <a href="/api/google/status" target="_blank">GET /api/google/status</a>
+          <a href="/api/google/auth" target="_blank">GET /api/google/auth</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/google/disconnect</a>
+        </div>
+
+        <div class="api-category">
+          <h4>⚙️ Settings</h4>
+          <a href="/api/settings/env" target="_blank">GET /api/settings/env</a>
+          <a href="#" onclick="alert('Use PUT request')" target="_blank">PUT /api/settings/env</a>
         </div>
 
       </div>

@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Merchant Center Feed - JT Pets</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #ea580c;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    /* Stats Summary */
+    .stats-summary {
+      padding: 20px;
+      background: #fff7ed;
+      border-bottom: 1px solid #fed7aa;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 20px;
+    }
+    .stat-box {
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #c2410c;
+    }
+    .stat-value.good { color: #16a34a; }
+    .stat-value.warning { color: #d97706; }
+    .stat-value.bad { color: #dc2626; }
+    .stat-label {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    /* Google Auth Status */
+    .google-status {
+      padding: 15px 20px;
+      background: #f0fdf4;
+      border-bottom: 1px solid #bbf7d0;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .google-status.disconnected {
+      background: #fef2f2;
+      border-color: #fecaca;
+    }
+    .google-status .status-icon {
+      font-size: 24px;
+    }
+    .google-status .status-text {
+      flex: 1;
+      font-size: 14px;
+      color: #374151;
+    }
+    .google-status button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .google-status .btn-connect {
+      background: #4285f4;
+      color: white;
+    }
+    .google-status .btn-connect:hover { background: #3367d6; }
+    .google-status .btn-sync {
+      background: #16a34a;
+      color: white;
+    }
+    .google-status .btn-sync:hover { background: #15803d; }
+    .google-status .btn-disconnect {
+      background: #dc2626;
+      color: white;
+    }
+    .google-status .btn-disconnect:hover { background: #b91c1c; }
+
+    /* Controls */
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls input[type="text"] {
+      flex: 1;
+      min-width: 250px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+    .controls button {
+      background: #ea580c;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .controls button:hover { background: #c2410c; }
+    .controls button.secondary {
+      background: #6b7280;
+    }
+    .controls button.secondary:hover { background: #4b5563; }
+
+    /* Spreadsheet Config */
+    .sheet-config {
+      padding: 15px 20px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .sheet-config label {
+      font-size: 14px;
+      color: #374151;
+      font-weight: 500;
+    }
+    .sheet-config input {
+      flex: 1;
+      min-width: 300px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .sheet-config button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+      background: #16a34a;
+      color: white;
+    }
+    .sheet-config button:hover { background: #15803d; }
+
+    /* Issue Badges */
+    .issue-badges {
+      padding: 15px 20px;
+      background: #fffbeb;
+      border-bottom: 1px solid #fde68a;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .badge:hover { transform: scale(1.05); }
+    .badge.active { box-shadow: 0 0 0 2px #000; }
+    .badge.red { background: #fee2e2; color: #991b1b; }
+    .badge.yellow { background: #fef3c7; color: #92400e; }
+    .badge.green { background: #d1fae5; color: #065f46; }
+
+    /* Table */
+    .table-container {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+    tr:hover { background: #f9fafb; }
+    td.truncate {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    td.status-good { color: #16a34a; }
+    td.status-bad { color: #dc2626; }
+    td.status-warning { color: #d97706; }
+
+    .thumbnail {
+      width: 40px;
+      height: 40px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #f3f4f6;
+    }
+    .no-image {
+      width: 40px;
+      height: 40px;
+      background: #fee2e2;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #dc2626;
+      font-size: 10px;
+    }
+
+    /* Loading & Empty States */
+    .loading, .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      color: #6b7280;
+    }
+    .loading::before {
+      content: '';
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #ea580c;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 15px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Pagination */
+    .pagination {
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+    .pagination button {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .pagination button:hover:not(:disabled) { background: #f3f4f6; }
+    .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .page-info { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Google Merchant Center Feed</h1>
+      <a href="index.html" class="back-button">Back to Dashboard</a>
+    </div>
+
+    <!-- Stats Summary -->
+    <div class="stats-summary" id="stats-summary">
+      <div class="stat-box">
+        <div class="stat-value" id="stat-total">--</div>
+        <div class="stat-label">Total Products</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value good" id="stat-in-stock">--</div>
+        <div class="stat-label">In Stock</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value bad" id="stat-out-stock">--</div>
+        <div class="stat-label">Out of Stock</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value warning" id="stat-no-image">--</div>
+        <div class="stat-label">Missing Image</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value warning" id="stat-no-gtin">--</div>
+        <div class="stat-label">Missing GTIN</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value warning" id="stat-no-brand">--</div>
+        <div class="stat-label">Missing Brand</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="stat-last-gen">--</div>
+        <div class="stat-label">Last Generated</div>
+      </div>
+    </div>
+
+    <!-- Google Auth Status -->
+    <div class="google-status disconnected" id="google-status">
+      <span class="status-icon">...</span>
+      <span class="status-text">Checking Google connection...</span>
+    </div>
+
+    <!-- Spreadsheet Config -->
+    <div class="sheet-config" id="sheet-config" style="display: none;">
+      <label>Google Spreadsheet ID:</label>
+      <input type="text" id="spreadsheet-id" placeholder="Enter spreadsheet ID from URL (e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms)">
+      <button onclick="syncToSheet()">Sync to Sheet</button>
+    </div>
+
+    <!-- Issue Filter Badges -->
+    <div class="issue-badges">
+      <span class="badge green" data-filter="all">All Products</span>
+      <span class="badge red" data-filter="no-image">Missing Image</span>
+      <span class="badge red" data-filter="no-gtin">Missing GTIN</span>
+      <span class="badge yellow" data-filter="no-brand">Missing Brand</span>
+      <span class="badge yellow" data-filter="no-category">Missing Category</span>
+      <span class="badge red" data-filter="out-of-stock">Out of Stock</span>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <input type="text" id="search-input" placeholder="Search by title, SKU, or GTIN...">
+      <select id="category-filter">
+        <option value="">All Categories</option>
+      </select>
+      <button onclick="generateFeed()">Regenerate Feed</button>
+      <button class="secondary" onclick="downloadTsv()">Download TSV</button>
+      <button class="secondary" onclick="exportCsv()">Export CSV</button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="loading" id="loading">Loading feed data...</div>
+      <table id="feed-table" style="display: none;">
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Category</th>
+            <th>Brand</th>
+            <th>GTIN</th>
+            <th>Price</th>
+            <th>Availability</th>
+            <th>Quantity</th>
+            <th>Google Category</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+      <div class="empty-state" id="empty-state" style="display: none;">
+        No products match your filter criteria.
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination">
+      <button id="prev-btn" onclick="prevPage()" disabled>Previous</button>
+      <span class="page-info" id="page-info">Page 1 of 1</span>
+      <button id="next-btn" onclick="nextPage()" disabled>Next</button>
+    </div>
+  </div>
+
+  <script>
+    let allProducts = [];
+    let filteredProducts = [];
+    let currentPage = 1;
+    const pageSize = 100;
+    let currentFilter = 'all';
+    let spreadsheetId = '';
+
+    // Load feed data
+    async function loadFeedData() {
+      try {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('feed-table').style.display = 'none';
+
+        const response = await fetch('/api/gmc/feed?include_products=true');
+        const data = await response.json();
+
+        if (!data.success) throw new Error(data.error || 'Failed to load feed');
+
+        allProducts = data.products || [];
+        filteredProducts = [...allProducts];
+
+        updateStats();
+        populateCategories();
+        renderTable();
+        loadLastGeneration();
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('feed-table').style.display = 'table';
+
+      } catch (error) {
+        console.error('Load error:', error);
+        document.getElementById('loading').innerHTML = 'Error loading feed: ' + error.message;
+      }
+    }
+
+    // Update stats
+    function updateStats() {
+      const total = allProducts.length;
+      const inStock = allProducts.filter(p => p.availability === 'in_stock').length;
+      const outStock = total - inStock;
+      const noImage = allProducts.filter(p => !p.image_link).length;
+      const noGtin = allProducts.filter(p => !p.gtin).length;
+      const noBrand = allProducts.filter(p => !p.brand).length;
+
+      document.getElementById('stat-total').textContent = total.toLocaleString();
+      document.getElementById('stat-in-stock').textContent = inStock.toLocaleString();
+      document.getElementById('stat-out-stock').textContent = outStock.toLocaleString();
+      document.getElementById('stat-no-image').textContent = noImage.toLocaleString();
+      document.getElementById('stat-no-gtin').textContent = noGtin.toLocaleString();
+      document.getElementById('stat-no-brand').textContent = noBrand.toLocaleString();
+
+      // Update badge counts
+      document.querySelectorAll('.badge').forEach(badge => {
+        const filter = badge.dataset.filter;
+        let count = 0;
+        switch(filter) {
+          case 'all': count = total; break;
+          case 'no-image': count = noImage; break;
+          case 'no-gtin': count = noGtin; break;
+          case 'no-brand': count = noBrand; break;
+          case 'no-category': count = allProducts.filter(p => !p.google_product_category).length; break;
+          case 'out-of-stock': count = outStock; break;
+        }
+        badge.textContent = badge.textContent.replace(/\s*\(\d+\)$/, '') + ` (${count})`;
+      });
+    }
+
+    // Populate category dropdown
+    function populateCategories() {
+      const categories = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
+      const select = document.getElementById('category-filter');
+      select.innerHTML = '<option value="">All Categories</option>';
+      categories.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        select.appendChild(opt);
+      });
+    }
+
+    // Filter products
+    function applyFilters() {
+      const search = document.getElementById('search-input').value.toLowerCase();
+      const category = document.getElementById('category-filter').value;
+
+      filteredProducts = allProducts.filter(p => {
+        // Search filter
+        if (search) {
+          const searchable = `${p.title} ${p.id} ${p.gtin} ${p.brand}`.toLowerCase();
+          if (!searchable.includes(search)) return false;
+        }
+
+        // Category filter
+        if (category && p.category !== category) return false;
+
+        // Issue filter
+        switch(currentFilter) {
+          case 'no-image': if (p.image_link) return false; break;
+          case 'no-gtin': if (p.gtin) return false; break;
+          case 'no-brand': if (p.brand) return false; break;
+          case 'no-category': if (p.google_product_category) return false; break;
+          case 'out-of-stock': if (p.availability === 'in_stock') return false; break;
+        }
+
+        return true;
+      });
+
+      currentPage = 1;
+      renderTable();
+    }
+
+    // Render table
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      const start = (currentPage - 1) * pageSize;
+      const end = start + pageSize;
+      const pageProducts = filteredProducts.slice(start, end);
+
+      if (pageProducts.length === 0) {
+        document.getElementById('feed-table').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'block';
+      } else {
+        document.getElementById('feed-table').style.display = 'table';
+        document.getElementById('empty-state').style.display = 'none';
+      }
+
+      tbody.innerHTML = pageProducts.map(p => `
+        <tr>
+          <td>
+            ${p.image_link
+              ? `<img src="${p.image_link}" class="thumbnail" alt="" onerror="this.outerHTML='<div class=\\'no-image\\'>ERR</div>'">`
+              : '<div class="no-image">NONE</div>'}
+          </td>
+          <td style="font-family: monospace; font-size: 11px;">${p.id ? p.id.substring(0, 12) + '...' : '-'}</td>
+          <td class="truncate" title="${escapeHtml(p.title || '')}">${escapeHtml(p.title || '-')}</td>
+          <td class="truncate">${escapeHtml(p.category || '-')}</td>
+          <td class="${p.brand ? '' : 'status-bad'}">${escapeHtml(p.brand || 'MISSING')}</td>
+          <td class="${p.gtin ? '' : 'status-warning'}">${p.gtin || '-'}</td>
+          <td>${p.price || '-'}</td>
+          <td class="${p.availability === 'in_stock' ? 'status-good' : 'status-bad'}">
+            ${p.availability === 'in_stock' ? 'In Stock' : 'Out of Stock'}
+          </td>
+          <td>${p.quantity || 0}</td>
+          <td class="truncate ${p.google_product_category ? '' : 'status-warning'}" title="${escapeHtml(p.google_product_category || '')}">
+            ${escapeHtml(p.google_product_category || 'NOT MAPPED')}
+          </td>
+        </tr>
+      `).join('');
+
+      updatePagination();
+    }
+
+    // Pagination
+    function updatePagination() {
+      const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
+      document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages} (${filteredProducts.length} products)`;
+      document.getElementById('prev-btn').disabled = currentPage <= 1;
+      document.getElementById('next-btn').disabled = currentPage >= totalPages;
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    }
+
+    function nextPage() {
+      const totalPages = Math.ceil(filteredProducts.length / pageSize);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    }
+
+    // Badge filter click
+    document.querySelectorAll('.badge').forEach(badge => {
+      badge.addEventListener('click', () => {
+        document.querySelectorAll('.badge').forEach(b => b.classList.remove('active'));
+        badge.classList.add('active');
+        currentFilter = badge.dataset.filter;
+        applyFilters();
+      });
+    });
+
+    // Search and filter events
+    document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 300));
+    document.getElementById('category-filter').addEventListener('change', applyFilters);
+
+    // Generate feed
+    async function generateFeed() {
+      try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+
+        const response = await fetch('/api/gmc/generate', { method: 'POST' });
+        const data = await response.json();
+
+        if (!data.success) throw new Error(data.error || 'Generation failed');
+
+        alert(`Feed generated! ${data.stats.total} products`);
+        loadFeedData();
+
+      } catch (error) {
+        alert('Error: ' + error.message);
+      } finally {
+        event.target.disabled = false;
+        event.target.textContent = 'Regenerate Feed';
+      }
+    }
+
+    // Download TSV
+    function downloadTsv() {
+      window.open('/api/gmc/feed.tsv', '_blank');
+    }
+
+    // Export CSV
+    function exportCsv() {
+      const headers = ['id', 'title', 'link', 'description', 'gtin', 'category', 'image_link', 'condition', 'availability', 'quantity', 'brand', 'google_product_category', 'price'];
+      const rows = filteredProducts.map(p => headers.map(h => {
+        let val = p[h] || '';
+        if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+          val = '"' + val.replace(/"/g, '""') + '"';
+        }
+        return val;
+      }).join(','));
+
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'gmc-feed-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Load last generation time
+    async function loadLastGeneration() {
+      try {
+        const response = await fetch('/api/gmc/history?limit=1');
+        const data = await response.json();
+        if (data.history && data.history.length > 0) {
+          const last = new Date(data.history[0].generated_at);
+          document.getElementById('stat-last-gen').textContent = formatTimeAgo(last);
+        } else {
+          document.getElementById('stat-last-gen').textContent = 'Never';
+        }
+      } catch (e) {
+        document.getElementById('stat-last-gen').textContent = 'Unknown';
+      }
+    }
+
+    // Check Google auth status
+    async function checkGoogleStatus() {
+      try {
+        const response = await fetch('/api/google/status');
+        const status = await response.json();
+
+        const container = document.getElementById('google-status');
+        const sheetConfig = document.getElementById('sheet-config');
+
+        if (!status.configured) {
+          container.className = 'google-status disconnected';
+          container.innerHTML = `
+            <span class="status-icon">⚠️</span>
+            <span class="status-text">Google OAuth not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file.</span>
+            <a href="settings.html" style="color: #2563eb; text-decoration: none; font-weight: 500;">Go to Settings</a>
+          `;
+          sheetConfig.style.display = 'none';
+        } else if (!status.authenticated) {
+          container.className = 'google-status disconnected';
+          container.innerHTML = `
+            <span class="status-icon">🔴</span>
+            <span class="status-text">Not connected to Google. Connect to enable automatic sheet sync.</span>
+            <button class="btn-connect" onclick="connectGoogle()">Connect Google Account</button>
+          `;
+          sheetConfig.style.display = 'none';
+        } else {
+          container.className = 'google-status';
+          container.innerHTML = `
+            <span class="status-icon">🟢</span>
+            <span class="status-text">Connected to Google Sheets</span>
+            <button class="btn-sync" onclick="syncToSheet()">Sync Now</button>
+            <button class="btn-disconnect" onclick="disconnectGoogle()">Disconnect</button>
+          `;
+          sheetConfig.style.display = 'flex';
+          loadSpreadsheetId();
+        }
+      } catch (error) {
+        console.error('Google status check failed:', error);
+      }
+    }
+
+    // Load saved spreadsheet ID
+    async function loadSpreadsheetId() {
+      try {
+        const response = await fetch('/api/gmc/settings');
+        const data = await response.json();
+        if (data.settings) {
+          const sheetId = data.settings.find(s => s.setting_key === 'google_sheet_id');
+          if (sheetId && sheetId.setting_value) {
+            document.getElementById('spreadsheet-id').value = sheetId.setting_value;
+            spreadsheetId = sheetId.setting_value;
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load spreadsheet ID:', e);
+      }
+    }
+
+    // Connect Google
+    function connectGoogle() {
+      window.location.href = '/api/google/auth';
+    }
+
+    // Disconnect Google
+    async function disconnectGoogle() {
+      if (!confirm('Disconnect from Google? You will need to reconnect to sync sheets.')) return;
+      try {
+        await fetch('/api/google/disconnect', { method: 'POST' });
+        checkGoogleStatus();
+      } catch (e) {
+        alert('Error disconnecting: ' + e.message);
+      }
+    }
+
+    // Sync to Google Sheet
+    async function syncToSheet() {
+      const sheetId = document.getElementById('spreadsheet-id').value.trim();
+      if (!sheetId) {
+        alert('Please enter a Google Spreadsheet ID');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/gmc/sync-sheet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ spreadsheet_id: sheetId })
+        });
+
+        const data = await response.json();
+
+        if (data.authRequired) {
+          if (confirm('Not authenticated with Google. Connect now?')) {
+            connectGoogle();
+          }
+          return;
+        }
+
+        if (!data.success) throw new Error(data.error);
+
+        alert(`Synced ${data.updatedRows} rows to Google Sheet!\n\n${data.spreadsheetUrl}`);
+
+      } catch (error) {
+        alert('Sync error: ' + error.message);
+      }
+    }
+
+    // Handle OAuth callback
+    function handleOAuthCallback() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('google_connected')) {
+        alert('Successfully connected to Google!');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('google_error')) {
+        alert('Google connection failed: ' + params.get('google_error'));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    // Utilities
+    function debounce(fn, delay) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function formatTimeAgo(date) {
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 60) return 'Just now';
+      if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+      if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+      return Math.floor(seconds / 86400) + 'd ago';
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      handleOAuthCallback();
+      loadFeedData();
+      checkGoogleStatus();
+    });
+  </script>
+</body>
+</html>

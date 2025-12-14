@@ -287,6 +287,129 @@ async function ensureSchema() {
         }
     }
 
+    // ==================== GOOGLE MERCHANT CENTER TABLES ====================
+
+    // Check if brands table exists
+    const brandsCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'brands'
+    `);
+
+    if (brandsCheck.rows.length === 0) {
+        logger.info('Creating GMC tables (brands, google_taxonomy, etc.)...');
+
+        // 1. Brands table
+        await query(`
+            CREATE TABLE IF NOT EXISTS brands (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                logo_url TEXT,
+                website TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name)');
+
+        // 2. Google Taxonomy table
+        await query(`
+            CREATE TABLE IF NOT EXISTS google_taxonomy (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id INTEGER REFERENCES google_taxonomy(id),
+                level INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_google_taxonomy_parent ON google_taxonomy(parent_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_google_taxonomy_name ON google_taxonomy(name)');
+
+        // 3. Category to Google Taxonomy mapping
+        await query(`
+            CREATE TABLE IF NOT EXISTS category_taxonomy_mapping (
+                id SERIAL PRIMARY KEY,
+                category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                google_taxonomy_id INTEGER NOT NULL REFERENCES google_taxonomy(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(category_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_category_taxonomy_category ON category_taxonomy_mapping(category_id)');
+
+        // 4. Item brands assignment
+        await query(`
+            CREATE TABLE IF NOT EXISTS item_brands (
+                id SERIAL PRIMARY KEY,
+                item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                brand_id INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(item_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_item_brands_item ON item_brands(item_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_item_brands_brand ON item_brands(brand_id)');
+
+        // 5. GMC Settings
+        await query(`
+            CREATE TABLE IF NOT EXISTS gmc_settings (
+                id SERIAL PRIMARY KEY,
+                setting_key TEXT NOT NULL UNIQUE,
+                setting_value TEXT,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Insert default settings
+        await query(`
+            INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
+                ('website_base_url', 'https://jtpets.ca', 'Base URL for product links'),
+                ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
+                ('default_condition', 'new', 'Default product condition'),
+                ('default_availability', 'in_stock', 'Default availability when stock > 0'),
+                ('currency', 'CAD', 'Default currency code'),
+                ('feed_title', 'JT Pets Product Feed', 'Feed title for GMC'),
+                ('adult_content', 'no', 'Default adult content flag'),
+                ('is_bundle', 'no', 'Default bundle flag')
+            ON CONFLICT (setting_key) DO NOTHING
+        `);
+
+        // 6. GMC Feed History
+        await query(`
+            CREATE TABLE IF NOT EXISTS gmc_feed_history (
+                id SERIAL PRIMARY KEY,
+                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_products INTEGER,
+                products_with_errors INTEGER DEFAULT 0,
+                tsv_file_path TEXT,
+                google_sheet_url TEXT,
+                duration_seconds INTEGER,
+                status TEXT DEFAULT 'success',
+                error_message TEXT
+            )
+        `);
+
+        // 7. Google OAuth tokens storage
+        await query(`
+            CREATE TABLE IF NOT EXISTS google_oauth_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT DEFAULT 'default',
+                access_token TEXT,
+                refresh_token TEXT,
+                token_type TEXT,
+                expiry_date BIGINT,
+                scope TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id)
+            )
+        `);
+
+        logger.info('Created GMC tables with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists

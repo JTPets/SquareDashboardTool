@@ -62,8 +62,17 @@ app.get('/api/health', async (req, res) => {
  * GET /api/config
  * Get frontend configuration from environment variables
  */
-app.get('/api/config', (req, res) => {
+app.get('/api/config', async (req, res) => {
     try {
+        // Check Square connection
+        let squareConnected = false;
+        try {
+            const locations = await squareApi.getLocations();
+            squareConnected = locations && locations.length > 0;
+        } catch (e) {
+            squareConnected = false;
+        }
+
         res.json({
             defaultSupplyDays: parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
             reorderSafetyDays: parseInt(process.env.REORDER_SAFETY_DAYS || '7'),
@@ -72,11 +81,154 @@ app.get('/api/config', (req, res) => {
                 high: parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7'),
                 medium: parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14'),
                 low: parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30')
+            },
+            square_connected: squareConnected,
+            square_environment: process.env.SQUARE_ENVIRONMENT || 'sandbox',
+            email_configured: !!(process.env.SMTP_HOST || process.env.EMAIL_HOST),
+            sync_intervals: {
+                catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL || '60'),
+                inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL || '15'),
+                sales: parseInt(process.env.SYNC_SALES_INTERVAL || '60')
             }
         });
     } catch (error) {
         logger.error('Failed to get config', { error: error.message });
         res.status(500).json({ error: 'Failed to get configuration' });
+    }
+});
+
+// ==================== SETTINGS ENDPOINTS ====================
+
+const fsPromises = require('fs').promises;
+
+/**
+ * GET /api/settings/env
+ * Read environment variables (masked for sensitive values)
+ */
+app.get('/api/settings/env', async (req, res) => {
+    try {
+        const envPath = path.join(__dirname, '.env');
+
+        // Read .env file
+        let envContent = '';
+        try {
+            envContent = await fsPromises.readFile(envPath, 'utf8');
+        } catch (e) {
+            // .env might not exist
+            logger.warn('.env file not found');
+        }
+
+        // Parse .env content
+        const variables = {};
+        const lines = envContent.split('\n');
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+
+            const eqIndex = trimmed.indexOf('=');
+            if (eqIndex === -1) continue;
+
+            const key = trimmed.substring(0, eqIndex).trim();
+            let value = trimmed.substring(eqIndex + 1).trim();
+
+            // Remove quotes if present
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+            }
+
+            variables[key] = value;
+        }
+
+        // Define expected variables with defaults
+        const expectedVars = [
+            'PORT', 'NODE_ENV',
+            'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
+            'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
+            'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+            'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS',
+            'EMAIL_FROM', 'EMAIL_TO'
+        ];
+
+        // Add any missing expected variables
+        for (const key of expectedVars) {
+            if (!(key in variables)) {
+                variables[key] = '';
+            }
+        }
+
+        res.json({ success: true, variables });
+
+    } catch (error) {
+        logger.error('Failed to read env settings', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/settings/env
+ * Update environment variables (writes to .env file)
+ */
+app.put('/api/settings/env', async (req, res) => {
+    try {
+        const { variables } = req.body;
+
+        if (!variables || typeof variables !== 'object') {
+            return res.status(400).json({ success: false, error: 'Variables object required' });
+        }
+
+        const envPath = path.join(__dirname, '.env');
+
+        // Build .env content
+        let content = '# JT Pets Environment Configuration\n';
+        content += '# Updated: ' + new Date().toISOString() + '\n\n';
+
+        // Group variables
+        const groups = {
+            'Server': ['PORT', 'NODE_ENV'],
+            'Database': ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'],
+            'Square API': ['SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT'],
+            'Google OAuth': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+            'Email/SMTP': ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'EMAIL_TO']
+        };
+
+        const writtenKeys = new Set();
+
+        for (const [groupName, keys] of Object.entries(groups)) {
+            content += `# ${groupName}\n`;
+            for (const key of keys) {
+                if (key in variables) {
+                    const value = variables[key] || '';
+                    // Quote values with spaces or special chars
+                    const needsQuotes = value.includes(' ') || value.includes('#') || value.includes('=');
+                    content += `${key}=${needsQuotes ? '"' + value + '"' : value}\n`;
+                    writtenKeys.add(key);
+                }
+            }
+            content += '\n';
+        }
+
+        // Write any remaining variables
+        const remaining = Object.keys(variables).filter(k => !writtenKeys.has(k));
+        if (remaining.length > 0) {
+            content += '# Other\n';
+            for (const key of remaining) {
+                const value = variables[key] || '';
+                const needsQuotes = value.includes(' ') || value.includes('#') || value.includes('=');
+                content += `${key}=${needsQuotes ? '"' + value + '"' : value}\n`;
+            }
+        }
+
+        // Write to file
+        await fsPromises.writeFile(envPath, content, 'utf8');
+        logger.info('Environment variables updated', { keys: Object.keys(variables).length });
+
+        res.json({ success: true, message: 'Settings saved. Restart server to apply changes.' });
+
+    } catch (error) {
+        logger.error('Failed to save env settings', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -612,6 +764,61 @@ app.post('/api/sync', async (req, res) => {
         logger.info('Full sync requested');
         const summary = await squareApi.fullSync();
 
+        // Generate GMC feed after sync completes
+        let gmcFeedResult = null;
+        let googleSheetResult = null;
+        try {
+            logger.info('Generating GMC feed after sync...');
+            const gmcFeedModule = require('./utils/gmc-feed');
+            gmcFeedResult = await gmcFeedModule.generateFeed();
+            logger.info('GMC feed generated successfully', {
+                products: gmcFeedResult.stats.total,
+                feedUrl: gmcFeedResult.feedUrl
+            });
+
+            // Try to sync to Google Sheets if configured and authenticated
+            try {
+                const googleSheetsModule = require('./utils/google-sheets');
+                const isAuthenticated = await googleSheetsModule.isAuthenticated();
+
+                if (isAuthenticated) {
+                    // Get configured spreadsheet ID from settings
+                    const sheetIdResult = await db.query(
+                        "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id'"
+                    );
+
+                    if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
+                        const spreadsheetId = sheetIdResult.rows[0].setting_value;
+                        const { products } = await gmcFeedModule.generateFeedData();
+
+                        googleSheetResult = await googleSheetsModule.writeFeedToSheet(spreadsheetId, products, {
+                            sheetName: 'GMC Feed',
+                            clearFirst: true
+                        });
+
+                        logger.info('GMC feed synced to Google Sheets', {
+                            spreadsheetUrl: googleSheetResult.spreadsheetUrl,
+                            updatedRows: googleSheetResult.updatedRows
+                        });
+                    } else {
+                        logger.info('Google Sheets sync skipped: no spreadsheet ID configured');
+                    }
+                } else {
+                    logger.info('Google Sheets sync skipped: not authenticated');
+                }
+            } catch (sheetError) {
+                logger.error('Google Sheets sync failed (non-blocking)', {
+                    error: sheetError.message
+                });
+                googleSheetResult = { error: sheetError.message };
+            }
+        } catch (gmcError) {
+            logger.error('GMC feed generation failed (non-blocking)', {
+                error: gmcError.message
+            });
+            gmcFeedResult = { error: gmcError.message };
+        }
+
         res.json({
             status: summary.success ? 'success' : 'partial',
             summary: {
@@ -625,7 +832,17 @@ app.post('/api/sync', async (req, res) => {
                 inventory_records: summary.inventory,
                 sales_velocity_91d: summary.salesVelocity['91d'] || 0,
                 sales_velocity_182d: summary.salesVelocity['182d'] || 0,
-                sales_velocity_365d: summary.salesVelocity['365d'] || 0
+                sales_velocity_365d: summary.salesVelocity['365d'] || 0,
+                gmc_feed: gmcFeedResult ? {
+                    products: gmcFeedResult.stats?.total || 0,
+                    feedUrl: gmcFeedResult.feedUrl,
+                    error: gmcFeedResult.error
+                } : null,
+                google_sheet: googleSheetResult ? {
+                    spreadsheetUrl: googleSheetResult.spreadsheetUrl,
+                    updatedRows: googleSheetResult.updatedRows,
+                    error: googleSheetResult.error
+                } : null
             },
             errors: summary.errors
         });
@@ -1828,6 +2045,462 @@ app.post('/api/catalog-audit/fix-locations', async (req, res) => {
         }
     } catch (error) {
         logger.error('Fix location mismatches error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== GOOGLE OAUTH & SHEETS ENDPOINTS ====================
+
+const googleSheets = require('./utils/google-sheets');
+
+/**
+ * GET /api/google/status
+ * Check Google OAuth authentication status
+ */
+app.get('/api/google/status', async (req, res) => {
+    try {
+        const status = await googleSheets.getAuthStatus();
+        res.json(status);
+    } catch (error) {
+        logger.error('Google status error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/auth
+ * Start Google OAuth flow - redirects to Google consent screen
+ */
+app.get('/api/google/auth', async (req, res) => {
+    try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const authUrl = googleSheets.getAuthUrl(baseUrl);
+        res.redirect(authUrl);
+    } catch (error) {
+        logger.error('Google auth error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/callback
+ * Google OAuth callback - exchanges code for tokens
+ */
+app.get('/api/google/callback', async (req, res) => {
+    try {
+        const { code, error: oauthError } = req.query;
+
+        if (oauthError) {
+            logger.error('Google OAuth error', { error: oauthError });
+            return res.redirect('/settings.html?google_error=' + encodeURIComponent(oauthError));
+        }
+
+        if (!code) {
+            return res.redirect('/settings.html?google_error=no_code');
+        }
+
+        await googleSheets.exchangeCodeForTokens(code);
+        res.redirect('/settings.html?google_connected=true');
+    } catch (error) {
+        logger.error('Google callback error', { error: error.message });
+        res.redirect('/settings.html?google_error=' + encodeURIComponent(error.message));
+    }
+});
+
+/**
+ * POST /api/google/disconnect
+ * Disconnect Google OAuth (remove tokens)
+ */
+app.post('/api/google/disconnect', async (req, res) => {
+    try {
+        await googleSheets.disconnect();
+        res.json({ success: true, message: 'Google account disconnected' });
+    } catch (error) {
+        logger.error('Google disconnect error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/sync-sheet
+ * Write GMC feed to Google Sheets
+ */
+app.post('/api/gmc/sync-sheet', async (req, res) => {
+    try {
+        const { spreadsheet_id, sheet_name } = req.body;
+
+        if (!spreadsheet_id) {
+            return res.status(400).json({ error: 'spreadsheet_id is required' });
+        }
+
+        // Check if authenticated
+        const authenticated = await googleSheets.isAuthenticated();
+        if (!authenticated) {
+            return res.status(401).json({
+                error: 'Not authenticated with Google',
+                authRequired: true
+            });
+        }
+
+        // Generate feed data
+        const { products, stats } = await gmcFeed.generateFeedData();
+
+        // Write to Google Sheet
+        const result = await googleSheets.writeFeedToSheet(spreadsheet_id, products, {
+            sheetName: sheet_name || 'GMC Feed',
+            clearFirst: true
+        });
+
+        // Update gmc_settings with spreadsheet ID
+        await db.query(`
+            INSERT INTO gmc_settings (setting_key, setting_value, description)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed')
+            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [spreadsheet_id]);
+
+        res.json({
+            success: true,
+            stats,
+            spreadsheetUrl: result.spreadsheetUrl,
+            updatedRows: result.updatedRows
+        });
+    } catch (error) {
+        logger.error('GMC sheet sync error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/spreadsheet/:id
+ * Get spreadsheet info
+ */
+app.get('/api/google/spreadsheet/:id', async (req, res) => {
+    try {
+        const info = await googleSheets.getSpreadsheetInfo(req.params.id);
+        res.json(info);
+    } catch (error) {
+        logger.error('Get spreadsheet error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== GOOGLE MERCHANT CENTER FEED ENDPOINTS ====================
+
+const gmcFeed = require('./utils/gmc-feed');
+
+/**
+ * GET /api/gmc/feed
+ * Generate and return GMC feed data as JSON
+ */
+app.get('/api/gmc/feed', async (req, res) => {
+    try {
+        const { location_id, include_products } = req.query;
+        const { products, stats, settings } = await gmcFeed.generateFeedData({
+            locationId: location_id,
+            includeProducts: include_products === 'true'
+        });
+
+        res.json({
+            success: true,
+            stats,
+            settings,
+            products
+        });
+    } catch (error) {
+        logger.error('GMC feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/generate
+ * Generate GMC feed and save to TSV file
+ */
+app.post('/api/gmc/generate', async (req, res) => {
+    try {
+        const { location_id, filename } = req.body;
+        const result = await gmcFeed.generateFeed({
+            locationId: location_id,
+            filename: filename || 'gmc-feed.tsv'
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/feed.tsv
+ * Download the current GMC feed as TSV
+ */
+app.get('/api/gmc/feed.tsv', async (req, res) => {
+    try {
+        const { location_id } = req.query;
+        const { products } = await gmcFeed.generateFeedData({ locationId: location_id });
+        const tsvContent = gmcFeed.generateTsvContent(products);
+
+        res.setHeader('Content-Type', 'text/tab-separated-values');
+        res.setHeader('Content-Disposition', 'attachment; filename="gmc-feed.tsv"');
+        res.send(tsvContent);
+    } catch (error) {
+        logger.error('GMC feed download error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/settings
+ * Get GMC feed settings
+ */
+app.get('/api/gmc/settings', async (req, res) => {
+    try {
+        const settings = await gmcFeed.getSettings();
+        res.json({ settings });
+    } catch (error) {
+        logger.error('GMC settings error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/settings
+ * Update GMC feed settings
+ */
+app.put('/api/gmc/settings', async (req, res) => {
+    try {
+        const { settings } = req.body;
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ error: 'Settings object required' });
+        }
+
+        for (const [key, value] of Object.entries(settings)) {
+            await db.query(`
+                INSERT INTO gmc_settings (setting_key, setting_value, updated_at)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (setting_key) DO UPDATE SET
+                    setting_value = EXCLUDED.setting_value,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [key, value]);
+        }
+
+        const updatedSettings = await gmcFeed.getSettings();
+        res.json({ success: true, settings: updatedSettings });
+    } catch (error) {
+        logger.error('GMC settings update error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/brands
+ * List all brands
+ */
+app.get('/api/gmc/brands', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM brands ORDER BY name');
+        res.json({ count: result.rows.length, brands: result.rows });
+    } catch (error) {
+        logger.error('GMC brands error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/brands/import
+ * Import brands from array
+ */
+app.post('/api/gmc/brands/import', async (req, res) => {
+    try {
+        const { brands } = req.body;
+        if (!Array.isArray(brands)) {
+            return res.status(400).json({ error: 'Brands array required' });
+        }
+
+        const imported = await gmcFeed.importBrands(brands);
+        res.json({ success: true, imported });
+    } catch (error) {
+        logger.error('GMC brands import error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/brands
+ * Create a new brand
+ */
+app.post('/api/gmc/brands', async (req, res) => {
+    try {
+        const { name, logo_url, website } = req.body;
+        if (!name) {
+            return res.status(400).json({ error: 'Brand name required' });
+        }
+
+        const result = await db.query(
+            'INSERT INTO brands (name, logo_url, website) VALUES ($1, $2, $3) RETURNING *',
+            [name, logo_url, website]
+        );
+        res.json({ success: true, brand: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({ error: 'Brand already exists' });
+        }
+        logger.error('GMC brand create error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/items/:itemId/brand
+ * Assign a brand to an item
+ */
+app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { brand_id } = req.body;
+
+        if (!brand_id) {
+            // Remove brand assignment
+            await db.query('DELETE FROM item_brands WHERE item_id = $1', [itemId]);
+            return res.json({ success: true, message: 'Brand removed from item' });
+        }
+
+        await db.query(`
+            INSERT INTO item_brands (item_id, brand_id)
+            VALUES ($1, $2)
+            ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+        `, [itemId, brand_id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('GMC item brand assign error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/taxonomy
+ * List Google taxonomy categories
+ */
+app.get('/api/gmc/taxonomy', async (req, res) => {
+    try {
+        const { search, limit } = req.query;
+        let query = 'SELECT * FROM google_taxonomy';
+        const params = [];
+
+        if (search) {
+            params.push(`%${search}%`);
+            query += ` WHERE name ILIKE $${params.length}`;
+        }
+
+        query += ' ORDER BY name';
+
+        if (limit) {
+            params.push(parseInt(limit));
+            query += ` LIMIT $${params.length}`;
+        }
+
+        const result = await db.query(query, params);
+        res.json({ count: result.rows.length, taxonomy: result.rows });
+    } catch (error) {
+        logger.error('GMC taxonomy error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/taxonomy/import
+ * Import Google taxonomy from array
+ */
+app.post('/api/gmc/taxonomy/import', async (req, res) => {
+    try {
+        const { taxonomy } = req.body;
+        if (!Array.isArray(taxonomy)) {
+            return res.status(400).json({ error: 'Taxonomy array required (array of {id, name})' });
+        }
+
+        const imported = await gmcFeed.importGoogleTaxonomy(taxonomy);
+        res.json({ success: true, imported });
+    } catch (error) {
+        logger.error('GMC taxonomy import error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/categories/:categoryId/taxonomy
+ * Map a Square category to a Google taxonomy
+ */
+app.put('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { google_taxonomy_id } = req.body;
+
+        if (!google_taxonomy_id) {
+            // Remove mapping
+            await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+            return res.json({ success: true, message: 'Taxonomy mapping removed' });
+        }
+
+        await db.query(`
+            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id)
+            VALUES ($1, $2)
+            ON CONFLICT (category_id) DO UPDATE SET
+                google_taxonomy_id = EXCLUDED.google_taxonomy_id,
+                updated_at = CURRENT_TIMESTAMP
+        `, [categoryId, google_taxonomy_id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('GMC category taxonomy mapping error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/category-mappings
+ * Get all category to taxonomy mappings
+ */
+app.get('/api/gmc/category-mappings', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT
+                c.id as category_id,
+                c.name as category_name,
+                gt.id as google_taxonomy_id,
+                gt.name as google_taxonomy_name
+            FROM categories c
+            LEFT JOIN category_taxonomy_mapping ctm ON c.id = ctm.category_id
+            LEFT JOIN google_taxonomy gt ON ctm.google_taxonomy_id = gt.id
+            ORDER BY c.name
+        `);
+        res.json({ count: result.rows.length, mappings: result.rows });
+    } catch (error) {
+        logger.error('GMC category mappings error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/history
+ * Get feed generation history
+ */
+app.get('/api/gmc/history', async (req, res) => {
+    try {
+        const { limit } = req.query;
+        let query = 'SELECT * FROM gmc_feed_history ORDER BY generated_at DESC';
+        const params = [];
+
+        if (limit) {
+            params.push(parseInt(limit));
+            query += ` LIMIT $${params.length}`;
+        }
+
+        const result = await db.query(query, params);
+        res.json({ count: result.rows.length, history: result.rows });
+    } catch (error) {
+        logger.error('GMC history error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
