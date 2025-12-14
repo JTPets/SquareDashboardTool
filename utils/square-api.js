@@ -53,7 +53,7 @@ async function makeSquareRequest(endpoint, options = {}) {
             const data = await response.json();
 
             if (!response.ok) {
-                // Handle rate limiting
+                // Handle rate limiting - this is retryable
                 if (response.status === 429) {
                     const retryAfter = parseInt(response.headers.get('retry-after') || '5');
                     logger.warn(`Rate limited. Retrying after ${retryAfter} seconds`);
@@ -66,7 +66,7 @@ async function makeSquareRequest(endpoint, options = {}) {
                     throw new Error('Square API authentication failed. Check your access token.');
                 }
 
-                // Check for non-retryable errors (idempotency conflicts, version conflicts)
+                // Check for non-retryable errors (idempotency conflicts, version conflicts, validation errors)
                 const errorCodes = (data.errors || []).map(e => e.code);
                 const nonRetryableErrors = [
                     'IDEMPOTENCY_KEY_REUSED',
@@ -76,9 +76,12 @@ async function makeSquareRequest(endpoint, options = {}) {
                 ];
                 const hasNonRetryableError = errorCodes.some(code => nonRetryableErrors.includes(code));
 
+                // Don't retry 400/409 errors or specific non-retryable error codes
                 if (response.status === 400 || response.status === 409 || hasNonRetryableError) {
-                    // Don't retry validation errors, conflicts, or idempotency issues
-                    throw new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
+                    // Throw immediately without retry by breaking out of the loop
+                    const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
+                    err.nonRetryable = true;
+                    throw err;
                 }
 
                 throw new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
@@ -87,6 +90,12 @@ async function makeSquareRequest(endpoint, options = {}) {
             return data;
         } catch (error) {
             lastError = error;
+
+            // Don't retry non-retryable errors
+            if (error.nonRetryable) {
+                throw error;
+            }
+
             if (attempt < MAX_RETRIES - 1) {
                 const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
                 logger.warn(`Request failed, retrying in ${delay}ms`, { attempt: attempt + 1, max_retries: MAX_RETRIES });
@@ -1148,6 +1157,13 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 
         // Build the update request - use simple prefix to avoid collision with old cached keys
         const idempotencyKey = generateIdempotencyKey('inv-alert-v2');
+
+        logger.info('Generated idempotency key for alert threshold update', {
+            idempotencyKey,
+            catalogObjectId,
+            locationId,
+            version: currentObject.version
+        });
 
         const updateBody = {
             idempotency_key: idempotencyKey,
