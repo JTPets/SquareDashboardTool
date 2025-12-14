@@ -1939,12 +1939,12 @@ async function batchUpdateCustomAttributeValues(updates) {
 }
 
 /**
- * Initialize JTPets custom attribute definitions in Square
+ * Initialize custom attribute definitions in Square
  * Creates the standard attribute definitions we use (case_pack_quantity, brand)
  * @returns {Promise<Object>} Initialization result
  */
-async function initializeJTPetsCustomAttributes() {
-    logger.info('Initializing JTPets custom attribute definitions');
+async function initializeCustomAttributes() {
+    logger.info('Initializing custom attribute definitions');
 
     const results = {
         success: true,
@@ -1954,7 +1954,7 @@ async function initializeJTPetsCustomAttributes() {
 
     // Define our custom attributes
     // Note: reorder_multiple removed - case_pack_quantity serves the same purpose
-    const jtpetsDefinitions = [
+    const customDefinitions = [
         {
             key: 'case_pack_quantity',
             name: 'Case Pack Quantity',
@@ -1976,7 +1976,7 @@ async function initializeJTPetsCustomAttributes() {
     const existingDefs = await listCustomAttributeDefinitions();
     const existingByKey = new Map(existingDefs.map(d => [d.key, d]));
 
-    for (const def of jtpetsDefinitions) {
+    for (const def of customDefinitions) {
         try {
             const existing = existingByKey.get(def.key);
             if (existing) {
@@ -1998,7 +1998,7 @@ async function initializeJTPetsCustomAttributes() {
         }
     }
 
-    logger.info('JTPets custom attributes initialization complete', {
+    logger.info('Custom attributes initialization complete', {
         created: results.definitions.filter(d => d.status === 'created').length,
         updated: results.definitions.filter(d => d.status === 'updated').length,
         errors: results.errors.length
@@ -2396,7 +2396,7 @@ module.exports = {
     upsertCustomAttributeDefinition,
     updateCustomAttributeValues,
     batchUpdateCustomAttributeValues,
-    initializeJTPetsCustomAttributes,
+    initializeCustomAttributes,
     pushCasePackToSquare,
     pushBrandsToSquare,
     deleteCustomAttributeDefinition,

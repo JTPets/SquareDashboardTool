@@ -1,6 +1,6 @@
-# JTPets Inventory Management System
+# Square Dashboard Addon Tool
 
-A comprehensive inventory management system for JTPets pet supply business with Square POS integration. This system provides automated reorder suggestions, sales velocity tracking, cost/margin analysis, and purchase order management.
+A comprehensive inventory management addon for Square POS. This system provides automated reorder suggestions, sales velocity tracking, cost/margin analysis, and purchase order management.
 
 ## ⚠️ PRODUCTION READINESS WARNING
 
@@ -268,7 +268,7 @@ psql -U postgres -h localhost
 # When prompted, enter the password you set above
 
 # Create the database
-CREATE DATABASE jtpets_beta;
+CREATE DATABASE square_dashboard_addon;
 
 # Verify it was created
 \l
@@ -281,7 +281,7 @@ CREATE DATABASE jtpets_beta;
 
 ```bash
 # Apply the schema to create all tables
-psql -U postgres -h localhost -d jtpets_beta -f database/schema.sql
+psql -U postgres -h localhost -d square_dashboard_addon -f database/schema.sql
 ```
 
 ### 4. Environment Configuration
@@ -649,7 +649,7 @@ Get variations with cost and margin calculations.
 - Vendor name and code
 
 #### `PATCH /api/variations/:id/extended`
-Update JTPets custom fields for a variation.
+Update custom fields for a variation.
 
 **Updateable Fields:**
 - `case_pack_quantity` - Units per case
@@ -839,7 +839,7 @@ Create a new purchase order.
   "location_id": "LOCATION_456",
   "supply_days_override": 60,
   "notes": "Regular monthly order",
-  "created_by": "manager@jtpets.com",
+  "created_by": "manager@yourdomain.com",
   "items": [
     {
       "variation_id": "VAR_001",
@@ -1090,8 +1090,8 @@ EMAIL_ENABLED=true
 EMAIL_SERVICE=gmail
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
-EMAIL_TO=alerts@jtpets.ca
-EMAIL_FROM=noreply@jtpets.ca
+EMAIL_TO=alerts@yourdomain.com
+EMAIL_FROM=noreply@yourdomain.com
 EMAIL_THROTTLE_MINUTES=5
 ```
 
@@ -1100,7 +1100,7 @@ EMAIL_THROTTLE_MINUTES=5
    - Navigate to Security → 2-Step Verification (must be enabled)
    - Scroll to bottom → App passwords
    - Select app: "Mail", device: "Other (Custom name)"
-   - Enter "JTPets Inventory System"
+   - Enter "Square Dashboard Addon"
    - Copy the 16-character password
    - Paste into `EMAIL_PASSWORD` in `.env`
    - **Important:** Use the app password, NOT your regular Gmail password
@@ -1164,7 +1164,7 @@ Example log entry:
   "level": "error",
   "message": "Failed to sync catalog",
   "timestamp": "2024-01-15 10:30:45",
-  "service": "jtpets-inventory",
+  "service": "square-dashboard-addon",
   "error": "Request timeout",
   "stack": "Error: Request timeout\n    at ..."
 }
@@ -1281,10 +1281,10 @@ npm install
 sudo -u postgres psql
 
 # Create database as superuser
-CREATE DATABASE jtpets_beta;
+CREATE DATABASE square_dashboard_addon;
 
 # Grant permissions
-GRANT ALL PRIVILEGES ON DATABASE jtpets_beta TO postgres;
+GRANT ALL PRIVILEGES ON DATABASE square_dashboard_addon TO postgres;
 \q
 ```
 
@@ -1444,10 +1444,10 @@ MIT License - Free and open source. See [LICENSE](LICENSE) file for details.
 
 ## Support
 
-For issues or questions, contact: support@jtpets.com
+For issues or questions, please use the support contact provided by your app administrator.
 
 ---
 
 **Version**: 1.0.0
 **Last Updated**: 2025
-**Platform**: Windows (Development) / Raspberry Pi (Production)
+**Platform**: Cross-platform (Windows, Linux, macOS)

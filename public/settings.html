@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings - JT Pets</title>
+  <title>Settings - Square Dashboard Addon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -882,7 +882,7 @@
     }
 
     function generateLocalToken() {
-      const token = 'jtpets_' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      const token = 'sda_' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 

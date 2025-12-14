@@ -75,7 +75,7 @@ async function generateFeedData(options = {}) {
 
     try {
         const settings = await getSettings();
-        const baseUrl = settings.website_base_url || 'https://jtpets.ca';
+        const baseUrl = settings.website_base_url || 'https://your-store-url.com';
         const urlPattern = settings.product_url_pattern || '/product/{slug}/{variation_id}';
         const currency = settings.currency || 'CAD';
         const defaultCondition = settings.default_condition || 'new';

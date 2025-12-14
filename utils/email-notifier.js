@@ -36,7 +36,7 @@ class EmailNotifier {
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: process.env.EMAIL_TO,
-        subject: `[JTPets] CRITICAL: ${subject}`,
+        subject: `[Square Dashboard Addon] CRITICAL: ${subject}`,
         html: `
           <h2 style="color: #dc2626;">🚨 Critical Error</h2>
           <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
@@ -80,7 +80,7 @@ class EmailNotifier {
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: process.env.EMAIL_TO,
-        subject: `[JTPets] ALERT: ${subject}`,
+        subject: `[Square Dashboard Addon] ALERT: ${subject}`,
         html: `
           <h2 style="color: #f59e0b;">⚠️ System Alert</h2>
           <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
@@ -120,8 +120,8 @@ class EmailNotifier {
     const mailOptions = {
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to: process.env.EMAIL_TO,
-      subject: '[JTPets] Test Email',
-      html: '<h2>✅ Email notifications are working!</h2><p>This is a test email from JTPets Inventory System.</p>'
+      subject: '[Square Dashboard Addon] Test Email',
+      html: '<h2>✅ Email notifications are working!</h2><p>This is a test email from Square Dashboard Addon Tool.</p>'
     };
 
     await this.transporter.sendMail(mailOptions);
@@ -136,17 +136,17 @@ class EmailNotifier {
 
     try {
       const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `jtpets_backup_${timestamp}.sql`;
+      const filename = `square_dashboard_addon_backup_${timestamp}.sql`;
       const sizeInMB = (sqlDump.length / 1024 / 1024).toFixed(2);
 
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: process.env.EMAIL_TO,
-        subject: `[JTPets] Weekly Database Backup - ${timestamp}`,
+        subject: `[Square Dashboard Addon] Weekly Database Backup - ${timestamp}`,
         html: `
           <h2 style="color: #8b5cf6;">💾 Weekly Database Backup</h2>
           <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-          <p><strong>Database:</strong> ${dbInfo.database || 'jtpets_beta'}</p>
+          <p><strong>Database:</strong> ${dbInfo.database || 'square_dashboard_addon'}</p>
           <p><strong>Backup Size:</strong> ${sizeInMB} MB</p>
 
           <hr>
@@ -169,7 +169,7 @@ class EmailNotifier {
           <hr>
           <p style="color: #6b7280; font-size: 12px;">
             Server: ${require('os').hostname()}<br>
-            This is an automated weekly backup from your JTPets Inventory System.
+            This is an automated weekly backup from Square Dashboard Addon Tool.
           </p>
         `,
         attachments: [
