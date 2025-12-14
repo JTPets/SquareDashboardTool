@@ -1455,6 +1455,99 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
 });
 
 /**
+ * PATCH /api/variations/:id/cost
+ * Update unit cost (vendor cost) and sync to Square
+ */
+app.patch('/api/variations/:id/cost', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { cost_cents, vendor_id } = req.body;
+
+        // Validate input
+        if (cost_cents === undefined || cost_cents === null) {
+            return res.status(400).json({ error: 'cost_cents is required' });
+        }
+
+        if (typeof cost_cents !== 'number' || cost_cents < 0) {
+            return res.status(400).json({ error: 'cost_cents must be a non-negative number' });
+        }
+
+        // Get variation details
+        const variationResult = await db.query(`
+            SELECT v.id, v.sku, v.name, i.name as item_name,
+                   vv.vendor_id, vv.unit_cost_money as current_cost,
+                   ven.name as vendor_name
+            FROM variations v
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
+            LEFT JOIN vendors ven ON vv.vendor_id = ven.id
+            WHERE v.id = $1
+            ORDER BY vv.unit_cost_money ASC NULLS LAST
+            LIMIT 1
+        `, [id]);
+
+        if (variationResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found' });
+        }
+
+        const variation = variationResult.rows[0];
+        const targetVendorId = vendor_id || variation.vendor_id;
+
+        if (!targetVendorId) {
+            return res.status(400).json({
+                error: 'No vendor associated with this variation. Please specify vendor_id.'
+            });
+        }
+
+        const previousCost = variation.current_cost;
+
+        // Update Square
+        try {
+            const squareResult = await squareApi.updateVariationCost(
+                id,
+                targetVendorId,
+                Math.round(cost_cents),
+                'CAD'
+            );
+
+            logger.info('Cost updated in Square', {
+                variationId: id,
+                sku: variation.sku,
+                vendorId: targetVendorId,
+                oldCost: previousCost,
+                newCost: cost_cents
+            });
+
+            res.json({
+                success: true,
+                variation_id: id,
+                sku: variation.sku,
+                item_name: variation.item_name,
+                vendor_id: targetVendorId,
+                vendor_name: variation.vendor_name,
+                previous_cost_cents: previousCost,
+                new_cost_cents: cost_cents,
+                synced_to_square: true
+            });
+
+        } catch (squareError) {
+            logger.error('Square cost update failed', {
+                variationId: id,
+                error: squareError.message
+            });
+            return res.status(500).json({
+                error: 'Failed to update cost in Square: ' + squareError.message,
+                square_error: true
+            });
+        }
+
+    } catch (error) {
+        logger.error('Update cost error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/variations/bulk-update-extended
  * Bulk update custom fields by SKU
  */
