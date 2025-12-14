@@ -726,6 +726,67 @@ async function syncVariation(obj) {
         }
     }
 
+    // Sync custom attributes from Square (Square is source of truth)
+    if (obj.custom_attribute_values) {
+        const customAttrs = obj.custom_attribute_values;
+
+        // Sync case_pack_quantity
+        if (customAttrs.case_pack_quantity?.number_value) {
+            try {
+                const casePackQty = parseInt(customAttrs.case_pack_quantity.number_value, 10);
+                if (!isNaN(casePackQty) && casePackQty > 0) {
+                    await db.query(`
+                        UPDATE variations
+                        SET case_pack_quantity = $1, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $2
+                    `, [casePackQty, obj.id]);
+                }
+            } catch (error) {
+                logger.error('Error syncing case_pack_quantity from Square', {
+                    variation_id: obj.id,
+                    error: error.message
+                });
+            }
+        }
+
+        // Sync expiration data
+        const expirationDateAttr = customAttrs.expiration_date;
+        const doesNotExpireAttr = customAttrs.does_not_expire;
+
+        if (expirationDateAttr || doesNotExpireAttr) {
+            try {
+                let expirationDate = null;
+                let doesNotExpire = false;
+
+                // Extract expiration_date (stored as string YYYY-MM-DD)
+                if (expirationDateAttr?.string_value) {
+                    expirationDate = expirationDateAttr.string_value;
+                }
+
+                // Extract does_not_expire boolean
+                if (doesNotExpireAttr?.boolean_value !== undefined) {
+                    doesNotExpire = doesNotExpireAttr.boolean_value === true;
+                }
+
+                // Update local variation_expiration table
+                await db.query(`
+                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                    ON CONFLICT (variation_id) DO UPDATE SET
+                        expiration_date = EXCLUDED.expiration_date,
+                        does_not_expire = EXCLUDED.does_not_expire,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [obj.id, expirationDate, doesNotExpire]);
+
+            } catch (error) {
+                logger.error('Error syncing expiration data from Square', {
+                    variation_id: obj.id,
+                    error: error.message
+                });
+            }
+        }
+    }
+
     return vendorCount;
 }
 
