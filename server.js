@@ -1798,6 +1798,40 @@ app.get('/api/catalog-audit', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/catalog-audit/fix-locations
+ * Fix all location mismatches by setting items/variations to present_at_all_locations = true
+ */
+app.post('/api/catalog-audit/fix-locations', async (req, res) => {
+    try {
+        logger.info('Starting location mismatch fix from API');
+
+        const result = await squareApi.fixLocationMismatches();
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Fixed ${result.itemsFixed} items and ${result.variationsFixed} variations`,
+                itemsFixed: result.itemsFixed,
+                variationsFixed: result.variationsFixed,
+                details: result.details
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'Some items could not be fixed',
+                itemsFixed: result.itemsFixed,
+                variationsFixed: result.variationsFixed,
+                errors: result.errors,
+                details: result.details
+            });
+        }
+    } catch (error) {
+        logger.error('Fix location mismatches error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**

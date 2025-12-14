@@ -390,6 +390,7 @@
       </select>
       <button onclick="loadData()">Refresh</button>
       <button onclick="exportCSV()" class="export-btn">Export CSV</button>
+      <button onclick="fixLocationMismatches()" class="fix-btn" style="background: #dc2626;" id="fixLocationsBtn">Fix Location Mismatches</button>
       <div class="info-badge" id="statusBadge">Loading...</div>
     </div>
 
@@ -898,6 +899,43 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    async function fixLocationMismatches() {
+      const btn = document.getElementById('fixLocationsBtn');
+      const originalText = btn.textContent;
+
+      if (!confirm('This will set ALL items and variations to be available at ALL locations in Square.\n\nThis fixes "Location Mismatch" errors but may affect which locations can see/sell items.\n\nContinue?')) {
+        return;
+      }
+
+      try {
+        btn.disabled = true;
+        btn.textContent = 'Fixing...';
+        btn.style.background = '#9ca3af';
+
+        const response = await fetch('/api/catalog-audit/fix-locations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          alert(`Success!\n\nFixed ${result.itemsFixed} items and ${result.variationsFixed} variations.\n\nPlease run a full sync to update local data.`);
+          loadData(); // Refresh the audit data
+        } else {
+          alert(`Partial success:\n\nFixed ${result.itemsFixed} items and ${result.variationsFixed} variations.\n\nErrors:\n${result.errors?.join('\n') || 'Unknown error'}`);
+          loadData();
+        }
+      } catch (error) {
+        console.error('Fix location mismatches error:', error);
+        alert('Failed to fix location mismatches: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        btn.style.background = '#dc2626';
+      }
     }
 
     // Load data on page load
