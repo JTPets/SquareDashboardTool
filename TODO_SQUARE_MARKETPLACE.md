@@ -214,6 +214,198 @@ This document tracks items that need to be addressed before submitting to the Sq
 
 ---
 
+## Future API Integration Requirements
+
+The following sections document requirements for additional Square APIs that may be integrated in the future. These are **NOT currently implemented** but are documented here for future reference.
+
+---
+
+### FUTURE: Webhooks API Requirements
+**Status:** Not Applicable (until webhooks implemented)
+**When Needed:** When implementing real-time event handling
+
+**Requirements:**
+- [ ] App responds to trigger events with expected behavior
+- [ ] Errors are surfaced appropriately within internal logs to the buyer/seller
+- [ ] Errors are surfaced to the event trigger when necessary
+- [ ] Webhook signature validation implemented (HMAC-SHA256)
+- [ ] Proper HTTP response codes returned (200 for success, 4XX/5XX for errors)
+- [ ] Idempotency handling for duplicate webhook deliveries
+
+**Documentation:** https://developer.squareup.com/docs/webhooks/overview
+
+---
+
+### FUTURE: Terminal API Requirements
+**Status:** Not Applicable (no Terminal integration planned)
+**When Needed:** If integrating with Square Terminal hardware
+
+**Conditional Requirements:**
+If subscribing to `device.code.paired` webhook:
+- [ ] Handle device pairing events
+
+If processing payments in US/Canada/Japan:
+- [ ] Comply with regional payment requirements
+
+**Core Requirements (if implemented):**
+- [ ] Request DEVICE_CREDENTIAL_MANAGEMENT permission in OAuth
+- [ ] Prompt seller to select location for Square Terminal registration
+- [ ] Alert user when switching Square locations to re-register terminals
+- [ ] Generate valid device codes
+- [ ] Provide UI/UX for seller to pair device with generated code
+- [ ] Notify seller of device code expiration timeline
+- [ ] Respond to checkout state changes
+- [ ] Set country/currency code to Square account's currency
+- [ ] Provide partner name and unique transaction ID in note parameter
+
+**Documentation:** https://developer.squareup.com/docs/terminal-api/overview
+
+---
+
+### FUTURE: Team API Requirements
+**Status:** Not Applicable (no Team management planned)
+**When Needed:** If adding employee/team member management features
+
+**Sync Direction Options:**
+- Bi-directional sync
+- One-way: Partner Platform → Square
+- One-way: Square → Partner Platform
+
+**Requirements (if implemented):**
+- [ ] Determine sync direction and document behavior
+- [ ] Handle team member create/update/delete operations
+- [ ] Sync wage information (if applicable)
+- [ ] Handle location assignments
+- [ ] Maintain data consistency between systems
+
+**Documentation:** https://developer.squareup.com/docs/team-api/overview
+
+---
+
+### FUTURE: Subscriptions API Requirements
+**Status:** Not Applicable (no subscription features planned)
+**When Needed:** If adding recurring billing/subscription features
+
+**Conditional Requirements:**
+If using invoice webhooks for subscription payments:
+- [ ] Track successful subscription payments via webhooks
+- [ ] Track failed subscription payments via webhooks
+
+**Core Requirements (if implemented):**
+- [ ] Disable/hide subscriptions tied to disabled SubscriptionPlanVariation catalog objects
+- [ ] Only associate subscriptions with customer profiles that have valid email
+- [ ] Display current subscription state (PENDING, ACTIVE, CANCELED) to buyers
+- [ ] Do NOT allow adding, removing, or reordering subscription phases
+- [ ] Ensure phases in SubscriptionPlanVariation match ordinals/phases in SubscriptionPlan
+- [ ] Provide customers ability to cancel subscription
+- [ ] Provide customers ability to continue a pending canceled subscription
+- [ ] Allow customers to add/remove card on file for subscription
+
+**Documentation:** https://developer.squareup.com/docs/subscriptions-api/overview
+
+---
+
+### FUTURE: Snippets API Requirements
+**Status:** Not Applicable (no Square Online integration planned)
+**When Needed:** If adding code snippets to Square Online sites
+
+**Conditional Requirements:**
+If snippet requires copy/paste code:
+- [ ] Provide clear instructions for code installation
+
+**Core Requirements (if implemented):**
+- [ ] Square Online websites are listed and selectable
+- [ ] Snippets are pushed only to selected Square Online sites
+- [ ] Display name, domain name, and online status of each site in selection
+- [ ] App can create a snippet
+- [ ] App can edit or update a snippet
+- [ ] App can remove or delete a snippet
+- [ ] Provide confirmation that snippet was successfully added
+- [ ] Snippet assets are sufficient quality for most common devices
+- [ ] Snippets work well on both mobile and desktop
+- [ ] Snippets don't use JavaScript alert/confirmation boxes
+- [ ] Snippets don't display annoying or distracting behavior
+- [ ] Snippets don't ask for passwords of any kind
+- [ ] Snippet use is adequately disclosed to the seller
+- [ ] Snippets don't expose buyers to user-unfriendly text (code, debug, technical errors)
+- [ ] Error messages displayed are in user-friendly format
+- [ ] Snippets don't overly obscure major elements on Square Online sites
+- [ ] Snippets don't overly obscure major elements on mobile sites (iOS/Android)
+
+**Documentation:** https://developer.squareup.com/docs/snippets-api/overview
+
+---
+
+### FUTURE: Payouts API Requirements
+**Status:** Not Applicable (no payout tracking planned)
+**When Needed:** If adding payout/settlement tracking features
+
+**Core Requirements (if implemented):**
+- [ ] Successfully indicate all three payout states: SENT, FAILED, and PAID
+- [ ] Handle instant deposits with associated payout_fee
+- [ ] Handle payouts with net positive value
+- [ ] Handle payouts with net negative value
+- [ ] Handle payouts with net zero value
+- [ ] Pull in all payout entry types
+
+**Documentation:** https://developer.squareup.com/docs/payouts-api/overview
+
+---
+
+### FUTURE: Payments API Requirements
+**Status:** Not Applicable (read-only order data currently)
+**When Needed:** If creating or updating payments in Square
+
+**Conditional Requirements:**
+If app creates/updates payments:
+- [ ] Implement full payment creation flow
+- [ ] Handle payment authorization, capture, and void
+- [ ] Support refunds through Payments API
+
+If app only reads payment data:
+- [ ] Transactions in app exactly reflect transactions in Square
+
+**Current State:** App reads order/sales data for velocity calculations (read-only)
+
+**Documentation:** https://developer.squareup.com/docs/payments-api/overview
+
+---
+
+### FUTURE: Orders API Requirements
+**Status:** Partial (read-only for sales velocity)
+**When Needed:** If creating orders, managing fulfillments, or using custom attributes
+
+**Conditional Requirements:**
+If app creates orders in Square:
+- [ ] Implement order creation flow
+- [ ] Handle order line items, taxes, discounts
+- [ ] Support order modifications
+
+If app manages order fulfillments:
+- [ ] Track fulfillment states (PROPOSED, RESERVED, PREPARED, COMPLETED, CANCELED)
+- [ ] Update fulfillment status appropriately
+- [ ] Handle pickup and delivery fulfillments
+
+If app completes/cancels orders:
+- [ ] Implement order completion flow
+- [ ] Handle order cancellation with reason
+
+If app shows order sales data:
+- [ ] Display order items accurately
+- [ ] Display prices, taxes correctly
+- [ ] Show fulfillment state appropriately
+
+If app uses Order Custom Attributes API:
+- [ ] Create custom attribute definitions
+- [ ] Read/write custom attribute values
+- [ ] Handle attribute visibility settings
+
+**Current State:** App reads completed orders for sales velocity calculations only
+
+**Documentation:** https://developer.squareup.com/docs/orders-api/overview
+
+---
+
 ## Resources
 
 - [Square App Marketplace Guidelines](https://developer.squareup.com/docs/app-marketplace/requirements)
