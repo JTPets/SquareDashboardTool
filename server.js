@@ -434,6 +434,71 @@ async function resolveImageUrls(variationImages, itemImages = null) {
     }
 }
 
+/**
+ * Batch resolve image URLs for multiple items in a SINGLE query
+ * This is much more efficient than calling resolveImageUrls for each item
+ * @param {Array} items - Array of objects with 'images' and optional 'item_images' fields
+ * @returns {Promise<Map>} Map of item index -> image URLs array
+ */
+async function batchResolveImageUrls(items) {
+    // Collect all unique image IDs
+    const allImageIds = new Set();
+    const itemImageMapping = []; // Track which images belong to which item
+
+    items.forEach((item, index) => {
+        let imageIds = item.images;
+        if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+            imageIds = item.item_images;
+        }
+        if (imageIds && Array.isArray(imageIds)) {
+            imageIds.forEach(id => allImageIds.add(id));
+        }
+        itemImageMapping.push({
+            index,
+            imageIds: imageIds && Array.isArray(imageIds) ? imageIds : []
+        });
+    });
+
+    // If no images to resolve, return empty results
+    if (allImageIds.size === 0) {
+        return new Map(items.map((_, i) => [i, []]));
+    }
+
+    // Single batch query for ALL images
+    const imageIdArray = Array.from(allImageIds);
+    let urlMap = {};
+
+    try {
+        const placeholders = imageIdArray.map((_, i) => `$${i + 1}`).join(',');
+        const result = await db.query(
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
+            imageIdArray
+        );
+
+        result.rows.forEach(row => {
+            if (row.url) {
+                urlMap[row.id] = row.url;
+            }
+        });
+    } catch (error) {
+        logger.error('Error in batch image URL resolution', { error: error.message });
+    }
+
+    // Build result map for each item
+    const resultMap = new Map();
+    itemImageMapping.forEach(({ index, imageIds }) => {
+        const urls = imageIds.map(id => {
+            if (urlMap[id]) {
+                return urlMap[id];
+            }
+            return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
+        });
+        resultMap.set(index, urls);
+    });
+
+    return resultMap;
+}
+
 // ==================== SYNC HELPER FUNCTIONS ====================
 
 /**
@@ -1511,15 +1576,13 @@ app.get('/api/expirations', async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs (with item fallback)
-        const items = await Promise.all(result.rows.map(async (row) => {
-            const imageUrls = await resolveImageUrls(row.images, row.item_images);
-            return {
-                ...row,
-                image_urls: imageUrls,
-                images: undefined,  // Remove raw image IDs from response
-                item_images: undefined  // Remove from response
-            };
+        // Resolve image URLs in a SINGLE batch query
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+        const items = result.rows.map((row, index) => ({
+            ...row,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,  // Remove raw image IDs from response
+            item_images: undefined  // Remove from response
         }));
 
         logger.info('API /api/expirations returning', { count: items.length });
@@ -3968,15 +4031,13 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             return b.daily_avg_quantity - a.daily_avg_quantity;
         });
 
-        // Resolve image URLs for each suggestion (with item fallback)
-        const suggestionsWithImages = await Promise.all(filteredSuggestions.map(async (suggestion) => {
-            const imageUrls = await resolveImageUrls(suggestion.images, suggestion.item_images);
-            return {
-                ...suggestion,
-                image_urls: imageUrls,
-                images: undefined,  // Remove raw image IDs from response
-                item_images: undefined  // Remove from response
-            };
+        // Resolve image URLs in a SINGLE batch query (much faster than N individual queries)
+        const imageUrlMap = await batchResolveImageUrls(filteredSuggestions);
+        const suggestionsWithImages = filteredSuggestions.map((suggestion, index) => ({
+            ...suggestion,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,  // Remove raw image IDs from response
+            item_images: undefined  // Remove from response
         }));
 
         res.json({
