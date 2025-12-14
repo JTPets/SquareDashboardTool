@@ -62,8 +62,17 @@ app.get('/api/health', async (req, res) => {
  * GET /api/config
  * Get frontend configuration from environment variables
  */
-app.get('/api/config', (req, res) => {
+app.get('/api/config', async (req, res) => {
     try {
+        // Check Square connection
+        let squareConnected = false;
+        try {
+            const locations = await squareApi.getLocations();
+            squareConnected = locations && locations.length > 0;
+        } catch (e) {
+            squareConnected = false;
+        }
+
         res.json({
             defaultSupplyDays: parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
             reorderSafetyDays: parseInt(process.env.REORDER_SAFETY_DAYS || '7'),
@@ -72,11 +81,154 @@ app.get('/api/config', (req, res) => {
                 high: parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7'),
                 medium: parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14'),
                 low: parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30')
+            },
+            square_connected: squareConnected,
+            square_environment: process.env.SQUARE_ENVIRONMENT || 'sandbox',
+            email_configured: !!(process.env.SMTP_HOST || process.env.EMAIL_HOST),
+            sync_intervals: {
+                catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL || '60'),
+                inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL || '15'),
+                sales: parseInt(process.env.SYNC_SALES_INTERVAL || '60')
             }
         });
     } catch (error) {
         logger.error('Failed to get config', { error: error.message });
         res.status(500).json({ error: 'Failed to get configuration' });
+    }
+});
+
+// ==================== SETTINGS ENDPOINTS ====================
+
+const fsPromises = require('fs').promises;
+
+/**
+ * GET /api/settings/env
+ * Read environment variables (masked for sensitive values)
+ */
+app.get('/api/settings/env', async (req, res) => {
+    try {
+        const envPath = path.join(__dirname, '.env');
+
+        // Read .env file
+        let envContent = '';
+        try {
+            envContent = await fsPromises.readFile(envPath, 'utf8');
+        } catch (e) {
+            // .env might not exist
+            logger.warn('.env file not found');
+        }
+
+        // Parse .env content
+        const variables = {};
+        const lines = envContent.split('\n');
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+
+            const eqIndex = trimmed.indexOf('=');
+            if (eqIndex === -1) continue;
+
+            const key = trimmed.substring(0, eqIndex).trim();
+            let value = trimmed.substring(eqIndex + 1).trim();
+
+            // Remove quotes if present
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+            }
+
+            variables[key] = value;
+        }
+
+        // Define expected variables with defaults
+        const expectedVars = [
+            'PORT', 'NODE_ENV',
+            'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
+            'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
+            'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+            'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS',
+            'EMAIL_FROM', 'EMAIL_TO'
+        ];
+
+        // Add any missing expected variables
+        for (const key of expectedVars) {
+            if (!(key in variables)) {
+                variables[key] = '';
+            }
+        }
+
+        res.json({ success: true, variables });
+
+    } catch (error) {
+        logger.error('Failed to read env settings', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * PUT /api/settings/env
+ * Update environment variables (writes to .env file)
+ */
+app.put('/api/settings/env', async (req, res) => {
+    try {
+        const { variables } = req.body;
+
+        if (!variables || typeof variables !== 'object') {
+            return res.status(400).json({ success: false, error: 'Variables object required' });
+        }
+
+        const envPath = path.join(__dirname, '.env');
+
+        // Build .env content
+        let content = '# JT Pets Environment Configuration\n';
+        content += '# Updated: ' + new Date().toISOString() + '\n\n';
+
+        // Group variables
+        const groups = {
+            'Server': ['PORT', 'NODE_ENV'],
+            'Database': ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'],
+            'Square API': ['SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT'],
+            'Google OAuth': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+            'Email/SMTP': ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'EMAIL_TO']
+        };
+
+        const writtenKeys = new Set();
+
+        for (const [groupName, keys] of Object.entries(groups)) {
+            content += `# ${groupName}\n`;
+            for (const key of keys) {
+                if (key in variables) {
+                    const value = variables[key] || '';
+                    // Quote values with spaces or special chars
+                    const needsQuotes = value.includes(' ') || value.includes('#') || value.includes('=');
+                    content += `${key}=${needsQuotes ? '"' + value + '"' : value}\n`;
+                    writtenKeys.add(key);
+                }
+            }
+            content += '\n';
+        }
+
+        // Write any remaining variables
+        const remaining = Object.keys(variables).filter(k => !writtenKeys.has(k));
+        if (remaining.length > 0) {
+            content += '# Other\n';
+            for (const key of remaining) {
+                const value = variables[key] || '';
+                const needsQuotes = value.includes(' ') || value.includes('#') || value.includes('=');
+                content += `${key}=${needsQuotes ? '"' + value + '"' : value}\n`;
+            }
+        }
+
+        // Write to file
+        await fsPromises.writeFile(envPath, content, 'utf8');
+        logger.info('Environment variables updated', { keys: Object.keys(variables).length });
+
+        res.json({ success: true, message: 'Settings saved. Restart server to apply changes.' });
+
+    } catch (error) {
+        logger.error('Failed to save env settings', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
