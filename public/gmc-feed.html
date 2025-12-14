@@ -302,6 +302,176 @@
     .pagination button:hover:not(:disabled) { background: #f3f4f6; }
     .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
     .page-info { color: #6b7280; font-size: 14px; }
+
+    /* Brand Manager Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 8px;
+      width: 95%;
+      max-width: 1200px;
+      max-height: 90vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 20px;
+      background: #ea580c;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { margin: 0; font-size: 20px; }
+    .modal-close {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .modal-close:hover { background: rgba(255,255,255,0.3); }
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .modal-footer {
+      padding: 15px 20px;
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand-input-section {
+      margin-bottom: 20px;
+    }
+    .brand-input-section label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+    .brand-input-section textarea {
+      width: 100%;
+      height: 120px;
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .brand-input-section .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+    .brand-results {
+      margin-top: 20px;
+    }
+    .brand-results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .brand-results-stats {
+      display: flex;
+      gap: 20px;
+    }
+    .brand-results-stats span {
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .brand-results-stats strong {
+      color: #16a34a;
+    }
+    .brand-matches-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .brand-matches-table th,
+    .brand-matches-table td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .brand-matches-table th {
+      background: #f9fafb;
+      font-weight: 600;
+    }
+    .brand-matches-table tr:hover {
+      background: #f9fafb;
+    }
+    .brand-matches-table input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .select-all-row {
+      background: #fff7ed;
+    }
+    .btn-detect {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-detect:hover { background: #1d4ed8; }
+    .btn-detect:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-apply {
+      background: #16a34a;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-apply:hover { background: #15803d; }
+    .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; }
+    .no-match-section {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 2px solid #e5e7eb;
+    }
+    .no-match-section h3 {
+      color: #6b7280;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .no-match-list {
+      max-height: 200px;
+      overflow-y: auto;
+      background: #f9fafb;
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .badge.clickable { cursor: pointer; }
+    .badge.clickable:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -361,9 +531,78 @@
       <span class="badge green" data-filter="all">All Products</span>
       <span class="badge red" data-filter="no-image">Missing Image</span>
       <span class="badge red" data-filter="no-gtin">Missing GTIN</span>
-      <span class="badge yellow" data-filter="no-brand">Missing Brand</span>
+      <span class="badge yellow clickable" data-filter="no-brand" onclick="openBrandManager()" title="Click to bulk assign brands">Missing Brand</span>
       <span class="badge yellow" data-filter="no-category">Missing Category</span>
       <span class="badge red" data-filter="out-of-stock">Out of Stock</span>
+    </div>
+
+    <!-- Brand Manager Modal -->
+    <div class="modal-overlay" id="brand-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Brand Manager - Auto-Detect & Bulk Assign</h2>
+          <button class="modal-close" onclick="closeBrandManager()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="brand-input-section">
+            <label>Paste Your Master Brand List (one per line):</label>
+            <textarea id="brand-list-input" placeholder="Blue Buffalo
+Taste of the Wild
+Royal Canin
+Purina Pro Plan
+Hill's Science Diet
+Orijen
+Acana
+Wellness"></textarea>
+            <div class="hint">
+              Multi-word brands are supported. Items will match if their name STARTS WITH the brand name.
+              <br>Example: "Blue Buffalo Chicken Dog Food" will match "Blue Buffalo"
+            </div>
+          </div>
+          <button class="btn-detect" id="btn-detect-brands" onclick="detectBrands()">
+            Detect Brands from Item Names
+          </button>
+
+          <div class="brand-results" id="brand-results" style="display: none;">
+            <div class="brand-results-header">
+              <div class="brand-results-stats">
+                <span>Detected: <strong id="detected-count">0</strong></span>
+                <span>No Match: <span id="no-match-count">0</span></span>
+                <span>Selected: <strong id="selected-count">0</strong></span>
+              </div>
+            </div>
+
+            <table class="brand-matches-table">
+              <thead>
+                <tr class="select-all-row">
+                  <th style="width: 40px;">
+                    <input type="checkbox" id="select-all-brands" onchange="toggleAllBrands(this.checked)" checked>
+                  </th>
+                  <th>Item Name</th>
+                  <th>Category</th>
+                  <th>Detected Brand</th>
+                </tr>
+              </thead>
+              <tbody id="brand-matches-body"></tbody>
+            </table>
+
+            <div class="no-match-section" id="no-match-section" style="display: none;">
+              <h3>Items with No Brand Match (<span id="no-match-total">0</span>)</h3>
+              <div class="no-match-list" id="no-match-list"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div>
+            <span id="brand-status-msg" style="color: #6b7280; font-size: 14px;"></span>
+          </div>
+          <div>
+            <button class="btn-apply" id="btn-apply-brands" onclick="applyBrands()" disabled>
+              Apply Selected Brands to Square
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Controls -->
@@ -804,6 +1043,164 @@
       if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
       if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
       return Math.floor(seconds / 86400) + 'd ago';
+    }
+
+    // ==================== BRAND MANAGER ====================
+    let brandDetectionResults = null;
+
+    function openBrandManager() {
+      document.getElementById('brand-modal').classList.add('active');
+      // Reset state
+      document.getElementById('brand-results').style.display = 'none';
+      document.getElementById('btn-apply-brands').disabled = true;
+      document.getElementById('brand-status-msg').textContent = '';
+    }
+
+    function closeBrandManager() {
+      document.getElementById('brand-modal').classList.remove('active');
+    }
+
+    // Close modal on overlay click
+    document.getElementById('brand-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'brand-modal') closeBrandManager();
+    });
+
+    async function detectBrands() {
+      const input = document.getElementById('brand-list-input').value;
+      const brands = input.split('\n').map(b => b.trim()).filter(b => b);
+
+      if (brands.length === 0) {
+        alert('Please enter at least one brand name');
+        return;
+      }
+
+      const btn = document.getElementById('btn-detect-brands');
+      btn.disabled = true;
+      btn.textContent = 'Detecting...';
+      document.getElementById('brand-status-msg').textContent = 'Analyzing item names...';
+
+      try {
+        const response = await fetch('/api/gmc/brands/auto-detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brands })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Detection failed');
+
+        brandDetectionResults = data;
+        renderBrandResults(data);
+
+        document.getElementById('brand-results').style.display = 'block';
+        document.getElementById('btn-apply-brands').disabled = data.detected.length === 0;
+        document.getElementById('brand-status-msg').textContent =
+          `Found ${data.detected_count} matches from ${data.master_brands_provided} brands`;
+
+      } catch (error) {
+        alert('Error: ' + error.message);
+        document.getElementById('brand-status-msg').textContent = 'Error: ' + error.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Detect Brands from Item Names';
+      }
+    }
+
+    function renderBrandResults(data) {
+      const tbody = document.getElementById('brand-matches-body');
+
+      // Update stats
+      document.getElementById('detected-count').textContent = data.detected_count;
+      document.getElementById('no-match-count').textContent = data.no_match_count;
+      updateSelectedCount();
+
+      // Render matches table
+      tbody.innerHTML = data.detected.map((item, idx) => `
+        <tr>
+          <td>
+            <input type="checkbox" class="brand-checkbox" data-index="${idx}"
+                   ${item.selected ? 'checked' : ''} onchange="updateSelectedCount()">
+          </td>
+          <td title="${escapeHtml(item.item_name)}">${escapeHtml(item.item_name.substring(0, 60))}${item.item_name.length > 60 ? '...' : ''}</td>
+          <td>${escapeHtml(item.category || '-')}</td>
+          <td style="color: #16a34a; font-weight: 500;">${escapeHtml(item.detected_brand_name)}</td>
+        </tr>
+      `).join('');
+
+      // Render no-match section
+      if (data.no_match.length > 0) {
+        document.getElementById('no-match-section').style.display = 'block';
+        document.getElementById('no-match-total').textContent = data.no_match.length;
+        document.getElementById('no-match-list').innerHTML = data.no_match
+          .map(item => `<div>${escapeHtml(item.item_name)}</div>`)
+          .join('');
+      } else {
+        document.getElementById('no-match-section').style.display = 'none';
+      }
+    }
+
+    function toggleAllBrands(checked) {
+      document.querySelectorAll('.brand-checkbox').forEach(cb => {
+        cb.checked = checked;
+      });
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      const selected = document.querySelectorAll('.brand-checkbox:checked').length;
+      document.getElementById('selected-count').textContent = selected;
+      document.getElementById('btn-apply-brands').disabled = selected === 0;
+    }
+
+    async function applyBrands() {
+      if (!brandDetectionResults) return;
+
+      const checkboxes = document.querySelectorAll('.brand-checkbox:checked');
+      const assignments = [];
+
+      checkboxes.forEach(cb => {
+        const idx = parseInt(cb.dataset.index);
+        const item = brandDetectionResults.detected[idx];
+        assignments.push({
+          item_id: item.item_id,
+          brand_id: item.detected_brand_id
+        });
+      });
+
+      if (assignments.length === 0) {
+        alert('No items selected');
+        return;
+      }
+
+      const btn = document.getElementById('btn-apply-brands');
+      btn.disabled = true;
+      btn.textContent = 'Applying...';
+      document.getElementById('brand-status-msg').textContent = `Applying ${assignments.length} brand assignments...`;
+
+      try {
+        const response = await fetch('/api/gmc/brands/bulk-assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignments })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Assignment failed');
+
+        const msg = `Applied ${data.assigned} brands. Synced ${data.synced_to_square} to Square.`;
+        document.getElementById('brand-status-msg').textContent = msg;
+
+        alert(msg + '\n\nRefreshing feed data...');
+        closeBrandManager();
+        loadFeedData(); // Refresh the main table
+
+      } catch (error) {
+        alert('Error: ' + error.message);
+        document.getElementById('brand-status-msg').textContent = 'Error: ' + error.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Apply Selected Brands to Square';
+      }
     }
 
     // Initialize
