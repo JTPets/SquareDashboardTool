@@ -2887,6 +2887,21 @@ app.put('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
 });
 
 /**
+ * DELETE /api/gmc/categories/:categoryId/taxonomy
+ * Remove a category's Google taxonomy mapping
+ */
+app.delete('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+        res.json({ success: true, message: 'Taxonomy mapping removed' });
+    } catch (error) {
+        logger.error('GMC category taxonomy delete error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/gmc/category-mappings
  * Get all category to taxonomy mappings
  */
