@@ -1164,6 +1164,7 @@ app.get('/api/variations-with-costs', async (req, res) => {
 /**
  * PATCH /api/variations/:id/extended
  * Update JTPets custom fields on a variation
+ * Automatically syncs case_pack_quantity to Square if changed
  */
 app.patch('/api/variations/:id/extended', async (req, res) => {
     try {
@@ -1179,6 +1180,10 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
         const updates = [];
         const values = [];
         let paramCount = 1;
+
+        // Track if case_pack_quantity is being updated
+        const casePackUpdate = req.body.case_pack_quantity !== undefined;
+        const newCasePackValue = req.body.case_pack_quantity;
 
         for (const [key, value] of Object.entries(req.body)) {
             if (allowedFields.includes(key)) {
@@ -1208,9 +1213,27 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
             return res.status(404).json({ error: 'Variation not found' });
         }
 
+        // Auto-sync case_pack_quantity to Square if it was updated
+        let squareSyncResult = null;
+        if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0) {
+            try {
+                squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
+                    case_pack_quantity: {
+                        number_value: newCasePackValue.toString()
+                    }
+                });
+                logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
+            } catch (syncError) {
+                logger.error('Failed to sync case pack to Square', { variation_id: id, error: syncError.message });
+                // Don't fail the request - local update succeeded
+                squareSyncResult = { success: false, error: syncError.message };
+            }
+        }
+
         res.json({
             status: 'success',
-            variation: result.rows[0]
+            variation: result.rows[0],
+            square_sync: squareSyncResult
         });
     } catch (error) {
         logger.error('Update variation error', { error: error.message, stack: error.stack });
