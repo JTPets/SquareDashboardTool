@@ -214,6 +214,97 @@ This document tracks items that need to be addressed before submitting to the Sq
 
 ---
 
+## Future API Integration Requirements
+
+The following sections document requirements for additional Square APIs that may be integrated in the future. These are **NOT currently implemented** but are documented here for future reference.
+
+---
+
+### FUTURE: Webhooks API Requirements
+**Status:** Not Applicable (until webhooks implemented)
+**When Needed:** When implementing real-time event handling
+
+**Requirements:**
+- [ ] App responds to trigger events with expected behavior
+- [ ] Errors are surfaced appropriately within internal logs to the buyer/seller
+- [ ] Errors are surfaced to the event trigger when necessary
+- [ ] Webhook signature validation implemented (HMAC-SHA256)
+- [ ] Proper HTTP response codes returned (200 for success, 4XX/5XX for errors)
+- [ ] Idempotency handling for duplicate webhook deliveries
+
+**Documentation:** https://developer.squareup.com/docs/webhooks/overview
+
+---
+
+### FUTURE: Terminal API Requirements
+**Status:** Not Applicable (no Terminal integration planned)
+**When Needed:** If integrating with Square Terminal hardware
+
+**Conditional Requirements:**
+If subscribing to `device.code.paired` webhook:
+- [ ] Handle device pairing events
+
+If processing payments in US/Canada/Japan:
+- [ ] Comply with regional payment requirements
+
+**Core Requirements (if implemented):**
+- [ ] Request DEVICE_CREDENTIAL_MANAGEMENT permission in OAuth
+- [ ] Prompt seller to select location for Square Terminal registration
+- [ ] Alert user when switching Square locations to re-register terminals
+- [ ] Generate valid device codes
+- [ ] Provide UI/UX for seller to pair device with generated code
+- [ ] Notify seller of device code expiration timeline
+- [ ] Respond to checkout state changes
+- [ ] Set country/currency code to Square account's currency
+- [ ] Provide partner name and unique transaction ID in note parameter
+
+**Documentation:** https://developer.squareup.com/docs/terminal-api/overview
+
+---
+
+### FUTURE: Team API Requirements
+**Status:** Not Applicable (no Team management planned)
+**When Needed:** If adding employee/team member management features
+
+**Sync Direction Options:**
+- Bi-directional sync
+- One-way: Partner Platform → Square
+- One-way: Square → Partner Platform
+
+**Requirements (if implemented):**
+- [ ] Determine sync direction and document behavior
+- [ ] Handle team member create/update/delete operations
+- [ ] Sync wage information (if applicable)
+- [ ] Handle location assignments
+- [ ] Maintain data consistency between systems
+
+**Documentation:** https://developer.squareup.com/docs/team-api/overview
+
+---
+
+### FUTURE: Subscriptions API Requirements
+**Status:** Not Applicable (no subscription features planned)
+**When Needed:** If adding recurring billing/subscription features
+
+**Conditional Requirements:**
+If using invoice webhooks for subscription payments:
+- [ ] Track successful subscription payments via webhooks
+- [ ] Track failed subscription payments via webhooks
+
+**Core Requirements (if implemented):**
+- [ ] Disable/hide subscriptions tied to disabled SubscriptionPlanVariation catalog objects
+- [ ] Only associate subscriptions with customer profiles that have valid email
+- [ ] Display current subscription state (PENDING, ACTIVE, CANCELED) to buyers
+- [ ] Do NOT allow adding, removing, or reordering subscription phases
+- [ ] Ensure phases in SubscriptionPlanVariation match ordinals/phases in SubscriptionPlan
+- [ ] Provide customers ability to cancel subscription
+- [ ] Provide customers ability to continue a pending canceled subscription
+- [ ] Allow customers to add/remove card on file for subscription
+
+**Documentation:** https://developer.squareup.com/docs/subscriptions-api/overview
+
+---
+
 ## Resources
 
 - [Square App Marketplace Guidelines](https://developer.squareup.com/docs/app-marketplace/requirements)
