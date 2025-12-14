@@ -2602,7 +2602,8 @@ app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
 /**
  * POST /api/gmc/brands/auto-detect
  * Auto-detect brands from item names for items missing brand assignments
- * Matches the first part of item names against the provided brand list
+ * Matches item names against the provided master brand list only
+ * Handles multi-word brands (e.g., "Blue Buffalo", "Taste of the Wild")
  */
 app.post('/api/gmc/brands/auto-detect', async (req, res) => {
     try {
@@ -2612,19 +2613,36 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
             return res.status(400).json({ error: 'brands array required (list of brand names)' });
         }
 
-        // Ensure all brands exist in our brands table
-        for (const brandName of brandList) {
-            if (brandName && typeof brandName === 'string' && brandName.trim()) {
-                await db.query(
-                    'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-                    [brandName.trim()]
-                );
-            }
+        // Clean and normalize the master brand list
+        const cleanedBrands = brandList
+            .filter(b => b && typeof b === 'string' && b.trim())
+            .map(b => b.trim());
+
+        if (cleanedBrands.length === 0) {
+            return res.status(400).json({ error: 'No valid brand names provided' });
         }
 
-        // Get all brands from DB with their IDs
-        const brandsResult = await db.query('SELECT id, name FROM brands ORDER BY LENGTH(name) DESC');
-        const brandsMap = new Map(brandsResult.rows.map(b => [b.name.toLowerCase(), b]));
+        // Ensure all brands exist in our brands table
+        for (const brandName of cleanedBrands) {
+            await db.query(
+                'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+                [brandName]
+            );
+        }
+
+        // Get the brands from the master list with their DB IDs
+        // Sort by length DESC so longer brand names match first (e.g., "Blue Buffalo" before "Blue")
+        const brandsResult = await db.query(
+            `SELECT id, name FROM brands WHERE name = ANY($1) ORDER BY LENGTH(name) DESC`,
+            [cleanedBrands]
+        );
+
+        // Build matching structures - use lowercase for case-insensitive matching
+        const masterBrands = brandsResult.rows.map(b => ({
+            id: b.id,
+            name: b.name,
+            nameLower: b.name.toLowerCase()
+        }));
 
         // Get items without brand assignments
         const itemsResult = await db.query(`
@@ -2643,15 +2661,18 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
             const itemNameLower = item.name.toLowerCase();
             let matchedBrand = null;
 
-            // Try to match brand from the beginning of the item name
-            // Sort brands by length (longest first) to match most specific brand
-            for (const [brandNameLower, brand] of brandsMap) {
-                if (itemNameLower.startsWith(brandNameLower + ' ') ||
-                    itemNameLower.startsWith(brandNameLower + '-') ||
-                    itemNameLower.startsWith(brandNameLower + '_') ||
-                    itemNameLower === brandNameLower) {
+            // Try to match brand from the provided master list
+            // Check if item name STARTS WITH the brand name (handles multi-word brands)
+            for (const brand of masterBrands) {
+                // Check various separators after brand name, or exact match
+                if (itemNameLower.startsWith(brand.nameLower + ' ') ||
+                    itemNameLower.startsWith(brand.nameLower + '-') ||
+                    itemNameLower.startsWith(brand.nameLower + '_') ||
+                    itemNameLower.startsWith(brand.nameLower + ':') ||
+                    itemNameLower.startsWith(brand.nameLower + ',') ||
+                    itemNameLower === brand.nameLower) {
                     matchedBrand = brand;
-                    break;
+                    break;  // Stop at first match (longest brands checked first)
                 }
             }
 
@@ -2675,12 +2696,12 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
 
         res.json({
             success: true,
+            master_brands_provided: cleanedBrands.length,
             total_items_without_brand: itemsResult.rows.length,
             detected_count: detectedMatches.length,
             no_match_count: noMatch.length,
             detected: detectedMatches,
-            no_match: noMatch,
-            brands_in_db: brandsResult.rows.length
+            no_match: noMatch
         });
     } catch (error) {
         logger.error('Brand auto-detect error', { error: error.message, stack: error.stack });
