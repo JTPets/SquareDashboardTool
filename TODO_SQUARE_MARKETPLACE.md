@@ -171,7 +171,7 @@ This document tracks items that need to be addressed before submitting to the Sq
 - [x] Configure support email in production (JTPets@JTPets.ca)
 - [x] Add support link/email to app footer (public/index.html)
 - [x] Create support documentation page (public/support.html)
-- [ ] Set up support email monitoring (external task)
+- [x] Set up support email monitoring (mobile push notifications)
 
 ---
 
