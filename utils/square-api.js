@@ -1158,6 +1158,13 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
         // Build the update request - use simple prefix to avoid collision with old cached keys
         const idempotencyKey = generateIdempotencyKey('inv-alert-v2');
 
+        logger.info('Generated idempotency key for alert threshold update', {
+            idempotencyKey,
+            catalogObjectId,
+            locationId,
+            version: currentObject.version
+        });
+
         const updateBody = {
             idempotency_key: idempotencyKey,
             object: {
