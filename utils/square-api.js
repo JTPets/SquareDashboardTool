@@ -1434,6 +1434,173 @@ async function fullSync() {
     }
 }
 
+/**
+ * Fix location mismatches by setting items and variations to present_at_all_locations = true
+ * This resolves issues where variations are enabled at different locations than their parent items
+ * @returns {Promise<Object>} Summary of fixes applied
+ */
+async function fixLocationMismatches() {
+    logger.info('Starting location mismatch fix');
+
+    const summary = {
+        success: true,
+        itemsFixed: 0,
+        variationsFixed: 0,
+        errors: [],
+        details: []
+    };
+
+    try {
+        // Fetch all catalog items with their variations
+        let cursor = null;
+        const itemsToFix = [];
+        const variationsToFix = [];
+
+        do {
+            const params = new URLSearchParams({
+                types: 'ITEM,ITEM_VARIATION'
+            });
+            if (cursor) {
+                params.append('cursor', cursor);
+            }
+
+            const data = await makeSquareRequest(`/v2/catalog/list?${params.toString()}`);
+            const objects = data.objects || [];
+
+            for (const obj of objects) {
+                // Check if not present at all locations
+                if (!obj.present_at_all_locations) {
+                    if (obj.type === 'ITEM') {
+                        itemsToFix.push({
+                            id: obj.id,
+                            version: obj.version,
+                            type: 'ITEM',
+                            name: obj.item_data?.name || 'Unknown',
+                            present_at_location_ids: obj.present_at_location_ids || []
+                        });
+                    } else if (obj.type === 'ITEM_VARIATION') {
+                        variationsToFix.push({
+                            id: obj.id,
+                            version: obj.version,
+                            type: 'ITEM_VARIATION',
+                            name: obj.item_variation_data?.name || 'Unknown',
+                            sku: obj.item_variation_data?.sku || '',
+                            item_id: obj.item_variation_data?.item_id,
+                            present_at_location_ids: obj.present_at_location_ids || []
+                        });
+                    }
+                }
+            }
+
+            cursor = data.cursor;
+        } while (cursor);
+
+        logger.info('Found items/variations not at all locations', {
+            itemsCount: itemsToFix.length,
+            variationsCount: variationsToFix.length
+        });
+
+        // Process in batches of 100 (Square's batch limit)
+        const allObjectsToFix = [...itemsToFix, ...variationsToFix];
+        const batchSize = 100;
+
+        for (let i = 0; i < allObjectsToFix.length; i += batchSize) {
+            const batch = allObjectsToFix.slice(i, i + batchSize);
+
+            const batches = batch.map(obj => ({
+                object: {
+                    type: obj.type,
+                    id: obj.id,
+                    version: obj.version,
+                    present_at_all_locations: true
+                }
+            }));
+
+            const idempotencyKey = generateIdempotencyKey('fix-locations-batch');
+
+            try {
+                const response = await makeSquareRequest('/v2/catalog/batch-upsert', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        idempotency_key: idempotencyKey,
+                        batches: [{ objects: batches.map(b => b.object) }]
+                    })
+                });
+
+                const updatedCount = response.objects?.length || 0;
+
+                for (const obj of batch) {
+                    if (obj.type === 'ITEM') {
+                        summary.itemsFixed++;
+                        summary.details.push({
+                            type: 'ITEM',
+                            id: obj.id,
+                            name: obj.name,
+                            status: 'fixed'
+                        });
+                    } else {
+                        summary.variationsFixed++;
+                        summary.details.push({
+                            type: 'ITEM_VARIATION',
+                            id: obj.id,
+                            name: obj.name,
+                            sku: obj.sku,
+                            status: 'fixed'
+                        });
+                    }
+                }
+
+                logger.info('Batch updated successfully', {
+                    batchNumber: Math.floor(i / batchSize) + 1,
+                    objectsInBatch: batch.length,
+                    updatedCount
+                });
+
+            } catch (batchError) {
+                logger.error('Batch update failed', {
+                    batchNumber: Math.floor(i / batchSize) + 1,
+                    error: batchError.message
+                });
+                summary.errors.push(`Batch ${Math.floor(i / batchSize) + 1} failed: ${batchError.message}`);
+
+                for (const obj of batch) {
+                    summary.details.push({
+                        type: obj.type,
+                        id: obj.id,
+                        name: obj.name,
+                        sku: obj.sku || '',
+                        status: 'failed',
+                        error: batchError.message
+                    });
+                }
+            }
+
+            // Small delay between batches to avoid rate limiting
+            if (i + batchSize < allObjectsToFix.length) {
+                await sleep(500);
+            }
+        }
+
+        logger.info('Location mismatch fix complete', {
+            itemsFixed: summary.itemsFixed,
+            variationsFixed: summary.variationsFixed,
+            errors: summary.errors.length
+        });
+
+        if (summary.errors.length > 0) {
+            summary.success = false;
+        }
+
+        return summary;
+
+    } catch (error) {
+        logger.error('Location mismatch fix failed', { error: error.message, stack: error.stack });
+        summary.success = false;
+        summary.errors.push(error.message);
+        return summary;
+    }
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -1444,5 +1611,6 @@ module.exports = {
     fullSync,
     getSquareInventoryCount,
     setSquareInventoryCount,
-    setSquareInventoryAlertThreshold
+    setSquareInventoryAlertThreshold,
+    fixLocationMismatches
 };
