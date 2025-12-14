@@ -169,6 +169,31 @@
     .velocity-slow { color: #6b7280; }
     .velocity-none { color: #ef4444; font-style: italic; }
 
+    /* Expiry styling */
+    .expiry-warning {
+      background-color: #fef2f2 !important;
+      border-left: 3px solid #dc2626;
+    }
+    .expiry-critical { color: #dc2626; font-weight: 600; }
+    .expiry-soon { color: #f59e0b; font-weight: 600; }
+    .expiry-ok { color: #6b7280; }
+    .expiry-none { color: #9ca3af; font-style: italic; }
+    .expiry-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .expiry-badge.critical {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .expiry-badge.warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
     .secondary-vendor {
       background-color: #fff3cd !important;
       border-left: 3px solid #ffc107;
@@ -437,6 +462,9 @@
             <th onclick="sortTable('days_until_stockout')" class="sortable text-right">
               Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
             </th>
+            <th onclick="sortTable('days_until_expiry')" class="sortable text-right" title="Expiration date - highlighted if within 120 days">
+              Expiry <span class="sort-indicator" id="sort-days_until_expiry"></span>
+            </th>
             <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
               Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
             </th>
@@ -462,7 +490,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="16" class="loading">Loading suggestions...</td>
+            <td colspan="17" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -561,7 +589,7 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="16" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="17" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -577,7 +605,7 @@
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="16" class="empty-state">
+              <td colspan="17" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -599,7 +627,7 @@
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="16" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="17" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -710,8 +738,32 @@
              <div class="no-image" style="display:none;">📦</div>`
           : `<div class="no-image">📦</div>`;
 
+        // Expiration date handling
+        const expiresWithin120Days = item.days_until_expiry !== null && item.days_until_expiry <= 120;
+        const expiryRowClass = expiresWithin120Days ? 'expiry-warning' : '';
+        let expiryHtml = '';
+        if (item.does_not_expire) {
+          expiryHtml = '<span class="expiry-none">Never</span>';
+        } else if (item.expiration_date) {
+          const expiryDate = new Date(item.expiration_date);
+          const formattedDate = expiryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const daysLeft = item.days_until_expiry;
+          if (daysLeft !== null && daysLeft <= 30) {
+            expiryHtml = `<span class="expiry-badge critical" title="${daysLeft} days until expiry">${formattedDate}</span>`;
+          } else if (daysLeft !== null && daysLeft <= 120) {
+            expiryHtml = `<span class="expiry-badge warning" title="${daysLeft} days until expiry">${formattedDate}</span>`;
+          } else {
+            expiryHtml = `<span class="expiry-ok">${formattedDate}</span>`;
+          }
+        } else {
+          expiryHtml = '<span class="expiry-none">-</span>';
+        }
+
+        // Combine row classes
+        let combinedRowClass = [rowClass, expiryRowClass].filter(c => c).join(' ');
+
         return `
-          <tr class="${isSelected ? 'selected' : ''} ${rowClass}" data-id="${item.variation_id}">
+          <tr class="${isSelected ? 'selected' : ''} ${combinedRowClass}" data-id="${item.variation_id}">
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
@@ -747,6 +799,7 @@
               </div>
             </td>
             <td class="text-right ${daysClass}">${daysText}</td>
+            <td class="text-right">${expiryHtml}</td>
             <td class="text-right"><small>${velocityText}</small></td>
             <td class="text-right editable-cell">
               <input type="number"
@@ -1001,6 +1054,7 @@
           case 'current_stock':
           case 'stock_alert_min':
           case 'days_until_stockout':
+          case 'days_until_expiry':
           case 'daily_avg_quantity':
           case 'weekly_avg_91d':
           case 'weekly_avg_182d':
@@ -1010,8 +1064,14 @@
           case 'unit_cost_cents':
           case 'order_cost':
             // Numeric comparison (handle null/undefined)
-            aVal = parseFloat(aVal) || 0;
-            bVal = parseFloat(bVal) || 0;
+            // For expiry, null means no expiration set - sort to end
+            if (field === 'days_until_expiry') {
+              aVal = aVal === null ? 99999 : parseFloat(aVal);
+              bVal = bVal === null ? 99999 : parseFloat(bVal);
+            } else {
+              aVal = parseFloat(aVal) || 0;
+              bVal = parseFloat(bVal) || 0;
+            }
             break;
         }
 
