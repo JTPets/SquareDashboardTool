@@ -2933,6 +2933,190 @@ app.get('/api/vendor-catalog/stats', async (req, res) => {
 });
 
 /**
+ * GET /api/vendor-catalog/price-differences
+ * Get items with price differences between vendor SRP and our catalog
+ */
+app.get('/api/vendor-catalog/price-differences', async (req, res) => {
+    try {
+        const { batch_id } = req.query;
+
+        // Query to find matched items where vendor price differs from our price
+        let query = `
+            SELECT
+                vc.id,
+                vc.vendor_name,
+                vc.product_name,
+                vc.vendor_item_number,
+                vc.upc,
+                vc.cost_cents as vendor_cost_cents,
+                vc.price_cents as vendor_srp_cents,
+                vc.matched_variation_id,
+                vc.match_method,
+                vc.import_batch_id,
+                v.sku as our_sku,
+                v.name as our_variation_name,
+                i.name as our_item_name,
+                v.price_money as our_price_cents
+            FROM vendor_catalog_items vc
+            JOIN item_variations v ON v.id = vc.matched_variation_id
+            JOIN items i ON i.id = v.item_id
+            WHERE vc.matched_variation_id IS NOT NULL
+              AND vc.price_cents IS NOT NULL
+              AND v.price_money IS NOT NULL
+              AND vc.price_cents != v.price_money
+              AND vc.is_archived = false
+        `;
+
+        const params = [];
+        if (batch_id) {
+            params.push(batch_id);
+            query += ` AND vc.import_batch_id = $${params.length}`;
+        }
+
+        query += ' ORDER BY ABS(vc.price_cents - v.price_money) DESC LIMIT 500';
+
+        const result = await db.query(query, params);
+
+        // Calculate price differences
+        const differences = result.rows.map(row => ({
+            ...row,
+            price_diff_cents: row.vendor_srp_cents - row.our_price_cents,
+            price_diff_percent: ((row.vendor_srp_cents - row.our_price_cents) / row.our_price_cents * 100)
+        }));
+
+        // Get list of batches for filter
+        const batchesResult = await db.query(`
+            SELECT DISTINCT
+                vc.import_batch_id,
+                vc.vendor_name,
+                MAX(vc.created_at) as imported_at,
+                (SELECT import_name FROM vendor_catalog_items WHERE import_batch_id = vc.import_batch_id LIMIT 1) as import_name
+            FROM vendor_catalog_items vc
+            WHERE vc.matched_variation_id IS NOT NULL
+              AND vc.price_cents IS NOT NULL
+              AND vc.is_archived = false
+            GROUP BY vc.import_batch_id, vc.vendor_name
+            ORDER BY imported_at DESC
+            LIMIT 20
+        `);
+
+        res.json({
+            success: true,
+            differences,
+            batches: batchesResult.rows
+        });
+
+    } catch (error) {
+        logger.error('Get price differences error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/vendor-catalog/push-prices
+ * Push selected price updates to Square
+ */
+app.post('/api/vendor-catalog/push-prices', async (req, res) => {
+    try {
+        const { updates } = req.body;
+
+        if (!updates || !Array.isArray(updates) || updates.length === 0) {
+            return res.status(400).json({ success: false, error: 'No updates provided' });
+        }
+
+        logger.info('Pushing price updates to Square', { count: updates.length });
+
+        let updated = 0;
+        let failed = 0;
+        const errors = [];
+
+        // Process in batches of 100 (Square API limit)
+        const batchSize = 100;
+        for (let i = 0; i < updates.length; i += batchSize) {
+            const batch = updates.slice(i, i + batchSize);
+
+            // Build batch upsert request
+            const objects = [];
+
+            for (const update of batch) {
+                if (!update.variation_id || !update.new_price_cents) {
+                    errors.push({ sku: update.our_sku, error: 'Missing variation_id or new_price_cents' });
+                    failed++;
+                    continue;
+                }
+
+                // Get current variation data from database
+                const variationResult = await db.query(
+                    'SELECT id, item_id, version FROM item_variations WHERE id = $1',
+                    [update.variation_id]
+                );
+
+                if (variationResult.rows.length === 0) {
+                    errors.push({ sku: update.our_sku, error: 'Variation not found' });
+                    failed++;
+                    continue;
+                }
+
+                const variation = variationResult.rows[0];
+
+                objects.push({
+                    type: 'ITEM_VARIATION',
+                    id: update.variation_id,
+                    version: variation.version,
+                    item_variation_data: {
+                        item_id: variation.item_id,
+                        pricing_type: 'FIXED_PRICING',
+                        price_money: {
+                            amount: update.new_price_cents,
+                            currency: 'CAD'
+                        }
+                    }
+                });
+            }
+
+            if (objects.length === 0) continue;
+
+            // Call Square API to update prices
+            try {
+                const squareResponse = await squareApi.batchUpsertCatalog(objects);
+
+                if (squareResponse.success) {
+                    updated += objects.length;
+
+                    // Update local database with new prices
+                    for (const obj of objects) {
+                        await db.query(
+                            'UPDATE item_variations SET price_money = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [obj.item_variation_data.price_money.amount, obj.id]
+                        );
+                    }
+                } else {
+                    failed += objects.length;
+                    errors.push({ batch: Math.floor(i / batchSize), error: squareResponse.error });
+                }
+            } catch (squareError) {
+                failed += objects.length;
+                errors.push({ batch: Math.floor(i / batchSize), error: squareError.message });
+                logger.error('Square batch upsert error', { error: squareError.message });
+            }
+        }
+
+        logger.info('Price push complete', { updated, failed });
+
+        res.json({
+            success: true,
+            updated,
+            failed,
+            errors: errors.length > 0 ? errors : undefined
+        });
+
+    } catch (error) {
+        logger.error('Push prices error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * GET /api/locations
  * List all locations
  */

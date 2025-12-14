@@ -157,6 +157,20 @@ async function syncLocations() {
 }
 
 /**
+ * Get locations from Square (simple fetch, no sync)
+ * @returns {Promise<Array>} Array of locations
+ */
+async function getLocations() {
+    try {
+        const data = await makeSquareRequest('/v2/locations');
+        return data.locations || [];
+    } catch (error) {
+        logger.error('Failed to get locations', { error: error.message });
+        return [];
+    }
+}
+
+/**
  * Sync vendors from Square
  * @returns {Promise<number>} Number of vendors synced
  */
@@ -1209,6 +1223,67 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 }
 
 /**
+ * Batch upsert catalog objects in Square
+ * Used for updating prices, names, or other catalog properties
+ * @param {Array} objects - Array of catalog objects to upsert
+ * @returns {Promise<Object>} Result with success status
+ */
+async function batchUpsertCatalog(objects) {
+    logger.info('Batch upserting catalog objects', { count: objects.length });
+
+    try {
+        if (!objects || objects.length === 0) {
+            return { success: true, objects_count: 0 };
+        }
+
+        const idempotencyKey = generateIdempotencyKey('batch-upsert');
+
+        const requestBody = {
+            idempotency_key: idempotencyKey,
+            batches: [{
+                objects: objects
+            }]
+        };
+
+        const data = await makeSquareRequest('/v2/catalog/batch-upsert', {
+            method: 'POST',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (data.errors && data.errors.length > 0) {
+            logger.error('Square batch upsert had errors', { errors: data.errors });
+            return {
+                success: false,
+                error: data.errors.map(e => e.detail || e.code).join(', '),
+                errors: data.errors
+            };
+        }
+
+        logger.info('Batch upsert successful', {
+            objects_count: data.objects?.length || 0,
+            id_mappings_count: data.id_mappings?.length || 0
+        });
+
+        return {
+            success: true,
+            objects: data.objects,
+            id_mappings: data.id_mappings,
+            objects_count: data.objects?.length || 0
+        };
+
+    } catch (error) {
+        logger.error('Failed to batch upsert catalog', {
+            error: error.message,
+            stack: error.stack
+        });
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+/**
  * Sync committed inventory from open/unpaid invoices
  * This calculates quantities reserved for invoices that haven't been paid yet
  * @returns {Promise<number>} Number of committed inventory records synced
@@ -1644,6 +1719,7 @@ async function fixLocationMismatches() {
 
 module.exports = {
     syncLocations,
+    getLocations,
     syncVendors,
     syncCatalog,
     syncInventory,
@@ -1653,5 +1729,6 @@ module.exports = {
     getSquareInventoryCount,
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
+    batchUpsertCatalog,
     fixLocationMismatches
 };

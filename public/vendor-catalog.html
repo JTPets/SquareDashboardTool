@@ -666,6 +666,7 @@
     <!-- TABS -->
     <div class="tabs">
       <div class="tab active" data-tab="import">Import</div>
+      <div class="tab" data-tab="price-updates">Price Updates</div>
       <div class="tab" data-tab="lookup">Quick Lookup</div>
       <div class="tab" data-tab="browse">Browse Catalog</div>
       <div class="tab" data-tab="batches">Import History</div>
@@ -775,6 +776,100 @@
             <div id="result-content"></div>
           </div>
 
+        </div>
+      </div>
+
+      <!-- PRICE UPDATES TAB -->
+      <div class="tab-content" id="tab-price-updates">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+          <div>
+            <h3 style="color: #374151; margin-bottom: 5px;">Price Update Review</h3>
+            <p style="color: #6b7280; font-size: 14px;">Select items to update prices in Square. All items are unchecked by default.</p>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <select id="price-update-batch-filter" onchange="loadPriceUpdates()" style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;">
+              <option value="">All Recent Imports</option>
+            </select>
+            <button onclick="loadPriceUpdates()" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div id="price-update-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px;">
+          <div style="background: #fef3c7; padding: 15px; border-radius: 8px; text-align: center;">
+            <div style="font-size: 28px; font-weight: 700; color: #92400e;" id="pu-total">--</div>
+            <div style="font-size: 12px; color: #78350f; text-transform: uppercase;">Total Differences</div>
+          </div>
+          <div style="background: #dcfce7; padding: 15px; border-radius: 8px; text-align: center;">
+            <div style="font-size: 28px; font-weight: 700; color: #166534;" id="pu-increases">--</div>
+            <div style="font-size: 12px; color: #14532d; text-transform: uppercase;">Price Increases</div>
+          </div>
+          <div style="background: #fee2e2; padding: 15px; border-radius: 8px; text-align: center;">
+            <div style="font-size: 28px; font-weight: 700; color: #991b1b;" id="pu-decreases">--</div>
+            <div style="font-size: 12px; color: #7f1d1d; text-transform: uppercase;">Price Decreases</div>
+          </div>
+          <div style="background: #dbeafe; padding: 15px; border-radius: 8px; text-align: center;">
+            <div style="font-size: 28px; font-weight: 700; color: #1e40af;" id="pu-selected">0</div>
+            <div style="font-size: 12px; color: #1e3a8a; text-transform: uppercase;">Selected</div>
+          </div>
+        </div>
+
+        <!-- Selection Controls -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 12px; background: #f3f4f6; border-radius: 6px; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button onclick="selectAllPriceUpdates()" style="padding: 6px 12px; background: white; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 13px;">
+              Select All
+            </button>
+            <button onclick="selectNonePriceUpdates()" style="padding: 6px 12px; background: white; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 13px;">
+              Select None
+            </button>
+            <button onclick="selectIncreasesOnly()" style="padding: 6px 12px; background: #dcfce7; border: 1px solid #86efac; border-radius: 4px; cursor: pointer; font-size: 13px; color: #166534;">
+              Increases Only
+            </button>
+            <button onclick="selectDecreasesOnly()" style="padding: 6px 12px; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; cursor: pointer; font-size: 13px; color: #991b1b;">
+              Decreases Only
+            </button>
+          </div>
+          <div>
+            <button onclick="pushSelectedPrices()" id="push-prices-btn" style="padding: 10px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;" disabled>
+              Push Selected to Square (0)
+            </button>
+          </div>
+        </div>
+
+        <!-- Price Updates Table -->
+        <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+          <table id="price-updates-table">
+            <thead style="position: sticky; top: 0; z-index: 1;">
+              <tr>
+                <th style="width: 40px;">
+                  <input type="checkbox" id="select-all-checkbox" onchange="toggleAllPriceUpdates(this.checked)" title="Select/Deselect All">
+                </th>
+                <th>SKU</th>
+                <th>Item Name</th>
+                <th>UPC</th>
+                <th>Our Price</th>
+                <th>Vendor SRP</th>
+                <th>Difference</th>
+                <th>Vendor Cost</th>
+                <th>New Margin</th>
+              </tr>
+            </thead>
+            <tbody id="price-updates-body">
+              <tr><td colspan="9" class="loading">Select an import or click Refresh to load price differences...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Push Progress Modal -->
+        <div id="push-progress-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+          <div style="background: white; padding: 30px; border-radius: 8px; text-align: center; max-width: 400px; width: 90%;">
+            <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #e5e7eb; border-top-color: #7c3aed; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
+            <h4 style="color: #374151; margin-bottom: 10px;">Updating Prices in Square</h4>
+            <p id="push-progress-text" style="color: #6b7280;">Processing...</p>
+          </div>
         </div>
       </div>
 
@@ -1808,6 +1903,246 @@
       a.click();
       URL.revokeObjectURL(url);
     }
+
+    // ==================== PRICE UPDATES TAB ====================
+
+    let priceUpdatesData = [];
+    let selectedPriceUpdates = new Set();
+
+    // Load price updates from database
+    async function loadPriceUpdates() {
+      const tbody = document.getElementById('price-updates-body');
+      tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading price differences...</td></tr>';
+
+      const batchId = document.getElementById('price-update-batch-filter').value;
+
+      try {
+        const params = new URLSearchParams();
+        if (batchId) params.set('batch_id', batchId);
+
+        const response = await fetch('/api/vendor-catalog/price-differences?' + params.toString());
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to load price differences');
+        }
+
+        priceUpdatesData = data.differences || [];
+        selectedPriceUpdates.clear();
+
+        // Update summary stats
+        const increases = priceUpdatesData.filter(p => p.price_diff_cents > 0).length;
+        const decreases = priceUpdatesData.filter(p => p.price_diff_cents < 0).length;
+        document.getElementById('pu-total').textContent = priceUpdatesData.length;
+        document.getElementById('pu-increases').textContent = increases;
+        document.getElementById('pu-decreases').textContent = decreases;
+        document.getElementById('pu-selected').textContent = '0';
+
+        // Populate batch filter if not already done
+        if (data.batches && document.getElementById('price-update-batch-filter').options.length <= 1) {
+          const select = document.getElementById('price-update-batch-filter');
+          data.batches.forEach(batch => {
+            const option = document.createElement('option');
+            option.value = batch.import_batch_id;
+            option.textContent = `${batch.vendor_name} - ${batch.import_name || batch.imported_at.split('T')[0]}`;
+            select.appendChild(option);
+          });
+        }
+
+        if (priceUpdatesData.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No price differences found. Import a vendor catalog to compare prices.</td></tr>';
+          return;
+        }
+
+        // Render table
+        renderPriceUpdatesTable();
+
+      } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="9" class="error">Error: ${error.message}</td></tr>`;
+      }
+    }
+
+    // Render price updates table
+    function renderPriceUpdatesTable() {
+      const tbody = document.getElementById('price-updates-body');
+
+      tbody.innerHTML = priceUpdatesData.map((item, index) => {
+        const isIncrease = item.price_diff_cents > 0;
+        const diffClass = isIncrease ? 'increase' : 'decrease';
+        const diffSign = isIncrease ? '+' : '';
+        const rowBg = isIncrease ? 'background: #f0fdf4;' : 'background: #fef2f2;';
+
+        // Calculate new margin if we adopt vendor SRP
+        const newMargin = item.vendor_cost_cents && item.vendor_srp_cents
+          ? ((item.vendor_srp_cents - item.vendor_cost_cents) / item.vendor_srp_cents * 100).toFixed(1)
+          : null;
+
+        const isChecked = selectedPriceUpdates.has(index);
+
+        return `
+          <tr style="${rowBg}" data-index="${index}" data-action="${isIncrease ? 'increase' : 'decrease'}">
+            <td style="text-align: center;">
+              <input type="checkbox" class="price-update-checkbox" data-index="${index}"
+                     ${isChecked ? 'checked' : ''} onchange="togglePriceUpdate(${index}, this.checked)">
+            </td>
+            <td><code style="font-size: 12px;">${escapeHtml(item.our_sku || '-')}</code></td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.our_item_name || item.product_name)}">
+              ${escapeHtml(item.our_item_name || item.product_name)}
+            </td>
+            <td><code style="font-size: 11px;">${escapeHtml(item.upc || '-')}</code></td>
+            <td class="money">${formatMoney(item.our_price_cents)}</td>
+            <td class="money price">${formatMoney(item.vendor_srp_cents)}</td>
+            <td class="money ${diffClass}" style="font-weight: 600;">
+              ${diffSign}${formatMoney(item.price_diff_cents)}
+              <span style="font-size: 11px; font-weight: normal;">(${diffSign}${item.price_diff_percent.toFixed(1)}%)</span>
+            </td>
+            <td class="money cost">${formatMoney(item.vendor_cost_cents)}</td>
+            <td>${newMargin ? formatMargin(parseFloat(newMargin)) : '-'}</td>
+          </tr>
+        `;
+      }).join('');
+
+      updateSelectedCount();
+    }
+
+    // Toggle individual price update selection
+    function togglePriceUpdate(index, checked) {
+      if (checked) {
+        selectedPriceUpdates.add(index);
+      } else {
+        selectedPriceUpdates.delete(index);
+      }
+      updateSelectedCount();
+    }
+
+    // Toggle all price updates
+    function toggleAllPriceUpdates(checked) {
+      if (checked) {
+        priceUpdatesData.forEach((_, index) => selectedPriceUpdates.add(index));
+      } else {
+        selectedPriceUpdates.clear();
+      }
+      document.querySelectorAll('.price-update-checkbox').forEach(cb => cb.checked = checked);
+      updateSelectedCount();
+    }
+
+    // Select all
+    function selectAllPriceUpdates() {
+      document.getElementById('select-all-checkbox').checked = true;
+      toggleAllPriceUpdates(true);
+    }
+
+    // Select none
+    function selectNonePriceUpdates() {
+      document.getElementById('select-all-checkbox').checked = false;
+      toggleAllPriceUpdates(false);
+    }
+
+    // Select increases only
+    function selectIncreasesOnly() {
+      selectedPriceUpdates.clear();
+      document.querySelectorAll('.price-update-checkbox').forEach(cb => {
+        const row = cb.closest('tr');
+        const isIncrease = row.dataset.action === 'increase';
+        cb.checked = isIncrease;
+        if (isIncrease) {
+          selectedPriceUpdates.add(parseInt(cb.dataset.index));
+        }
+      });
+      document.getElementById('select-all-checkbox').checked = false;
+      updateSelectedCount();
+    }
+
+    // Select decreases only
+    function selectDecreasesOnly() {
+      selectedPriceUpdates.clear();
+      document.querySelectorAll('.price-update-checkbox').forEach(cb => {
+        const row = cb.closest('tr');
+        const isDecrease = row.dataset.action === 'decrease';
+        cb.checked = isDecrease;
+        if (isDecrease) {
+          selectedPriceUpdates.add(parseInt(cb.dataset.index));
+        }
+      });
+      document.getElementById('select-all-checkbox').checked = false;
+      updateSelectedCount();
+    }
+
+    // Update selected count display
+    function updateSelectedCount() {
+      const count = selectedPriceUpdates.size;
+      document.getElementById('pu-selected').textContent = count;
+
+      const btn = document.getElementById('push-prices-btn');
+      btn.textContent = `Push Selected to Square (${count})`;
+      btn.disabled = count === 0;
+    }
+
+    // Push selected prices to Square
+    async function pushSelectedPrices() {
+      if (selectedPriceUpdates.size === 0) {
+        alert('Please select at least one item to update');
+        return;
+      }
+
+      const selectedItems = Array.from(selectedPriceUpdates).map(index => priceUpdatesData[index]);
+
+      // Confirmation dialog
+      const increases = selectedItems.filter(p => p.price_diff_cents > 0).length;
+      const decreases = selectedItems.filter(p => p.price_diff_cents < 0).length;
+
+      const confirmMsg = `Are you sure you want to update ${selectedItems.length} prices in Square?\n\n` +
+        `• ${increases} price increase(s)\n` +
+        `• ${decreases} price decrease(s)\n\n` +
+        `This will update the prices in your Square catalog.`;
+
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      // Show progress modal
+      const modal = document.getElementById('push-progress-modal');
+      modal.style.display = 'flex';
+      document.getElementById('push-progress-text').textContent = `Processing 0 of ${selectedItems.length}...`;
+
+      try {
+        const response = await fetch('/api/vendor-catalog/push-prices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            updates: selectedItems.map(item => ({
+              variation_id: item.matched_variation_id,
+              new_price_cents: item.vendor_srp_cents,
+              our_sku: item.our_sku,
+              item_name: item.our_item_name || item.product_name
+            }))
+          })
+        });
+
+        const result = await response.json();
+        modal.style.display = 'none';
+
+        if (result.success) {
+          alert(`Successfully updated ${result.updated} prices in Square!\n\n` +
+            (result.failed > 0 ? `${result.failed} failed to update.` : ''));
+
+          // Clear selection and reload
+          selectedPriceUpdates.clear();
+          loadPriceUpdates();
+        } else {
+          alert('Error: ' + (result.error || 'Failed to update prices'));
+        }
+
+      } catch (error) {
+        modal.style.display = 'none';
+        alert('Error pushing prices: ' + error.message);
+      }
+    }
+
+    // Add handler for price-updates tab
+    document.querySelector('[data-tab="price-updates"]')?.addEventListener('click', () => {
+      loadPriceUpdates();
+    });
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
