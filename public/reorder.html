@@ -817,14 +817,6 @@
           return a.item_name.localeCompare(b.item_name);
         });
       }
-
-      // Sync filteredSuggestions with sorted data, respecting any active category filter
-      const categoryFilter = document.getElementById('category-select').value;
-      if (categoryFilter) {
-        filteredSuggestions = allSuggestions.filter(item => item.category_name === categoryFilter);
-      } else {
-        filteredSuggestions = [...allSuggestions];
-      }
     }
 
     function populateCategoryFilter() {
