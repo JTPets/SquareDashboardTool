@@ -2857,56 +2857,6 @@ app.post('/api/gmc/taxonomy/import', async (req, res) => {
 });
 
 /**
- * GET /api/gmc/taxonomy/fetch-google
- * Fetch and import Google's official taxonomy file
- */
-app.get('/api/gmc/taxonomy/fetch-google', async (req, res) => {
-    try {
-        const taxonomyUrl = 'https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt';
-
-        logger.info('Fetching Google taxonomy from official URL');
-
-        const response = await fetch(taxonomyUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch taxonomy: ${response.status} ${response.statusText}`);
-        }
-
-        const text = await response.text();
-        const lines = text.split('\n');
-
-        // Parse the taxonomy file
-        // Format: "1 - Animals & Pet Supplies" or with hierarchy "3237 - Animals & Pet Supplies > Pet Supplies"
-        const taxonomy = [];
-        for (const line of lines) {
-            // Skip empty lines and comments (first line is a comment)
-            if (!line.trim() || line.startsWith('#')) continue;
-
-            // Parse: "ID - Name"
-            const match = line.match(/^(\d+)\s+-\s+(.+)$/);
-            if (match) {
-                taxonomy.push({
-                    id: parseInt(match[1]),
-                    name: match[2].trim()
-                });
-            }
-        }
-
-        if (taxonomy.length === 0) {
-            throw new Error('No taxonomy entries found in file');
-        }
-
-        logger.info(`Parsed ${taxonomy.length} taxonomy entries, importing...`);
-
-        const imported = await gmcFeed.importGoogleTaxonomy(taxonomy);
-
-        res.json({ success: true, imported, total: taxonomy.length });
-    } catch (error) {
-        logger.error('GMC taxonomy fetch error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
  * PUT /api/gmc/categories/:categoryId/taxonomy
  * Map a Square category to a Google taxonomy
  */
@@ -3651,15 +3601,6 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 sv91.weekly_avg_quantity as weekly_avg_91d,
                 sv182.weekly_avg_quantity as weekly_avg_182d,
                 sv365.weekly_avg_quantity as weekly_avg_365d,
-                -- Expiration data
-                vexp.expiration_date,
-                vexp.does_not_expire,
-                CASE
-                    WHEN vexp.does_not_expire = TRUE THEN NULL
-                    WHEN vexp.expiration_date IS NOT NULL THEN
-                        EXTRACT(DAY FROM (vexp.expiration_date - CURRENT_DATE))::INTEGER
-                    ELSE NULL
-                END as days_until_expiry,
                 ve.name as vendor_name,
                 vv.vendor_code,
                 vv.vendor_id as current_vendor_id,
@@ -3734,7 +3675,6 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN locations l ON ic.location_id = l.id
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
                 AND ic.location_id = vls.location_id
-            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id
             WHERE v.discontinued = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
@@ -3936,11 +3876,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
                     images: row.images,  // Include images for URL resolution
-                    item_images: row.item_images,  // Include item images for fallback
-                    // Expiration data
-                    expiration_date: row.expiration_date,
-                    does_not_expire: row.does_not_expire || false,
-                    days_until_expiry: row.days_until_expiry
+                    item_images: row.item_images  // Include item images for fallback
                 };
             })
             .filter(item => item !== null);
