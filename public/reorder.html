@@ -1410,6 +1410,14 @@
         }
       });
 
+      // Re-apply category filter to update filteredSuggestions with sorted data
+      const categoryFilter = document.getElementById('category-select').value;
+      if (categoryFilter) {
+        filteredSuggestions = allSuggestions.filter(item => item.category_name === categoryFilter);
+      } else {
+        filteredSuggestions = [...allSuggestions];
+      }
+
       // Re-render table with sorted data
       renderTable();
       updateFooter();
