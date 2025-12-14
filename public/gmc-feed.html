@@ -564,15 +564,41 @@
     .btn-remove-mapping:hover { background: #b91c1c; }
     .category-stats {
       display: flex;
-      gap: 20px;
+      gap: 10px;
       padding: 10px 15px;
       background: #f9fafb;
       border-bottom: 1px solid #e5e7eb;
       font-size: 13px;
     }
-    .category-stats span { color: #6b7280; }
+    .category-stats .stat-filter {
+      color: #6b7280;
+      cursor: pointer;
+      padding: 4px 10px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+    .category-stats .stat-filter:hover { background: #e5e7eb; }
+    .category-stats .stat-filter.active { background: #dbeafe; color: #1e40af; }
     .category-stats strong { color: #16a34a; }
     .category-stats .unmapped { color: #dc2626; }
+    .btn-import-taxonomy {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .btn-import-taxonomy:hover { background: #1d4ed8; }
+    .btn-import-taxonomy:disabled { opacity: 0.5; cursor: not-allowed; }
+    .taxonomy-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+    }
+    .taxonomy-empty p { margin: 10px 0; }
   </style>
 </head>
 <body>
@@ -714,9 +740,9 @@ Wellness"></textarea>
           <button class="modal-close" onclick="closeCategoryManager()">&times;</button>
         </div>
         <div class="category-stats">
-          <span>Total Categories: <strong id="cat-total-count">0</strong></span>
-          <span>Mapped: <strong id="cat-mapped-count">0</strong></span>
-          <span>Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
+          <span class="stat-filter active" id="filter-all" onclick="setCategoryFilter('all')">Total: <strong id="cat-total-count">0</strong></span>
+          <span class="stat-filter" id="filter-mapped" onclick="setCategoryFilter('mapped')">Mapped: <strong id="cat-mapped-count">0</strong></span>
+          <span class="stat-filter" id="filter-unmapped" onclick="setCategoryFilter('unmapped')">Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
         </div>
         <div class="modal-body">
           <div class="category-manager-grid">
@@ -732,9 +758,19 @@ Wellness"></textarea>
             <div class="taxonomy-panel">
               <div class="panel-header">
                 <span>Google Product Taxonomy</span>
-                <input type="text" id="taxonomy-search" placeholder="Search taxonomy..." oninput="filterTaxonomy()">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" id="taxonomy-search" placeholder="Search taxonomy..." oninput="filterTaxonomy()">
+                  <button class="btn-import-taxonomy" id="btn-import-taxonomy" onclick="importGoogleTaxonomy()" title="Import Google's official taxonomy">
+                    Import
+                  </button>
+                </div>
               </div>
-              <div class="panel-body" id="taxonomy-list"></div>
+              <div class="panel-body" id="taxonomy-list">
+                <div id="taxonomy-empty" class="taxonomy-empty" style="display: none;">
+                  <p>No taxonomy data loaded yet.</p>
+                  <p>Click "Import" to fetch Google's official product taxonomy (~5,600 categories).</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1360,15 +1396,29 @@ Wellness"></textarea>
     let filteredTaxonomy = [];
     let selectedCategory = null;
     let selectedTaxonomy = null;
+    let categoryStatusFilter = 'all'; // 'all', 'mapped', or 'unmapped'
 
     function openCategoryManager() {
       document.getElementById('category-modal').classList.add('active');
       document.getElementById('category-status-msg').textContent = 'Loading...';
       selectedCategory = null;
       selectedTaxonomy = null;
+      categoryStatusFilter = 'all';
+      // Reset filter UI
+      document.querySelectorAll('.category-stats .stat-filter').forEach(el => el.classList.remove('active'));
+      document.getElementById('filter-all').classList.add('active');
       updateCategoryButtons();
       loadCategoryMappings();
       loadGoogleTaxonomy();
+    }
+
+    function setCategoryFilter(filter) {
+      categoryStatusFilter = filter;
+      // Update UI
+      document.querySelectorAll('.category-stats .stat-filter').forEach(el => el.classList.remove('active'));
+      document.getElementById(`filter-${filter}`).classList.add('active');
+      // Re-filter with new status
+      filterCategories();
     }
 
     function closeCategoryManager() {
@@ -1437,8 +1487,45 @@ Wellness"></textarea>
         allTaxonomy = data.taxonomy || [];
         filteredTaxonomy = [...allTaxonomy];
         renderTaxonomy();
+
+        // Show empty state if no taxonomy loaded
+        const emptyState = document.getElementById('taxonomy-empty');
+        if (emptyState) {
+          emptyState.style.display = allTaxonomy.length === 0 ? 'block' : 'none';
+        }
       } catch (error) {
         console.error('Failed to load taxonomy:', error);
+      }
+    }
+
+    async function importGoogleTaxonomy() {
+      const btn = document.getElementById('btn-import-taxonomy');
+      const statusMsg = document.getElementById('category-status-msg');
+
+      if (!confirm('Import Google\'s official product taxonomy? This will fetch ~5,600 categories from Google.')) {
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Importing...';
+      statusMsg.textContent = 'Fetching Google taxonomy...';
+
+      try {
+        const response = await fetch('/api/gmc/taxonomy/fetch-google');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to import taxonomy');
+
+        statusMsg.textContent = `Imported ${data.imported} Google taxonomy categories!`;
+        btn.textContent = 'Import';
+        btn.disabled = false;
+
+        // Reload taxonomy
+        await loadGoogleTaxonomy();
+
+      } catch (error) {
+        statusMsg.textContent = 'Error: ' + error.message;
+        btn.textContent = 'Import';
+        btn.disabled = false;
       }
     }
 
@@ -1454,9 +1541,20 @@ Wellness"></textarea>
 
     function filterCategories() {
       const search = document.getElementById('category-search').value.toLowerCase();
-      filteredCategories = productCategories.filter(c =>
-        c.category_name.toLowerCase().includes(search)
-      );
+      filteredCategories = productCategories.filter(c => {
+        // Apply text search filter
+        if (search && !c.category_name.toLowerCase().includes(search)) {
+          return false;
+        }
+        // Apply status filter
+        if (categoryStatusFilter === 'mapped' && !c.google_taxonomy_id) {
+          return false;
+        }
+        if (categoryStatusFilter === 'unmapped' && c.google_taxonomy_id) {
+          return false;
+        }
+        return true;
+      });
       renderCategories();
     }
 
