@@ -582,13 +582,23 @@
     .taxonomy-empty p { margin: 10px 0; }
     .category-stats {
       display: flex;
-      gap: 20px;
+      gap: 10px;
       padding: 10px 15px;
       background: #f9fafb;
       border-bottom: 1px solid #e5e7eb;
       font-size: 13px;
     }
-    .category-stats span { color: #6b7280; }
+    .category-stats .stat-filter {
+      color: #6b7280;
+      cursor: pointer;
+      padding: 4px 10px;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+    .category-stats .stat-filter:hover { background: #e5e7eb; }
+    .category-stats .stat-filter.active { background: #dbeafe; color: #1d4ed8; }
+    .category-stats .stat-filter.active strong { color: #1d4ed8; }
+    .category-stats .stat-filter.active .unmapped { color: #1d4ed8; }
     .category-stats strong { color: #16a34a; }
     .category-stats .unmapped { color: #dc2626; }
   </style>
@@ -732,9 +742,9 @@ Wellness"></textarea>
           <button class="modal-close" onclick="closeCategoryManager()">&times;</button>
         </div>
         <div class="category-stats">
-          <span>Total Categories: <strong id="cat-total-count">0</strong></span>
-          <span>Mapped: <strong id="cat-mapped-count">0</strong></span>
-          <span>Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
+          <span class="stat-filter active" id="filter-all" onclick="setCategoryFilter('all')">Total: <strong id="cat-total-count">0</strong></span>
+          <span class="stat-filter" id="filter-mapped" onclick="setCategoryFilter('mapped')">Mapped: <strong id="cat-mapped-count">0</strong></span>
+          <span class="stat-filter" id="filter-unmapped" onclick="setCategoryFilter('unmapped')">Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
         </div>
         <div class="modal-body">
           <div class="category-manager-grid">
@@ -1388,15 +1398,31 @@ Wellness"></textarea>
     let filteredTaxonomy = [];
     let selectedCategory = null;
     let selectedTaxonomy = null;
+    let categoryStatusFilter = 'all'; // 'all', 'mapped', or 'unmapped'
 
     function openCategoryManager() {
       document.getElementById('category-modal').classList.add('active');
       document.getElementById('category-status-msg').textContent = 'Loading...';
       selectedCategory = null;
       selectedTaxonomy = null;
+      categoryStatusFilter = 'all';
+      document.getElementById('category-search').value = '';
+      updateCategoryFilterButtons();
       updateCategoryButtons();
       loadCategoryMappings();
       loadGoogleTaxonomy();
+    }
+
+    function setCategoryFilter(filter) {
+      categoryStatusFilter = filter;
+      updateCategoryFilterButtons();
+      filterCategories();
+    }
+
+    function updateCategoryFilterButtons() {
+      document.getElementById('filter-all').classList.toggle('active', categoryStatusFilter === 'all');
+      document.getElementById('filter-mapped').classList.toggle('active', categoryStatusFilter === 'mapped');
+      document.getElementById('filter-unmapped').classList.toggle('active', categoryStatusFilter === 'unmapped');
     }
 
     function closeCategoryManager() {
@@ -1527,9 +1553,20 @@ Wellness"></textarea>
 
     function filterCategories() {
       const search = document.getElementById('category-search').value.toLowerCase();
-      filteredCategories = productCategories.filter(c =>
-        c.category_name.toLowerCase().includes(search)
-      );
+      filteredCategories = productCategories.filter(c => {
+        // Apply text search filter
+        if (search && !c.category_name.toLowerCase().includes(search)) {
+          return false;
+        }
+        // Apply status filter
+        if (categoryStatusFilter === 'mapped' && !c.google_taxonomy_id) {
+          return false;
+        }
+        if (categoryStatusFilter === 'unmapped' && c.google_taxonomy_id) {
+          return false;
+        }
+        return true;
+      });
       renderCategories();
     }
 
