@@ -3651,6 +3651,15 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 sv91.weekly_avg_quantity as weekly_avg_91d,
                 sv182.weekly_avg_quantity as weekly_avg_182d,
                 sv365.weekly_avg_quantity as weekly_avg_365d,
+                -- Expiration data
+                vexp.expiration_date,
+                vexp.does_not_expire,
+                CASE
+                    WHEN vexp.does_not_expire = TRUE THEN NULL
+                    WHEN vexp.expiration_date IS NOT NULL THEN
+                        EXTRACT(DAY FROM (vexp.expiration_date - CURRENT_DATE))::INTEGER
+                    ELSE NULL
+                END as days_until_expiry,
                 ve.name as vendor_name,
                 vv.vendor_code,
                 vv.vendor_id as current_vendor_id,
@@ -3725,6 +3734,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
             LEFT JOIN locations l ON ic.location_id = l.id
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
                 AND ic.location_id = vls.location_id
+            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id
             WHERE v.discontinued = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
@@ -3926,7 +3936,11 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     lead_time_days: leadTime,
                     has_velocity: dailyAvg > 0,
                     images: row.images,  // Include images for URL resolution
-                    item_images: row.item_images  // Include item images for fallback
+                    item_images: row.item_images,  // Include item images for fallback
+                    // Expiration data
+                    expiration_date: row.expiration_date,
+                    does_not_expire: row.does_not_expire || false,
+                    days_until_expiry: row.days_until_expiry
                 };
             })
             .filter(item => item !== null);
