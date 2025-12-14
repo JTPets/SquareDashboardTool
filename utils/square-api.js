@@ -2127,6 +2127,257 @@ async function deleteCustomAttributeDefinition(definitionIdOrKey) {
     }
 }
 
+/**
+ * Update a single variation's price in Square
+ * @param {string} variationId - The variation ID
+ * @param {number} newPriceCents - The new price in cents
+ * @param {string} currency - Currency code (default: CAD)
+ * @returns {Promise<Object>} Result of the catalog update
+ */
+async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD') {
+    logger.info('Updating variation price in Square', { variationId, newPriceCents, currency });
+
+    try {
+        // First, retrieve the current catalog object to get its version and existing data
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`);
+
+        if (!retrieveData.object) {
+            throw new Error(`Catalog object not found: ${variationId}`);
+        }
+
+        const currentObject = retrieveData.object;
+
+        if (currentObject.type !== 'ITEM_VARIATION') {
+            throw new Error(`Object is not a variation: ${currentObject.type}`);
+        }
+
+        const currentVariationData = currentObject.item_variation_data || {};
+
+        // Update the price_money field
+        const updatedVariationData = {
+            ...currentVariationData,
+            price_money: {
+                amount: newPriceCents,
+                currency: currency
+            }
+        };
+
+        // Build the update request
+        const idempotencyKey = generateIdempotencyKey('price-update');
+
+        const updateBody = {
+            idempotency_key: idempotencyKey,
+            object: {
+                type: 'ITEM_VARIATION',
+                id: variationId,
+                version: currentObject.version,
+                item_variation_data: updatedVariationData
+            }
+        };
+
+        const data = await makeSquareRequest('/v2/catalog/object', {
+            method: 'POST',
+            body: JSON.stringify(updateBody)
+        });
+
+        logger.info('Variation price updated in Square', {
+            variationId,
+            oldPrice: currentVariationData.price_money?.amount,
+            newPrice: newPriceCents,
+            newVersion: data.catalog_object?.version
+        });
+
+        // Update local database to reflect the change
+        await db.query(`
+            UPDATE variations
+            SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3
+        `, [newPriceCents, currency, variationId]);
+
+        return {
+            success: true,
+            variationId,
+            oldPriceCents: currentVariationData.price_money?.amount,
+            newPriceCents,
+            catalog_object: data.catalog_object
+        };
+    } catch (error) {
+        logger.error('Failed to update variation price', {
+            variationId,
+            newPriceCents,
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
+
+/**
+ * Batch update variation prices in Square
+ * @param {Array<Object>} priceUpdates - Array of {variationId, newPriceCents, currency}
+ * @returns {Promise<Object>} Batch update result
+ */
+async function batchUpdateVariationPrices(priceUpdates) {
+    logger.info('Batch updating variation prices in Square', { count: priceUpdates.length });
+
+    const results = {
+        success: true,
+        updated: 0,
+        failed: 0,
+        errors: [],
+        details: []
+    };
+
+    // Process in batches of 100 (Square API limit)
+    const batchSize = 100;
+
+    for (let i = 0; i < priceUpdates.length; i += batchSize) {
+        const batch = priceUpdates.slice(i, i + batchSize);
+        const variationIds = batch.map(u => u.variationId);
+
+        try {
+            // Batch retrieve objects to get current versions
+            const retrieveData = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                method: 'POST',
+                body: JSON.stringify({
+                    object_ids: variationIds,
+                    include_related_objects: false
+                })
+            });
+
+            const objectMap = new Map();
+            for (const obj of (retrieveData.objects || [])) {
+                objectMap.set(obj.id, obj);
+            }
+
+            // Build batch update objects
+            const updateObjects = [];
+
+            for (const update of batch) {
+                const currentObject = objectMap.get(update.variationId);
+                if (!currentObject) {
+                    results.failed++;
+                    results.errors.push({ variationId: update.variationId, error: 'Object not found' });
+                    results.details.push({
+                        variationId: update.variationId,
+                        success: false,
+                        error: 'Object not found'
+                    });
+                    continue;
+                }
+
+                if (currentObject.type !== 'ITEM_VARIATION') {
+                    results.failed++;
+                    results.errors.push({ variationId: update.variationId, error: 'Not a variation' });
+                    results.details.push({
+                        variationId: update.variationId,
+                        success: false,
+                        error: 'Not a variation'
+                    });
+                    continue;
+                }
+
+                const currentVariationData = currentObject.item_variation_data || {};
+                const oldPrice = currentVariationData.price_money?.amount;
+
+                const updatedVariationData = {
+                    ...currentVariationData,
+                    price_money: {
+                        amount: update.newPriceCents,
+                        currency: update.currency || 'CAD'
+                    }
+                };
+
+                updateObjects.push({
+                    type: 'ITEM_VARIATION',
+                    id: update.variationId,
+                    version: currentObject.version,
+                    item_variation_data: updatedVariationData
+                });
+
+                results.details.push({
+                    variationId: update.variationId,
+                    oldPriceCents: oldPrice,
+                    newPriceCents: update.newPriceCents,
+                    pending: true
+                });
+            }
+
+            if (updateObjects.length === 0) continue;
+
+            // Batch upsert
+            const idempotencyKey = generateIdempotencyKey('price-batch');
+
+            const upsertData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+                method: 'POST',
+                body: JSON.stringify({
+                    idempotency_key: idempotencyKey,
+                    batches: [{ objects: updateObjects }]
+                })
+            });
+
+            const updatedCount = upsertData.objects?.length || 0;
+            results.updated += updatedCount;
+
+            // Update local database for successfully updated variations
+            for (const obj of updateObjects) {
+                const update = batch.find(u => u.variationId === obj.id);
+                if (update) {
+                    await db.query(`
+                        UPDATE variations
+                        SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $3
+                    `, [update.newPriceCents, update.currency || 'CAD', obj.id]);
+
+                    // Update the detail entry
+                    const detailEntry = results.details.find(d => d.variationId === obj.id);
+                    if (detailEntry) {
+                        detailEntry.success = true;
+                        delete detailEntry.pending;
+                    }
+                }
+            }
+
+            logger.info('Price batch updated successfully', {
+                batchNumber: Math.floor(i / batchSize) + 1,
+                objectsInBatch: updateObjects.length,
+                updatedCount
+            });
+
+        } catch (error) {
+            logger.error('Price batch update failed', {
+                batchNumber: Math.floor(i / batchSize) + 1,
+                error: error.message
+            });
+
+            for (const update of batch) {
+                const existingDetail = results.details.find(d => d.variationId === update.variationId);
+                if (existingDetail && existingDetail.pending) {
+                    existingDetail.success = false;
+                    existingDetail.error = error.message;
+                    delete existingDetail.pending;
+                    results.failed++;
+                }
+            }
+            results.errors.push({ batch: Math.floor(i / batchSize) + 1, error: error.message });
+        }
+
+        // Small delay between batches to avoid rate limiting
+        if (i + batchSize < priceUpdates.length) {
+            await sleep(200);
+        }
+    }
+
+    results.success = results.failed === 0;
+    logger.info('Batch price update complete', {
+        updated: results.updated,
+        failed: results.failed,
+        total: priceUpdates.length
+    });
+
+    return results;
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -2147,5 +2398,8 @@ module.exports = {
     initializeJTPetsCustomAttributes,
     pushCasePackToSquare,
     pushBrandsToSquare,
-    deleteCustomAttributeDefinition
+    deleteCustomAttributeDefinition,
+    // Price update functions
+    updateVariationPrice,
+    batchUpdateVariationPrices
 };
