@@ -1476,6 +1476,7 @@ async function fixLocationMismatches() {
                             version: obj.version,
                             type: 'ITEM',
                             name: obj.item_data?.name || 'Unknown',
+                            item_data: obj.item_data,  // Store full data for update
                             present_at_location_ids: obj.present_at_location_ids || []
                         });
                     } else if (obj.type === 'ITEM_VARIATION') {
@@ -1486,6 +1487,7 @@ async function fixLocationMismatches() {
                             name: obj.item_variation_data?.name || 'Unknown',
                             sku: obj.item_variation_data?.sku || '',
                             item_id: obj.item_variation_data?.item_id,
+                            item_variation_data: obj.item_variation_data,  // Store full data for update
                             present_at_location_ids: obj.present_at_location_ids || []
                         });
                     }
@@ -1507,14 +1509,24 @@ async function fixLocationMismatches() {
         for (let i = 0; i < allObjectsToFix.length; i += batchSize) {
             const batch = allObjectsToFix.slice(i, i + batchSize);
 
-            const batches = batch.map(obj => ({
-                object: {
+            // Build objects with required data fields
+            const objectsForBatch = batch.map(obj => {
+                const updateObj = {
                     type: obj.type,
                     id: obj.id,
                     version: obj.version,
                     present_at_all_locations: true
+                };
+
+                // Include required data field based on type
+                if (obj.type === 'ITEM' && obj.item_data) {
+                    updateObj.item_data = obj.item_data;
+                } else if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data) {
+                    updateObj.item_variation_data = obj.item_variation_data;
                 }
-            }));
+
+                return updateObj;
+            });
 
             const idempotencyKey = generateIdempotencyKey('fix-locations-batch');
 
@@ -1523,7 +1535,7 @@ async function fixLocationMismatches() {
                     method: 'POST',
                     body: JSON.stringify({
                         idempotency_key: idempotencyKey,
-                        batches: [{ objects: batches.map(b => b.object) }]
+                        batches: [{ objects: objectsForBatch }]
                     })
                 });
 
