@@ -1969,6 +1969,20 @@ async function initializeCustomAttributes() {
             description: 'Product brand name for Google Merchant Center and marketing',
             type: 'STRING',
             allowed_object_types: ['ITEM']
+        },
+        {
+            key: 'expiration_date',
+            name: 'Expiration Date',
+            description: 'Product expiration/best-by date for inventory management',
+            type: 'STRING',  // Store as YYYY-MM-DD string
+            allowed_object_types: ['ITEM_VARIATION']
+        },
+        {
+            key: 'does_not_expire',
+            name: 'Does Not Expire',
+            description: 'Flag indicating product does not have an expiration date',
+            type: 'BOOLEAN',
+            allowed_object_types: ['ITEM_VARIATION']
         }
     ];
 
@@ -2081,6 +2095,74 @@ async function pushBrandsToSquare() {
         return await batchUpdateCustomAttributeValues(updates);
     } catch (error) {
         logger.error('Failed to push brand assignments', { error: error.message });
+        throw error;
+    }
+}
+
+/**
+ * Push local expiration dates to Square for all variations
+ * @returns {Promise<Object>} Push result
+ */
+async function pushExpiryDatesToSquare() {
+    logger.info('Pushing expiry dates to Square');
+
+    try {
+        // Get all variations with expiration data
+        const result = await db.query(`
+            SELECT ve.variation_id, ve.expiration_date, ve.does_not_expire
+            FROM variation_expiration ve
+            JOIN variations v ON ve.variation_id = v.id
+            WHERE v.is_deleted = FALSE
+              AND (ve.expiration_date IS NOT NULL OR ve.does_not_expire = TRUE)
+        `);
+
+        if (result.rows.length === 0) {
+            logger.info('No expiry dates to push');
+            return { success: true, updated: 0, message: 'No expiry dates found' };
+        }
+
+        const updates = result.rows.map(row => {
+            const customAttributeValues = {};
+
+            // Add expiration_date if set
+            if (row.expiration_date) {
+                // Format date as YYYY-MM-DD string
+                const dateStr = new Date(row.expiration_date).toISOString().split('T')[0];
+                customAttributeValues.expiration_date = {
+                    string_value: dateStr
+                };
+            }
+
+            // Add does_not_expire flag
+            if (row.does_not_expire === true) {
+                customAttributeValues.does_not_expire = {
+                    boolean_value: true
+                };
+            } else if (row.does_not_expire === false && row.expiration_date) {
+                // Only set to false if there's an actual expiration date
+                customAttributeValues.does_not_expire = {
+                    boolean_value: false
+                };
+            }
+
+            return {
+                catalogObjectId: row.variation_id,
+                customAttributeValues
+            };
+        });
+
+        // Filter out any updates with empty customAttributeValues
+        const validUpdates = updates.filter(u => Object.keys(u.customAttributeValues).length > 0);
+
+        if (validUpdates.length === 0) {
+            logger.info('No valid expiry date updates to push');
+            return { success: true, updated: 0, message: 'No valid expiry dates to push' };
+        }
+
+        logger.info('Pushing expiry dates', { count: validUpdates.length });
+        return await batchUpdateCustomAttributeValues(validUpdates);
+    } catch (error) {
+        logger.error('Failed to push expiry dates', { error: error.message });
         throw error;
     }
 }
@@ -2531,6 +2613,7 @@ module.exports = {
     initializeCustomAttributes,
     pushCasePackToSquare,
     pushBrandsToSquare,
+    pushExpiryDatesToSquare,
     deleteCustomAttributeDefinition,
     // Price update functions
     updateVariationPrice,
