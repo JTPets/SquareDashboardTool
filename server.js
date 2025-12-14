@@ -2600,6 +2600,193 @@ app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
 });
 
 /**
+ * POST /api/gmc/brands/auto-detect
+ * Auto-detect brands from item names for items missing brand assignments
+ * Matches the first part of item names against the provided brand list
+ */
+app.post('/api/gmc/brands/auto-detect', async (req, res) => {
+    try {
+        const { brands: brandList } = req.body;
+
+        if (!brandList || !Array.isArray(brandList) || brandList.length === 0) {
+            return res.status(400).json({ error: 'brands array required (list of brand names)' });
+        }
+
+        // Ensure all brands exist in our brands table
+        for (const brandName of brandList) {
+            if (brandName && typeof brandName === 'string' && brandName.trim()) {
+                await db.query(
+                    'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+                    [brandName.trim()]
+                );
+            }
+        }
+
+        // Get all brands from DB with their IDs
+        const brandsResult = await db.query('SELECT id, name FROM brands ORDER BY LENGTH(name) DESC');
+        const brandsMap = new Map(brandsResult.rows.map(b => [b.name.toLowerCase(), b]));
+
+        // Get items without brand assignments
+        const itemsResult = await db.query(`
+            SELECT i.id, i.name, i.category_name
+            FROM items i
+            LEFT JOIN item_brands ib ON i.id = ib.item_id
+            WHERE ib.item_id IS NULL
+              AND i.is_deleted = FALSE
+            ORDER BY i.name
+        `);
+
+        const detectedMatches = [];
+        const noMatch = [];
+
+        for (const item of itemsResult.rows) {
+            const itemNameLower = item.name.toLowerCase();
+            let matchedBrand = null;
+
+            // Try to match brand from the beginning of the item name
+            // Sort brands by length (longest first) to match most specific brand
+            for (const [brandNameLower, brand] of brandsMap) {
+                if (itemNameLower.startsWith(brandNameLower + ' ') ||
+                    itemNameLower.startsWith(brandNameLower + '-') ||
+                    itemNameLower.startsWith(brandNameLower + '_') ||
+                    itemNameLower === brandNameLower) {
+                    matchedBrand = brand;
+                    break;
+                }
+            }
+
+            if (matchedBrand) {
+                detectedMatches.push({
+                    item_id: item.id,
+                    item_name: item.name,
+                    category: item.category_name,
+                    detected_brand_id: matchedBrand.id,
+                    detected_brand_name: matchedBrand.name,
+                    selected: true  // Default to selected for bulk update
+                });
+            } else {
+                noMatch.push({
+                    item_id: item.id,
+                    item_name: item.name,
+                    category: item.category_name
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            total_items_without_brand: itemsResult.rows.length,
+            detected_count: detectedMatches.length,
+            no_match_count: noMatch.length,
+            detected: detectedMatches,
+            no_match: noMatch,
+            brands_in_db: brandsResult.rows.length
+        });
+    } catch (error) {
+        logger.error('Brand auto-detect error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/brands/bulk-assign
+ * Bulk assign brands to items and sync to Square
+ * Expects array of {item_id, brand_id} objects
+ */
+app.post('/api/gmc/brands/bulk-assign', async (req, res) => {
+    try {
+        const { assignments } = req.body;
+
+        if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+            return res.status(400).json({ error: 'assignments array required (array of {item_id, brand_id})' });
+        }
+
+        const results = {
+            success: true,
+            assigned: 0,
+            synced_to_square: 0,
+            failed: 0,
+            errors: []
+        };
+
+        // Get brand names for Square sync
+        const brandIds = [...new Set(assignments.map(a => a.brand_id))];
+        const brandsResult = await db.query(
+            `SELECT id, name FROM brands WHERE id = ANY($1)`,
+            [brandIds]
+        );
+        const brandNamesMap = new Map(brandsResult.rows.map(b => [b.id, b.name]));
+
+        // Prepare Square batch updates
+        const squareUpdates = [];
+
+        for (const assignment of assignments) {
+            const { item_id, brand_id } = assignment;
+
+            if (!item_id || !brand_id) {
+                results.failed++;
+                results.errors.push({ item_id, error: 'Missing item_id or brand_id' });
+                continue;
+            }
+
+            try {
+                // Save to local database
+                await db.query(`
+                    INSERT INTO item_brands (item_id, brand_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+                `, [item_id, brand_id]);
+
+                results.assigned++;
+
+                // Prepare Square update
+                const brandName = brandNamesMap.get(brand_id);
+                if (brandName) {
+                    squareUpdates.push({
+                        catalogObjectId: item_id,
+                        customAttributeValues: {
+                            brand: { string_value: brandName }
+                        }
+                    });
+                }
+            } catch (error) {
+                results.failed++;
+                results.errors.push({ item_id, error: error.message });
+            }
+        }
+
+        // Batch sync to Square
+        if (squareUpdates.length > 0) {
+            try {
+                const squareResult = await squareApi.batchUpdateCustomAttributeValues(squareUpdates);
+                results.synced_to_square = squareResult.updated || 0;
+                results.square_sync = squareResult;
+
+                if (squareResult.errors && squareResult.errors.length > 0) {
+                    results.errors.push(...squareResult.errors.map(e => ({ type: 'square_sync', ...e })));
+                }
+            } catch (syncError) {
+                logger.error('Square batch sync failed', { error: syncError.message });
+                results.errors.push({ type: 'square_batch_sync', error: syncError.message });
+            }
+        }
+
+        results.success = results.failed === 0;
+
+        logger.info('Bulk brand assignment complete', {
+            assigned: results.assigned,
+            synced: results.synced_to_square,
+            failed: results.failed
+        });
+
+        res.json(results);
+    } catch (error) {
+        logger.error('Bulk brand assign error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/gmc/taxonomy
  * List Google taxonomy categories
  */
