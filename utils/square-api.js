@@ -2316,7 +2316,8 @@ async function batchUpdateVariationPrices(priceUpdates) {
                 })
             });
 
-            const updatedCount = upsertData.objects?.length || 0;
+            // Count only ITEM_VARIATION objects, not related parent items returned by API
+            const updatedCount = (upsertData.objects || []).filter(obj => obj.type === 'ITEM_VARIATION').length;
             results.updated += updatedCount;
 
             // Update local database for successfully updated variations
