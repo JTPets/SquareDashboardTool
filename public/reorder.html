@@ -83,7 +83,12 @@
       max-height: 65vh;
       overflow-y: auto;
     }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 14px;
+    }
     th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
     th {
       background: #f9fafb;
@@ -96,6 +101,14 @@
       letter-spacing: 0.5px;
       white-space: nowrap;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    thead th {
+      background: #f9fafb;
     }
     tr:hover { background: #f9fafb; }
     tr.selected { background: #dbeafe; }
