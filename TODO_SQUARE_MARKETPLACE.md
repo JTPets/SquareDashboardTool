@@ -406,6 +406,172 @@ If app uses Order Custom Attributes API:
 
 ---
 
+### FUTURE: Labor API Requirements
+**Status:** Not Applicable (no labor/shift management planned)
+**When Needed:** If adding employee shift tracking features
+
+**Conditional Requirements:**
+If app creates/updates labor shifts:
+- [ ] Implement shift creation flow
+- [ ] Handle shift modifications
+- [ ] Validate shift times and breaks
+
+If app reports shift data:
+- [ ] Display shift data accurately
+- [ ] Handle multiple team members
+- [ ] Support location filtering
+
+**Documentation:** https://developer.squareup.com/docs/labor-api/overview
+
+---
+
+### FUTURE: Gift Cards API Requirements
+**Status:** Not Applicable (no gift card features planned)
+**When Needed:** If adding gift card management features
+
+**Conditional Requirements:**
+If syncing gift card activities from Square:
+- [ ] Track gift card transactions
+- [ ] Display activity history accurately
+
+If allowing gift card purchases on platform:
+- [ ] Implement gift card creation flow
+- [ ] Handle gift card activation
+- [ ] Support gift card balance inquiries
+
+If using custom GANs (Gift Card Account Numbers):
+- [ ] Implement custom GAN generation
+- [ ] Validate GAN format requirements
+
+**Documentation:** https://developer.squareup.com/docs/gift-cards-api/overview
+
+---
+
+### FUTURE: Invoices API Requirements
+**Status:** Partial (reads invoices for committed inventory)
+**When Needed:** If creating invoices or handling invoice payments
+
+**Current State:** App reads open invoices to calculate committed inventory
+
+**Conditional Requirements:**
+If using Square catalog items:
+- [ ] Reference valid catalog item IDs
+- [ ] Handle catalog item updates/deletions
+
+If using ad hoc line items:
+- [ ] Properly format ad hoc item data
+- [ ] Include all required fields
+
+If subscribing to invoice webhooks:
+- [ ] Track successful invoice payments
+- [ ] Track failed invoice payments
+
+**Core Requirements (if creating invoices):**
+- [ ] Create customer profiles with given_name, family_name, email_address
+- [ ] Cancel invoices for deleted customers (unless valid reason to keep)
+- [ ] Assign customer ID to orders (creator and recipient can differ)
+- [ ] Gracefully handle sellers not on Invoices Plus
+- [ ] Provide all taxes, discounts, surcharges via CreateOrder/UpdateOrder
+
+**Documentation:** https://developer.squareup.com/docs/invoices-api/overview
+
+---
+
+### FUTURE: Customers API Requirements
+**Status:** Not Applicable (no customer management planned)
+**When Needed:** If adding customer management features
+
+**Conditional Requirements:**
+If using Card on File:
+- [ ] Securely store card references
+- [ ] Handle card expiration/updates
+- [ ] Support card removal
+
+If creating/updating customers in Square:
+- [ ] Validate customer data before sync
+- [ ] Handle duplicate detection
+- [ ] Support customer merging
+
+If importing customers from Square:
+- [ ] Paginate through all customers
+- [ ] Handle customer updates
+- [ ] Respect data privacy requirements
+
+If using Customer Custom Attributes:
+- [ ] Create custom attribute definitions
+- [ ] Read/write attribute values
+- [ ] Handle visibility settings
+
+If using Customer Groups:
+- [ ] Create/manage groups
+- [ ] Assign customers to groups
+- [ ] Handle group membership changes
+
+If using Customer Segments:
+- [ ] Display segment data
+- [ ] Handle segment updates
+- [ ] Support filtering by segment
+
+**Documentation:** https://developer.squareup.com/docs/customers-api/overview
+
+---
+
+### CURRENT: Catalog and Inventory API Requirements
+**Status:** Implemented (one-way sync: Square → App)
+**Priority:** Review for marketplace compliance
+
+**Current Implementation:**
+- Sync direction: One-way (Square → Partner Platform)
+- Uses Catalog Custom Attributes API: YES (case_pack_quantity, brand)
+- Uses Inventory API: YES (read-only inventory counts)
+
+**Sync Direction Requirements (Square → Partner):**
+- [x] App syncs catalog data from Square
+- [x] Handle catalog updates gracefully
+- [x] Support pagination for large catalogs
+- [ ] Handle catalog item deletions (soft delete implemented)
+
+**Custom Attributes Requirements:**
+- [x] Create custom attribute definitions (case_pack_quantity, brand)
+- [x] Read custom attribute values
+- [x] Write custom attribute values back to Square
+- [ ] Handle attribute definition changes gracefully
+
+**Inventory API Requirements:**
+- [x] Sync inventory counts from Square
+- [x] Handle multi-location inventory
+- [x] Support inventory alerts/thresholds
+- [ ] Handle inventory adjustments (not implemented - read-only)
+
+**Documentation:** https://developer.squareup.com/docs/catalog-api/overview
+
+---
+
+### FUTURE: Bookings API Requirements
+**Status:** Not Applicable (no appointment booking planned)
+**When Needed:** If adding appointment/booking features
+
+**Conditional Requirements:**
+If using Booking Custom Attributes:
+- [ ] Create custom attribute definitions
+- [ ] Read/write attribute values
+
+**Core Requirements (if implemented):**
+- [ ] Filter by available services
+- [ ] Filter by available team members
+- [ ] Filter by Square location (multi-location)
+- [ ] Handle <24 hour search range gracefully (or notify of limitation)
+- [ ] Handle >31 day search range gracefully (or notify of limitation)
+- [ ] Surface booking fees accurately
+- [ ] Create and save bookings on platform
+- [ ] Allow bookings to be edited by time
+- [ ] Allow bookings to be canceled by customers
+- [ ] Allow bookings to be canceled by sellers
+
+**Documentation:** https://developer.squareup.com/docs/bookings-api/overview
+
+---
+
 ## Resources
 
 - [Square App Marketplace Guidelines](https://developer.squareup.com/docs/app-marketplace/requirements)
