@@ -410,6 +410,111 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // ==================== SUBSCRIPTION TABLES ====================
+
+    // Check if subscribers table exists
+    const subscribersCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'subscribers'
+    `);
+
+    if (subscribersCheck.rows.length === 0) {
+        logger.info('Creating subscription tables...');
+
+        // 1. Subscribers table
+        await query(`
+            CREATE TABLE IF NOT EXISTS subscribers (
+                id SERIAL PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                business_name TEXT,
+                square_customer_id TEXT UNIQUE,
+                square_subscription_id TEXT UNIQUE,
+                subscription_status TEXT DEFAULT 'trial',
+                subscription_plan TEXT DEFAULT 'monthly',
+                price_cents INTEGER NOT NULL DEFAULT 999,
+                trial_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                trial_end_date TIMESTAMP,
+                subscription_start_date TIMESTAMP,
+                subscription_end_date TIMESTAMP,
+                next_billing_date TIMESTAMP,
+                canceled_at TIMESTAMP,
+                card_brand TEXT,
+                card_last_four TEXT,
+                card_id TEXT,
+                is_intro_pricing BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(subscription_status)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscribers_square_customer ON subscribers(square_customer_id)');
+
+        // 2. Subscription payments table
+        await query(`
+            CREATE TABLE IF NOT EXISTS subscription_payments (
+                id SERIAL PRIMARY KEY,
+                subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+                square_payment_id TEXT UNIQUE,
+                square_invoice_id TEXT,
+                amount_cents INTEGER NOT NULL,
+                currency TEXT DEFAULT 'CAD',
+                status TEXT NOT NULL,
+                payment_type TEXT DEFAULT 'subscription',
+                billing_period_start TIMESTAMP,
+                billing_period_end TIMESTAMP,
+                refund_amount_cents INTEGER,
+                refund_reason TEXT,
+                refunded_at TIMESTAMP,
+                receipt_url TEXT,
+                failure_reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscriber ON subscription_payments(subscriber_id)');
+
+        // 3. Subscription events table
+        await query(`
+            CREATE TABLE IF NOT EXISTS subscription_events (
+                id SERIAL PRIMARY KEY,
+                subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE SET NULL,
+                event_type TEXT NOT NULL,
+                event_data JSONB,
+                square_event_id TEXT,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id)');
+
+        // 4. Subscription plans table
+        await query(`
+            CREATE TABLE IF NOT EXISTS subscription_plans (
+                id SERIAL PRIMARY KEY,
+                plan_key TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT,
+                price_cents INTEGER NOT NULL,
+                billing_frequency TEXT NOT NULL,
+                square_plan_id TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                is_intro_pricing BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Insert default plans (intro pricing)
+        await query(`
+            INSERT INTO subscription_plans (plan_key, name, description, price_cents, billing_frequency, is_intro_pricing) VALUES
+                ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing!', 999, 'MONTHLY', TRUE),
+                ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $20/year!', 9999, 'ANNUAL', TRUE)
+            ON CONFLICT (plan_key) DO NOTHING
+        `);
+
+        logger.info('Created subscription tables with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subscription Expired - Square Dashboard Addon Tool</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 50px;
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    .icon {
+      width: 80px;
+      height: 80px;
+      background: #fef3c7;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 25px;
+      font-size: 40px;
+    }
+
+    h1 {
+      font-size: 28px;
+      color: #1f2937;
+      margin-bottom: 15px;
+    }
+
+    p {
+      color: #6b7280;
+      font-size: 16px;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+
+    .status-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 25px 0;
+    }
+
+    .status-box h3 {
+      color: #991b1b;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .status-box p {
+      color: #7f1d1d;
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 15px 40px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      margin: 10px;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .btn-secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .support-link {
+      margin-top: 30px;
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .support-link a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .support-link a:hover {
+      text-decoration: underline;
+    }
+
+    .features-reminder {
+      text-align: left;
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+
+    .features-reminder h4 {
+      color: #374151;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .features-reminder li {
+      color: #4b5563;
+      font-size: 13px;
+      padding: 4px 0;
+      list-style: none;
+    }
+
+    .features-reminder li::before {
+      content: "✓ ";
+      color: #10b981;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">⏰</div>
+
+    <h1>Subscription Expired</h1>
+    <p>Your subscription to Square Dashboard Addon Tool has expired. Renew now to continue accessing your inventory management tools.</p>
+
+    <div class="status-box">
+      <h3>Account Status: Expired</h3>
+      <p>Your data is safe! Renew your subscription to pick up where you left off.</p>
+    </div>
+
+    <div class="features-reminder">
+      <h4>What you're missing:</h4>
+      <ul>
+        <li>Automated reorder suggestions</li>
+        <li>Sales velocity analytics</li>
+        <li>Purchase order management</li>
+        <li>Inventory sync with Square</li>
+        <li>Email notifications</li>
+      </ul>
+    </div>
+
+    <a href="/subscribe.html" class="btn btn-primary">Renew Subscription</a>
+    <a href="/support.html" class="btn btn-secondary">Contact Support</a>
+
+    <div class="support-link">
+      <p>Questions? <a href="mailto:JTPets@JTPets.ca">Contact us</a></p>
+    </div>
+  </div>
+</body>
+</html>

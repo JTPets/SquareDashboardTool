@@ -13,6 +13,8 @@ const db = require('./utils/database');
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
+const subscriptionHandler = require('./utils/subscription-handler');
+const { subscriptionCheck } = require('./middleware/subscription-check');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('./utils/csv-helpers');
 
 const app = express();
@@ -32,6 +34,13 @@ app.use((req, res, next) => {
     logger.info('API request', { method: req.method, path: req.path });
     next();
 });
+
+// Subscription check middleware (enable in production)
+// Set SUBSCRIPTION_CHECK_ENABLED=true in .env to enforce subscription validation
+if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
+    logger.info('Subscription check middleware enabled');
+    app.use(subscriptionCheck);
+}
 
 // ==================== HEALTH & STATUS ====================
 
@@ -6206,6 +6215,498 @@ app.get('/api/database/info', async (req, res) => {
             error: 'Failed to get database info',
             message: error.message
         });
+    }
+});
+
+// ==================== SUBSCRIPTIONS & PAYMENTS ====================
+
+/**
+ * GET /api/square/payment-config
+ * Get Square application ID for Web Payments SDK
+ */
+app.get('/api/square/payment-config', (req, res) => {
+    res.json({
+        applicationId: process.env.SQUARE_APPLICATION_ID || null,
+        locationId: process.env.SQUARE_LOCATION_ID || null,
+        environment: process.env.SQUARE_ENVIRONMENT || 'sandbox'
+    });
+});
+
+/**
+ * GET /api/subscriptions/plans
+ * Get available subscription plans
+ */
+app.get('/api/subscriptions/plans', async (req, res) => {
+    try {
+        const plans = await subscriptionHandler.getPlans();
+        res.json({
+            success: true,
+            plans,
+            trialDays: subscriptionHandler.TRIAL_DAYS
+        });
+    } catch (error) {
+        logger.error('Get plans error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/subscriptions/create
+ * Create a new subscription with payment
+ */
+app.post('/api/subscriptions/create', async (req, res) => {
+    try {
+        const { email, businessName, plan, sourceId } = req.body;
+
+        if (!email || !plan || !sourceId) {
+            return res.status(400).json({ error: 'Email, plan, and payment source are required' });
+        }
+
+        // Check if subscriber already exists
+        const existing = await subscriptionHandler.getSubscriberByEmail(email);
+        if (existing) {
+            return res.status(400).json({ error: 'An account with this email already exists' });
+        }
+
+        // Get plan pricing
+        const plans = await subscriptionHandler.getPlans();
+        const selectedPlan = plans.find(p => p.plan_key === plan);
+        if (!selectedPlan) {
+            return res.status(400).json({ error: 'Invalid plan selected' });
+        }
+
+        // Create customer in Square
+        let squareCustomerId = null;
+        let cardId = null;
+        let cardBrand = null;
+        let cardLastFour = null;
+
+        try {
+            // Create Square customer
+            const customerResponse = await squareApi.makeSquareRequest('/v2/customers', {
+                method: 'POST',
+                body: JSON.stringify({
+                    email_address: email,
+                    company_name: businessName || undefined,
+                    idempotency_key: `customer-${email}-${Date.now()}`
+                })
+            });
+
+            if (customerResponse.customer) {
+                squareCustomerId = customerResponse.customer.id;
+
+                // Create card on file
+                const cardResponse = await squareApi.makeSquareRequest(`/v2/cards`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        source_id: sourceId,
+                        idempotency_key: `card-${email}-${Date.now()}`,
+                        card: {
+                            customer_id: squareCustomerId
+                        }
+                    })
+                });
+
+                if (cardResponse.card) {
+                    cardId = cardResponse.card.id;
+                    cardBrand = cardResponse.card.card_brand;
+                    cardLastFour = cardResponse.card.last_4;
+                }
+            }
+        } catch (squareError) {
+            logger.error('Square customer/card creation failed', { error: squareError.message });
+            // Continue anyway - we can create customer later
+        }
+
+        // Create subscriber in database
+        const subscriber = await subscriptionHandler.createSubscriber({
+            email: email.toLowerCase(),
+            businessName,
+            plan,
+            squareCustomerId,
+            cardBrand,
+            cardLastFour,
+            cardId
+        });
+
+        // Process initial payment
+        let paymentResult = null;
+        if (squareCustomerId && cardId) {
+            try {
+                const paymentResponse = await squareApi.makeSquareRequest('/v2/payments', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        source_id: cardId,
+                        idempotency_key: `payment-${subscriber.id}-${Date.now()}`,
+                        amount_money: {
+                            amount: selectedPlan.price_cents,
+                            currency: 'CAD'
+                        },
+                        customer_id: squareCustomerId,
+                        note: `Square Dashboard Addon - ${selectedPlan.name} (30-day trial, fully refundable)`
+                    })
+                });
+
+                if (paymentResponse.payment) {
+                    paymentResult = paymentResponse.payment;
+
+                    // Record payment
+                    await subscriptionHandler.recordPayment({
+                        subscriberId: subscriber.id,
+                        squarePaymentId: paymentResult.id,
+                        amountCents: selectedPlan.price_cents,
+                        currency: 'CAD',
+                        status: paymentResult.status === 'COMPLETED' ? 'completed' : 'pending',
+                        paymentType: 'subscription',
+                        receiptUrl: paymentResult.receipt_url
+                    });
+
+                    // Log event
+                    await subscriptionHandler.logEvent({
+                        subscriberId: subscriber.id,
+                        eventType: 'subscription.created',
+                        eventData: { plan, amount: selectedPlan.price_cents, payment_id: paymentResult.id }
+                    });
+                }
+            } catch (paymentError) {
+                logger.error('Payment processing failed', { error: paymentError.message });
+                // Don't fail the subscription - it's in trial anyway
+            }
+        }
+
+        logger.info('Subscription created', {
+            subscriberId: subscriber.id,
+            email: subscriber.email,
+            plan,
+            paymentStatus: paymentResult?.status || 'no_payment'
+        });
+
+        res.json({
+            success: true,
+            subscriber: {
+                id: subscriber.id,
+                email: subscriber.email,
+                plan: subscriber.subscription_plan,
+                status: subscriber.subscription_status,
+                trialEndDate: subscriber.trial_end_date
+            },
+            payment: paymentResult ? {
+                status: paymentResult.status,
+                receiptUrl: paymentResult.receipt_url
+            } : null
+        });
+
+    } catch (error) {
+        logger.error('Create subscription error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/subscriptions/status
+ * Check subscription status for an email
+ */
+app.get('/api/subscriptions/status', async (req, res) => {
+    try {
+        const { email } = req.query;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        const status = await subscriptionHandler.checkSubscriptionStatus(email);
+        res.json(status);
+
+    } catch (error) {
+        logger.error('Check subscription status error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/subscriptions/cancel
+ * Cancel a subscription
+ */
+app.post('/api/subscriptions/cancel', async (req, res) => {
+    try {
+        const { email, reason } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        const subscriber = await subscriptionHandler.getSubscriberByEmail(email);
+        if (!subscriber) {
+            return res.status(404).json({ error: 'Subscriber not found' });
+        }
+
+        const updated = await subscriptionHandler.cancelSubscription(subscriber.id, reason);
+
+        // Log event
+        await subscriptionHandler.logEvent({
+            subscriberId: subscriber.id,
+            eventType: 'subscription.canceled',
+            eventData: { reason }
+        });
+
+        res.json({
+            success: true,
+            subscriber: updated
+        });
+
+    } catch (error) {
+        logger.error('Cancel subscription error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/subscriptions/refund
+ * Process a refund for a subscription payment
+ */
+app.post('/api/subscriptions/refund', async (req, res) => {
+    try {
+        const { email, reason } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        const subscriber = await subscriptionHandler.getSubscriberByEmail(email);
+        if (!subscriber) {
+            return res.status(404).json({ error: 'Subscriber not found' });
+        }
+
+        // Get the most recent payment
+        const payments = await subscriptionHandler.getPaymentHistory(subscriber.id);
+        const lastPayment = payments.find(p => p.status === 'completed' && !p.refunded_at);
+
+        if (!lastPayment) {
+            return res.status(400).json({ error: 'No refundable payment found' });
+        }
+
+        // Process refund in Square
+        let squareRefund = null;
+        if (lastPayment.square_payment_id) {
+            try {
+                const refundResponse = await squareApi.makeSquareRequest('/v2/refunds', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        idempotency_key: `refund-${lastPayment.id}-${Date.now()}`,
+                        payment_id: lastPayment.square_payment_id,
+                        amount_money: {
+                            amount: lastPayment.amount_cents,
+                            currency: lastPayment.currency
+                        },
+                        reason: reason || '30-day trial refund'
+                    })
+                });
+
+                squareRefund = refundResponse.refund;
+            } catch (refundError) {
+                logger.error('Square refund failed', { error: refundError.message });
+                return res.status(500).json({ error: 'Refund processing failed: ' + refundError.message });
+            }
+        }
+
+        // Update payment record
+        await subscriptionHandler.processRefund(lastPayment.id, lastPayment.amount_cents, reason || '30-day trial refund');
+
+        // Cancel subscription
+        await subscriptionHandler.cancelSubscription(subscriber.id, 'Refunded');
+
+        // Log event
+        await subscriptionHandler.logEvent({
+            subscriberId: subscriber.id,
+            eventType: 'payment.refunded',
+            eventData: { payment_id: lastPayment.id, amount: lastPayment.amount_cents, reason }
+        });
+
+        res.json({
+            success: true,
+            refund: squareRefund,
+            message: 'Refund processed successfully'
+        });
+
+    } catch (error) {
+        logger.error('Process refund error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/subscriptions/admin/list
+ * Get all subscribers (admin endpoint)
+ */
+app.get('/api/subscriptions/admin/list', async (req, res) => {
+    try {
+        const { status } = req.query;
+        const subscribers = await subscriptionHandler.getAllSubscribers({ status });
+        const stats = await subscriptionHandler.getSubscriptionStats();
+
+        res.json({
+            success: true,
+            count: subscribers.length,
+            subscribers,
+            stats
+        });
+
+    } catch (error) {
+        logger.error('List subscribers error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/webhooks/square
+ * Handle Square webhook events (subscriptions, payments)
+ */
+app.post('/api/webhooks/square', async (req, res) => {
+    try {
+        const signature = req.headers['x-square-hmacsha256-signature'];
+        const event = req.body;
+
+        // Verify webhook signature if configured
+        if (process.env.SQUARE_WEBHOOK_SIGNATURE_KEY) {
+            const crypto = require('crypto');
+            const notificationUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+            const payload = JSON.stringify(req.body);
+            const hmac = crypto.createHmac('sha256', process.env.SQUARE_WEBHOOK_SIGNATURE_KEY);
+            hmac.update(notificationUrl + payload);
+            const expectedSignature = hmac.digest('base64');
+
+            if (signature !== expectedSignature) {
+                logger.warn('Invalid webhook signature', { received: signature });
+                return res.status(401).json({ error: 'Invalid signature' });
+            }
+        }
+
+        logger.info('Square webhook received', {
+            eventType: event.type,
+            eventId: event.event_id
+        });
+
+        let subscriberId = null;
+        const data = event.data?.object || {};
+
+        // Handle different event types
+        switch (event.type) {
+            case 'subscription.created':
+                // New subscription created
+                if (data.subscription) {
+                    const sub = data.subscription;
+                    const subscriber = await subscriptionHandler.getSubscriberBySquareSubscriptionId(sub.id);
+                    if (subscriber) {
+                        subscriberId = subscriber.id;
+                        await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'active');
+                        logger.info('Subscription activated via webhook', { subscriberId: subscriber.id });
+                    }
+                }
+                break;
+
+            case 'subscription.updated':
+                // Subscription status changed
+                if (data.subscription) {
+                    const sub = data.subscription;
+                    const subscriber = await subscriptionHandler.getSubscriberBySquareSubscriptionId(sub.id);
+                    if (subscriber) {
+                        subscriberId = subscriber.id;
+                        // Map Square status to our status
+                        const statusMap = {
+                            'ACTIVE': 'active',
+                            'CANCELED': 'canceled',
+                            'DEACTIVATED': 'expired',
+                            'PAUSED': 'past_due',
+                            'PENDING': 'trial'
+                        };
+                        const newStatus = statusMap[sub.status] || 'active';
+                        await subscriptionHandler.updateSubscriberStatus(subscriber.id, newStatus);
+                        logger.info('Subscription status updated via webhook', {
+                            subscriberId: subscriber.id,
+                            newStatus,
+                            squareStatus: sub.status
+                        });
+                    }
+                }
+                break;
+
+            case 'invoice.payment_made':
+                // Successful payment - ensure subscription is active
+                if (data.invoice) {
+                    const invoice = data.invoice;
+                    const customerId = invoice.primary_recipient?.customer_id;
+                    if (customerId) {
+                        const subscriber = await subscriptionHandler.getSubscriberBySquareCustomerId(customerId);
+                        if (subscriber) {
+                            subscriberId = subscriber.id;
+                            await subscriptionHandler.activateSubscription(subscriber.id);
+                            await subscriptionHandler.recordPayment({
+                                subscriberId: subscriber.id,
+                                squarePaymentId: invoice.payment_requests?.[0]?.computed_amount_money ? null : invoice.id,
+                                squareInvoiceId: invoice.id,
+                                amountCents: invoice.payment_requests?.[0]?.computed_amount_money?.amount || 0,
+                                status: 'completed',
+                                paymentType: 'subscription'
+                            });
+                            logger.info('Payment recorded via webhook', { subscriberId: subscriber.id });
+                        }
+                    }
+                }
+                break;
+
+            case 'invoice.payment_failed':
+                // Failed payment - mark subscription as past_due
+                if (data.invoice) {
+                    const invoice = data.invoice;
+                    const customerId = invoice.primary_recipient?.customer_id;
+                    if (customerId) {
+                        const subscriber = await subscriptionHandler.getSubscriberBySquareCustomerId(customerId);
+                        if (subscriber) {
+                            subscriberId = subscriber.id;
+                            await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'past_due');
+                            await subscriptionHandler.recordPayment({
+                                subscriberId: subscriber.id,
+                                squareInvoiceId: invoice.id,
+                                amountCents: invoice.payment_requests?.[0]?.computed_amount_money?.amount || 0,
+                                status: 'failed',
+                                paymentType: 'subscription',
+                                failureReason: 'Payment failed'
+                            });
+                            logger.warn('Payment failed via webhook', { subscriberId: subscriber.id });
+                        }
+                    }
+                }
+                break;
+
+            case 'customer.deleted':
+                // Customer deleted from Square - mark subscription as canceled
+                if (data.customer) {
+                    const subscriber = await subscriptionHandler.getSubscriberBySquareCustomerId(data.customer.id);
+                    if (subscriber) {
+                        subscriberId = subscriber.id;
+                        await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'canceled');
+                        logger.info('Customer deleted via webhook', { subscriberId: subscriber.id });
+                    }
+                }
+                break;
+
+            default:
+                logger.info('Unhandled webhook event type', { type: event.type });
+        }
+
+        // Log the event
+        await subscriptionHandler.logEvent({
+            subscriberId,
+            eventType: event.type,
+            eventData: event.data,
+            squareEventId: event.event_id
+        });
+
+        res.json({ received: true });
+
+    } catch (error) {
+        logger.error('Webhook processing error', { error: error.message });
+        res.status(500).json({ error: error.message });
     }
 });
 
