@@ -2106,6 +2106,23 @@ app.post('/api/square/custom-attributes/definition', async (req, res) => {
 });
 
 /**
+ * DELETE /api/square/custom-attributes/definition/:key
+ * Delete a custom attribute definition by key or ID
+ * WARNING: This also deletes all values using this definition
+ */
+app.delete('/api/square/custom-attributes/definition/:key', async (req, res) => {
+    try {
+        const { key } = req.params;
+        logger.info('Deleting custom attribute definition', { key });
+        const result = await squareApi.deleteCustomAttributeDefinition(key);
+        res.json(result);
+    } catch (error) {
+        logger.error('Delete custom attribute definition error', { error: error.message, key: req.params.key });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * PUT /api/square/custom-attributes/:objectId
  * Update custom attribute values on a single catalog object (item or variation)
  */

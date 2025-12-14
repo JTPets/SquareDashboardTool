@@ -2085,6 +2085,48 @@ async function pushBrandsToSquare() {
     }
 }
 
+/**
+ * Delete a custom attribute definition from Square
+ * WARNING: This also deletes all custom attribute values using this definition
+ * @param {string} definitionIdOrKey - The definition ID or key
+ * @returns {Promise<Object>} Deletion result
+ */
+async function deleteCustomAttributeDefinition(definitionIdOrKey) {
+    logger.info('Deleting custom attribute definition', { definitionIdOrKey });
+
+    try {
+        let definitionId = definitionIdOrKey;
+
+        // If it looks like a key (no hyphens/typical Square ID format), look it up
+        if (!definitionIdOrKey.includes('-') && definitionIdOrKey.length < 30) {
+            const definitions = await listCustomAttributeDefinitions();
+            const found = definitions.find(d => d.key === definitionIdOrKey);
+            if (!found) {
+                throw new Error(`Custom attribute definition not found with key: ${definitionIdOrKey}`);
+            }
+            definitionId = found.id;
+            logger.info('Found definition ID for key', { key: definitionIdOrKey, id: definitionId });
+        }
+
+        const data = await makeSquareRequest(`/v2/catalog/object/${definitionId}`, {
+            method: 'DELETE'
+        });
+
+        logger.info('Custom attribute definition deleted', { definitionId });
+
+        return {
+            success: true,
+            deleted_object_ids: data.deleted_object_ids || [definitionId]
+        };
+    } catch (error) {
+        logger.error('Failed to delete custom attribute definition', {
+            definitionIdOrKey,
+            error: error.message
+        });
+        throw error;
+    }
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -2104,5 +2146,6 @@ module.exports = {
     batchUpdateCustomAttributeValues,
     initializeJTPetsCustomAttributes,
     pushCasePackToSquare,
-    pushBrandsToSquare
+    pushBrandsToSquare,
+    deleteCustomAttributeDefinition
 };
