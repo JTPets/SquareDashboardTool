@@ -1468,8 +1468,12 @@ async function fixLocationMismatches() {
             const objects = data.objects || [];
 
             for (const obj of objects) {
-                // Check if not present at all locations
-                if (!obj.present_at_all_locations) {
+                // Check if has any location-specific settings that need clearing
+                const hasLocationRestrictions = !obj.present_at_all_locations ||
+                    (obj.present_at_location_ids && obj.present_at_location_ids.length > 0) ||
+                    (obj.absent_at_location_ids && obj.absent_at_location_ids.length > 0);
+
+                if (hasLocationRestrictions) {
                     if (obj.type === 'ITEM') {
                         itemsToFix.push({
                             id: obj.id,
@@ -1477,7 +1481,8 @@ async function fixLocationMismatches() {
                             type: 'ITEM',
                             name: obj.item_data?.name || 'Unknown',
                             item_data: obj.item_data,  // Store full data for update
-                            present_at_location_ids: obj.present_at_location_ids || []
+                            present_at_location_ids: obj.present_at_location_ids || [],
+                            absent_at_location_ids: obj.absent_at_location_ids || []
                         });
                     } else if (obj.type === 'ITEM_VARIATION') {
                         variationsToFix.push({
@@ -1488,7 +1493,8 @@ async function fixLocationMismatches() {
                             sku: obj.item_variation_data?.sku || '',
                             item_id: obj.item_variation_data?.item_id,
                             item_variation_data: obj.item_variation_data,  // Store full data for update
-                            present_at_location_ids: obj.present_at_location_ids || []
+                            present_at_location_ids: obj.present_at_location_ids || [],
+                            absent_at_location_ids: obj.absent_at_location_ids || []
                         });
                     }
                 }
@@ -1497,7 +1503,7 @@ async function fixLocationMismatches() {
             cursor = data.cursor;
         } while (cursor);
 
-        logger.info('Found items/variations not at all locations', {
+        logger.info('Found items/variations with location restrictions to clear', {
             itemsCount: itemsToFix.length,
             variationsCount: variationsToFix.length
         });
@@ -1509,13 +1515,15 @@ async function fixLocationMismatches() {
         for (let i = 0; i < allObjectsToFix.length; i += batchSize) {
             const batch = allObjectsToFix.slice(i, i + batchSize);
 
-            // Build objects with required data fields
+            // Build objects with required data fields - clear all location restrictions
             const objectsForBatch = batch.map(obj => {
                 const updateObj = {
                     type: obj.type,
                     id: obj.id,
                     version: obj.version,
-                    present_at_all_locations: true
+                    present_at_all_locations: true,
+                    present_at_location_ids: [],  // Clear specific location IDs
+                    absent_at_location_ids: []    // Clear absent location IDs
                 };
 
                 // Include required data field based on type
