@@ -2539,25 +2539,60 @@ app.post('/api/gmc/brands', async (req, res) => {
 /**
  * PUT /api/gmc/items/:itemId/brand
  * Assign a brand to an item
+ * Automatically syncs brand to Square custom attribute
  */
 app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
     try {
         const { itemId } = req.params;
         const { brand_id } = req.body;
 
+        let squareSyncResult = null;
+        let brandName = null;
+
         if (!brand_id) {
             // Remove brand assignment
             await db.query('DELETE FROM item_brands WHERE item_id = $1', [itemId]);
-            return res.json({ success: true, message: 'Brand removed from item' });
+
+            // Also remove from Square (set to empty string)
+            try {
+                squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
+                    brand: { string_value: '' }
+                });
+                logger.info('Brand removed from Square', { item_id: itemId });
+            } catch (syncError) {
+                logger.error('Failed to remove brand from Square', { item_id: itemId, error: syncError.message });
+                squareSyncResult = { success: false, error: syncError.message };
+            }
+
+            return res.json({ success: true, message: 'Brand removed from item', square_sync: squareSyncResult });
         }
 
+        // Get brand name for Square sync
+        const brandResult = await db.query('SELECT name FROM brands WHERE id = $1', [brand_id]);
+        if (brandResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Brand not found' });
+        }
+        brandName = brandResult.rows[0].name;
+
+        // Save to local database
         await db.query(`
             INSERT INTO item_brands (item_id, brand_id)
             VALUES ($1, $2)
             ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
         `, [itemId, brand_id]);
 
-        res.json({ success: true });
+        // Auto-sync brand to Square
+        try {
+            squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
+                brand: { string_value: brandName }
+            });
+            logger.info('Brand synced to Square', { item_id: itemId, brand: brandName });
+        } catch (syncError) {
+            logger.error('Failed to sync brand to Square', { item_id: itemId, error: syncError.message });
+            squareSyncResult = { success: false, error: syncError.message };
+        }
+
+        res.json({ success: true, brand_name: brandName, square_sync: squareSyncResult });
     } catch (error) {
         logger.error('GMC item brand assign error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
