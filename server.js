@@ -2072,7 +2072,7 @@ app.get('/api/square/custom-attributes', async (req, res) => {
 /**
  * POST /api/square/custom-attributes/init
  * Initialize JTPets custom attribute definitions in Square
- * Creates: case_pack_quantity (NUMBER), brand (STRING), reorder_multiple (NUMBER)
+ * Creates: case_pack_quantity (NUMBER), brand (STRING)
  */
 app.post('/api/square/custom-attributes/init', async (req, res) => {
     try {
@@ -2101,6 +2101,23 @@ app.post('/api/square/custom-attributes/definition', async (req, res) => {
         res.json(result);
     } catch (error) {
         logger.error('Create custom attribute definition error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/square/custom-attributes/definition/:key
+ * Delete a custom attribute definition by key or ID
+ * WARNING: This also deletes all values using this definition
+ */
+app.delete('/api/square/custom-attributes/definition/:key', async (req, res) => {
+    try {
+        const { key } = req.params;
+        logger.info('Deleting custom attribute definition', { key });
+        const result = await squareApi.deleteCustomAttributeDefinition(key);
+        res.json(result);
+    } catch (error) {
+        logger.error('Delete custom attribute definition error', { error: error.message, key: req.params.key });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2157,23 +2174,8 @@ app.post('/api/square/custom-attributes/push/brand', async (req, res) => {
 });
 
 /**
- * POST /api/square/custom-attributes/push/reorder-multiple
- * Push all local reorder_multiple values to Square
- */
-app.post('/api/square/custom-attributes/push/reorder-multiple', async (req, res) => {
-    try {
-        logger.info('Pushing reorder multiples to Square');
-        const result = await squareApi.pushReorderMultipleToSquare();
-        res.json(result);
-    } catch (error) {
-        logger.error('Push reorder multiple error', { error: error.message });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
  * POST /api/square/custom-attributes/push/all
- * Push all local custom attribute data to Square (case pack, brand, reorder multiple)
+ * Push all local custom attribute data to Square (case pack, brand)
  */
 app.post('/api/square/custom-attributes/push/all', async (req, res) => {
     try {
@@ -2183,7 +2185,6 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
             success: true,
             casePack: null,
             brand: null,
-            reorderMultiple: null,
             errors: []
         };
 
@@ -2200,14 +2201,6 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
             results.brand = await squareApi.pushBrandsToSquare();
         } catch (error) {
             results.errors.push({ type: 'brand', error: error.message });
-            results.success = false;
-        }
-
-        // Push reorder multiples
-        try {
-            results.reorderMultiple = await squareApi.pushReorderMultipleToSquare();
-        } catch (error) {
-            results.errors.push({ type: 'reorderMultiple', error: error.message });
             results.success = false;
         }
 
@@ -5794,7 +5787,6 @@ async function startServer() {
                 '  PUT    /api/square/custom-attributes/:objectId    (update values on object)',
                 '  POST   /api/square/custom-attributes/push/case-pack    (push case packs)',
                 '  POST   /api/square/custom-attributes/push/brand        (push brands)',
-                '  POST   /api/square/custom-attributes/push/reorder-multiple (push reorder mult)',
                 '  POST   /api/square/custom-attributes/push/all          (push all)',
                 '='.repeat(60)
             ];

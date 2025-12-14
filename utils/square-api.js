@@ -1953,6 +1953,7 @@ async function initializeJTPetsCustomAttributes() {
     };
 
     // Define our custom attributes
+    // Note: reorder_multiple removed - case_pack_quantity serves the same purpose
     const jtpetsDefinitions = [
         {
             key: 'case_pack_quantity',
@@ -1968,14 +1969,6 @@ async function initializeJTPetsCustomAttributes() {
             description: 'Product brand name for Google Merchant Center and marketing',
             type: 'STRING',
             allowed_object_types: ['ITEM']
-        },
-        {
-            key: 'reorder_multiple',
-            name: 'Reorder Multiple',
-            description: 'Order quantities must be multiples of this number',
-            type: 'NUMBER',
-            precision: 0,
-            allowed_object_types: ['ITEM_VARIATION']
         }
     ];
 
@@ -2093,40 +2086,43 @@ async function pushBrandsToSquare() {
 }
 
 /**
- * Push local reorder_multiple values to Square for all variations
- * @returns {Promise<Object>} Push result
+ * Delete a custom attribute definition from Square
+ * WARNING: This also deletes all custom attribute values using this definition
+ * @param {string} definitionIdOrKey - The definition ID or key
+ * @returns {Promise<Object>} Deletion result
  */
-async function pushReorderMultipleToSquare() {
-    logger.info('Pushing reorder multiples to Square');
+async function deleteCustomAttributeDefinition(definitionIdOrKey) {
+    logger.info('Deleting custom attribute definition', { definitionIdOrKey });
 
     try {
-        // Get all variations with reorder_multiple set
-        const result = await db.query(`
-            SELECT id, reorder_multiple
-            FROM variations
-            WHERE reorder_multiple IS NOT NULL
-              AND reorder_multiple > 0
-              AND is_deleted = FALSE
-        `);
+        let definitionId = definitionIdOrKey;
 
-        if (result.rows.length === 0) {
-            logger.info('No reorder multiples to push');
-            return { success: true, updated: 0, message: 'No reorder multiples found' };
+        // If it looks like a key (no hyphens/typical Square ID format), look it up
+        if (!definitionIdOrKey.includes('-') && definitionIdOrKey.length < 30) {
+            const definitions = await listCustomAttributeDefinitions();
+            const found = definitions.find(d => d.key === definitionIdOrKey);
+            if (!found) {
+                throw new Error(`Custom attribute definition not found with key: ${definitionIdOrKey}`);
+            }
+            definitionId = found.id;
+            logger.info('Found definition ID for key', { key: definitionIdOrKey, id: definitionId });
         }
 
-        const updates = result.rows.map(row => ({
-            catalogObjectId: row.id,
-            customAttributeValues: {
-                reorder_multiple: {
-                    number_value: row.reorder_multiple.toString()
-                }
-            }
-        }));
+        const data = await makeSquareRequest(`/v2/catalog/object/${definitionId}`, {
+            method: 'DELETE'
+        });
 
-        logger.info('Pushing reorder multiples', { count: updates.length });
-        return await batchUpdateCustomAttributeValues(updates);
+        logger.info('Custom attribute definition deleted', { definitionId });
+
+        return {
+            success: true,
+            deleted_object_ids: data.deleted_object_ids || [definitionId]
+        };
     } catch (error) {
-        logger.error('Failed to push reorder multiples', { error: error.message });
+        logger.error('Failed to delete custom attribute definition', {
+            definitionIdOrKey,
+            error: error.message
+        });
         throw error;
     }
 }
@@ -2151,5 +2147,5 @@ module.exports = {
     initializeJTPetsCustomAttributes,
     pushCasePackToSquare,
     pushBrandsToSquare,
-    pushReorderMultipleToSquare
+    deleteCustomAttributeDefinition
 };
