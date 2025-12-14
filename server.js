@@ -1832,6 +1832,327 @@ app.post('/api/catalog-audit/fix-locations', async (req, res) => {
     }
 });
 
+// ==================== GOOGLE MERCHANT CENTER FEED ENDPOINTS ====================
+
+const gmcFeed = require('./utils/gmc-feed');
+
+/**
+ * GET /api/gmc/feed
+ * Generate and return GMC feed data as JSON
+ */
+app.get('/api/gmc/feed', async (req, res) => {
+    try {
+        const { location_id, include_products } = req.query;
+        const { products, stats, settings } = await gmcFeed.generateFeedData({
+            locationId: location_id,
+            includeProducts: include_products === 'true'
+        });
+
+        res.json({
+            success: true,
+            stats,
+            settings,
+            products
+        });
+    } catch (error) {
+        logger.error('GMC feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/generate
+ * Generate GMC feed and save to TSV file
+ */
+app.post('/api/gmc/generate', async (req, res) => {
+    try {
+        const { location_id, filename } = req.body;
+        const result = await gmcFeed.generateFeed({
+            locationId: location_id,
+            filename: filename || 'gmc-feed.tsv'
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/feed.tsv
+ * Download the current GMC feed as TSV
+ */
+app.get('/api/gmc/feed.tsv', async (req, res) => {
+    try {
+        const { location_id } = req.query;
+        const { products } = await gmcFeed.generateFeedData({ locationId: location_id });
+        const tsvContent = gmcFeed.generateTsvContent(products);
+
+        res.setHeader('Content-Type', 'text/tab-separated-values');
+        res.setHeader('Content-Disposition', 'attachment; filename="gmc-feed.tsv"');
+        res.send(tsvContent);
+    } catch (error) {
+        logger.error('GMC feed download error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/settings
+ * Get GMC feed settings
+ */
+app.get('/api/gmc/settings', async (req, res) => {
+    try {
+        const settings = await gmcFeed.getSettings();
+        res.json({ settings });
+    } catch (error) {
+        logger.error('GMC settings error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/settings
+ * Update GMC feed settings
+ */
+app.put('/api/gmc/settings', async (req, res) => {
+    try {
+        const { settings } = req.body;
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ error: 'Settings object required' });
+        }
+
+        for (const [key, value] of Object.entries(settings)) {
+            await db.query(`
+                INSERT INTO gmc_settings (setting_key, setting_value, updated_at)
+                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (setting_key) DO UPDATE SET
+                    setting_value = EXCLUDED.setting_value,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [key, value]);
+        }
+
+        const updatedSettings = await gmcFeed.getSettings();
+        res.json({ success: true, settings: updatedSettings });
+    } catch (error) {
+        logger.error('GMC settings update error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/brands
+ * List all brands
+ */
+app.get('/api/gmc/brands', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM brands ORDER BY name');
+        res.json({ count: result.rows.length, brands: result.rows });
+    } catch (error) {
+        logger.error('GMC brands error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/brands/import
+ * Import brands from array
+ */
+app.post('/api/gmc/brands/import', async (req, res) => {
+    try {
+        const { brands } = req.body;
+        if (!Array.isArray(brands)) {
+            return res.status(400).json({ error: 'Brands array required' });
+        }
+
+        const imported = await gmcFeed.importBrands(brands);
+        res.json({ success: true, imported });
+    } catch (error) {
+        logger.error('GMC brands import error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/brands
+ * Create a new brand
+ */
+app.post('/api/gmc/brands', async (req, res) => {
+    try {
+        const { name, logo_url, website } = req.body;
+        if (!name) {
+            return res.status(400).json({ error: 'Brand name required' });
+        }
+
+        const result = await db.query(
+            'INSERT INTO brands (name, logo_url, website) VALUES ($1, $2, $3) RETURNING *',
+            [name, logo_url, website]
+        );
+        res.json({ success: true, brand: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({ error: 'Brand already exists' });
+        }
+        logger.error('GMC brand create error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/items/:itemId/brand
+ * Assign a brand to an item
+ */
+app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { brand_id } = req.body;
+
+        if (!brand_id) {
+            // Remove brand assignment
+            await db.query('DELETE FROM item_brands WHERE item_id = $1', [itemId]);
+            return res.json({ success: true, message: 'Brand removed from item' });
+        }
+
+        await db.query(`
+            INSERT INTO item_brands (item_id, brand_id)
+            VALUES ($1, $2)
+            ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+        `, [itemId, brand_id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('GMC item brand assign error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/taxonomy
+ * List Google taxonomy categories
+ */
+app.get('/api/gmc/taxonomy', async (req, res) => {
+    try {
+        const { search, limit } = req.query;
+        let query = 'SELECT * FROM google_taxonomy';
+        const params = [];
+
+        if (search) {
+            params.push(`%${search}%`);
+            query += ` WHERE name ILIKE $${params.length}`;
+        }
+
+        query += ' ORDER BY name';
+
+        if (limit) {
+            params.push(parseInt(limit));
+            query += ` LIMIT $${params.length}`;
+        }
+
+        const result = await db.query(query, params);
+        res.json({ count: result.rows.length, taxonomy: result.rows });
+    } catch (error) {
+        logger.error('GMC taxonomy error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/taxonomy/import
+ * Import Google taxonomy from array
+ */
+app.post('/api/gmc/taxonomy/import', async (req, res) => {
+    try {
+        const { taxonomy } = req.body;
+        if (!Array.isArray(taxonomy)) {
+            return res.status(400).json({ error: 'Taxonomy array required (array of {id, name})' });
+        }
+
+        const imported = await gmcFeed.importGoogleTaxonomy(taxonomy);
+        res.json({ success: true, imported });
+    } catch (error) {
+        logger.error('GMC taxonomy import error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/categories/:categoryId/taxonomy
+ * Map a Square category to a Google taxonomy
+ */
+app.put('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
+    try {
+        const { categoryId } = req.params;
+        const { google_taxonomy_id } = req.body;
+
+        if (!google_taxonomy_id) {
+            // Remove mapping
+            await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+            return res.json({ success: true, message: 'Taxonomy mapping removed' });
+        }
+
+        await db.query(`
+            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id)
+            VALUES ($1, $2)
+            ON CONFLICT (category_id) DO UPDATE SET
+                google_taxonomy_id = EXCLUDED.google_taxonomy_id,
+                updated_at = CURRENT_TIMESTAMP
+        `, [categoryId, google_taxonomy_id]);
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('GMC category taxonomy mapping error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/category-mappings
+ * Get all category to taxonomy mappings
+ */
+app.get('/api/gmc/category-mappings', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT
+                c.id as category_id,
+                c.name as category_name,
+                gt.id as google_taxonomy_id,
+                gt.name as google_taxonomy_name
+            FROM categories c
+            LEFT JOIN category_taxonomy_mapping ctm ON c.id = ctm.category_id
+            LEFT JOIN google_taxonomy gt ON ctm.google_taxonomy_id = gt.id
+            ORDER BY c.name
+        `);
+        res.json({ count: result.rows.length, mappings: result.rows });
+    } catch (error) {
+        logger.error('GMC category mappings error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/history
+ * Get feed generation history
+ */
+app.get('/api/gmc/history', async (req, res) => {
+    try {
+        const { limit } = req.query;
+        let query = 'SELECT * FROM gmc_feed_history ORDER BY generated_at DESC';
+        const params = [];
+
+        if (limit) {
+            params.push(parseInt(limit));
+            query += ` LIMIT $${params.length}`;
+        }
+
+        const result = await db.query(query, params);
+        res.json({ count: result.rows.length, history: result.rows });
+    } catch (error) {
+        logger.error('GMC history error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
