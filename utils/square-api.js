@@ -1503,18 +1503,28 @@ async function fixLocationMismatches() {
             cursor = data.cursor;
         } while (cursor);
 
-        logger.info('Found items/variations with location restrictions to clear', {
-            itemsCount: itemsToFix.length,
-            variationsCount: variationsToFix.length
+        // Dedupe by ID (in case same object appears multiple times)
+        const seenIds = new Set();
+        const uniqueItems = itemsToFix.filter(obj => {
+            if (seenIds.has(obj.id)) return false;
+            seenIds.add(obj.id);
+            return true;
+        });
+        const uniqueVariations = variationsToFix.filter(obj => {
+            if (seenIds.has(obj.id)) return false;
+            seenIds.add(obj.id);
+            return true;
         });
 
-        // Process in batches of 100 (Square's batch limit)
-        const allObjectsToFix = [...itemsToFix, ...variationsToFix];
+        logger.info('Found items/variations with location restrictions to clear', {
+            itemsCount: uniqueItems.length,
+            variationsCount: uniqueVariations.length
+        });
+
         const batchSize = 100;
 
-        for (let i = 0; i < allObjectsToFix.length; i += batchSize) {
-            const batch = allObjectsToFix.slice(i, i + batchSize);
-
+        // Helper function to process a batch
+        const processBatch = async (batch, batchNumber, objectType) => {
             // Build objects with required data fields - clear all location restrictions
             const objectsForBatch = batch.map(obj => {
                 const updateObj = {
@@ -1552,36 +1562,31 @@ async function fixLocationMismatches() {
                 for (const obj of batch) {
                     if (obj.type === 'ITEM') {
                         summary.itemsFixed++;
-                        summary.details.push({
-                            type: 'ITEM',
-                            id: obj.id,
-                            name: obj.name,
-                            status: 'fixed'
-                        });
                     } else {
                         summary.variationsFixed++;
-                        summary.details.push({
-                            type: 'ITEM_VARIATION',
-                            id: obj.id,
-                            name: obj.name,
-                            sku: obj.sku,
-                            status: 'fixed'
-                        });
                     }
+                    summary.details.push({
+                        type: obj.type,
+                        id: obj.id,
+                        name: obj.name,
+                        sku: obj.sku || '',
+                        status: 'fixed'
+                    });
                 }
 
-                logger.info('Batch updated successfully', {
-                    batchNumber: Math.floor(i / batchSize) + 1,
+                logger.info(`${objectType} batch updated successfully`, {
+                    batchNumber,
                     objectsInBatch: batch.length,
                     updatedCount
                 });
 
+                return true;
             } catch (batchError) {
-                logger.error('Batch update failed', {
-                    batchNumber: Math.floor(i / batchSize) + 1,
+                logger.error(`${objectType} batch update failed`, {
+                    batchNumber,
                     error: batchError.message
                 });
-                summary.errors.push(`Batch ${Math.floor(i / batchSize) + 1} failed: ${batchError.message}`);
+                summary.errors.push(`${objectType} batch ${batchNumber} failed: ${batchError.message}`);
 
                 for (const obj of batch) {
                     summary.details.push({
@@ -1593,10 +1598,26 @@ async function fixLocationMismatches() {
                         error: batchError.message
                     });
                 }
+                return false;
             }
+        };
 
-            // Small delay between batches to avoid rate limiting
-            if (i + batchSize < allObjectsToFix.length) {
+        // PHASE 1: Process all ITEMS first (parent items must be fixed before variations)
+        logger.info('Phase 1: Fixing parent items first');
+        for (let i = 0; i < uniqueItems.length; i += batchSize) {
+            const batch = uniqueItems.slice(i, i + batchSize);
+            await processBatch(batch, Math.floor(i / batchSize) + 1, 'ITEM');
+            if (i + batchSize < uniqueItems.length) {
+                await sleep(500);
+            }
+        }
+
+        // PHASE 2: Process all VARIATIONS (now that parent items are fixed)
+        logger.info('Phase 2: Fixing variations');
+        for (let i = 0; i < uniqueVariations.length; i += batchSize) {
+            const batch = uniqueVariations.slice(i, i + batchSize);
+            await processBatch(batch, Math.floor(i / batchSize) + 1, 'VARIATION');
+            if (i + batchSize < uniqueVariations.length) {
                 await sleep(500);
             }
         }
