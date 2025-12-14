@@ -935,11 +935,10 @@
         return;
       }
 
-      // For now, we need a location ID - let's prompt user or use default
-      // In a real implementation, you'd add a location selector to the UI
-      const locationId = prompt('Enter Location ID (or leave blank for default):') || null;
+      // Get the selected location from the dropdown
+      const locationId = document.getElementById('location-select').value;
       if (!locationId) {
-        alert('Location ID is required to create a purchase order.');
+        alert('Please select a location from the dropdown above before creating a purchase order.');
         return;
       }
 
