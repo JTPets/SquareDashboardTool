@@ -1,0 +1,391 @@
+/**
+ * Google Sheets Integration Module
+ * Handles OAuth 2.0 authentication and writing GMC feed data to Google Sheets
+ */
+
+const { google } = require('googleapis');
+const db = require('./database');
+const logger = require('./logger');
+
+// OAuth2 client configuration
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const REDIRECT_URI_PATH = '/api/google/callback';
+
+let oauth2Client = null;
+
+/**
+ * Initialize OAuth2 client with credentials from environment
+ */
+function getOAuth2Client(baseUrl = null) {
+    if (oauth2Client && !baseUrl) {
+        return oauth2Client;
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = baseUrl
+        ? `${baseUrl}${REDIRECT_URI_PATH}`
+        : process.env.GOOGLE_REDIRECT_URI || `http://localhost:${process.env.PORT || 3000}${REDIRECT_URI_PATH}`;
+
+    if (!clientId || !clientSecret) {
+        logger.warn('Google OAuth credentials not configured (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)');
+        return null;
+    }
+
+    oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+    return oauth2Client;
+}
+
+/**
+ * Generate OAuth authorization URL
+ * @param {string} baseUrl - Base URL of the application
+ * @returns {string} Authorization URL
+ */
+function getAuthUrl(baseUrl) {
+    const client = getOAuth2Client(baseUrl);
+    if (!client) {
+        throw new Error('Google OAuth not configured');
+    }
+
+    return client.generateAuthUrl({
+        access_type: 'offline',
+        scope: SCOPES,
+        prompt: 'consent' // Force consent to get refresh token
+    });
+}
+
+/**
+ * Exchange authorization code for tokens
+ * @param {string} code - Authorization code from callback
+ * @returns {Promise<Object>} Token object
+ */
+async function exchangeCodeForTokens(code) {
+    const client = getOAuth2Client();
+    if (!client) {
+        throw new Error('Google OAuth not configured');
+    }
+
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+
+    // Store tokens in database
+    await saveTokens(tokens);
+    logger.info('Google OAuth tokens obtained and saved');
+
+    return tokens;
+}
+
+/**
+ * Save tokens to database
+ * @param {Object} tokens - OAuth tokens
+ */
+async function saveTokens(tokens) {
+    await db.query(`
+        INSERT INTO google_oauth_tokens (user_id, access_token, refresh_token, token_type, expiry_date, scope)
+        VALUES ('default', $1, $2, $3, $4, $5)
+        ON CONFLICT (user_id) DO UPDATE SET
+            access_token = EXCLUDED.access_token,
+            refresh_token = COALESCE(EXCLUDED.refresh_token, google_oauth_tokens.refresh_token),
+            token_type = EXCLUDED.token_type,
+            expiry_date = EXCLUDED.expiry_date,
+            scope = EXCLUDED.scope,
+            updated_at = CURRENT_TIMESTAMP
+    `, [
+        tokens.access_token,
+        tokens.refresh_token,
+        tokens.token_type,
+        tokens.expiry_date,
+        tokens.scope
+    ]);
+}
+
+/**
+ * Load tokens from database
+ * @returns {Promise<Object|null>} Token object or null
+ */
+async function loadTokens() {
+    const result = await db.query(
+        'SELECT access_token, refresh_token, token_type, expiry_date, scope FROM google_oauth_tokens WHERE user_id = $1',
+        ['default']
+    );
+
+    if (result.rows.length === 0) {
+        return null;
+    }
+
+    const row = result.rows[0];
+    return {
+        access_token: row.access_token,
+        refresh_token: row.refresh_token,
+        token_type: row.token_type,
+        expiry_date: parseInt(row.expiry_date),
+        scope: row.scope
+    };
+}
+
+/**
+ * Check if we have valid authentication
+ * @returns {Promise<boolean>} True if authenticated
+ */
+async function isAuthenticated() {
+    const tokens = await loadTokens();
+    return tokens !== null && tokens.refresh_token !== null;
+}
+
+/**
+ * Get authenticated OAuth client
+ * @returns {Promise<Object>} Authenticated OAuth2 client
+ */
+async function getAuthenticatedClient() {
+    const client = getOAuth2Client();
+    if (!client) {
+        throw new Error('Google OAuth not configured');
+    }
+
+    const tokens = await loadTokens();
+    if (!tokens) {
+        throw new Error('Not authenticated with Google. Please authorize first.');
+    }
+
+    client.setCredentials(tokens);
+
+    // Handle token refresh
+    client.on('tokens', async (newTokens) => {
+        logger.info('Google OAuth tokens refreshed');
+        await saveTokens({
+            ...tokens,
+            ...newTokens
+        });
+    });
+
+    return client;
+}
+
+/**
+ * Get Google Sheets API instance
+ * @returns {Promise<Object>} Sheets API instance
+ */
+async function getSheetsApi() {
+    const auth = await getAuthenticatedClient();
+    return google.sheets({ version: 'v4', auth });
+}
+
+/**
+ * Write GMC feed data to Google Sheet
+ * @param {string} spreadsheetId - Google Sheets spreadsheet ID
+ * @param {Array} products - Array of product objects
+ * @param {Object} options - Options (sheetName, clearFirst)
+ * @returns {Promise<Object>} Update result
+ */
+async function writeFeedToSheet(spreadsheetId, products, options = {}) {
+    const sheetName = options.sheetName || 'GMC Feed';
+    const clearFirst = options.clearFirst !== false;
+
+    logger.info('Writing GMC feed to Google Sheet', {
+        spreadsheetId,
+        productCount: products.length,
+        sheetName
+    });
+
+    const sheets = await getSheetsApi();
+
+    // Header row matching GMC format
+    const headers = [
+        'id',
+        'title',
+        'link',
+        'description',
+        'gtin',
+        'category',
+        'image_link',
+        'additional_image_link',
+        'additional_image_link',
+        'condition',
+        'availability',
+        'quantity',
+        'brand',
+        'google_product_category',
+        'price',
+        'adult',
+        'is_bundle'
+    ];
+
+    // Convert products to rows
+    const rows = products.map(p => [
+        p.id || '',
+        p.title || '',
+        p.link || '',
+        p.description || '',
+        p.gtin || '',
+        p.category || '',
+        p.image_link || '',
+        p.additional_image_link_1 || '',
+        p.additional_image_link_2 || '',
+        p.condition || '',
+        p.availability || '',
+        p.quantity || 0,
+        p.brand || '',
+        p.google_product_category || '',
+        p.price || '',
+        p.adult || '',
+        p.is_bundle || ''
+    ]);
+
+    // Combine headers and data
+    const values = [headers, ...rows];
+    const range = `${sheetName}!A1`;
+
+    try {
+        // First, ensure the sheet exists
+        await ensureSheetExists(sheets, spreadsheetId, sheetName);
+
+        // Clear existing data if requested
+        if (clearFirst) {
+            try {
+                await sheets.spreadsheets.values.clear({
+                    spreadsheetId,
+                    range: `${sheetName}!A:Z`
+                });
+            } catch (clearError) {
+                logger.warn('Could not clear sheet (may be empty)', { error: clearError.message });
+            }
+        }
+
+        // Write new data
+        const result = await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range,
+            valueInputOption: 'RAW',
+            requestBody: { values }
+        });
+
+        logger.info('GMC feed written to Google Sheet', {
+            updatedCells: result.data.updatedCells,
+            updatedRows: result.data.updatedRows
+        });
+
+        return {
+            success: true,
+            updatedCells: result.data.updatedCells,
+            updatedRows: result.data.updatedRows,
+            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+        };
+    } catch (error) {
+        logger.error('Failed to write to Google Sheet', {
+            error: error.message,
+            spreadsheetId
+        });
+        throw error;
+    }
+}
+
+/**
+ * Ensure a sheet with the given name exists in the spreadsheet
+ */
+async function ensureSheetExists(sheets, spreadsheetId, sheetName) {
+    try {
+        // Get spreadsheet metadata
+        const spreadsheet = await sheets.spreadsheets.get({
+            spreadsheetId,
+            fields: 'sheets.properties.title'
+        });
+
+        // Check if sheet exists
+        const sheetExists = spreadsheet.data.sheets.some(
+            sheet => sheet.properties.title === sheetName
+        );
+
+        if (!sheetExists) {
+            // Create the sheet
+            await sheets.spreadsheets.batchUpdate({
+                spreadsheetId,
+                requestBody: {
+                    requests: [{
+                        addSheet: {
+                            properties: { title: sheetName }
+                        }
+                    }]
+                }
+            });
+            logger.info('Created new sheet in spreadsheet', { sheetName });
+        }
+    } catch (error) {
+        logger.warn('Could not check/create sheet', { error: error.message });
+    }
+}
+
+/**
+ * Read data from a Google Sheet
+ * @param {string} spreadsheetId - Spreadsheet ID
+ * @param {string} range - Range to read (e.g., 'Sheet1!A1:Z1000')
+ * @returns {Promise<Array>} Array of row arrays
+ */
+async function readFromSheet(spreadsheetId, range) {
+    const sheets = await getSheetsApi();
+
+    const result = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range
+    });
+
+    return result.data.values || [];
+}
+
+/**
+ * Get spreadsheet metadata
+ * @param {string} spreadsheetId - Spreadsheet ID
+ * @returns {Promise<Object>} Spreadsheet metadata
+ */
+async function getSpreadsheetInfo(spreadsheetId) {
+    const sheets = await getSheetsApi();
+
+    const result = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'properties.title,sheets.properties'
+    });
+
+    return {
+        title: result.data.properties.title,
+        sheets: result.data.sheets.map(s => ({
+            title: s.properties.title,
+            sheetId: s.properties.sheetId,
+            index: s.properties.index
+        }))
+    };
+}
+
+/**
+ * Disconnect Google OAuth (remove tokens)
+ */
+async function disconnect() {
+    await db.query('DELETE FROM google_oauth_tokens WHERE user_id = $1', ['default']);
+    oauth2Client = null;
+    logger.info('Google OAuth disconnected');
+}
+
+/**
+ * Get authentication status
+ */
+async function getAuthStatus() {
+    const tokens = await loadTokens();
+    const configured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+    return {
+        configured,
+        authenticated: tokens !== null && tokens.refresh_token !== null,
+        hasAccessToken: tokens?.access_token !== null,
+        tokenExpiry: tokens?.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
+    };
+}
+
+module.exports = {
+    getAuthUrl,
+    exchangeCodeForTokens,
+    isAuthenticated,
+    getAuthStatus,
+    writeFeedToSheet,
+    readFromSheet,
+    getSpreadsheetInfo,
+    disconnect,
+    getSheetsApi
+};

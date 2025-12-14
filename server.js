@@ -612,6 +612,61 @@ app.post('/api/sync', async (req, res) => {
         logger.info('Full sync requested');
         const summary = await squareApi.fullSync();
 
+        // Generate GMC feed after sync completes
+        let gmcFeedResult = null;
+        let googleSheetResult = null;
+        try {
+            logger.info('Generating GMC feed after sync...');
+            const gmcFeedModule = require('./utils/gmc-feed');
+            gmcFeedResult = await gmcFeedModule.generateFeed();
+            logger.info('GMC feed generated successfully', {
+                products: gmcFeedResult.stats.total,
+                feedUrl: gmcFeedResult.feedUrl
+            });
+
+            // Try to sync to Google Sheets if configured and authenticated
+            try {
+                const googleSheetsModule = require('./utils/google-sheets');
+                const isAuthenticated = await googleSheetsModule.isAuthenticated();
+
+                if (isAuthenticated) {
+                    // Get configured spreadsheet ID from settings
+                    const sheetIdResult = await db.query(
+                        "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id'"
+                    );
+
+                    if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
+                        const spreadsheetId = sheetIdResult.rows[0].setting_value;
+                        const { products } = await gmcFeedModule.generateFeedData();
+
+                        googleSheetResult = await googleSheetsModule.writeFeedToSheet(spreadsheetId, products, {
+                            sheetName: 'GMC Feed',
+                            clearFirst: true
+                        });
+
+                        logger.info('GMC feed synced to Google Sheets', {
+                            spreadsheetUrl: googleSheetResult.spreadsheetUrl,
+                            updatedRows: googleSheetResult.updatedRows
+                        });
+                    } else {
+                        logger.info('Google Sheets sync skipped: no spreadsheet ID configured');
+                    }
+                } else {
+                    logger.info('Google Sheets sync skipped: not authenticated');
+                }
+            } catch (sheetError) {
+                logger.error('Google Sheets sync failed (non-blocking)', {
+                    error: sheetError.message
+                });
+                googleSheetResult = { error: sheetError.message };
+            }
+        } catch (gmcError) {
+            logger.error('GMC feed generation failed (non-blocking)', {
+                error: gmcError.message
+            });
+            gmcFeedResult = { error: gmcError.message };
+        }
+
         res.json({
             status: summary.success ? 'success' : 'partial',
             summary: {
@@ -625,7 +680,17 @@ app.post('/api/sync', async (req, res) => {
                 inventory_records: summary.inventory,
                 sales_velocity_91d: summary.salesVelocity['91d'] || 0,
                 sales_velocity_182d: summary.salesVelocity['182d'] || 0,
-                sales_velocity_365d: summary.salesVelocity['365d'] || 0
+                sales_velocity_365d: summary.salesVelocity['365d'] || 0,
+                gmc_feed: gmcFeedResult ? {
+                    products: gmcFeedResult.stats?.total || 0,
+                    feedUrl: gmcFeedResult.feedUrl,
+                    error: gmcFeedResult.error
+                } : null,
+                google_sheet: googleSheetResult ? {
+                    spreadsheetUrl: googleSheetResult.spreadsheetUrl,
+                    updatedRows: googleSheetResult.updatedRows,
+                    error: googleSheetResult.error
+                } : null
             },
             errors: summary.errors
         });
@@ -1828,6 +1893,141 @@ app.post('/api/catalog-audit/fix-locations', async (req, res) => {
         }
     } catch (error) {
         logger.error('Fix location mismatches error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== GOOGLE OAUTH & SHEETS ENDPOINTS ====================
+
+const googleSheets = require('./utils/google-sheets');
+
+/**
+ * GET /api/google/status
+ * Check Google OAuth authentication status
+ */
+app.get('/api/google/status', async (req, res) => {
+    try {
+        const status = await googleSheets.getAuthStatus();
+        res.json(status);
+    } catch (error) {
+        logger.error('Google status error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/auth
+ * Start Google OAuth flow - redirects to Google consent screen
+ */
+app.get('/api/google/auth', async (req, res) => {
+    try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const authUrl = googleSheets.getAuthUrl(baseUrl);
+        res.redirect(authUrl);
+    } catch (error) {
+        logger.error('Google auth error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/callback
+ * Google OAuth callback - exchanges code for tokens
+ */
+app.get('/api/google/callback', async (req, res) => {
+    try {
+        const { code, error: oauthError } = req.query;
+
+        if (oauthError) {
+            logger.error('Google OAuth error', { error: oauthError });
+            return res.redirect('/settings.html?google_error=' + encodeURIComponent(oauthError));
+        }
+
+        if (!code) {
+            return res.redirect('/settings.html?google_error=no_code');
+        }
+
+        await googleSheets.exchangeCodeForTokens(code);
+        res.redirect('/settings.html?google_connected=true');
+    } catch (error) {
+        logger.error('Google callback error', { error: error.message });
+        res.redirect('/settings.html?google_error=' + encodeURIComponent(error.message));
+    }
+});
+
+/**
+ * POST /api/google/disconnect
+ * Disconnect Google OAuth (remove tokens)
+ */
+app.post('/api/google/disconnect', async (req, res) => {
+    try {
+        await googleSheets.disconnect();
+        res.json({ success: true, message: 'Google account disconnected' });
+    } catch (error) {
+        logger.error('Google disconnect error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/sync-sheet
+ * Write GMC feed to Google Sheets
+ */
+app.post('/api/gmc/sync-sheet', async (req, res) => {
+    try {
+        const { spreadsheet_id, sheet_name } = req.body;
+
+        if (!spreadsheet_id) {
+            return res.status(400).json({ error: 'spreadsheet_id is required' });
+        }
+
+        // Check if authenticated
+        const authenticated = await googleSheets.isAuthenticated();
+        if (!authenticated) {
+            return res.status(401).json({
+                error: 'Not authenticated with Google',
+                authRequired: true
+            });
+        }
+
+        // Generate feed data
+        const { products, stats } = await gmcFeed.generateFeedData();
+
+        // Write to Google Sheet
+        const result = await googleSheets.writeFeedToSheet(spreadsheet_id, products, {
+            sheetName: sheet_name || 'GMC Feed',
+            clearFirst: true
+        });
+
+        // Update gmc_settings with spreadsheet ID
+        await db.query(`
+            INSERT INTO gmc_settings (setting_key, setting_value, description)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed')
+            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [spreadsheet_id]);
+
+        res.json({
+            success: true,
+            stats,
+            spreadsheetUrl: result.spreadsheetUrl,
+            updatedRows: result.updatedRows
+        });
+    } catch (error) {
+        logger.error('GMC sheet sync error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/spreadsheet/:id
+ * Get spreadsheet info
+ */
+app.get('/api/google/spreadsheet/:id', async (req, res) => {
+    try {
+        const info = await googleSheets.getSpreadsheetInfo(req.params.id);
+        res.json(info);
+    } catch (error) {
+        logger.error('Get spreadsheet error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
