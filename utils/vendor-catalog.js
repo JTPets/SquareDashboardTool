@@ -548,7 +548,8 @@ async function importItems(items, batchId, options = {}) {
                                 price_diff_cents: priceDiff,
                                 price_diff_percent: priceDiffPercent,
                                 match_method: m.method,
-                                action: priceDiff > 0 ? 'price_increase' : 'price_decrease'
+                                action: priceDiff > 0 ? 'price_increase' : 'price_decrease',
+                                matched_variation_id: m.variation_id  // Include variation ID for pushing to Square
                             });
                         }
                     }

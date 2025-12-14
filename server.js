@@ -3570,6 +3570,56 @@ app.get('/api/vendor-catalog/stats', async (req, res) => {
 });
 
 /**
+ * POST /api/vendor-catalog/push-price-changes
+ * Push selected price changes to Square
+ * Body: { priceChanges: [{variationId, newPriceCents, currency?}] }
+ */
+app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
+    try {
+        const { priceChanges } = req.body;
+
+        if (!priceChanges || !Array.isArray(priceChanges) || priceChanges.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'priceChanges array is required and must not be empty'
+            });
+        }
+
+        // Validate each price change
+        for (const change of priceChanges) {
+            if (!change.variationId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Each price change must have a variationId'
+                });
+            }
+            if (typeof change.newPriceCents !== 'number' || change.newPriceCents < 0) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Invalid newPriceCents for variation ${change.variationId}`
+                });
+            }
+        }
+
+        logger.info('Pushing price changes to Square', { count: priceChanges.length });
+
+        const squareApi = require('./utils/square-api');
+        const result = await squareApi.batchUpdateVariationPrices(priceChanges);
+
+        res.json({
+            success: result.success,
+            updated: result.updated,
+            failed: result.failed,
+            errors: result.errors,
+            details: result.details
+        });
+    } catch (error) {
+        logger.error('Push price changes error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * GET /api/locations
  * List all locations
  */

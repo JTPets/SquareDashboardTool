@@ -1131,18 +1131,36 @@
                   <strong>${result.stats.priceUpdatesCount}</strong> items have price differences vs. our catalog
                   (${result.stats.priceIncreasesCount} increases, ${result.stats.priceDecreasesCount} decreases)
                 </p>
-                <div style="display: flex; gap: 10px; margin: 10px 0;">
+                <p style="font-size: 13px; color: #78350f; margin-top: 5px;">
+                  Check items below to mark them for price update in Square.
+                </p>
+                <div style="display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; align-items: center;">
                   <button onclick="viewPriceReport()" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                     View Full Report
                   </button>
                   <button onclick="downloadPriceReportCSV()" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                     Download CSV
                   </button>
+                  <button id="push-to-square-btn" onclick="pushSelectedPricesToSquare()" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
+                    Push Selected to Square (0)
+                  </button>
+                  <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #78350f; cursor: pointer; margin-left: 10px;">
+                    <input type="checkbox" id="select-all-prices" onchange="toggleSelectAllPrices(this.checked)" style="cursor: pointer;">
+                    Select All
+                  </label>
                 </div>
-                <div style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                <div id="push-progress" style="display: none; margin: 10px 0; padding: 10px; background: #eff6ff; border-radius: 4px;">
+                  <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #dbeafe; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px;"></div>
+                  <span id="push-progress-text">Pushing price changes to Square...</span>
+                </div>
+                <div id="push-result" style="display: none; margin: 10px 0; padding: 10px; border-radius: 4px;"></div>
+                <div style="max-height: 300px; overflow-y: auto; margin-top: 10px;">
                   <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
                     <thead>
                       <tr style="background: #fef08a;">
+                        <th style="padding: 6px; text-align: center; width: 30px;">
+                          <span title="Mark for Square update">Push</span>
+                        </th>
                         <th style="padding: 6px; text-align: left;">Our SKU</th>
                         <th style="padding: 6px; text-align: left;">Item</th>
                         <th style="padding: 6px; text-align: right;">Our Price</th>
@@ -1150,13 +1168,24 @@
                         <th style="padding: 6px; text-align: right;">Diff</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="price-updates-body">
             `;
-            result.stats.priceUpdates.slice(0, 20).forEach(p => {
+            result.stats.priceUpdates.forEach((p, idx) => {
               const diffColor = p.action === 'price_increase' ? '#059669' : '#dc2626';
               const diffSign = p.price_diff_cents > 0 ? '+' : '';
+              const variationId = p.matched_variation_id || '';
               html += `
-                <tr>
+                <tr data-variation-id="${escapeHtml(variationId)}" data-new-price="${p.vendor_srp_cents}">
+                  <td style="padding: 4px 6px; text-align: center;">
+                    <input type="checkbox" class="price-update-checkbox"
+                           data-variation-id="${escapeHtml(variationId)}"
+                           data-new-price="${p.vendor_srp_cents}"
+                           data-sku="${escapeHtml(p.our_sku || '')}"
+                           data-item-name="${escapeHtml(p.our_item_name || p.product_name)}"
+                           onchange="updatePushButtonCount()"
+                           ${!variationId ? 'disabled title="No matched variation"' : ''}
+                           style="cursor: ${variationId ? 'pointer' : 'not-allowed'};">
+                  </td>
                   <td style="padding: 4px 6px;"><code>${escapeHtml(p.our_sku || '-')}</code></td>
                   <td style="padding: 4px 6px;">${escapeHtml(p.our_item_name || p.product_name)}</td>
                   <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
@@ -1167,9 +1196,6 @@
                 </tr>
               `;
             });
-            if (result.stats.priceUpdates.length > 20) {
-              html += `<tr><td colspan="5" style="padding: 6px; text-align: center; color: #6b7280;">...and ${result.stats.priceUpdates.length - 20} more</td></tr>`;
-            }
             html += '</tbody></table></div></div>';
           }
 
@@ -1773,6 +1799,136 @@
 
       reportWindow.document.write(html);
       reportWindow.document.close();
+    }
+
+    // Update push button count
+    function updatePushButtonCount() {
+      const checkboxes = document.querySelectorAll('.price-update-checkbox:checked');
+      const btn = document.getElementById('push-to-square-btn');
+      if (btn) {
+        btn.textContent = `Push Selected to Square (${checkboxes.length})`;
+        btn.disabled = checkboxes.length === 0;
+      }
+    }
+
+    // Toggle select all price checkboxes
+    function toggleSelectAllPrices(checked) {
+      const checkboxes = document.querySelectorAll('.price-update-checkbox:not(:disabled)');
+      checkboxes.forEach(cb => {
+        cb.checked = checked;
+      });
+      updatePushButtonCount();
+    }
+
+    // Push selected price changes to Square
+    async function pushSelectedPricesToSquare() {
+      const checkboxes = document.querySelectorAll('.price-update-checkbox:checked');
+      if (checkboxes.length === 0) {
+        alert('Please select at least one item to push to Square');
+        return;
+      }
+
+      // Confirm action
+      const confirmMsg = `Are you sure you want to update ${checkboxes.length} item price(s) in Square?\n\nThis will change the retail prices in your Square catalog.`;
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      // Build price changes array
+      const priceChanges = [];
+      checkboxes.forEach(cb => {
+        const variationId = cb.dataset.variationId;
+        const newPriceCents = parseInt(cb.dataset.newPrice);
+        if (variationId && !isNaN(newPriceCents)) {
+          priceChanges.push({
+            variationId,
+            newPriceCents,
+            currency: 'CAD'
+          });
+        }
+      });
+
+      if (priceChanges.length === 0) {
+        alert('No valid price changes to push');
+        return;
+      }
+
+      // Show progress
+      const progressEl = document.getElementById('push-progress');
+      const resultEl = document.getElementById('push-result');
+      const btn = document.getElementById('push-to-square-btn');
+
+      progressEl.style.display = 'block';
+      resultEl.style.display = 'none';
+      btn.disabled = true;
+
+      try {
+        const response = await fetch('/api/vendor-catalog/push-price-changes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priceChanges })
+        });
+
+        const result = await response.json();
+        progressEl.style.display = 'none';
+
+        if (result.success) {
+          resultEl.style.display = 'block';
+          resultEl.style.background = '#ecfdf5';
+          resultEl.style.border = '1px solid #10b981';
+          resultEl.innerHTML = `
+            <strong style="color: #059669;">Success!</strong>
+            <span style="color: #065f46;"> ${result.updated} price(s) updated in Square.</span>
+          `;
+
+          // Uncheck the successfully updated items and disable them
+          checkboxes.forEach(cb => {
+            const detailEntry = result.details?.find(d => d.variationId === cb.dataset.variationId);
+            if (detailEntry && detailEntry.success) {
+              cb.checked = false;
+              cb.disabled = true;
+              cb.parentElement.parentElement.style.opacity = '0.5';
+              cb.parentElement.parentElement.style.textDecoration = 'line-through';
+            }
+          });
+
+          updatePushButtonCount();
+        } else {
+          resultEl.style.display = 'block';
+          resultEl.style.background = '#fef2f2';
+          resultEl.style.border = '1px solid #ef4444';
+
+          let errorHtml = `<strong style="color: #dc2626;">Error:</strong> <span style="color: #991b1b;">${escapeHtml(result.error || 'Unknown error')}</span>`;
+
+          if (result.updated > 0) {
+            errorHtml = `
+              <strong style="color: #d97706;">Partial Success:</strong>
+              <span style="color: #92400e;"> ${result.updated} updated, ${result.failed} failed.</span>
+            `;
+          }
+
+          if (result.errors && result.errors.length > 0) {
+            errorHtml += '<ul style="margin-top: 5px; font-size: 12px; color: #991b1b;">';
+            result.errors.slice(0, 5).forEach(err => {
+              errorHtml += `<li>${escapeHtml(err.variationId || `Batch ${err.batch}`)}: ${escapeHtml(err.error)}</li>`;
+            });
+            if (result.errors.length > 5) {
+              errorHtml += `<li>...and ${result.errors.length - 5} more errors</li>`;
+            }
+            errorHtml += '</ul>';
+          }
+
+          resultEl.innerHTML = errorHtml;
+          btn.disabled = false;
+        }
+      } catch (error) {
+        progressEl.style.display = 'none';
+        resultEl.style.display = 'block';
+        resultEl.style.background = '#fef2f2';
+        resultEl.style.border = '1px solid #ef4444';
+        resultEl.innerHTML = `<strong style="color: #dc2626;">Error:</strong> <span style="color: #991b1b;">${escapeHtml(error.message)}</span>`;
+        btn.disabled = false;
+      }
     }
 
     // Download price report as CSV
