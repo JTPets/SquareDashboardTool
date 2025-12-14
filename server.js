@@ -2362,8 +2362,23 @@ app.post('/api/square/custom-attributes/push/brand', async (req, res) => {
 });
 
 /**
+ * POST /api/square/custom-attributes/push/expiry
+ * Push all local expiration dates to Square
+ */
+app.post('/api/square/custom-attributes/push/expiry', async (req, res) => {
+    try {
+        logger.info('Pushing expiry dates to Square');
+        const result = await squareApi.pushExpiryDatesToSquare();
+        res.json(result);
+    } catch (error) {
+        logger.error('Push expiry dates error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/square/custom-attributes/push/all
- * Push all local custom attribute data to Square (case pack, brand)
+ * Push all local custom attribute data to Square (case pack, brand, expiry)
  */
 app.post('/api/square/custom-attributes/push/all', async (req, res) => {
     try {
@@ -2373,6 +2388,7 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
             success: true,
             casePack: null,
             brand: null,
+            expiry: null,
             errors: []
         };
 
@@ -2389,6 +2405,14 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
             results.brand = await squareApi.pushBrandsToSquare();
         } catch (error) {
             results.errors.push({ type: 'brand', error: error.message });
+            results.success = false;
+        }
+
+        // Push expiry dates
+        try {
+            results.expiry = await squareApi.pushExpiryDatesToSquare();
+        } catch (error) {
+            results.errors.push({ type: 'expiry', error: error.message });
             results.success = false;
         }
 
@@ -6918,6 +6942,7 @@ async function startServer() {
                 '  PUT    /api/square/custom-attributes/:objectId    (update values on object)',
                 '  POST   /api/square/custom-attributes/push/case-pack    (push case packs)',
                 '  POST   /api/square/custom-attributes/push/brand        (push brands)',
+                '  POST   /api/square/custom-attributes/push/expiry       (push expiry dates)',
                 '  POST   /api/square/custom-attributes/push/all          (push all)',
                 '='.repeat(60)
             ];
