@@ -433,6 +433,9 @@
     </div>
   </div>
 
+  <!-- Error Helper for user-friendly messages -->
+  <script src="/js/error-helper.js"></script>
+
   <script>
     let allData = [];
     let filteredData = [];
@@ -593,7 +596,10 @@
 
       } catch (error) {
         console.error('Error loading data:', error);
-        showError(`Error: ${error.message}`);
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
+          : 'Unable to load inventory. Please refresh the page.';
+        showError(friendlyMsg);
       }
     }
 
@@ -905,7 +911,10 @@
 
         } catch (error) {
           console.error('Failed to save field:', error);
-          alert(`Failed to save ${field}: ${error.message}`);
+          const friendlyMsg = window.ErrorHelper
+            ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'update')
+            : 'Failed to save changes. Please try again.';
+          alert(friendlyMsg);
           recreateDisplay(input.parentElement, variationId, field, currentValue);
         }
       } else {
