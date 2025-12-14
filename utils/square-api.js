@@ -1953,6 +1953,7 @@ async function initializeJTPetsCustomAttributes() {
     };
 
     // Define our custom attributes
+    // Note: reorder_multiple removed - case_pack_quantity serves the same purpose
     const jtpetsDefinitions = [
         {
             key: 'case_pack_quantity',
@@ -1968,14 +1969,6 @@ async function initializeJTPetsCustomAttributes() {
             description: 'Product brand name for Google Merchant Center and marketing',
             type: 'STRING',
             allowed_object_types: ['ITEM']
-        },
-        {
-            key: 'reorder_multiple',
-            name: 'Reorder Multiple',
-            description: 'Order quantities must be multiples of this number',
-            type: 'NUMBER',
-            precision: 0,
-            allowed_object_types: ['ITEM_VARIATION']
         }
     ];
 
@@ -2092,45 +2085,6 @@ async function pushBrandsToSquare() {
     }
 }
 
-/**
- * Push local reorder_multiple values to Square for all variations
- * @returns {Promise<Object>} Push result
- */
-async function pushReorderMultipleToSquare() {
-    logger.info('Pushing reorder multiples to Square');
-
-    try {
-        // Get all variations with reorder_multiple set
-        const result = await db.query(`
-            SELECT id, reorder_multiple
-            FROM variations
-            WHERE reorder_multiple IS NOT NULL
-              AND reorder_multiple > 0
-              AND is_deleted = FALSE
-        `);
-
-        if (result.rows.length === 0) {
-            logger.info('No reorder multiples to push');
-            return { success: true, updated: 0, message: 'No reorder multiples found' };
-        }
-
-        const updates = result.rows.map(row => ({
-            catalogObjectId: row.id,
-            customAttributeValues: {
-                reorder_multiple: {
-                    number_value: row.reorder_multiple.toString()
-                }
-            }
-        }));
-
-        logger.info('Pushing reorder multiples', { count: updates.length });
-        return await batchUpdateCustomAttributeValues(updates);
-    } catch (error) {
-        logger.error('Failed to push reorder multiples', { error: error.message });
-        throw error;
-    }
-}
-
 module.exports = {
     syncLocations,
     syncVendors,
@@ -2150,6 +2104,5 @@ module.exports = {
     batchUpdateCustomAttributeValues,
     initializeJTPetsCustomAttributes,
     pushCasePackToSquare,
-    pushBrandsToSquare,
-    pushReorderMultipleToSquare
+    pushBrandsToSquare
 };
