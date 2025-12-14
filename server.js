@@ -3905,7 +3905,6 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     item_name: row.item_name,
                     variation_name: row.variation_name,
                     sku: row.sku,
-                    category_name: row.category_name,
                     location_id: locationId,
                     location_name: locationName,
                     current_stock: currentStock,
