@@ -1353,7 +1353,8 @@ Wellness"></textarea>
     }
 
     // ==================== CATEGORY MANAGER ====================
-    let allCategories = [];
+    let categoryMappings = {};  // Map of category_name -> {google_taxonomy_id, google_taxonomy_name}
+    let productCategories = []; // Categories from products with counts
     let allTaxonomy = [];
     let filteredCategories = [];
     let filteredTaxonomy = [];
@@ -1381,12 +1382,44 @@ Wellness"></textarea>
 
     async function loadCategoryMappings() {
       try {
+        // Build categories from products (same as the dropdown)
+        const categoryCounts = {};
+        allProducts.forEach(p => {
+          if (p.category) {
+            categoryCounts[p.category] = (categoryCounts[p.category] || 0) + 1;
+          }
+        });
+
+        // Get existing mappings from API
         const response = await fetch('/api/gmc/category-mappings');
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to load categories');
+        if (!response.ok) throw new Error(data.error || 'Failed to load mappings');
 
-        allCategories = data.mappings || [];
-        filteredCategories = [...allCategories];
+        // Build mapping lookup by category name
+        categoryMappings = {};
+        (data.mappings || []).forEach(m => {
+          if (m.category_name) {
+            categoryMappings[m.category_name] = {
+              category_id: m.category_id,
+              google_taxonomy_id: m.google_taxonomy_id,
+              google_taxonomy_name: m.google_taxonomy_name
+            };
+          }
+        });
+
+        // Build product categories list with counts and mapping status
+        productCategories = Object.keys(categoryCounts).sort().map(name => {
+          const mapping = categoryMappings[name] || {};
+          return {
+            category_name: name,
+            category_id: mapping.category_id || null,
+            product_count: categoryCounts[name],
+            google_taxonomy_id: mapping.google_taxonomy_id || null,
+            google_taxonomy_name: mapping.google_taxonomy_name || null
+          };
+        });
+
+        filteredCategories = [...productCategories];
         renderCategories();
         updateCategoryStats();
         document.getElementById('category-status-msg').textContent = '';
@@ -1410,8 +1443,8 @@ Wellness"></textarea>
     }
 
     function updateCategoryStats() {
-      const total = allCategories.length;
-      const mapped = allCategories.filter(c => c.google_taxonomy_id).length;
+      const total = productCategories.length;
+      const mapped = productCategories.filter(c => c.google_taxonomy_id).length;
       const unmapped = total - mapped;
 
       document.getElementById('cat-total-count').textContent = total;
@@ -1421,7 +1454,7 @@ Wellness"></textarea>
 
     function filterCategories() {
       const search = document.getElementById('category-search').value.toLowerCase();
-      filteredCategories = allCategories.filter(c =>
+      filteredCategories = productCategories.filter(c =>
         c.category_name.toLowerCase().includes(search)
       );
       renderCategories();
@@ -1442,9 +1475,9 @@ Wellness"></textarea>
     function renderCategories() {
       const container = document.getElementById('category-list');
       container.innerHTML = filteredCategories.map(cat => `
-        <div class="category-item ${cat.google_taxonomy_id ? 'mapped' : ''} ${selectedCategory?.category_id === cat.category_id ? 'selected' : ''}"
-             onclick="selectCategory('${cat.category_id}')">
-          <div class="cat-name">${escapeHtml(cat.category_name)}</div>
+        <div class="category-item ${cat.google_taxonomy_id ? 'mapped' : ''} ${selectedCategory?.category_name === cat.category_name ? 'selected' : ''}"
+             onclick="selectCategory('${escapeHtml(cat.category_name).replace(/'/g, "\\'")}')">
+          <div class="cat-name">${escapeHtml(cat.category_name)} <span class="cat-count">(${cat.product_count} products)</span></div>
           <div class="cat-mapping ${cat.google_taxonomy_id ? '' : 'not-mapped'}">
             ${cat.google_taxonomy_id
               ? `<span title="${escapeHtml(cat.google_taxonomy_name || '')}">${escapeHtml(cat.google_taxonomy_name || 'Unknown')}</span>`
@@ -1480,8 +1513,8 @@ Wellness"></textarea>
       }
     }
 
-    function selectCategory(categoryId) {
-      selectedCategory = allCategories.find(c => c.category_id === categoryId);
+    function selectCategory(categoryName) {
+      selectedCategory = productCategories.find(c => c.category_name === categoryName);
       renderCategories();
       updateCategoryButtons();
 
@@ -1529,25 +1562,30 @@ Wellness"></textarea>
       statusMsg.textContent = 'Saving...';
 
       try {
-        const response = await fetch(`/api/gmc/categories/${encodeURIComponent(selectedCategory.category_id)}/taxonomy`, {
+        const response = await fetch('/api/gmc/category-taxonomy', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ google_taxonomy_id: selectedTaxonomy.id })
+          body: JSON.stringify({
+            category_name: selectedCategory.category_name,
+            google_taxonomy_id: selectedTaxonomy.id
+          })
         });
 
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to assign taxonomy');
 
         // Update local data
-        const cat = allCategories.find(c => c.category_id === selectedCategory.category_id);
+        const cat = productCategories.find(c => c.category_name === selectedCategory.category_name);
         if (cat) {
+          cat.category_id = data.category_id;
           cat.google_taxonomy_id = selectedTaxonomy.id;
           cat.google_taxonomy_name = selectedTaxonomy.name;
         }
 
         // Update filtered copy too
-        const filteredCat = filteredCategories.find(c => c.category_id === selectedCategory.category_id);
+        const filteredCat = filteredCategories.find(c => c.category_name === selectedCategory.category_name);
         if (filteredCat) {
+          filteredCat.category_id = data.category_id;
           filteredCat.google_taxonomy_id = selectedTaxonomy.id;
           filteredCat.google_taxonomy_name = selectedTaxonomy.name;
         }
@@ -1572,22 +1610,24 @@ Wellness"></textarea>
       statusMsg.textContent = 'Removing...';
 
       try {
-        const response = await fetch(`/api/gmc/categories/${encodeURIComponent(selectedCategory.category_id)}/taxonomy`, {
-          method: 'DELETE'
+        const response = await fetch('/api/gmc/category-taxonomy', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category_name: selectedCategory.category_name })
         });
 
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to remove mapping');
 
         // Update local data
-        const cat = allCategories.find(c => c.category_id === selectedCategory.category_id);
+        const cat = productCategories.find(c => c.category_name === selectedCategory.category_name);
         if (cat) {
           cat.google_taxonomy_id = null;
           cat.google_taxonomy_name = null;
         }
 
         // Update filtered copy too
-        const filteredCat = filteredCategories.find(c => c.category_id === selectedCategory.category_id);
+        const filteredCat = filteredCategories.find(c => c.category_name === selectedCategory.category_name);
         if (filteredCat) {
           filteredCat.google_taxonomy_id = null;
           filteredCat.google_taxonomy_name = null;

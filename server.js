@@ -2926,6 +2926,88 @@ app.get('/api/gmc/category-mappings', async (req, res) => {
 });
 
 /**
+ * PUT /api/gmc/category-taxonomy
+ * Map a category (by name) to a Google taxonomy
+ * Creates the category in the categories table if it doesn't exist
+ */
+app.put('/api/gmc/category-taxonomy', async (req, res) => {
+    try {
+        const { category_name, google_taxonomy_id } = req.body;
+
+        if (!category_name) {
+            return res.status(400).json({ error: 'category_name is required' });
+        }
+        if (!google_taxonomy_id) {
+            return res.status(400).json({ error: 'google_taxonomy_id is required' });
+        }
+
+        // Find or create the category by name
+        let categoryResult = await db.query(
+            'SELECT id FROM categories WHERE name = $1',
+            [category_name]
+        );
+
+        let categoryId;
+        if (categoryResult.rows.length === 0) {
+            // Create the category (use name as ID since Square categories use UUIDs)
+            const insertResult = await db.query(
+                'INSERT INTO categories (id, name) VALUES ($1, $2) RETURNING id',
+                [category_name, category_name]
+            );
+            categoryId = insertResult.rows[0].id;
+        } else {
+            categoryId = categoryResult.rows[0].id;
+        }
+
+        // Create or update the mapping
+        await db.query(`
+            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id)
+            VALUES ($1, $2)
+            ON CONFLICT (category_id) DO UPDATE SET
+                google_taxonomy_id = EXCLUDED.google_taxonomy_id,
+                updated_at = CURRENT_TIMESTAMP
+        `, [categoryId, google_taxonomy_id]);
+
+        res.json({ success: true, category_id: categoryId });
+    } catch (error) {
+        logger.error('GMC category taxonomy mapping error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/gmc/category-taxonomy
+ * Remove a category's Google taxonomy mapping (by name)
+ */
+app.delete('/api/gmc/category-taxonomy', async (req, res) => {
+    try {
+        const { category_name } = req.body;
+
+        if (!category_name) {
+            return res.status(400).json({ error: 'category_name is required' });
+        }
+
+        // Find the category by name
+        const categoryResult = await db.query(
+            'SELECT id FROM categories WHERE name = $1',
+            [category_name]
+        );
+
+        if (categoryResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Category not found' });
+        }
+
+        const categoryId = categoryResult.rows[0].id;
+        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+
+        res.json({ success: true, message: 'Taxonomy mapping removed' });
+    } catch (error) {
+        logger.error('GMC category taxonomy delete error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/gmc/history
  * Get feed generation history
  */
