@@ -305,6 +305,107 @@ If using invoice webhooks for subscription payments:
 
 ---
 
+### FUTURE: Snippets API Requirements
+**Status:** Not Applicable (no Square Online integration planned)
+**When Needed:** If adding code snippets to Square Online sites
+
+**Conditional Requirements:**
+If snippet requires copy/paste code:
+- [ ] Provide clear instructions for code installation
+
+**Core Requirements (if implemented):**
+- [ ] Square Online websites are listed and selectable
+- [ ] Snippets are pushed only to selected Square Online sites
+- [ ] Display name, domain name, and online status of each site in selection
+- [ ] App can create a snippet
+- [ ] App can edit or update a snippet
+- [ ] App can remove or delete a snippet
+- [ ] Provide confirmation that snippet was successfully added
+- [ ] Snippet assets are sufficient quality for most common devices
+- [ ] Snippets work well on both mobile and desktop
+- [ ] Snippets don't use JavaScript alert/confirmation boxes
+- [ ] Snippets don't display annoying or distracting behavior
+- [ ] Snippets don't ask for passwords of any kind
+- [ ] Snippet use is adequately disclosed to the seller
+- [ ] Snippets don't expose buyers to user-unfriendly text (code, debug, technical errors)
+- [ ] Error messages displayed are in user-friendly format
+- [ ] Snippets don't overly obscure major elements on Square Online sites
+- [ ] Snippets don't overly obscure major elements on mobile sites (iOS/Android)
+
+**Documentation:** https://developer.squareup.com/docs/snippets-api/overview
+
+---
+
+### FUTURE: Payouts API Requirements
+**Status:** Not Applicable (no payout tracking planned)
+**When Needed:** If adding payout/settlement tracking features
+
+**Core Requirements (if implemented):**
+- [ ] Successfully indicate all three payout states: SENT, FAILED, and PAID
+- [ ] Handle instant deposits with associated payout_fee
+- [ ] Handle payouts with net positive value
+- [ ] Handle payouts with net negative value
+- [ ] Handle payouts with net zero value
+- [ ] Pull in all payout entry types
+
+**Documentation:** https://developer.squareup.com/docs/payouts-api/overview
+
+---
+
+### FUTURE: Payments API Requirements
+**Status:** Not Applicable (read-only order data currently)
+**When Needed:** If creating or updating payments in Square
+
+**Conditional Requirements:**
+If app creates/updates payments:
+- [ ] Implement full payment creation flow
+- [ ] Handle payment authorization, capture, and void
+- [ ] Support refunds through Payments API
+
+If app only reads payment data:
+- [ ] Transactions in app exactly reflect transactions in Square
+
+**Current State:** App reads order/sales data for velocity calculations (read-only)
+
+**Documentation:** https://developer.squareup.com/docs/payments-api/overview
+
+---
+
+### FUTURE: Orders API Requirements
+**Status:** Partial (read-only for sales velocity)
+**When Needed:** If creating orders, managing fulfillments, or using custom attributes
+
+**Conditional Requirements:**
+If app creates orders in Square:
+- [ ] Implement order creation flow
+- [ ] Handle order line items, taxes, discounts
+- [ ] Support order modifications
+
+If app manages order fulfillments:
+- [ ] Track fulfillment states (PROPOSED, RESERVED, PREPARED, COMPLETED, CANCELED)
+- [ ] Update fulfillment status appropriately
+- [ ] Handle pickup and delivery fulfillments
+
+If app completes/cancels orders:
+- [ ] Implement order completion flow
+- [ ] Handle order cancellation with reason
+
+If app shows order sales data:
+- [ ] Display order items accurately
+- [ ] Display prices, taxes correctly
+- [ ] Show fulfillment state appropriately
+
+If app uses Order Custom Attributes API:
+- [ ] Create custom attribute definitions
+- [ ] Read/write custom attribute values
+- [ ] Handle attribute visibility settings
+
+**Current State:** App reads completed orders for sales velocity calculations only
+
+**Documentation:** https://developer.squareup.com/docs/orders-api/overview
+
+---
+
 ## Resources
 
 - [Square App Marketplace Guidelines](https://developer.squareup.com/docs/app-marketplace/requirements)
