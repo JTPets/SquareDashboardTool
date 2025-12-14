@@ -1642,6 +1642,495 @@ async function fixLocationMismatches() {
     }
 }
 
+// ========================================
+// CUSTOM ATTRIBUTE MANAGEMENT
+// ========================================
+
+/**
+ * List all custom attribute definitions from Square Catalog
+ * @returns {Promise<Array>} Array of custom attribute definitions
+ */
+async function listCustomAttributeDefinitions() {
+    logger.info('Fetching custom attribute definitions from Square');
+
+    try {
+        let cursor = null;
+        const definitions = [];
+
+        do {
+            const endpoint = `/v2/catalog/list?types=CUSTOM_ATTRIBUTE_DEFINITION${cursor ? `&cursor=${cursor}` : ''}`;
+            const data = await makeSquareRequest(endpoint);
+
+            const objects = data.objects || [];
+            for (const obj of objects) {
+                if (obj.type === 'CUSTOM_ATTRIBUTE_DEFINITION') {
+                    definitions.push({
+                        id: obj.id,
+                        version: obj.version,
+                        key: obj.custom_attribute_definition_data?.key,
+                        name: obj.custom_attribute_definition_data?.name,
+                        description: obj.custom_attribute_definition_data?.description,
+                        type: obj.custom_attribute_definition_data?.type,
+                        allowed_object_types: obj.custom_attribute_definition_data?.allowed_object_types,
+                        seller_visibility: obj.custom_attribute_definition_data?.seller_visibility,
+                        app_visibility: obj.custom_attribute_definition_data?.app_visibility,
+                        source_application: obj.custom_attribute_definition_data?.source_application
+                    });
+                }
+            }
+
+            cursor = data.cursor;
+        } while (cursor);
+
+        logger.info('Custom attribute definitions fetched', { count: definitions.length });
+        return definitions;
+    } catch (error) {
+        logger.error('Failed to list custom attribute definitions', { error: error.message });
+        throw error;
+    }
+}
+
+/**
+ * Create or update a custom attribute definition in Square
+ * @param {Object} definition - Definition configuration
+ * @param {string} definition.key - Unique key for the attribute (lowercase, underscores)
+ * @param {string} definition.name - Display name
+ * @param {string} definition.description - Description
+ * @param {string} definition.type - STRING, NUMBER, SELECTION, etc.
+ * @param {Array} definition.allowed_object_types - ITEM, ITEM_VARIATION, etc.
+ * @returns {Promise<Object>} Created/updated definition
+ */
+async function upsertCustomAttributeDefinition(definition) {
+    logger.info('Creating/updating custom attribute definition', { key: definition.key });
+
+    try {
+        const idempotencyKey = generateIdempotencyKey('custom-attr-def');
+
+        const requestBody = {
+            idempotency_key: idempotencyKey,
+            object: {
+                type: 'CUSTOM_ATTRIBUTE_DEFINITION',
+                id: definition.id || `#${definition.key}`,  // Use temp ID if creating new
+                custom_attribute_definition_data: {
+                    type: definition.type || 'STRING',
+                    name: definition.name,
+                    description: definition.description || '',
+                    allowed_object_types: definition.allowed_object_types || ['ITEM_VARIATION'],
+                    seller_visibility: definition.seller_visibility || 'SELLER_VISIBILITY_READ_WRITE_VALUES',
+                    app_visibility: definition.app_visibility || 'APP_VISIBILITY_READ_WRITE_VALUES',
+                    key: definition.key
+                }
+            }
+        };
+
+        // Add version if updating existing definition
+        if (definition.version) {
+            requestBody.object.version = definition.version;
+        }
+
+        // For NUMBER type, add number_config
+        if (definition.type === 'NUMBER') {
+            requestBody.object.custom_attribute_definition_data.number_config = {
+                precision: definition.precision || 0  // 0 = integer
+            };
+        }
+
+        // For SELECTION type, add selection_config
+        if (definition.type === 'SELECTION' && definition.selections) {
+            requestBody.object.custom_attribute_definition_data.selection_config = {
+                allowed_selections: definition.selections.map((sel, idx) => ({
+                    uid: sel.uid || `sel-${idx}`,
+                    name: sel.name
+                })),
+                max_allowed_selections: definition.max_selections || 1
+            };
+        }
+
+        const data = await makeSquareRequest('/v2/catalog/object', {
+            method: 'POST',
+            body: JSON.stringify(requestBody)
+        });
+
+        logger.info('Custom attribute definition created/updated', {
+            key: definition.key,
+            id: data.catalog_object?.id
+        });
+
+        return {
+            success: true,
+            definition: data.catalog_object,
+            id_mappings: data.id_mappings
+        };
+    } catch (error) {
+        logger.error('Failed to create/update custom attribute definition', {
+            key: definition.key,
+            error: error.message
+        });
+        throw error;
+    }
+}
+
+/**
+ * Update custom attribute values on a catalog object (item or variation)
+ * @param {string} catalogObjectId - The item or variation ID
+ * @param {Object} customAttributeValues - Key-value pairs of custom attributes
+ * @returns {Promise<Object>} Updated catalog object
+ */
+async function updateCustomAttributeValues(catalogObjectId, customAttributeValues) {
+    logger.info('Updating custom attribute values', { catalogObjectId, keys: Object.keys(customAttributeValues) });
+
+    try {
+        // First, retrieve the current catalog object to get its version and type
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`);
+
+        if (!retrieveData.object) {
+            throw new Error(`Catalog object not found: ${catalogObjectId}`);
+        }
+
+        const currentObject = retrieveData.object;
+        const objectType = currentObject.type;
+
+        // Build the update request
+        const idempotencyKey = generateIdempotencyKey('custom-attr-update');
+
+        const updateObj = {
+            type: objectType,
+            id: catalogObjectId,
+            version: currentObject.version,
+            custom_attribute_values: customAttributeValues
+        };
+
+        // Include required data field based on type
+        if (objectType === 'ITEM' && currentObject.item_data) {
+            updateObj.item_data = currentObject.item_data;
+        } else if (objectType === 'ITEM_VARIATION' && currentObject.item_variation_data) {
+            updateObj.item_variation_data = currentObject.item_variation_data;
+        }
+
+        const requestBody = {
+            idempotency_key: idempotencyKey,
+            object: updateObj
+        };
+
+        const data = await makeSquareRequest('/v2/catalog/object', {
+            method: 'POST',
+            body: JSON.stringify(requestBody)
+        });
+
+        logger.info('Custom attribute values updated', {
+            catalogObjectId,
+            newVersion: data.catalog_object?.version
+        });
+
+        return {
+            success: true,
+            catalog_object: data.catalog_object,
+            id_mappings: data.id_mappings
+        };
+    } catch (error) {
+        logger.error('Failed to update custom attribute values', {
+            catalogObjectId,
+            error: error.message
+        });
+        throw error;
+    }
+}
+
+/**
+ * Batch update custom attribute values on multiple catalog objects
+ * @param {Array<Object>} updates - Array of {catalogObjectId, customAttributeValues}
+ * @returns {Promise<Object>} Batch update result
+ */
+async function batchUpdateCustomAttributeValues(updates) {
+    logger.info('Batch updating custom attribute values', { count: updates.length });
+
+    const results = {
+        success: true,
+        updated: 0,
+        failed: 0,
+        errors: []
+    };
+
+    // Process in batches of 100 (Square API limit)
+    const batchSize = 100;
+
+    for (let i = 0; i < updates.length; i += batchSize) {
+        const batch = updates.slice(i, i + batchSize);
+
+        // For batch upsert, we need to fetch all objects first to get their versions
+        const objectIds = batch.map(u => u.catalogObjectId);
+
+        try {
+            // Batch retrieve objects
+            const retrieveData = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                method: 'POST',
+                body: JSON.stringify({
+                    object_ids: objectIds,
+                    include_related_objects: false
+                })
+            });
+
+            const objectMap = new Map();
+            for (const obj of (retrieveData.objects || [])) {
+                objectMap.set(obj.id, obj);
+            }
+
+            // Build batch update objects
+            const updateObjects = [];
+
+            for (const update of batch) {
+                const currentObject = objectMap.get(update.catalogObjectId);
+                if (!currentObject) {
+                    results.failed++;
+                    results.errors.push({ id: update.catalogObjectId, error: 'Object not found' });
+                    continue;
+                }
+
+                const updateObj = {
+                    type: currentObject.type,
+                    id: update.catalogObjectId,
+                    version: currentObject.version,
+                    custom_attribute_values: update.customAttributeValues
+                };
+
+                // Include required data field based on type
+                if (currentObject.type === 'ITEM' && currentObject.item_data) {
+                    updateObj.item_data = currentObject.item_data;
+                } else if (currentObject.type === 'ITEM_VARIATION' && currentObject.item_variation_data) {
+                    updateObj.item_variation_data = currentObject.item_variation_data;
+                }
+
+                updateObjects.push(updateObj);
+            }
+
+            if (updateObjects.length === 0) continue;
+
+            // Batch upsert
+            const idempotencyKey = generateIdempotencyKey('custom-attr-batch');
+
+            const upsertData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+                method: 'POST',
+                body: JSON.stringify({
+                    idempotency_key: idempotencyKey,
+                    batches: [{ objects: updateObjects }]
+                })
+            });
+
+            results.updated += upsertData.objects?.length || 0;
+
+        } catch (error) {
+            logger.error('Batch custom attribute update failed', {
+                batchStart: i,
+                error: error.message
+            });
+            results.failed += batch.length;
+            results.errors.push({ batch: Math.floor(i / batchSize), error: error.message });
+        }
+
+        // Small delay between batches
+        if (i + batchSize < updates.length) {
+            await sleep(200);
+        }
+    }
+
+    results.success = results.failed === 0;
+    logger.info('Batch custom attribute update complete', results);
+    return results;
+}
+
+/**
+ * Initialize JTPets custom attribute definitions in Square
+ * Creates the standard attribute definitions we use (case_pack_quantity, brand)
+ * @returns {Promise<Object>} Initialization result
+ */
+async function initializeJTPetsCustomAttributes() {
+    logger.info('Initializing JTPets custom attribute definitions');
+
+    const results = {
+        success: true,
+        definitions: [],
+        errors: []
+    };
+
+    // Define our custom attributes
+    const jtpetsDefinitions = [
+        {
+            key: 'case_pack_quantity',
+            name: 'Case Pack Quantity',
+            description: 'Number of units per case for ordering full cases',
+            type: 'NUMBER',
+            precision: 0,  // Integer
+            allowed_object_types: ['ITEM_VARIATION']
+        },
+        {
+            key: 'brand',
+            name: 'Brand',
+            description: 'Product brand name for Google Merchant Center and marketing',
+            type: 'STRING',
+            allowed_object_types: ['ITEM']
+        },
+        {
+            key: 'reorder_multiple',
+            name: 'Reorder Multiple',
+            description: 'Order quantities must be multiples of this number',
+            type: 'NUMBER',
+            precision: 0,
+            allowed_object_types: ['ITEM_VARIATION']
+        }
+    ];
+
+    // Check existing definitions
+    const existingDefs = await listCustomAttributeDefinitions();
+    const existingByKey = new Map(existingDefs.map(d => [d.key, d]));
+
+    for (const def of jtpetsDefinitions) {
+        try {
+            const existing = existingByKey.get(def.key);
+            if (existing) {
+                // Update with existing ID and version
+                def.id = existing.id;
+                def.version = existing.version;
+                logger.info('Updating existing custom attribute definition', { key: def.key, id: existing.id });
+            }
+
+            const result = await upsertCustomAttributeDefinition(def);
+            results.definitions.push({
+                key: def.key,
+                id: result.definition?.id,
+                status: existing ? 'updated' : 'created'
+            });
+        } catch (error) {
+            results.errors.push({ key: def.key, error: error.message });
+            results.success = false;
+        }
+    }
+
+    logger.info('JTPets custom attributes initialization complete', {
+        created: results.definitions.filter(d => d.status === 'created').length,
+        updated: results.definitions.filter(d => d.status === 'updated').length,
+        errors: results.errors.length
+    });
+
+    return results;
+}
+
+/**
+ * Push local case_pack_quantity values to Square for all variations
+ * @returns {Promise<Object>} Push result
+ */
+async function pushCasePackToSquare() {
+    logger.info('Pushing case pack quantities to Square');
+
+    try {
+        // Get all variations with case_pack_quantity set
+        const result = await db.query(`
+            SELECT id, case_pack_quantity
+            FROM variations
+            WHERE case_pack_quantity IS NOT NULL
+              AND case_pack_quantity > 0
+              AND is_deleted = FALSE
+        `);
+
+        if (result.rows.length === 0) {
+            logger.info('No case pack quantities to push');
+            return { success: true, updated: 0, message: 'No case pack quantities found' };
+        }
+
+        const updates = result.rows.map(row => ({
+            catalogObjectId: row.id,
+            customAttributeValues: {
+                case_pack_quantity: {
+                    number_value: row.case_pack_quantity.toString()
+                }
+            }
+        }));
+
+        logger.info('Pushing case pack quantities', { count: updates.length });
+        return await batchUpdateCustomAttributeValues(updates);
+    } catch (error) {
+        logger.error('Failed to push case pack quantities', { error: error.message });
+        throw error;
+    }
+}
+
+/**
+ * Push local brand assignments to Square for all items
+ * @returns {Promise<Object>} Push result
+ */
+async function pushBrandsToSquare() {
+    logger.info('Pushing brands to Square');
+
+    try {
+        // Get all items with brand assignments
+        const result = await db.query(`
+            SELECT i.id, b.name as brand_name
+            FROM items i
+            JOIN item_brands ib ON i.id = ib.item_id
+            JOIN brands b ON ib.brand_id = b.id
+            WHERE i.is_deleted = FALSE
+        `);
+
+        if (result.rows.length === 0) {
+            logger.info('No brand assignments to push');
+            return { success: true, updated: 0, message: 'No brand assignments found' };
+        }
+
+        const updates = result.rows.map(row => ({
+            catalogObjectId: row.id,
+            customAttributeValues: {
+                brand: {
+                    string_value: row.brand_name
+                }
+            }
+        }));
+
+        logger.info('Pushing brand assignments', { count: updates.length });
+        return await batchUpdateCustomAttributeValues(updates);
+    } catch (error) {
+        logger.error('Failed to push brand assignments', { error: error.message });
+        throw error;
+    }
+}
+
+/**
+ * Push local reorder_multiple values to Square for all variations
+ * @returns {Promise<Object>} Push result
+ */
+async function pushReorderMultipleToSquare() {
+    logger.info('Pushing reorder multiples to Square');
+
+    try {
+        // Get all variations with reorder_multiple set
+        const result = await db.query(`
+            SELECT id, reorder_multiple
+            FROM variations
+            WHERE reorder_multiple IS NOT NULL
+              AND reorder_multiple > 0
+              AND is_deleted = FALSE
+        `);
+
+        if (result.rows.length === 0) {
+            logger.info('No reorder multiples to push');
+            return { success: true, updated: 0, message: 'No reorder multiples found' };
+        }
+
+        const updates = result.rows.map(row => ({
+            catalogObjectId: row.id,
+            customAttributeValues: {
+                reorder_multiple: {
+                    number_value: row.reorder_multiple.toString()
+                }
+            }
+        }));
+
+        logger.info('Pushing reorder multiples', { count: updates.length });
+        return await batchUpdateCustomAttributeValues(updates);
+    } catch (error) {
+        logger.error('Failed to push reorder multiples', { error: error.message });
+        throw error;
+    }
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -1653,5 +2142,14 @@ module.exports = {
     getSquareInventoryCount,
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
-    fixLocationMismatches
+    fixLocationMismatches,
+    // Custom attribute functions
+    listCustomAttributeDefinitions,
+    upsertCustomAttributeDefinition,
+    updateCustomAttributeValues,
+    batchUpdateCustomAttributeValues,
+    initializeJTPetsCustomAttributes,
+    pushCasePackToSquare,
+    pushBrandsToSquare,
+    pushReorderMultipleToSquare
 };
