@@ -2379,6 +2379,138 @@ async function batchUpdateVariationPrices(priceUpdates) {
     return results;
 }
 
+/**
+ * Update variation unit cost (vendor cost) in Square and local database
+ * @param {string} variationId - The Square catalog object ID for the variation
+ * @param {string} vendorId - The vendor ID for this cost
+ * @param {number} newCostCents - The new cost in cents
+ * @param {string} currency - The currency (default CAD)
+ * @returns {Promise<Object>} Result with old/new cost info
+ */
+async function updateVariationCost(variationId, vendorId, newCostCents, currency = 'CAD') {
+    logger.info('Updating variation cost in Square', { variationId, vendorId, newCostCents, currency });
+
+    try {
+        // First, retrieve the current catalog object to get its version and existing data
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`);
+
+        if (!retrieveData.object) {
+            throw new Error(`Catalog object not found: ${variationId}`);
+        }
+
+        const currentObject = retrieveData.object;
+
+        if (currentObject.type !== 'ITEM_VARIATION') {
+            throw new Error(`Object is not a variation: ${currentObject.type}`);
+        }
+
+        const currentVariationData = currentObject.item_variation_data || {};
+        const currentVendorInfo = currentVariationData.vendor_information || [];
+
+        // Find old cost for the specified vendor
+        const existingVendorIdx = currentVendorInfo.findIndex(v => v.vendor_id === vendorId);
+        const oldCostCents = existingVendorIdx >= 0
+            ? currentVendorInfo[existingVendorIdx].unit_cost_money?.amount
+            : null;
+
+        // Update or add vendor information
+        let updatedVendorInfo;
+        if (existingVendorIdx >= 0) {
+            // Update existing vendor entry
+            updatedVendorInfo = [...currentVendorInfo];
+            updatedVendorInfo[existingVendorIdx] = {
+                ...updatedVendorInfo[existingVendorIdx],
+                unit_cost_money: {
+                    amount: newCostCents,
+                    currency: currency
+                }
+            };
+        } else {
+            // Add new vendor entry
+            updatedVendorInfo = [
+                ...currentVendorInfo,
+                {
+                    vendor_id: vendorId,
+                    unit_cost_money: {
+                        amount: newCostCents,
+                        currency: currency
+                    }
+                }
+            ];
+        }
+
+        // Build the update request
+        const idempotencyKey = generateIdempotencyKey('cost-update');
+
+        const updateBody = {
+            idempotency_key: idempotencyKey,
+            object: {
+                type: 'ITEM_VARIATION',
+                id: variationId,
+                version: currentObject.version,
+                item_variation_data: {
+                    ...currentVariationData,
+                    vendor_information: updatedVendorInfo
+                }
+            }
+        };
+
+        const data = await makeSquareRequest('/v2/catalog/object', {
+            method: 'POST',
+            body: JSON.stringify(updateBody)
+        });
+
+        logger.info('Variation cost updated in Square', {
+            variationId,
+            vendorId,
+            oldCost: oldCostCents,
+            newCost: newCostCents,
+            newVersion: data.catalog_object?.version
+        });
+
+        // Update local database to reflect the change
+        await db.query(`
+            UPDATE variation_vendors
+            SET unit_cost_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE variation_id = $3 AND vendor_id = $4
+        `, [newCostCents, currency, variationId, vendorId]);
+
+        // If no row updated (vendor not in local db), insert it
+        const updateResult = await db.query(
+            'SELECT changes FROM variation_vendors WHERE variation_id = $1 AND vendor_id = $2',
+            [variationId, vendorId]
+        );
+        if (!updateResult.rows.length) {
+            await db.query(`
+                INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, updated_at)
+                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
+                    unit_cost_money = EXCLUDED.unit_cost_money,
+                    currency = EXCLUDED.currency,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [variationId, vendorId, newCostCents, currency]);
+        }
+
+        return {
+            success: true,
+            variationId,
+            vendorId,
+            oldCostCents,
+            newCostCents,
+            catalog_object: data.catalog_object
+        };
+    } catch (error) {
+        logger.error('Failed to update variation cost', {
+            variationId,
+            vendorId,
+            newCostCents,
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -2402,5 +2534,7 @@ module.exports = {
     deleteCustomAttributeDefinition,
     // Price update functions
     updateVariationPrice,
-    batchUpdateVariationPrices
+    batchUpdateVariationPrices,
+    // Cost update functions
+    updateVariationCost
 };

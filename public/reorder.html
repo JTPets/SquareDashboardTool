@@ -845,7 +845,21 @@
                      onblur="saveField(this)"
                      onkeydown="if(event.key==='Enter') this.blur()">
             </td>
-            <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
+            <td class="text-right editable-cell">
+              <input type="number"
+                     class="editable-input cost-input"
+                     value="${item.unit_cost_cents ? (item.unit_cost_cents / 100).toFixed(2) : ''}"
+                     placeholder="0.00"
+                     min="0"
+                     step="0.01"
+                     data-field="unit_cost_cents"
+                     data-variation-id="${item.variation_id}"
+                     data-vendor-id="${item.current_vendor_id || ''}"
+                     data-original-value="${item.unit_cost_cents || 0}"
+                     onblur="saveCost(this)"
+                     onkeydown="if(event.key==='Enter') this.blur()"
+                     style="width: 70px;">
+            </td>
             <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
             <td class="clickable" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="Click to copy Vendor Code">${escapeHtml(item.vendor_code)}</td>
@@ -1171,6 +1185,102 @@
         // Revert to original value
         input.value = currentValue || '';
         alert(`Failed to save ${field}: ${error.message}`);
+      } finally {
+        input.disabled = false;
+      }
+    }
+
+    // Save unit cost and push to Square
+    async function saveCost(input) {
+      const variationId = input.dataset.variationId;
+      const vendorId = input.dataset.vendorId;
+      const originalValue = parseFloat(input.dataset.originalValue) || 0;
+      const value = input.value.trim();
+
+      // Convert dollars to cents
+      const newValueDollars = parseFloat(value) || 0;
+      const newValueCents = Math.round(newValueDollars * 100);
+
+      // Check if value actually changed
+      if (newValueCents === originalValue) {
+        return;
+      }
+
+      // Validate
+      if (newValueDollars < 0) {
+        input.classList.add('error');
+        setTimeout(() => input.classList.remove('error'), 2000);
+        input.value = (originalValue / 100).toFixed(2);
+        return;
+      }
+
+      if (!vendorId) {
+        alert('Cannot update cost: No vendor associated with this item.');
+        input.value = (originalValue / 100).toFixed(2);
+        return;
+      }
+
+      // Show saving state
+      input.classList.add('saving');
+      input.disabled = true;
+
+      try {
+        const response = await fetch(`/api/variations/${variationId}/cost`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            cost_cents: newValueCents,
+            vendor_id: vendorId
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        // Update local data
+        const item = allSuggestions.find(s => s.variation_id === variationId);
+        if (item) {
+          item.unit_cost_cents = newValueCents;
+        }
+
+        // Update the original value data attribute
+        input.dataset.originalValue = newValueCents;
+
+        // Re-render to update total cost column
+        renderTable();
+        updateFooter();
+
+        // Show success feedback
+        const updatedInput = document.querySelector(`input[data-variation-id="${variationId}"][data-field="unit_cost_cents"]`);
+        if (updatedInput) {
+          updatedInput.classList.add('saved');
+          setTimeout(() => updatedInput.classList.remove('saved'), 2000);
+        }
+
+        // Show toast notification
+        if (typeof showToast === 'function') {
+          showToast(`Cost updated to $${newValueDollars.toFixed(2)} and synced to Square`, 'success');
+        }
+
+      } catch (error) {
+        console.error('Failed to save cost:', error);
+        input.classList.remove('saving');
+        input.classList.add('error');
+        setTimeout(() => input.classList.remove('error'), 2000);
+
+        // Revert to original value
+        input.value = (originalValue / 100).toFixed(2);
+
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error)
+          : 'Failed to update cost. Please try again.';
+        alert(friendlyMsg);
       } finally {
         input.disabled = false;
       }
