@@ -514,6 +514,9 @@
     </div>
   </div>
 
+  <!-- Error Helper for user-friendly messages -->
+  <script src="/js/error-helper.js"></script>
+
   <script>
     let allSuggestions = [];
     let selectedItems = new Set();
@@ -560,7 +563,10 @@
           });
       } catch (error) {
         console.error('Failed to load locations:', error);
-        alert('Failed to load locations: ' + error.message);
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error)
+          : 'Unable to load locations. Please refresh the page.';
+        alert(friendlyMsg);
       }
     }
 
@@ -582,7 +588,10 @@
         });
       } catch (error) {
         console.error('Failed to load vendors:', error);
-        alert('Failed to load vendors: ' + error.message);
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'vendor', 'load')
+          : 'Unable to load vendors. Please refresh the page.';
+        alert(friendlyMsg);
       }
     }
 
@@ -634,7 +643,10 @@
 
       } catch (error) {
         console.error('Failed to load suggestions:', error);
-        tbody.innerHTML = `<tr><td colspan="17" class="loading">Error: ${error.message}</td></tr>`;
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
+          : 'Unable to load reorder suggestions. Please refresh the page.';
+        tbody.innerHTML = `<tr><td colspan="17" class="loading">${friendlyMsg}</td></tr>`;
       }
     }
 
@@ -999,7 +1011,10 @@
 
       } catch (error) {
         console.error('Failed to create PO:', error);
-        alert('Failed to create purchase order: ' + error.message);
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'orders', 'create')
+          : 'Unable to create purchase order. Please check your selection and try again.';
+        alert(friendlyMsg);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Create Purchase Order';

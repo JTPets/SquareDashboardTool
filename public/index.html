@@ -708,6 +708,9 @@
     </div>
   </div>
 
+  <!-- Error Helper for user-friendly messages -->
+  <script src="/js/error-helper.js"></script>
+
   <script>
     // Set current year
     document.getElementById('year').textContent = new Date().getFullYear();
@@ -854,10 +857,13 @@
           }
         });
 
-        // Update sync status banner
+        // Update sync status banner with friendly message
         const statusEl = document.getElementById('sync-status');
         if (statusEl) {
-          statusEl.innerHTML = '⚠️ Unable to load dashboard data. Check server logs or console.';
+          const friendlyMsg = window.ErrorHelper
+            ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
+            : 'Unable to load dashboard data. Please refresh the page.';
+          statusEl.innerHTML = '⚠️ ' + friendlyMsg;
           statusEl.style.background = '#fee2e2';
           statusEl.style.color = '#991b1b';
         }
@@ -911,8 +917,13 @@
         }, 2000);
 
       } catch (error) {
-        statusEl.innerHTML = '❌ Sync failed: ' + error.message;
-        statusEl.classList.add('loading');
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'sync', 'error')
+          : 'Sync failed. Please try again.';
+        statusEl.innerHTML = '❌ ' + friendlyMsg;
+        statusEl.classList.remove('loading');
+        statusEl.style.background = '#fee2e2';
+        statusEl.style.color = '#991b1b';
       }
     }
 
