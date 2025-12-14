@@ -2857,6 +2857,56 @@ app.post('/api/gmc/taxonomy/import', async (req, res) => {
 });
 
 /**
+ * GET /api/gmc/taxonomy/fetch-google
+ * Fetch and import Google's official taxonomy file
+ */
+app.get('/api/gmc/taxonomy/fetch-google', async (req, res) => {
+    try {
+        const taxonomyUrl = 'https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt';
+
+        logger.info('Fetching Google taxonomy from official URL');
+
+        const response = await fetch(taxonomyUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch taxonomy: ${response.status} ${response.statusText}`);
+        }
+
+        const text = await response.text();
+        const lines = text.split('\n');
+
+        // Parse the taxonomy file
+        // Format: "1 - Animals & Pet Supplies" or with hierarchy "3237 - Animals & Pet Supplies > Pet Supplies"
+        const taxonomy = [];
+        for (const line of lines) {
+            // Skip empty lines and comments (first line is a comment)
+            if (!line.trim() || line.startsWith('#')) continue;
+
+            // Parse: "ID - Name"
+            const match = line.match(/^(\d+)\s+-\s+(.+)$/);
+            if (match) {
+                taxonomy.push({
+                    id: parseInt(match[1]),
+                    name: match[2].trim()
+                });
+            }
+        }
+
+        if (taxonomy.length === 0) {
+            throw new Error('No taxonomy entries found in file');
+        }
+
+        logger.info(`Parsed ${taxonomy.length} taxonomy entries, importing...`);
+
+        const imported = await gmcFeed.importGoogleTaxonomy(taxonomy);
+
+        res.json({ success: true, imported, total: taxonomy.length });
+    } catch (error) {
+        logger.error('GMC taxonomy fetch error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * PUT /api/gmc/categories/:categoryId/taxonomy
  * Map a Square category to a Google taxonomy
  */
