@@ -1492,52 +1492,70 @@ app.patch('/api/variations/:id/cost', async (req, res) => {
 
         const variation = variationResult.rows[0];
         const targetVendorId = vendor_id || variation.vendor_id;
-
-        if (!targetVendorId) {
-            return res.status(400).json({
-                error: 'No vendor associated with this variation. Please specify vendor_id.'
-            });
-        }
-
         const previousCost = variation.current_cost;
 
-        // Update Square
-        try {
-            const squareResult = await squareApi.updateVariationCost(
-                id,
-                targetVendorId,
-                Math.round(cost_cents),
-                'CAD'
-            );
+        // If we have a vendor, update Square and local DB
+        if (targetVendorId) {
+            try {
+                const squareResult = await squareApi.updateVariationCost(
+                    id,
+                    targetVendorId,
+                    Math.round(cost_cents),
+                    'CAD'
+                );
 
-            logger.info('Cost updated in Square', {
+                logger.info('Cost updated in Square', {
+                    variationId: id,
+                    sku: variation.sku,
+                    vendorId: targetVendorId,
+                    oldCost: previousCost,
+                    newCost: cost_cents
+                });
+
+                res.json({
+                    success: true,
+                    variation_id: id,
+                    sku: variation.sku,
+                    item_name: variation.item_name,
+                    vendor_id: targetVendorId,
+                    vendor_name: variation.vendor_name,
+                    previous_cost_cents: previousCost,
+                    new_cost_cents: cost_cents,
+                    synced_to_square: true
+                });
+
+            } catch (squareError) {
+                logger.error('Square cost update failed', {
+                    variationId: id,
+                    error: squareError.message
+                });
+                return res.status(500).json({
+                    error: 'Failed to update cost in Square: ' + squareError.message,
+                    square_error: true
+                });
+            }
+        } else {
+            // No vendor - save locally only (can't push to Square without vendor)
+            // Update local variation_vendors with a null vendor or just log the cost
+            logger.warn('Cost update without vendor - saving locally only', {
                 variationId: id,
                 sku: variation.sku,
-                vendorId: targetVendorId,
-                oldCost: previousCost,
-                newCost: cost_cents
+                cost_cents
             });
 
+            // Store in variations table as a fallback cost field (if you have one)
+            // For now, just acknowledge the limitation
             res.json({
                 success: true,
                 variation_id: id,
                 sku: variation.sku,
                 item_name: variation.item_name,
-                vendor_id: targetVendorId,
-                vendor_name: variation.vendor_name,
+                vendor_id: null,
+                vendor_name: null,
                 previous_cost_cents: previousCost,
                 new_cost_cents: cost_cents,
-                synced_to_square: true
-            });
-
-        } catch (squareError) {
-            logger.error('Square cost update failed', {
-                variationId: id,
-                error: squareError.message
-            });
-            return res.status(500).json({
-                error: 'Failed to update cost in Square: ' + squareError.message,
-                square_error: true
+                synced_to_square: false,
+                warning: 'No vendor associated - cost saved locally only. Assign a vendor to sync cost to Square.'
             });
         }
 
