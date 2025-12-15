@@ -1214,12 +1214,6 @@
         return;
       }
 
-      if (!vendorId) {
-        alert('Cannot update cost: No vendor associated with this item.');
-        input.value = (originalValue / 100).toFixed(2);
-        return;
-      }
-
       // Show saving state
       input.classList.add('saving');
       input.disabled = true;
@@ -1232,7 +1226,7 @@
           },
           body: JSON.stringify({
             cost_cents: newValueCents,
-            vendor_id: vendorId
+            vendor_id: vendorId || null
           })
         });
 
@@ -1263,9 +1257,13 @@
           setTimeout(() => updatedInput.classList.remove('saved'), 2000);
         }
 
-        // Show toast notification
+        // Show toast notification based on whether it synced to Square
         if (typeof showToast === 'function') {
-          showToast(`Cost updated to $${newValueDollars.toFixed(2)} and synced to Square`, 'success');
+          if (result.synced_to_square) {
+            showToast(`Cost updated to $${newValueDollars.toFixed(2)} and synced to Square`, 'success');
+          } else {
+            showToast(`Cost updated locally. ${result.warning || 'Not synced to Square.'}`, 'warning');
+          }
         }
 
       } catch (error) {
