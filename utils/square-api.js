@@ -2614,28 +2614,15 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
             newVersion: data.catalog_object?.version
         });
 
-        // Update local database to reflect the change
+        // Update local database to reflect the change (upsert)
         await db.query(`
-            UPDATE variation_vendors
-            SET unit_cost_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE variation_id = $3 AND vendor_id = $4
-        `, [newCostCents, currency, variationId, vendorId]);
-
-        // If no row updated (vendor not in local db), insert it
-        const updateResult = await db.query(
-            'SELECT changes FROM variation_vendors WHERE variation_id = $1 AND vendor_id = $2',
-            [variationId, vendorId]
-        );
-        if (!updateResult.rows.length) {
-            await db.query(`
-                INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, updated_at)
-                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
-                    unit_cost_money = EXCLUDED.unit_cost_money,
-                    currency = EXCLUDED.currency,
-                    updated_at = CURRENT_TIMESTAMP
-            `, [variationId, vendorId, newCostCents, currency]);
-        }
+            INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
+                unit_cost_money = EXCLUDED.unit_cost_money,
+                currency = EXCLUDED.currency,
+                updated_at = CURRENT_TIMESTAMP
+        `, [variationId, vendorId, newCostCents, currency]);
 
         return {
             success: true,
