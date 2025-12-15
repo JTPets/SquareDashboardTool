@@ -280,7 +280,8 @@ async function syncCatalog() {
                         itemsMap.set(obj.id, obj);
                         break;
                     case 'ITEM_VARIATION':
-                        variationsMap.set(obj.id, obj.item_variation_data);
+                        // Store full object to preserve custom_attribute_values and other top-level fields
+                        variationsMap.set(obj.id, obj);
                         break;
                     case 'IMAGE':
                         imagesMap.set(obj.id, obj.image_data);
@@ -374,8 +375,9 @@ async function syncCatalog() {
         logger.info('Items synced', { count: stats.items });
 
         // 4. Insert variations
-        for (const [id, varData] of variationsMap) {
+        for (const [id, varObj] of variationsMap) {
             try {
+                const varData = varObj.item_variation_data;
                 if (!itemsMap.has(varData.item_id)) {
                     logger.warn('Skipping variation - parent item not found', {
                         variation_id: id,
@@ -383,7 +385,8 @@ async function syncCatalog() {
                     });
                     continue;
                 }
-                const vendorCount = await syncVariation({ id, item_variation_data: varData });
+                // Pass full object to preserve custom_attribute_values
+                const vendorCount = await syncVariation(varObj);
                 stats.variations++;
                 stats.variationVendors += vendorCount;
                 syncedVariationIds.add(id);
