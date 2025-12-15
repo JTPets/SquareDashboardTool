@@ -1713,6 +1713,7 @@ app.post('/api/expirations', async (req, res) => {
         }
 
         let updatedCount = 0;
+        let squarePushResults = { success: 0, failed: 0, errors: [] };
 
         for (const change of changes) {
             const { variation_id, expiration_date, does_not_expire } = change;
@@ -1722,6 +1723,7 @@ app.post('/api/expirations', async (req, res) => {
                 continue;
             }
 
+            // Save to local database
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -1737,13 +1739,45 @@ app.post('/api/expirations', async (req, res) => {
             ]);
 
             updatedCount++;
+
+            // Push to Square immediately (Square is source of truth)
+            try {
+                const customAttributeValues = {};
+
+                // Set expiration_date (as string YYYY-MM-DD)
+                if (expiration_date) {
+                    customAttributeValues.expiration_date = { string_value: expiration_date };
+                } else {
+                    // Clear expiration date if not set
+                    customAttributeValues.expiration_date = { string_value: '' };
+                }
+
+                // Set does_not_expire boolean
+                customAttributeValues.does_not_expire = { boolean_value: does_not_expire || false };
+
+                await squareApi.setCustomAttributeValue(variation_id, 'ITEM_VARIATION', customAttributeValues);
+                squarePushResults.success++;
+                logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
+            } catch (squareError) {
+                squarePushResults.failed++;
+                squarePushResults.errors.push({ variation_id, error: squareError.message });
+                logger.error('Failed to push expiry to Square', {
+                    variation_id,
+                    error: squareError.message
+                });
+                // Continue processing other changes even if Square push fails
+            }
         }
 
-        logger.info('Updated expirations', { count: updatedCount });
+        logger.info('Updated expirations', {
+            count: updatedCount,
+            squarePush: squarePushResults
+        });
 
         res.json({
             success: true,
-            message: `Updated ${updatedCount} expiration record(s)`
+            message: `Updated ${updatedCount} expiration record(s)`,
+            squarePush: squarePushResults
         });
 
     } catch (error) {
