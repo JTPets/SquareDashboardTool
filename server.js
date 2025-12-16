@@ -1773,7 +1773,7 @@ app.post('/api/expirations', async (req, res) => {
                 // Set does_not_expire boolean
                 customAttributeValues.does_not_expire = { boolean_value: does_not_expire || false };
 
-                await squareApi.setCustomAttributeValue(variation_id, 'ITEM_VARIATION', customAttributeValues);
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
                 squarePushResults.success++;
                 logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
             } catch (squareError) {
