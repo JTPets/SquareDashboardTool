@@ -545,22 +545,23 @@
 
       <h3 style="margin-bottom: 20px;">Tier Configuration</h3>
       <p style="color: #6b7280; margin-bottom: 15px; font-size: 13px;">
-        Configure the day ranges and discount percentages for each tier.
+        Configure the day ranges, discount percentages, and customer-facing display names for each tier.
       </p>
       <table class="tier-config-table">
         <thead>
           <tr>
-            <th>Tier</th>
+            <th>Tier Code</th>
+            <th>Display Name (Customer-Facing)</th>
             <th>Min Days</th>
             <th>Max Days</th>
             <th>Discount %</th>
             <th>Auto Apply</th>
-            <th>Requires Review</th>
+            <th>Review</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="tier-config-body">
-          <tr><td colspan="7" class="loading">Loading tier configuration...</td></tr>
+          <tr><td colspan="8" class="loading">Loading tier configuration...</td></tr>
         </tbody>
       </table>
     </div>
@@ -827,9 +828,10 @@
         tbody.innerHTML = data.tiers.map(tier => `
           <tr data-tier-id="${tier.id}">
             <td><span class="tier-badge tier-${tier.tier_code}">${tier.tier_code}</span></td>
-            <td><input type="number" value="${tier.min_days_to_expiry ?? ''}" data-field="min_days_to_expiry" placeholder="None"></td>
-            <td><input type="number" value="${tier.max_days_to_expiry ?? ''}" data-field="max_days_to_expiry" placeholder="None"></td>
-            <td><input type="number" value="${tier.discount_percent}" data-field="discount_percent" min="0" max="100" step="1"></td>
+            <td><input type="text" value="${tier.tier_name || ''}" data-field="tier_name" placeholder="Display name" style="width: 160px;"></td>
+            <td><input type="number" value="${tier.min_days_to_expiry ?? ''}" data-field="min_days_to_expiry" placeholder="None" style="width: 70px;"></td>
+            <td><input type="number" value="${tier.max_days_to_expiry ?? ''}" data-field="max_days_to_expiry" placeholder="None" style="width: 70px;"></td>
+            <td><input type="number" value="${tier.discount_percent}" data-field="discount_percent" min="0" max="100" step="1" style="width: 70px;"></td>
             <td class="text-center"><input type="checkbox" ${tier.is_auto_apply ? 'checked' : ''} data-field="is_auto_apply"></td>
             <td class="text-center"><input type="checkbox" ${tier.requires_review ? 'checked' : ''} data-field="requires_review"></td>
             <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" onclick="saveTierConfig(${tier.id})">Save</button></td>
@@ -838,7 +840,7 @@
 
       } catch (error) {
         console.error('Failed to load tier config:', error);
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load tier configuration.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load tier configuration.</td></tr>';
       }
     }
 
