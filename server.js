@@ -1922,13 +1922,15 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
                 edt.color_code,
                 edt.is_auto_apply,
                 edt.requires_review,
-                COALESCE(SUM(ic.quantity), 0) as current_stock
+                COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0) as current_stock,
+                COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0)
+                    - COALESCE(SUM(CASE WHEN ic.state = 'RESERVED_FOR_SALE' THEN ic.quantity ELSE 0 END), 0) as available_to_sell
             FROM variation_discount_status vds
             JOIN variations v ON vds.variation_id = v.id
             JOIN items i ON v.item_id = i.id
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
             WHERE v.is_deleted = FALSE
         `;
 

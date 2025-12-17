@@ -248,6 +248,29 @@
       50% { opacity: 0.7; }
     }
 
+    /* Out of stock / 0 available styling */
+    .out-of-stock {
+      opacity: 0.5;
+    }
+    .out-of-stock td {
+      text-decoration: line-through;
+      text-decoration-color: #9ca3af;
+    }
+    .out-of-stock .tier-badge,
+    .out-of-stock .days-badge,
+    .out-of-stock .zero-available {
+      text-decoration: none;
+    }
+    .zero-available {
+      background: #6b7280;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
     /* Settings form */
     .settings-form {
       max-width: 600px;
@@ -443,7 +466,7 @@
               <th>SKU</th>
               <th>Days Left</th>
               <th>Expiry Date</th>
-              <th class="text-right">Stock</th>
+              <th class="text-right" title="Available to Sell">Avail.</th>
               <th class="text-right">Original Price</th>
               <th class="text-right">Discounted Price</th>
               <th>Status</th>
@@ -673,6 +696,12 @@
           const originalPrice = item.original_price_cents ? '$' + (item.original_price_cents / 100).toFixed(2) : '-';
           const discountedPrice = item.discounted_price_cents ? '$' + (item.discounted_price_cents / 100).toFixed(2) : '-';
 
+          // Check if item has 0 available to sell
+          const availableToSell = item.available_to_sell || 0;
+          const isOutOfStock = availableToSell <= 0;
+          const rowClass = isOutOfStock ? 'out-of-stock' : '';
+          const zeroAvailableBadge = isOutOfStock ? '<span class="zero-available">0 AVAIL</span>' : '';
+
           let statusHtml = '';
           if (item.needs_pull) {
             statusHtml = '<span class="needs-pull">PULL</span>';
@@ -685,8 +714,8 @@
           }
 
           return `
-            <tr>
-              <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span></td>
+            <tr class="${rowClass}" title="${isOutOfStock ? '0 available to sell - not on shelf' : ''}">
+              <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span>${zeroAvailableBadge}</td>
               <td>
                 <strong>${escapeHtml(item.item_name)}</strong>
                 ${item.variation_name ? `<br><small style="color: #6b7280;">${escapeHtml(item.variation_name)}</small>` : ''}
@@ -694,7 +723,7 @@
               <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || '-')}</td>
               <td><span class="days-badge ${daysClass}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
               <td>${expiryDate}</td>
-              <td class="text-right">${item.current_stock || 0}</td>
+              <td class="text-right">${availableToSell}</td>
               <td class="text-right">${originalPrice}</td>
               <td class="text-right" style="font-weight: 600; color: ${item.discounted_price_cents ? '#dc2626' : '#6b7280'};">${discountedPrice}</td>
               <td>${statusHtml}</td>
