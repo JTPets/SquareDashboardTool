@@ -345,8 +345,9 @@ async function upsertSquareDiscount(tier) {
         const idempotencyKey = squareApiModule.generateIdempotencyKey(`discount-${tier.tier_code}`);
 
         // Build the discount object
+        // Use tier_name as the customer-facing discount name (e.g., "Clearance Sale", "Special Savings")
         const discountData = {
-            name: `${tier.tier_code} - ${tier.tier_name}`,
+            name: tier.tier_name,
             discount_type: 'FIXED_PERCENTAGE',
             percentage: tier.discount_percent.toString(),
             // Item-level discounts apply to specific catalog items

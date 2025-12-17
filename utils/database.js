@@ -549,13 +549,14 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_active ON expiry_discount_tiers(is_active)');
 
         // Insert default tier configurations
+        // tier_name is customer-facing (shown in Square POS/receipts), tier_code is internal
         await query(`
             INSERT INTO expiry_discount_tiers (tier_code, tier_name, min_days_to_expiry, max_days_to_expiry, discount_percent, is_auto_apply, requires_review, color_code, priority) VALUES
-                ('EXPIRED', 'Expired - Pull from Shelf', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
-                ('AUTO50', '50% Off - Critical Expiry', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
-                ('AUTO25', '25% Off - Approaching Expiry', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
-                ('REVIEW', 'Review - Monitor Expiry', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
-                ('OK', 'OK - No Action Needed', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
+                ('EXPIRED', 'Staff Only - Remove', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
+                ('AUTO50', 'Clearance Sale', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
+                ('AUTO25', 'Special Savings', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
+                ('REVIEW', 'Staff Review', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
+                ('OK', 'Regular Stock', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
             ON CONFLICT (tier_code) DO NOTHING
         `);
 
