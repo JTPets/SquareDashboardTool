@@ -515,6 +515,116 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // ==================== EXPIRY DISCOUNT TABLES ====================
+
+    // Check if expiry_discount_tiers table exists
+    const expiryTiersCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'expiry_discount_tiers'
+    `);
+
+    if (expiryTiersCheck.rows.length === 0) {
+        logger.info('Creating expiry discount tables...');
+
+        // 1. Expiry Discount Tiers - configurable discount tiers
+        await query(`
+            CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
+                id SERIAL PRIMARY KEY,
+                tier_code TEXT NOT NULL UNIQUE,
+                tier_name TEXT NOT NULL,
+                min_days_to_expiry INTEGER,
+                max_days_to_expiry INTEGER,
+                discount_percent DECIMAL(5,2) DEFAULT 0,
+                is_auto_apply BOOLEAN DEFAULT FALSE,
+                requires_review BOOLEAN DEFAULT FALSE,
+                square_discount_id TEXT,
+                color_code TEXT DEFAULT '#6b7280',
+                priority INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_code ON expiry_discount_tiers(tier_code)');
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_active ON expiry_discount_tiers(is_active)');
+
+        // Insert default tier configurations
+        await query(`
+            INSERT INTO expiry_discount_tiers (tier_code, tier_name, min_days_to_expiry, max_days_to_expiry, discount_percent, is_auto_apply, requires_review, color_code, priority) VALUES
+                ('EXPIRED', 'Expired - Pull from Shelf', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
+                ('AUTO50', '50% Off - Critical Expiry', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
+                ('AUTO25', '25% Off - Approaching Expiry', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
+                ('REVIEW', 'Review - Monitor Expiry', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
+                ('OK', 'OK - No Action Needed', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
+            ON CONFLICT (tier_code) DO NOTHING
+        `);
+
+        // 2. Variation Discount Status - tracks current discount state per variation
+        await query(`
+            CREATE TABLE IF NOT EXISTS variation_discount_status (
+                variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+                current_tier_id INTEGER REFERENCES expiry_discount_tiers(id) ON DELETE SET NULL,
+                days_until_expiry INTEGER,
+                original_price_cents INTEGER,
+                discounted_price_cents INTEGER,
+                discount_applied_at TIMESTAMPTZ,
+                last_evaluated_at TIMESTAMPTZ DEFAULT NOW(),
+                needs_pull BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_tier ON variation_discount_status(current_tier_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_needs_pull ON variation_discount_status(needs_pull) WHERE needs_pull = TRUE');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_days ON variation_discount_status(days_until_expiry)');
+
+        // 3. Expiry Discount Audit Log - tracks all changes for accountability
+        await query(`
+            CREATE TABLE IF NOT EXISTS expiry_discount_audit_log (
+                id SERIAL PRIMARY KEY,
+                variation_id TEXT REFERENCES variations(id) ON DELETE SET NULL,
+                action TEXT NOT NULL,
+                old_tier_code TEXT,
+                new_tier_code TEXT,
+                old_price_cents INTEGER,
+                new_price_cents INTEGER,
+                discount_percent DECIMAL(5,2),
+                triggered_by TEXT DEFAULT 'system',
+                notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_variation ON expiry_discount_audit_log(variation_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_action ON expiry_discount_audit_log(action)');
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_created ON expiry_discount_audit_log(created_at DESC)');
+
+        // 4. Expiry Discount Settings - global settings
+        await query(`
+            CREATE TABLE IF NOT EXISTS expiry_discount_settings (
+                id SERIAL PRIMARY KEY,
+                setting_key TEXT NOT NULL UNIQUE,
+                setting_value TEXT,
+                description TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+
+        // Insert default settings
+        await query(`
+            INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
+                ('automation_enabled', 'true', 'Enable/disable automatic discount application'),
+                ('email_notifications', 'true', 'Send email notifications for tier changes'),
+                ('notification_email', '', 'Email address for notifications'),
+                ('dry_run_mode', 'false', 'Run in dry-run mode (no actual changes)'),
+                ('last_run_at', NULL, 'Timestamp of last automation run'),
+                ('last_run_status', NULL, 'Status of last automation run')
+            ON CONFLICT (setting_key) DO NOTHING
+        `);
+
+        logger.info('Created expiry discount tables with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
