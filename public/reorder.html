@@ -106,6 +106,22 @@
     }
     tr:hover { background: #f9fafb; }
     tr.selected { background: #dbeafe; }
+    tr.unchecked {
+      background: #f3f4f6;
+      opacity: 0.7;
+    }
+    tr.unchecked td {
+      text-decoration: line-through;
+      color: #9ca3af;
+    }
+    tr.unchecked td input[type="checkbox"] {
+      text-decoration: none;
+    }
+    tr.unchecked td input[type="number"],
+    tr.unchecked td .editable-display {
+      text-decoration: none;
+      opacity: 0.5;
+    }
 
     .product-name {
       max-width: 250px;
@@ -551,16 +567,23 @@
 
         const locations = data.locations || [];
         const select = document.getElementById('location-select');
+        const activeLocations = locations.filter(loc => loc.active);
 
-        select.innerHTML = '<option value="">All Locations</option>';
-        locations
-          .filter(loc => loc.active)
-          .forEach(loc => {
-            const option = document.createElement('option');
-            option.value = loc.id;
-            option.textContent = loc.name;
-            select.appendChild(option);
-          });
+        // Build options: first location selected by default, "All Locations" at the bottom
+        select.innerHTML = '';
+        activeLocations.forEach((loc, index) => {
+          const option = document.createElement('option');
+          option.value = loc.id;
+          option.textContent = loc.name;
+          if (index === 0) option.selected = true; // Select first location by default
+          select.appendChild(option);
+        });
+
+        // Add "All Locations" at the bottom (separator style)
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = '── All Locations ──';
+        select.appendChild(allOption);
       } catch (error) {
         console.error('Failed to load locations:', error);
         const friendlyMsg = window.ErrorHelper
@@ -780,7 +803,7 @@
         }
 
         return `
-          <tr class="${isSelected ? 'selected' : ''} ${combinedRowClass}" data-id="${item.variation_id}">
+          <tr class="${isSelected ? 'selected' : 'unchecked'} ${combinedRowClass}" data-id="${item.variation_id}">
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
