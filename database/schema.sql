@@ -668,3 +668,110 @@ BEGIN
     RAISE NOTICE 'Google Merchant Center migration completed successfully!';
     RAISE NOTICE 'Created tables: brands, google_taxonomy, category_taxonomy_mapping, item_brands, gmc_settings, gmc_feed_history';
 END $$;
+
+-- ========================================
+-- MIGRATION: Expiry-Aware Discount System
+-- ========================================
+-- Configurable discount tiers based on product expiration dates
+-- Integrates with Square item-level discount objects
+
+-- 1. Configurable discount tier rules
+CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
+    id SERIAL PRIMARY KEY,
+    tier_code TEXT NOT NULL UNIQUE,           -- e.g., 'AUTO50', 'AUTO25', 'REVIEW', 'EXPIRED'
+    tier_name TEXT NOT NULL,                   -- Human-readable name
+    min_days_to_expiry INTEGER,                -- Minimum days (inclusive), NULL = no minimum
+    max_days_to_expiry INTEGER,                -- Maximum days (inclusive), NULL = no maximum
+    discount_percent DECIMAL(5,2) DEFAULT 0,   -- Discount percentage (0-100)
+    is_auto_apply BOOLEAN DEFAULT FALSE,       -- Whether to auto-apply discount in Square
+    requires_review BOOLEAN DEFAULT FALSE,     -- Whether items need manual review
+    square_discount_id TEXT,                   -- Square catalog discount object ID (once created)
+    color_code TEXT DEFAULT '#6b7280',         -- Color for UI display (hex)
+    priority INTEGER DEFAULT 0,                -- Higher = evaluated first (for overlapping ranges)
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Track which variations are currently in which tier
+CREATE TABLE IF NOT EXISTS variation_discount_status (
+    variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+    current_tier_id INTEGER REFERENCES expiry_discount_tiers(id) ON DELETE SET NULL,
+    days_until_expiry INTEGER,                 -- Cached calculation
+    original_price_cents INTEGER,              -- Price before any discount
+    discounted_price_cents INTEGER,            -- Price after discount (if applied)
+    discount_applied_at TIMESTAMPTZ,           -- When discount was applied in Square
+    last_evaluated_at TIMESTAMPTZ DEFAULT NOW(),
+    needs_pull BOOLEAN DEFAULT FALSE,          -- Flag for expired items needing removal
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Audit log for all discount changes
+CREATE TABLE IF NOT EXISTS expiry_discount_audit_log (
+    id SERIAL PRIMARY KEY,
+    variation_id TEXT NOT NULL,
+    action TEXT NOT NULL,                      -- 'TIER_ASSIGNED', 'DISCOUNT_APPLIED', 'DISCOUNT_REMOVED', 'FLAGGED_FOR_PULL'
+    old_tier_id INTEGER,
+    new_tier_id INTEGER,
+    old_price_cents INTEGER,
+    new_price_cents INTEGER,
+    days_until_expiry INTEGER,
+    square_sync_status TEXT,                   -- 'PENDING', 'SUCCESS', 'FAILED'
+    square_error_message TEXT,
+    triggered_by TEXT DEFAULT 'SYSTEM',        -- 'SYSTEM', 'MANUAL', 'CRON'
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Settings for the expiry discount system
+CREATE TABLE IF NOT EXISTS expiry_discount_settings (
+    id SERIAL PRIMARY KEY,
+    setting_key TEXT NOT NULL UNIQUE,
+    setting_value TEXT,
+    description TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert default tier configurations
+INSERT INTO expiry_discount_tiers (tier_code, tier_name, min_days_to_expiry, max_days_to_expiry, discount_percent, is_auto_apply, requires_review, color_code, priority) VALUES
+    ('EXPIRED', 'Expired - Pull from Shelf', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
+    ('AUTO50', '50% Off - Critical Expiry', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
+    ('AUTO25', '25% Off - Approaching Expiry', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
+    ('REVIEW', 'Review - Monitor Expiry', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
+    ('OK', 'OK - No Action Needed', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
+ON CONFLICT (tier_code) DO NOTHING;
+
+-- Insert default settings
+INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
+    ('cron_schedule', '0 6 * * *', 'Cron schedule for daily expiry evaluation (default: 6:00 AM)'),
+    ('timezone', 'America/Toronto', 'Timezone for expiry calculations (EST)'),
+    ('auto_apply_enabled', 'true', 'Whether to automatically apply discounts'),
+    ('email_notifications', 'true', 'Send email alerts for tier changes'),
+    ('last_run_at', NULL, 'Timestamp of last automated run')
+ON CONFLICT (setting_key) DO NOTHING;
+
+-- Create indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_variation_discount_status_tier ON variation_discount_status(current_tier_id);
+CREATE INDEX IF NOT EXISTS idx_variation_discount_status_needs_pull ON variation_discount_status(needs_pull) WHERE needs_pull = TRUE;
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_variation ON expiry_discount_audit_log(variation_id);
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_created ON expiry_discount_audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_tiers_active ON expiry_discount_tiers(is_active, priority DESC);
+
+-- Comments for documentation
+COMMENT ON TABLE expiry_discount_tiers IS 'Configurable discount tiers based on days until product expiration';
+COMMENT ON TABLE variation_discount_status IS 'Current discount status for each variation based on expiry date';
+COMMENT ON TABLE expiry_discount_audit_log IS 'Audit trail of all discount tier changes and Square sync events';
+COMMENT ON TABLE expiry_discount_settings IS 'System settings for expiry discount automation';
+
+COMMENT ON COLUMN expiry_discount_tiers.min_days_to_expiry IS 'Minimum days until expiry (inclusive) - NULL means no lower bound';
+COMMENT ON COLUMN expiry_discount_tiers.max_days_to_expiry IS 'Maximum days until expiry (inclusive) - NULL means no upper bound';
+COMMENT ON COLUMN expiry_discount_tiers.square_discount_id IS 'Square catalog ID for the discount object (created via API)';
+COMMENT ON COLUMN variation_discount_status.needs_pull IS 'Flag indicating item is expired and should be removed from shelf';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Expiry Discount System migration completed successfully!';
+    RAISE NOTICE 'Created tables: expiry_discount_tiers, variation_discount_status, expiry_discount_audit_log, expiry_discount_settings';
+    RAISE NOTICE 'Default tiers: EXPIRED, AUTO50, AUTO25, REVIEW, OK';
+END $$;

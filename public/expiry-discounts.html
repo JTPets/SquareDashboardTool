@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expiry Discount Manager - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #dc2626 0%, #f59e0b 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    /* Tier summary cards */
+    .tier-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      padding: 20px;
+      background: #1f2937;
+    }
+    .tier-card {
+      background: #374151;
+      border-radius: 8px;
+      padding: 15px;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      border-left: 4px solid;
+    }
+    .tier-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .tier-card.active {
+      box-shadow: 0 0 0 3px #3b82f6;
+    }
+    .tier-card.tier-EXPIRED { border-left-color: #991b1b; }
+    .tier-card.tier-AUTO50 { border-left-color: #dc2626; }
+    .tier-card.tier-AUTO25 { border-left-color: #f59e0b; }
+    .tier-card.tier-REVIEW { border-left-color: #3b82f6; }
+    .tier-card.tier-OK { border-left-color: #059669; }
+    .tier-card .count {
+      font-size: 32px;
+      font-weight: 700;
+      color: white;
+    }
+    .tier-card .label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tier-card .discount {
+      font-size: 14px;
+      color: #10b981;
+      margin-top: 5px;
+      font-weight: 600;
+    }
+
+    /* Controls section */
+    .controls {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls select, .controls button {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 40px;
+    }
+    .controls button {
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+      border: none;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success {
+      background: #059669;
+      color: white;
+      border: none;
+    }
+    .btn-success:hover { background: #047857; }
+    .btn-warning {
+      background: #f59e0b;
+      color: white;
+      border: none;
+    }
+    .btn-warning:hover { background: #d97706; }
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+      border: none;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+
+    /* Status indicator */
+    .status-bar {
+      padding: 10px 20px;
+      background: #f0fdf4;
+      border-bottom: 1px solid #86efac;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+    .status-bar.warning {
+      background: #fef3c7;
+      border-color: #fcd34d;
+    }
+    .status-bar.error {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+    .last-run { color: #6b7280; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #e5e7eb;
+      background: #f9fafb;
+    }
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.2s;
+    }
+    .tab:hover {
+      color: #374151;
+      background: #f3f4f6;
+    }
+    .tab.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      background: white;
+    }
+
+    /* Tab content */
+    .tab-content {
+      display: none;
+      padding: 20px;
+    }
+    .tab-content.active { display: block; }
+
+    /* Table styles */
+    .table-container {
+      overflow-x: auto;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    tr:hover { background: #f9fafb; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    /* Tier badges */
+    .tier-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .tier-badge.tier-EXPIRED { background: #991b1b; color: white; }
+    .tier-badge.tier-AUTO50 { background: #dc2626; color: white; }
+    .tier-badge.tier-AUTO25 { background: #f59e0b; color: white; }
+    .tier-badge.tier-REVIEW { background: #3b82f6; color: white; }
+    .tier-badge.tier-OK { background: #059669; color: white; }
+
+    /* Days badge */
+    .days-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .days-badge.critical { background: #fee2e2; color: #991b1b; }
+    .days-badge.warning { background: #fef3c7; color: #92400e; }
+    .days-badge.review { background: #dbeafe; color: #1e40af; }
+    .days-badge.ok { background: #d1fae5; color: #065f46; }
+
+    /* Pull flag */
+    .needs-pull {
+      background: #991b1b;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    /* Settings form */
+    .settings-form {
+      max-width: 600px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 5px;
+      color: #374151;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-group small {
+      color: #6b7280;
+      font-size: 12px;
+      margin-top: 4px;
+      display: block;
+    }
+
+    /* Tier config table */
+    .tier-config-table input {
+      width: 80px;
+      padding: 6px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .tier-config-table input[type="checkbox"] {
+      width: auto;
+    }
+
+    /* Loading state */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Audit log */
+    .audit-action {
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .audit-action.TIER_ASSIGNED { background: #dbeafe; color: #1e40af; }
+    .audit-action.TIER_CHANGED { background: #fef3c7; color: #92400e; }
+    .audit-action.DISCOUNT_APPLIED { background: #d1fae5; color: #065f46; }
+    .audit-action.DISCOUNT_REMOVED { background: #fee2e2; color: #991b1b; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    /* Alert box */
+    .alert {
+      padding: 12px 20px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .alert-info {
+      background: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #93c5fd;
+    }
+    .alert-success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+    .alert-warning {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+    .alert-danger {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Expiry Discount Manager</h1>
+      <div>
+        <a href="expiry.html" class="back-button">Back to Expiry Tracker</a>
+        <a href="index.html" class="back-button" style="margin-left: 10px;">Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Tier Summary Cards -->
+    <div class="tier-summary" id="tier-summary">
+      <div class="tier-card tier-EXPIRED" data-tier="EXPIRED" onclick="filterByTier('EXPIRED')">
+        <div class="count" id="count-EXPIRED">-</div>
+        <div class="label">Expired - Pull</div>
+        <div class="discount">Remove from shelf</div>
+      </div>
+      <div class="tier-card tier-AUTO50" data-tier="AUTO50" onclick="filterByTier('AUTO50')">
+        <div class="count" id="count-AUTO50">-</div>
+        <div class="label">50% Off</div>
+        <div class="discount">1-30 days</div>
+      </div>
+      <div class="tier-card tier-AUTO25" data-tier="AUTO25" onclick="filterByTier('AUTO25')">
+        <div class="count" id="count-AUTO25">-</div>
+        <div class="label">25% Off</div>
+        <div class="discount">31-89 days</div>
+      </div>
+      <div class="tier-card tier-REVIEW" data-tier="REVIEW" onclick="filterByTier('REVIEW')">
+        <div class="count" id="count-REVIEW">-</div>
+        <div class="label">Review</div>
+        <div class="discount">90-120 days</div>
+      </div>
+      <div class="tier-card tier-OK" data-tier="OK" onclick="filterByTier('OK')">
+        <div class="count" id="count-OK">-</div>
+        <div class="label">OK</div>
+        <div class="discount">>120 days</div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar" id="status-bar">
+      <span id="status-message">Loading...</span>
+      <span class="last-run">Last run: <span id="last-run">Never</span></span>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn-primary" onclick="runEvaluation(false)">
+        Evaluate All Items
+      </button>
+      <button class="btn-success" onclick="runFullAutomation(false)">
+        Run Full Automation
+      </button>
+      <button class="btn-warning" onclick="runFullAutomation(true)">
+        Dry Run (Preview)
+      </button>
+      <button class="btn-primary" onclick="initSquareDiscounts()">
+        Initialize Square Discounts
+      </button>
+      <span style="margin-left: auto; color: #6b7280; font-size: 13px;">
+        Total with discounts: <strong id="total-discounted">0</strong> |
+        Needs pull: <strong id="total-needs-pull" style="color: #dc2626;">0</strong>
+      </span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="items" onclick="switchTab('items')">Items by Tier</div>
+      <div class="tab" data-tab="upcoming" onclick="switchTab('upcoming')">Upcoming Changes</div>
+      <div class="tab" data-tab="audit" onclick="switchTab('audit')">Audit Log</div>
+      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+    </div>
+
+    <!-- Tab Content: Items -->
+    <div class="tab-content active" id="tab-items">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Tier</th>
+              <th>Product</th>
+              <th>SKU</th>
+              <th>Days Left</th>
+              <th>Expiry Date</th>
+              <th class="text-right">Stock</th>
+              <th class="text-right">Original Price</th>
+              <th class="text-right">Discounted Price</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="items-table-body">
+            <tr><td colspan="9" class="loading"><div class="spinner"></div><br>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab Content: Upcoming -->
+    <div class="tab-content" id="tab-upcoming">
+      <div class="alert alert-info">
+        Items approaching tier boundaries - these will change tier in the next evaluation.
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>SKU</th>
+              <th>Current Tier</th>
+              <th>Days Left</th>
+              <th>Upcoming Tier</th>
+              <th>Days Until Change</th>
+            </tr>
+          </thead>
+          <tbody id="upcoming-table-body">
+            <tr><td colspan="6" class="loading">Loading upcoming changes...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab Content: Audit Log -->
+    <div class="tab-content" id="tab-audit">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Product</th>
+              <th>SKU</th>
+              <th>Old Tier</th>
+              <th>New Tier</th>
+              <th>Days Left</th>
+              <th>Triggered By</th>
+            </tr>
+          </thead>
+          <tbody id="audit-table-body">
+            <tr><td colspan="8" class="loading">Loading audit log...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab Content: Settings -->
+    <div class="tab-content" id="tab-settings">
+      <div class="settings-form">
+        <h3 style="margin-bottom: 20px;">System Settings</h3>
+
+        <div class="form-group">
+          <label>Cron Schedule</label>
+          <input type="text" id="setting-cron_schedule" value="0 6 * * *">
+          <small>Cron expression for daily automation (default: 6:00 AM)</small>
+        </div>
+
+        <div class="form-group">
+          <label>Timezone</label>
+          <select id="setting-timezone">
+            <option value="America/Toronto">America/Toronto (EST)</option>
+            <option value="America/Vancouver">America/Vancouver (PST)</option>
+            <option value="America/New_York">America/New_York (EST)</option>
+            <option value="UTC">UTC</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="setting-auto_apply_enabled" checked>
+            Enable automatic discount application
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="setting-email_notifications" checked>
+            Send email notifications for tier changes
+          </label>
+        </div>
+
+        <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+      </div>
+
+      <hr style="margin: 40px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+      <h3 style="margin-bottom: 20px;">Tier Configuration</h3>
+      <p style="color: #6b7280; margin-bottom: 15px; font-size: 13px;">
+        Configure the day ranges and discount percentages for each tier.
+      </p>
+      <table class="tier-config-table">
+        <thead>
+          <tr>
+            <th>Tier</th>
+            <th>Min Days</th>
+            <th>Max Days</th>
+            <th>Discount %</th>
+            <th>Auto Apply</th>
+            <th>Requires Review</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tier-config-body">
+          <tr><td colspan="7" class="loading">Loading tier configuration...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let currentTierFilter = null;
+    let statusData = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStatus();
+      loadItems();
+      loadAuditLog();
+      loadSettings();
+      loadTierConfig();
+    });
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+
+      if (tabName === 'upcoming') {
+        loadUpcoming();
+      }
+    }
+
+    function filterByTier(tierCode) {
+      // Toggle filter
+      if (currentTierFilter === tierCode) {
+        currentTierFilter = null;
+        document.querySelectorAll('.tier-card').forEach(c => c.classList.remove('active'));
+      } else {
+        currentTierFilter = tierCode;
+        document.querySelectorAll('.tier-card').forEach(c => c.classList.remove('active'));
+        document.querySelector(`.tier-card[data-tier="${tierCode}"]`).classList.add('active');
+      }
+      loadItems();
+    }
+
+    async function loadStatus() {
+      try {
+        const response = await fetch('/api/expiry-discounts/status');
+        statusData = await response.json();
+
+        // Update tier counts
+        for (const tier of statusData.tiers) {
+          const countEl = document.getElementById(`count-${tier.tier_code}`);
+          if (countEl) {
+            countEl.textContent = tier.variation_count || 0;
+          }
+        }
+
+        // Update totals
+        document.getElementById('total-discounted').textContent = statusData.totalWithDiscounts || 0;
+        document.getElementById('total-needs-pull').textContent = statusData.totalNeedingPull || 0;
+
+        // Update last run
+        if (statusData.lastRunAt) {
+          const lastRun = new Date(statusData.lastRunAt);
+          document.getElementById('last-run').textContent = lastRun.toLocaleString();
+        }
+
+        // Update status bar
+        const statusBar = document.getElementById('status-bar');
+        const statusMessage = document.getElementById('status-message');
+
+        if (statusData.totalNeedingPull > 0) {
+          statusBar.className = 'status-bar error';
+          statusMessage.innerHTML = `<strong>${statusData.totalNeedingPull} item(s) need to be pulled from shelves!</strong>`;
+        } else if (statusData.totalWithDiscounts > 0) {
+          statusBar.className = 'status-bar warning';
+          statusMessage.textContent = `${statusData.totalWithDiscounts} items currently have expiry discounts applied.`;
+        } else {
+          statusBar.className = 'status-bar';
+          statusMessage.textContent = 'All items are within normal expiry range.';
+        }
+
+      } catch (error) {
+        console.error('Failed to load status:', error);
+      }
+    }
+
+    async function loadItems() {
+      const tbody = document.getElementById('items-table-body');
+      tbody.innerHTML = '<tr><td colspan="9" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
+
+      try {
+        let url = '/api/expiry-discounts/variations?limit=500';
+        if (currentTierFilter) {
+          url += `&tier_code=${currentTierFilter}`;
+        }
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.variations.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No items found. Run evaluation to assign tiers.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.variations.map(item => {
+          const daysClass = getDaysClass(item.days_until_expiry);
+          const expiryDate = item.expiration_date
+            ? new Date(item.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '-';
+          const originalPrice = item.original_price_cents ? '$' + (item.original_price_cents / 100).toFixed(2) : '-';
+          const discountedPrice = item.discounted_price_cents ? '$' + (item.discounted_price_cents / 100).toFixed(2) : '-';
+
+          let statusHtml = '';
+          if (item.needs_pull) {
+            statusHtml = '<span class="needs-pull">PULL</span>';
+          } else if (item.discount_applied_at) {
+            statusHtml = '<span style="color: #059669; font-weight: 600;">Active</span>';
+          } else if (item.requires_review) {
+            statusHtml = '<span style="color: #3b82f6;">Review</span>';
+          } else {
+            statusHtml = '<span style="color: #6b7280;">-</span>';
+          }
+
+          return `
+            <tr>
+              <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span></td>
+              <td>
+                <strong>${escapeHtml(item.item_name)}</strong>
+                ${item.variation_name ? `<br><small style="color: #6b7280;">${escapeHtml(item.variation_name)}</small>` : ''}
+              </td>
+              <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || '-')}</td>
+              <td><span class="days-badge ${daysClass}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
+              <td>${expiryDate}</td>
+              <td class="text-right">${item.current_stock || 0}</td>
+              <td class="text-right">${originalPrice}</td>
+              <td class="text-right" style="font-weight: 600; color: ${item.discounted_price_cents ? '#dc2626' : '#6b7280'};">${discountedPrice}</td>
+              <td>${statusHtml}</td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (error) {
+        console.error('Failed to load items:', error);
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Failed to load items. Please try again.</td></tr>';
+      }
+    }
+
+    async function loadUpcoming() {
+      const tbody = document.getElementById('upcoming-table-body');
+
+      try {
+        const response = await fetch('/api/expiry-discounts/variations?limit=500');
+        const data = await response.json();
+
+        // Filter to items approaching tier boundaries
+        const upcoming = data.variations.filter(item => {
+          const days = item.days_until_expiry;
+          if (days === null) return false;
+
+          // Check if within 5 days of a tier boundary
+          const boundaries = [0, 30, 89, 120];
+          return boundaries.some(b => days > b && days <= b + 5);
+        });
+
+        if (upcoming.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No items approaching tier changes in the next 5 days.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = upcoming.map(item => {
+          const days = item.days_until_expiry;
+          let nextTier = 'OK';
+          let daysUntilChange = 0;
+
+          if (days > 0 && days <= 35) {
+            nextTier = 'AUTO50';
+            daysUntilChange = days - 30;
+          } else if (days > 30 && days <= 94) {
+            nextTier = 'AUTO25';
+            daysUntilChange = days - 89;
+          } else if (days > 89 && days <= 125) {
+            nextTier = 'REVIEW';
+            daysUntilChange = days - 120;
+          }
+
+          return `
+            <tr>
+              <td><strong>${escapeHtml(item.item_name)}</strong></td>
+              <td style="font-family: monospace;">${escapeHtml(item.sku || '-')}</td>
+              <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span></td>
+              <td>${days}d</td>
+              <td><span class="tier-badge tier-${nextTier}">${nextTier}</span></td>
+              <td>${daysUntilChange > 0 ? daysUntilChange + ' days' : 'Today'}</td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (error) {
+        console.error('Failed to load upcoming:', error);
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load upcoming changes.</td></tr>';
+      }
+    }
+
+    async function loadAuditLog() {
+      const tbody = document.getElementById('audit-table-body');
+
+      try {
+        const response = await fetch('/api/expiry-discounts/audit-log?limit=100');
+        const data = await response.json();
+
+        if (data.logs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No audit log entries yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.logs.map(log => {
+          const timestamp = new Date(log.created_at).toLocaleString();
+          return `
+            <tr>
+              <td style="font-size: 12px; color: #6b7280;">${timestamp}</td>
+              <td><span class="audit-action ${log.action}">${log.action}</span></td>
+              <td>${escapeHtml(log.item_name || '-')}</td>
+              <td style="font-family: monospace; font-size: 12px;">${escapeHtml(log.sku || '-')}</td>
+              <td>${log.old_tier_code ? `<span class="tier-badge tier-${log.old_tier_code}">${log.old_tier_code}</span>` : '-'}</td>
+              <td>${log.new_tier_code ? `<span class="tier-badge tier-${log.new_tier_code}">${log.new_tier_code}</span>` : '-'}</td>
+              <td>${log.days_until_expiry !== null ? log.days_until_expiry + 'd' : '-'}</td>
+              <td style="font-size: 12px;">${log.triggered_by}</td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (error) {
+        console.error('Failed to load audit log:', error);
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load audit log.</td></tr>';
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/expiry-discounts/settings');
+        const data = await response.json();
+
+        for (const [key, setting] of Object.entries(data.settings)) {
+          const el = document.getElementById(`setting-${key}`);
+          if (el) {
+            if (el.type === 'checkbox') {
+              el.checked = setting.value === 'true';
+            } else {
+              el.value = setting.value || '';
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    }
+
+    async function loadTierConfig() {
+      const tbody = document.getElementById('tier-config-body');
+
+      try {
+        const response = await fetch('/api/expiry-discounts/tiers');
+        const data = await response.json();
+
+        tbody.innerHTML = data.tiers.map(tier => `
+          <tr data-tier-id="${tier.id}">
+            <td><span class="tier-badge tier-${tier.tier_code}">${tier.tier_code}</span></td>
+            <td><input type="number" value="${tier.min_days_to_expiry ?? ''}" data-field="min_days_to_expiry" placeholder="None"></td>
+            <td><input type="number" value="${tier.max_days_to_expiry ?? ''}" data-field="max_days_to_expiry" placeholder="None"></td>
+            <td><input type="number" value="${tier.discount_percent}" data-field="discount_percent" min="0" max="100" step="1"></td>
+            <td class="text-center"><input type="checkbox" ${tier.is_auto_apply ? 'checked' : ''} data-field="is_auto_apply"></td>
+            <td class="text-center"><input type="checkbox" ${tier.requires_review ? 'checked' : ''} data-field="requires_review"></td>
+            <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" onclick="saveTierConfig(${tier.id})">Save</button></td>
+          </tr>
+        `).join('');
+
+      } catch (error) {
+        console.error('Failed to load tier config:', error);
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load tier configuration.</td></tr>';
+      }
+    }
+
+    async function saveSettings() {
+      const updates = {
+        cron_schedule: document.getElementById('setting-cron_schedule').value,
+        timezone: document.getElementById('setting-timezone').value,
+        auto_apply_enabled: document.getElementById('setting-auto_apply_enabled').checked ? 'true' : 'false',
+        email_notifications: document.getElementById('setting-email_notifications').checked ? 'true' : 'false'
+      };
+
+      try {
+        const response = await fetch('/api/expiry-discounts/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        });
+
+        if (response.ok) {
+          alert('Settings saved successfully!');
+        } else {
+          throw new Error('Failed to save settings');
+        }
+      } catch (error) {
+        console.error('Failed to save settings:', error);
+        alert('Failed to save settings. Please try again.');
+      }
+    }
+
+    async function saveTierConfig(tierId) {
+      const row = document.querySelector(`tr[data-tier-id="${tierId}"]`);
+      const updates = {};
+
+      row.querySelectorAll('input').forEach(input => {
+        const field = input.dataset.field;
+        if (field) {
+          if (input.type === 'checkbox') {
+            updates[field] = input.checked;
+          } else if (input.type === 'number') {
+            updates[field] = input.value === '' ? null : parseFloat(input.value);
+          } else {
+            updates[field] = input.value;
+          }
+        }
+      });
+
+      try {
+        const response = await fetch(`/api/expiry-discounts/tiers/${tierId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        });
+
+        if (response.ok) {
+          alert('Tier configuration saved!');
+          loadStatus();
+        } else {
+          throw new Error('Failed to save tier config');
+        }
+      } catch (error) {
+        console.error('Failed to save tier config:', error);
+        alert('Failed to save tier configuration. Please try again.');
+      }
+    }
+
+    async function runEvaluation(dryRun) {
+      if (!confirm(`Run tier evaluation${dryRun ? ' (dry run)' : ''}?\n\nThis will evaluate all items and assign discount tiers based on expiration dates.`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/expiry-discounts/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dry_run: dryRun })
+        });
+
+        const result = await response.json();
+
+        let message = `Evaluation ${dryRun ? '(Dry Run) ' : ''}Complete!\n\n`;
+        message += `Total evaluated: ${result.totalEvaluated}\n`;
+        message += `Tier changes: ${result.tierChanges?.length || 0}\n`;
+        message += `New assignments: ${result.newAssignments?.length || 0}\n`;
+        message += `Unchanged: ${result.unchanged}\n`;
+        message += `Errors: ${result.errors?.length || 0}`;
+
+        alert(message);
+
+        if (!dryRun) {
+          loadStatus();
+          loadItems();
+          loadAuditLog();
+        }
+
+      } catch (error) {
+        console.error('Evaluation failed:', error);
+        alert('Evaluation failed. Please check the logs.');
+      }
+    }
+
+    async function runFullAutomation(dryRun) {
+      if (!confirm(`Run full automation${dryRun ? ' (dry run)' : ''}?\n\nThis will:\n1. Initialize Square discount objects\n2. Evaluate all items\n3. Apply discounts to Square`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/expiry-discounts/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dry_run: dryRun })
+        });
+
+        const result = await response.json();
+
+        let message = `Automation ${dryRun ? '(Dry Run) ' : ''}Complete!\n\n`;
+        message += `Duration: ${result.duration}ms\n\n`;
+        message += `Evaluation:\n`;
+        message += `  - Total evaluated: ${result.evaluation?.totalEvaluated || 0}\n`;
+        message += `  - Tier changes: ${result.evaluation?.tierChanges?.length || 0}\n`;
+        message += `  - New assignments: ${result.evaluation?.newAssignments?.length || 0}\n\n`;
+        message += `Discounts:\n`;
+        message += `  - Applied: ${result.discountApplication?.applied?.length || 0}\n`;
+        message += `  - Removed: ${result.discountApplication?.removed?.length || 0}\n\n`;
+        message += `Errors: ${result.errors?.length || 0}`;
+
+        alert(message);
+
+        if (!dryRun) {
+          loadStatus();
+          loadItems();
+          loadAuditLog();
+        }
+
+      } catch (error) {
+        console.error('Automation failed:', error);
+        alert('Automation failed. Please check the logs.');
+      }
+    }
+
+    async function initSquareDiscounts() {
+      if (!confirm('Initialize Square discount objects?\n\nThis will create or update discount catalog objects in Square for AUTO50 and AUTO25 tiers.')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/expiry-discounts/init-square', {
+          method: 'POST'
+        });
+
+        const result = await response.json();
+
+        let message = 'Square Discount Initialization Complete!\n\n';
+        message += `Created: ${result.created?.length || 0}\n`;
+        message += `Updated: ${result.updated?.length || 0}\n`;
+        message += `Errors: ${result.errors?.length || 0}`;
+
+        alert(message);
+
+      } catch (error) {
+        console.error('Square init failed:', error);
+        alert('Square discount initialization failed. Please check the logs.');
+      }
+    }
+
+    function getDaysClass(days) {
+      if (days === null) return '';
+      if (days <= 0) return 'critical';
+      if (days <= 30) return 'critical';
+      if (days <= 89) return 'warning';
+      if (days <= 120) return 'review';
+      return 'ok';
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
