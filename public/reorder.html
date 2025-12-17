@@ -903,9 +903,16 @@
         const resistanceClass = needsReorderResistance ? 'reorder-resistance' : '';
         const combinedRowClass = `${rowClass} ${expiryRowClass} ${resistanceClass}`.trim();
 
-        // Build expiry tier circle HTML
+        // Build expiry tier circle HTML with friendly tooltips
+        const tierTooltips = {
+          'EXPIRED': 'Expired - Pull from shelf',
+          'AUTO50': `Clearance sale - ${daysLeft} days until expiry`,
+          'AUTO25': `Discount applied - ${daysLeft} days until expiry`,
+          'REVIEW': `Under review - ${daysLeft} days until expiry`,
+          'OK': `OK - ${daysLeft} days until expiry`
+        };
         const tierCircleHtml = expiryTier
-          ? `<span class="expiry-tier-circle tier-${expiryTier}" title="${expiryTier}: ${daysLeft} days until expiry">${expiryTierLabel}</span>`
+          ? `<span class="expiry-tier-circle tier-${expiryTier}" title="${tierTooltips[expiryTier] || ''}">${expiryTierLabel}</span>`
           : '';
 
         // Reorder warning HTML
@@ -1054,9 +1061,9 @@
           const daysLeft = item?.days_until_expiry;
 
           const tierMessages = {
-            'EXPIRED': `"${itemName}" is EXPIRED. Are you sure you want to reorder?`,
-            'AUTO50': `"${itemName}" expires in ${daysLeft} days (50% discount tier). Consider if reorder is necessary.`,
-            'AUTO25': `"${itemName}" expires in ${daysLeft} days (25% discount tier). Consider if reorder is necessary.`
+            'EXPIRED': `"${itemName}" is EXPIRED and should be pulled from shelves. Are you sure you want to reorder?`,
+            'AUTO50': `"${itemName}" expires in ${daysLeft} days and is on clearance sale (50% off). Consider if reorder is necessary.`,
+            'AUTO25': `"${itemName}" expires in ${daysLeft} days and has a discount applied (25% off). Consider if reorder is necessary.`
           };
 
           if (!confirm(tierMessages[expiryTier] + '\n\nClick OK to select anyway, or Cancel to skip.')) {
@@ -1148,9 +1155,9 @@
         const auto25Count = expiringItems.filter(i => i.days_until_expiry > 30 && i.days_until_expiry <= 89).length;
 
         let warningMessage = `⚠️ WARNING: You are about to create a PO with ${expiringItems.length} expiring item(s):\n\n`;
-        if (expiredCount > 0) warningMessage += `• ${expiredCount} EXPIRED item(s)\n`;
-        if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) expiring within 30 days (AUTO50)\n`;
-        if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) expiring within 31-89 days (AUTO25)\n`;
+        if (expiredCount > 0) warningMessage += `• ${expiredCount} EXPIRED item(s) - should be pulled from shelves\n`;
+        if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) on clearance sale (expiring within 30 days)\n`;
+        if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) with discount applied (expiring within 31-89 days)\n`;
         warningMessage += '\nAre you sure you want to proceed?';
 
         if (!confirm(warningMessage)) {

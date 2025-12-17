@@ -358,27 +358,38 @@ async function upsertSquareDiscount(tier) {
 
         if (tier.square_discount_id) {
             // Update existing - need to fetch version first
-            const retrieveData = await squareApiModule.makeSquareRequest(
-                `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
-            );
+            try {
+                const retrieveData = await squareApiModule.makeSquareRequest(
+                    `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
+                );
 
-            if (!retrieveData.object) {
-                // Discount was deleted in Square, create new one
-                logger.warn('Existing discount not found in Square, creating new', {
+                if (retrieveData.object) {
+                    requestBody = {
+                        idempotency_key: idempotencyKey,
+                        object: {
+                            type: 'DISCOUNT',
+                            id: tier.square_discount_id,
+                            version: retrieveData.object.version,
+                            discount_data: discountData
+                        }
+                    };
+                }
+            } catch (retrieveError) {
+                // Discount was deleted in Square or doesn't exist - clear the old ID
+                logger.warn('Existing discount not found in Square, will create new', {
                     tierCode: tier.tier_code,
-                    oldId: tier.square_discount_id
+                    oldId: tier.square_discount_id,
+                    error: retrieveError.message
                 });
+
+                // Clear the stale ID from the database
+                await db.query(`
+                    UPDATE expiry_discount_tiers
+                    SET square_discount_id = NULL, updated_at = NOW()
+                    WHERE id = $1
+                `, [tier.id]);
+
                 tier.square_discount_id = null;
-            } else {
-                requestBody = {
-                    idempotency_key: idempotencyKey,
-                    object: {
-                        type: 'DISCOUNT',
-                        id: tier.square_discount_id,
-                        version: retrieveData.object.version,
-                        discount_data: discountData
-                    }
-                };
             }
         }
 
