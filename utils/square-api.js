@@ -2670,5 +2670,8 @@ module.exports = {
     updateVariationPrice,
     batchUpdateVariationPrices,
     // Cost update functions
-    updateVariationCost
+    updateVariationCost,
+    // Utility functions (for expiry discount module)
+    generateIdempotencyKey,
+    makeSquareRequest
 };

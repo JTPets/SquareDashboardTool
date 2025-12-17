@@ -16,6 +16,7 @@ const emailNotifier = require('./utils/email-notifier');
 const subscriptionHandler = require('./utils/subscription-handler');
 const { subscriptionCheck } = require('./middleware/subscription-check');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('./utils/csv-helpers');
+const expiryDiscount = require('./utils/expiry-discount');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -1801,6 +1802,382 @@ app.post('/api/expirations', async (req, res) => {
     } catch (error) {
         logger.error('Save expirations error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: 'Failed to save expiration data', details: error.message });
+    }
+});
+
+// ==================== EXPIRY DISCOUNT ENDPOINTS ====================
+
+/**
+ * GET /api/expiry-discounts/status
+ * Get summary of current expiry discount status
+ */
+app.get('/api/expiry-discounts/status', async (req, res) => {
+    try {
+        const summary = await expiryDiscount.getDiscountStatusSummary();
+        res.json(summary);
+    } catch (error) {
+        logger.error('Get expiry discount status error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/expiry-discounts/tiers
+ * Get all discount tier configurations
+ */
+app.get('/api/expiry-discounts/tiers', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT * FROM expiry_discount_tiers
+            ORDER BY priority DESC
+        `);
+        res.json({ tiers: result.rows });
+    } catch (error) {
+        logger.error('Get expiry discount tiers error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/expiry-discounts/tiers/:id
+ * Update a discount tier configuration
+ */
+app.patch('/api/expiry-discounts/tiers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        // Build dynamic update query
+        const allowedFields = [
+            'tier_name', 'min_days_to_expiry', 'max_days_to_expiry',
+            'discount_percent', 'is_auto_apply', 'requires_review',
+            'color_code', 'priority', 'is_active'
+        ];
+
+        const setClauses = [];
+        const params = [id];
+
+        for (const [key, value] of Object.entries(updates)) {
+            if (allowedFields.includes(key)) {
+                params.push(value);
+                setClauses.push(`${key} = $${params.length}`);
+            }
+        }
+
+        if (setClauses.length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+
+        setClauses.push('updated_at = NOW()');
+
+        const result = await db.query(`
+            UPDATE expiry_discount_tiers
+            SET ${setClauses.join(', ')}
+            WHERE id = $1
+            RETURNING *
+        `, params);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Tier not found' });
+        }
+
+        logger.info('Updated expiry discount tier', { id, updates });
+        res.json({ tier: result.rows[0] });
+
+    } catch (error) {
+        logger.error('Update expiry discount tier error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/expiry-discounts/variations
+ * Get variations with their discount status
+ */
+app.get('/api/expiry-discounts/variations', async (req, res) => {
+    try {
+        const { tier_code, needs_pull, limit = 100, offset = 0 } = req.query;
+
+        let query = `
+            SELECT
+                vds.variation_id,
+                vds.days_until_expiry,
+                vds.original_price_cents,
+                vds.discounted_price_cents,
+                vds.discount_applied_at,
+                vds.needs_pull,
+                vds.last_evaluated_at,
+                v.sku,
+                v.name as variation_name,
+                v.price_money as current_price_cents,
+                i.name as item_name,
+                i.id as item_id,
+                i.category_name,
+                ve.expiration_date,
+                ve.does_not_expire,
+                edt.id as tier_id,
+                edt.tier_code,
+                edt.tier_name,
+                edt.discount_percent,
+                edt.color_code,
+                edt.is_auto_apply,
+                edt.requires_review,
+                COALESCE(SUM(ic.quantity), 0) as current_stock
+            FROM variation_discount_status vds
+            JOIN variations v ON vds.variation_id = v.id
+            JOIN items i ON v.item_id = i.id
+            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
+            WHERE v.is_deleted = FALSE
+        `;
+
+        const params = [];
+
+        if (tier_code) {
+            params.push(tier_code);
+            query += ` AND edt.tier_code = $${params.length}`;
+        }
+
+        if (needs_pull === 'true') {
+            query += ` AND vds.needs_pull = TRUE`;
+        }
+
+        query += `
+            GROUP BY vds.variation_id, vds.days_until_expiry, vds.original_price_cents,
+                     vds.discounted_price_cents, vds.discount_applied_at, vds.needs_pull,
+                     vds.last_evaluated_at, v.sku, v.name, v.price_money, i.name, i.id,
+                     i.category_name, ve.expiration_date, ve.does_not_expire, edt.id,
+                     edt.tier_code, edt.tier_name, edt.discount_percent, edt.color_code,
+                     edt.is_auto_apply, edt.requires_review
+            ORDER BY vds.days_until_expiry ASC NULLS LAST
+        `;
+
+        params.push(parseInt(limit));
+        query += ` LIMIT $${params.length}`;
+
+        params.push(parseInt(offset));
+        query += ` OFFSET $${params.length}`;
+
+        const result = await db.query(query, params);
+
+        // Get total count for pagination
+        let countQuery = `
+            SELECT COUNT(DISTINCT vds.variation_id) as total
+            FROM variation_discount_status vds
+            JOIN variations v ON vds.variation_id = v.id
+            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+            WHERE v.is_deleted = FALSE
+        `;
+
+        if (tier_code) {
+            countQuery += ` AND edt.tier_code = '${tier_code}'`;
+        }
+        if (needs_pull === 'true') {
+            countQuery += ` AND vds.needs_pull = TRUE`;
+        }
+
+        const countResult = await db.query(countQuery);
+
+        res.json({
+            variations: result.rows,
+            total: parseInt(countResult.rows[0]?.total || 0),
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+
+    } catch (error) {
+        logger.error('Get expiry discount variations error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/expiry-discounts/evaluate
+ * Run expiry tier evaluation for all variations
+ */
+app.post('/api/expiry-discounts/evaluate', async (req, res) => {
+    try {
+        const { dry_run = false } = req.body;
+
+        logger.info('Manual expiry evaluation requested', { dry_run });
+
+        const result = await expiryDiscount.evaluateAllVariations({
+            dryRun: dry_run,
+            triggeredBy: 'MANUAL'
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Expiry evaluation error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/expiry-discounts/apply
+ * Apply discounts based on current tier assignments
+ */
+app.post('/api/expiry-discounts/apply', async (req, res) => {
+    try {
+        const { dry_run = false } = req.body;
+
+        logger.info('Manual discount application requested', { dry_run });
+
+        const result = await expiryDiscount.applyDiscounts({ dryRun: dry_run });
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Discount application error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/expiry-discounts/run
+ * Run full expiry discount automation (evaluate + apply)
+ */
+app.post('/api/expiry-discounts/run', async (req, res) => {
+    try {
+        const { dry_run = false } = req.body;
+
+        logger.info('Full expiry discount automation requested', { dry_run });
+
+        const result = await expiryDiscount.runExpiryDiscountAutomation({ dryRun: dry_run });
+
+        // Send email notification if enabled and not dry run
+        if (!dry_run && result.evaluation) {
+            const tierChanges = result.evaluation.tierChanges?.length || 0;
+            const newAssignments = result.evaluation.newAssignments?.length || 0;
+
+            if (tierChanges > 0 || newAssignments > 0) {
+                const emailEnabled = await expiryDiscount.getSetting('email_notifications');
+                if (emailEnabled === 'true') {
+                    try {
+                        await emailNotifier.sendAlert(
+                            'Expiry Discount Automation Report',
+                            `Expiry discount automation completed.\n\n` +
+                            `Summary:\n` +
+                            `- Total evaluated: ${result.evaluation.totalEvaluated}\n` +
+                            `- Tier changes: ${tierChanges}\n` +
+                            `- New assignments: ${newAssignments}\n` +
+                            `- Discounts applied: ${result.discountApplication?.applied?.length || 0}\n` +
+                            `- Discounts removed: ${result.discountApplication?.removed?.length || 0}\n` +
+                            `- Errors: ${result.errors?.length || 0}\n\n` +
+                            `Duration: ${result.duration}ms`
+                        );
+                    } catch (emailError) {
+                        logger.error('Failed to send automation email', { error: emailError.message });
+                    }
+                }
+            }
+        }
+
+        res.json(result);
+
+    } catch (error) {
+        logger.error('Expiry discount automation error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/expiry-discounts/init-square
+ * Initialize Square discount objects for all tiers
+ */
+app.post('/api/expiry-discounts/init-square', async (req, res) => {
+    try {
+        logger.info('Square discount initialization requested');
+
+        const result = await expiryDiscount.initializeSquareDiscounts();
+
+        res.json({
+            success: result.errors.length === 0,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Square discount init error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/expiry-discounts/audit-log
+ * Get audit log of discount changes
+ */
+app.get('/api/expiry-discounts/audit-log', async (req, res) => {
+    try {
+        const { variation_id, limit = 100 } = req.query;
+
+        const logs = await expiryDiscount.getAuditLog({
+            variationId: variation_id,
+            limit: parseInt(limit)
+        });
+
+        res.json({ logs });
+
+    } catch (error) {
+        logger.error('Get audit log error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/expiry-discounts/settings
+ * Get expiry discount system settings
+ */
+app.get('/api/expiry-discounts/settings', async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT setting_key, setting_value, description
+            FROM expiry_discount_settings
+            ORDER BY setting_key
+        `);
+
+        const settings = {};
+        for (const row of result.rows) {
+            settings[row.setting_key] = {
+                value: row.setting_value,
+                description: row.description
+            };
+        }
+
+        res.json({ settings });
+
+    } catch (error) {
+        logger.error('Get expiry discount settings error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/expiry-discounts/settings
+ * Update expiry discount system settings
+ */
+app.patch('/api/expiry-discounts/settings', async (req, res) => {
+    try {
+        const updates = req.body;
+
+        for (const [key, value] of Object.entries(updates)) {
+            await expiryDiscount.updateSetting(key, value);
+        }
+
+        logger.info('Updated expiry discount settings', { updates });
+
+        res.json({ success: true, message: 'Settings updated' });
+
+    } catch (error) {
+        logger.error('Update expiry discount settings error', { error: error.message });
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -7075,6 +7452,85 @@ async function startServer() {
         });
 
         logger.info('Database backup cron job scheduled', { schedule: backupCronSchedule });
+
+        // Initialize expiry discount automation cron job
+        // Runs daily at 6:00 AM EST by default (configurable via database setting)
+        const expiryCronSchedule = process.env.EXPIRY_DISCOUNT_CRON || '0 6 * * *';
+        cron.schedule(expiryCronSchedule, async () => {
+            logger.info('Running scheduled expiry discount automation');
+            try {
+                // Check if automation is enabled
+                const autoApplyEnabled = await expiryDiscount.getSetting('auto_apply_enabled');
+                if (autoApplyEnabled !== 'true') {
+                    logger.info('Expiry discount automation is disabled, skipping');
+                    return;
+                }
+
+                const result = await expiryDiscount.runExpiryDiscountAutomation({ dryRun: false });
+
+                logger.info('Scheduled expiry discount automation completed', {
+                    success: result.success,
+                    tierChanges: result.evaluation?.tierChanges?.length || 0,
+                    newAssignments: result.evaluation?.newAssignments?.length || 0,
+                    discountsApplied: result.discountApplication?.applied?.length || 0,
+                    duration: result.duration
+                });
+
+                // Send email notification for tier changes
+                const tierChanges = result.evaluation?.tierChanges?.length || 0;
+                const newAssignments = result.evaluation?.newAssignments?.length || 0;
+                const needsPull = result.evaluation?.byTier?.EXPIRED || 0;
+
+                if (tierChanges > 0 || newAssignments > 0 || needsPull > 0) {
+                    const emailEnabled = await expiryDiscount.getSetting('email_notifications');
+                    if (emailEnabled === 'true') {
+                        try {
+                            let emailBody = `Expiry Discount Automation Report\n\n`;
+                            emailBody += `Run Time: ${new Date().toISOString()}\n\n`;
+                            emailBody += `Summary:\n`;
+                            emailBody += `- Total items evaluated: ${result.evaluation?.totalEvaluated || 0}\n`;
+                            emailBody += `- Tier changes: ${tierChanges}\n`;
+                            emailBody += `- New tier assignments: ${newAssignments}\n`;
+                            emailBody += `- Discounts applied: ${result.discountApplication?.applied?.length || 0}\n`;
+                            emailBody += `- Discounts removed: ${result.discountApplication?.removed?.length || 0}\n`;
+                            emailBody += `- Items needing pull (EXPIRED): ${needsPull}\n`;
+                            emailBody += `- Errors: ${result.errors?.length || 0}\n\n`;
+
+                            // Add tier breakdown
+                            emailBody += `Items by Tier:\n`;
+                            for (const [tierCode, count] of Object.entries(result.evaluation?.byTier || {})) {
+                                emailBody += `  ${tierCode}: ${count}\n`;
+                            }
+
+                            emailBody += `\nDuration: ${result.duration}ms`;
+
+                            // Include urgent items if any
+                            if (needsPull > 0) {
+                                emailBody += `\n\n⚠️ ATTENTION: ${needsPull} item(s) are EXPIRED and need to be pulled from shelves!`;
+                            }
+
+                            await emailNotifier.sendAlert(
+                                `Expiry Discount Report - ${tierChanges + newAssignments} Changes`,
+                                emailBody
+                            );
+                        } catch (emailError) {
+                            logger.error('Failed to send expiry discount automation email', { error: emailError.message });
+                        }
+                    }
+                }
+
+            } catch (error) {
+                logger.error('Scheduled expiry discount automation failed', { error: error.message });
+                await emailNotifier.sendAlert(
+                    'Expiry Discount Automation Failed',
+                    `Failed to run scheduled expiry discount automation:\n\n${error.message}\n\nStack: ${error.stack}`
+                );
+            }
+        }, {
+            timezone: 'America/Toronto'  // EST timezone
+        });
+
+        logger.info('Expiry discount cron job scheduled', { schedule: expiryCronSchedule, timezone: 'America/Toronto' });
 
         // Startup check: Generate today's batch if it doesn't exist yet
         // This handles cases where server was offline during scheduled cron time

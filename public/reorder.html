@@ -217,6 +217,91 @@
       color: #92400e;
     }
 
+    /* Expiry discount tier circle indicators */
+    .expiry-tier-circle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 700;
+      color: white;
+      margin-right: 6px;
+      vertical-align: middle;
+      cursor: help;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .expiry-tier-circle.tier-EXPIRED { background: #991b1b; }
+    .expiry-tier-circle.tier-AUTO50 { background: #dc2626; }
+    .expiry-tier-circle.tier-AUTO25 { background: #f59e0b; }
+    .expiry-tier-circle.tier-REVIEW { background: #3b82f6; }
+    .expiry-tier-circle.tier-OK { background: #059669; }
+
+    /* Vendor code strike-through for expiring items */
+    .vendor-code-expiring {
+      text-decoration: line-through;
+      text-decoration-color: #dc2626;
+      text-decoration-thickness: 2px;
+      opacity: 0.7;
+    }
+    .vendor-code-expiring:hover {
+      opacity: 1;
+      text-decoration: none;
+    }
+
+    /* Reorder resistance warning styles */
+    .reorder-resistance {
+      background-color: #fef2f2 !important;
+      border-left: 4px solid #dc2626 !important;
+    }
+    .reorder-resistance-warning {
+      display: inline-block;
+      background: #dc2626;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-left: 4px;
+      animation: pulse-warning 2s infinite;
+    }
+    @keyframes pulse-warning {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    /* Expiry info display next to product */
+    .expiry-info {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .expiry-days {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .expiry-days.critical {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .expiry-days.warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .expiry-days.review {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .expiry-days.ok {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
     .secondary-vendor {
       background-color: #fff3cd !important;
       border-left: 3px solid #ffc107;
@@ -783,14 +868,57 @@
         // Expiration date handling
         const expiresWithin120Days = item.days_until_expiry !== null && item.days_until_expiry <= 120;
         const expiryRowClass = expiresWithin120Days ? 'expiry-warning' : '';
-        const combinedRowClass = `${rowClass} ${expiryRowClass}`.trim();
+
+        // Determine expiry tier for visual indicators
+        const daysLeft = item.days_until_expiry;
+        let expiryTier = null;
+        let expiryTierLabel = '';
+        let needsReorderResistance = false;
+
+        if (item.does_not_expire) {
+          expiryTier = null;
+        } else if (daysLeft !== null) {
+          if (daysLeft <= 0) {
+            expiryTier = 'EXPIRED';
+            expiryTierLabel = 'EXP';
+            needsReorderResistance = true;
+          } else if (daysLeft <= 30) {
+            expiryTier = 'AUTO50';
+            expiryTierLabel = '50%';
+            needsReorderResistance = true;
+          } else if (daysLeft <= 89) {
+            expiryTier = 'AUTO25';
+            expiryTierLabel = '25%';
+            needsReorderResistance = true;
+          } else if (daysLeft <= 120) {
+            expiryTier = 'REVIEW';
+            expiryTierLabel = 'REV';
+          } else {
+            expiryTier = 'OK';
+            expiryTierLabel = 'OK';
+          }
+        }
+
+        // Add reorder resistance class for expiring items
+        const resistanceClass = needsReorderResistance ? 'reorder-resistance' : '';
+        const combinedRowClass = `${rowClass} ${expiryRowClass} ${resistanceClass}`.trim();
+
+        // Build expiry tier circle HTML
+        const tierCircleHtml = expiryTier
+          ? `<span class="expiry-tier-circle tier-${expiryTier}" title="${expiryTier}: ${daysLeft} days until expiry">${expiryTierLabel}</span>`
+          : '';
+
+        // Reorder warning HTML
+        const reorderWarningHtml = needsReorderResistance
+          ? `<span class="reorder-resistance-warning" title="This item is expiring - consider if reorder is necessary">⚠ EXPIRING</span>`
+          : '';
+
         let expiryHtml = '';
         if (item.does_not_expire) {
           expiryHtml = '<span class="expiry-none">Never</span>';
         } else if (item.expiration_date) {
           const expiryDate = new Date(item.expiration_date);
           const formattedDate = expiryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          const daysLeft = item.days_until_expiry;
           if (daysLeft !== null && daysLeft <= 30) {
             expiryHtml = `<span class="expiry-badge critical" title="${daysLeft} days until expiry">${formattedDate}</span>`;
           } else if (daysLeft !== null && daysLeft <= 120) {
@@ -802,8 +930,18 @@
           expiryHtml = '<span class="expiry-none">-</span>';
         }
 
+        // Build expiry info section showing days + tier
+        let expiryInfoHtml = '';
+        if (expiryTier && daysLeft !== null) {
+          const daysClass = daysLeft <= 30 ? 'critical' : daysLeft <= 89 ? 'warning' : daysLeft <= 120 ? 'review' : 'ok';
+          expiryInfoHtml = `
+            <div class="expiry-info">
+              <span class="expiry-days ${daysClass}">${daysLeft}d</span>
+            </div>`;
+        }
+
         return `
-          <tr class="${isSelected ? 'selected' : 'unchecked'} ${combinedRowClass}" data-id="${item.variation_id}">
+          <tr class="${isSelected ? 'selected' : 'unchecked'} ${combinedRowClass}" data-id="${item.variation_id}" data-expiry-tier="${expiryTier || ''}">
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
@@ -814,11 +952,15 @@
               ${hasNoVelocityData ? '<br><small style="color: #ef4444;">⚠ No Data</small>' : ''}
               ${velocityClass === 'velocity-slow' && dailyVelocity > 0 ? '<br><small style="color: #6b7280;">Slow mover</small>' : ''}
               ${vendorWarning}
+              ${reorderWarningHtml}
             </td>
             <td>${imageHtml}</td>
             <td>
-              <div class="product-name">${escapeHtml(item.item_name)}</div>
+              <div class="product-name">
+                ${tierCircleHtml}${escapeHtml(item.item_name)}
+              </div>
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
+              ${expiryInfoHtml}
             </td>
             <td class="sku clickable" onclick="copyToClipboard('${escapeHtml(item.sku || '')}', 'SKU')" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">
@@ -885,7 +1027,7 @@
             </td>
             <td class="text-right"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
-            <td class="clickable" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="Click to copy Vendor Code">${escapeHtml(item.vendor_code)}</td>
+            <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
           </tr>
         `;
       }).join('');
@@ -901,7 +1043,29 @@
     }
 
     function toggleItem(variationId, checked) {
+      // Check if this is an expiring item being selected
       if (checked) {
+        const row = document.querySelector(`tr[data-id="${variationId}"]`);
+        const expiryTier = row?.getAttribute('data-expiry-tier');
+
+        if (['EXPIRED', 'AUTO50', 'AUTO25'].includes(expiryTier)) {
+          const item = allSuggestions.find(s => s.variation_id === variationId);
+          const itemName = item ? item.item_name : 'This item';
+          const daysLeft = item?.days_until_expiry;
+
+          const tierMessages = {
+            'EXPIRED': `"${itemName}" is EXPIRED. Are you sure you want to reorder?`,
+            'AUTO50': `"${itemName}" expires in ${daysLeft} days (50% discount tier). Consider if reorder is necessary.`,
+            'AUTO25': `"${itemName}" expires in ${daysLeft} days (25% discount tier). Consider if reorder is necessary.`
+          };
+
+          if (!confirm(tierMessages[expiryTier] + '\n\nClick OK to select anyway, or Cancel to skip.')) {
+            // Uncheck the checkbox visually
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (checkbox) checkbox.checked = false;
+            return;
+          }
+        }
         selectedItems.add(variationId);
       } else {
         selectedItems.delete(variationId);
@@ -970,6 +1134,28 @@
       if (vendors.size > 1) {
         alert('Selected items are from multiple vendors. Please select items from a single vendor or filter by vendor first.');
         return;
+      }
+
+      // Check for expiring items and warn
+      const expiringItems = selectedSuggestions.filter(item => {
+        const daysLeft = item.days_until_expiry;
+        return daysLeft !== null && daysLeft <= 89;
+      });
+
+      if (expiringItems.length > 0) {
+        const expiredCount = expiringItems.filter(i => i.days_until_expiry <= 0).length;
+        const auto50Count = expiringItems.filter(i => i.days_until_expiry > 0 && i.days_until_expiry <= 30).length;
+        const auto25Count = expiringItems.filter(i => i.days_until_expiry > 30 && i.days_until_expiry <= 89).length;
+
+        let warningMessage = `⚠️ WARNING: You are about to create a PO with ${expiringItems.length} expiring item(s):\n\n`;
+        if (expiredCount > 0) warningMessage += `• ${expiredCount} EXPIRED item(s)\n`;
+        if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) expiring within 30 days (AUTO50)\n`;
+        if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) expiring within 31-89 days (AUTO25)\n`;
+        warningMessage += '\nAre you sure you want to proceed?';
+
+        if (!confirm(warningMessage)) {
+          return;
+        }
       }
 
       // Get the selected location from the dropdown
