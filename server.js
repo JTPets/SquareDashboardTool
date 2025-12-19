@@ -1683,6 +1683,12 @@ app.get('/api/expirations', async (req, res) => {
                 query += ` HAVING ve.expiration_date IS NULL AND (ve.does_not_expire IS NULL OR ve.does_not_expire = FALSE)`;
             } else if (expiry === 'never-expires') {
                 query += ` HAVING ve.does_not_expire = TRUE`;
+            } else if (expiry === 'review') {
+                // Review items: 91-120 days out (flagged for discount review)
+                query += ` HAVING ve.expiration_date IS NOT NULL
+                          AND ve.does_not_expire = FALSE
+                          AND ve.expiration_date > NOW() + INTERVAL '90 days'
+                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'`;
             } else {
                 const days = parseInt(expiry);
                 if (!isNaN(days)) {
