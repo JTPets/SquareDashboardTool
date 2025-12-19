@@ -13,9 +13,16 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Logs
+# Output folder (consolidated file writes - logs, feeds, temp files)
+# This folder is excluded from pm2 watch to prevent restart loops
+output/
+
+# Legacy log/temp paths (in case any remain)
 logs/
 *.log
+tmp/
+temp/
+*.tmp
 
 # Runtime data
 pids/
@@ -44,11 +51,6 @@ build/
 *.dump
 database/backups/
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-
 # OS
 Thumbs.db
 desktop.ini
@@ -61,4 +63,3 @@ desktop.ini
 
 # Output of 'npm pack'
 *.tgz
-temp/

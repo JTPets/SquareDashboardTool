@@ -1053,7 +1053,7 @@ The system includes comprehensive error logging with automatic rotation and opti
 
 ### Log File Management
 
-**Location:** `logs/` directory in project root
+**Location:** `output/logs/` directory in project root
 
 **Log Files:**
 - `app-YYYY-MM-DD.log` - All application logs (info, warn, error, debug)
@@ -1156,7 +1156,7 @@ curl http://localhost:5001/api/logs/download -o app-logs.log
 ```
 
 **Direct File Access:**
-Log files are stored in the `logs/` directory and can be viewed with any text editor. Each log entry is in JSON format for easy parsing.
+Log files are stored in the `output/logs/` directory and can be viewed with any text editor. Each log entry is in JSON format for easy parsing.
 
 Example log entry:
 ```json
@@ -1385,8 +1385,13 @@ SquareDashboardTool/
 │   ├── deleted-items.html  # Deleted items management
 │   ├── database-backup.html # Database backup/restore
 │   └── logs.html           # Log viewer
+├── output/                 # Generated files (excluded from pm2 watch)
+│   ├── logs/               # Winston application logs
+│   ├── feeds/              # GMC feed files
+│   └── temp/               # Temporary files (DB imports)
 ├── server.js               # Main Express server
 ├── package.json            # Dependencies
+├── ecosystem.config.js     # PM2 configuration
 ├── .env.example            # Environment template
 ├── .gitignore              # Git ignore rules
 └── README.md               # This file
