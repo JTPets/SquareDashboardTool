@@ -775,3 +775,26 @@ BEGIN
     RAISE NOTICE 'Created tables: expiry_discount_tiers, variation_discount_status, expiry_discount_audit_log, expiry_discount_settings';
     RAISE NOTICE 'Default tiers: EXPIRED, AUTO50, AUTO25, REVIEW, OK';
 END $$;
+
+-- ========================================
+-- MIGRATION: Add review tracking to expiration
+-- ========================================
+-- Allows marking items as reviewed so they don't reappear in the review filter
+
+ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+
+COMMENT ON COLUMN variation_expiration.reviewed_at IS 'When the item was last reviewed for expiry status';
+COMMENT ON COLUMN variation_expiration.reviewed_by IS 'Who reviewed the item';
+
+-- Index for efficient filtering of reviewed items
+CREATE INDEX IF NOT EXISTS idx_variation_expiration_reviewed
+    ON variation_expiration(reviewed_at)
+    WHERE reviewed_at IS NOT NULL;
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Review tracking migration completed successfully!';
+    RAISE NOTICE 'Added reviewed_at and reviewed_by columns to variation_expiration';
+END $$;
