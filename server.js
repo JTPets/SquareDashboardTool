@@ -1643,6 +1643,18 @@ app.get('/api/expirations', async (req, res) => {
     try {
         const { expiry, category } = req.query;
 
+        // Check if reviewed_at column exists (for backwards compatibility)
+        let hasReviewedColumn = false;
+        try {
+            const colCheck = await db.query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'variation_expiration' AND column_name = 'reviewed_at'
+            `);
+            hasReviewedColumn = colCheck.rows.length > 0;
+        } catch (e) {
+            // Column check failed, assume it doesn't exist
+        }
+
         let query = `
             SELECT
                 v.id as identifier,
@@ -1654,7 +1666,7 @@ app.get('/api/expirations', async (req, res) => {
                 i.category_name,
                 ve.expiration_date,
                 ve.does_not_expire,
-                ve.reviewed_at,
+                ${hasReviewedColumn ? 've.reviewed_at,' : ''}
                 COALESCE(SUM(ic.quantity), 0) as quantity,
                 v.images,
                 i.images as item_images
@@ -1675,7 +1687,7 @@ app.get('/api/expirations', async (req, res) => {
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, ve.reviewed_at, v.images, i.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, ${hasReviewedColumn ? 've.reviewed_at,' : ''} v.images, i.images
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -1689,8 +1701,10 @@ app.get('/api/expirations', async (req, res) => {
                 query += ` HAVING ve.expiration_date IS NOT NULL
                           AND ve.does_not_expire = FALSE
                           AND ve.expiration_date > NOW() + INTERVAL '90 days'
-                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'
-                          AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
+                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'`;
+                if (hasReviewedColumn) {
+                    query += ` AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
+                }
             } else {
                 const days = parseInt(expiry);
                 if (!isNaN(days)) {
@@ -1824,6 +1838,25 @@ app.post('/api/expirations/review', async (req, res) => {
 
         if (!Array.isArray(variation_ids) || variation_ids.length === 0) {
             return res.status(400).json({ error: 'Expected array of variation_ids' });
+        }
+
+        // Check if reviewed_at column exists
+        let hasReviewedColumn = false;
+        try {
+            const colCheck = await db.query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'variation_expiration' AND column_name = 'reviewed_at'
+            `);
+            hasReviewedColumn = colCheck.rows.length > 0;
+        } catch (e) {
+            // Column check failed
+        }
+
+        if (!hasReviewedColumn) {
+            return res.status(503).json({
+                error: 'Review feature not available',
+                details: 'Database migration required. Run: ALTER TABLE variation_expiration ADD COLUMN reviewed_at TIMESTAMPTZ;'
+            });
         }
 
         let reviewedCount = 0;
