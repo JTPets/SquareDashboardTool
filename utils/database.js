@@ -219,6 +219,33 @@ async function ensureSchema() {
 
     let appliedCount = 0;
 
+    // ==================== VARIATION EXPIRATION TABLE ====================
+    // Ensure variation_expiration table exists (needed for review tracking columns)
+    const expirationTableCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'variation_expiration'
+    `);
+
+    if (expirationTableCheck.rows.length === 0) {
+        logger.info('Creating variation_expiration table...');
+        await query(`
+            CREATE TABLE IF NOT EXISTS variation_expiration (
+                variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+                expiration_date TIMESTAMPTZ,
+                does_not_expire BOOLEAN DEFAULT FALSE,
+                reviewed_at TIMESTAMPTZ,
+                reviewed_by TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_date ON variation_expiration(expiration_date) WHERE expiration_date IS NOT NULL');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_does_not_expire ON variation_expiration(does_not_expire) WHERE does_not_expire = TRUE');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_reviewed ON variation_expiration(reviewed_at) WHERE reviewed_at IS NOT NULL');
+        logger.info('Created variation_expiration table with indexes');
+        appliedCount++;
+    }
+
     // Check if vendor_catalog_items table exists
     const tableCheck = await query(`
         SELECT table_name FROM information_schema.tables
