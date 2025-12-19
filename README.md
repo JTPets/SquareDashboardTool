@@ -333,14 +333,31 @@ DB_PASSWORD=your_postgres_password
 ### 6. Start the Server
 
 ```bash
+# Run directly
+node server.js
+
+# Or use npm
 npm start
 ```
 
-For development with auto-restart on file changes:
+**For production with PM2 (recommended):**
 
 ```bash
-npm run dev
+# Start with watch mode (auto-restart on code changes)
+pm2 start ecosystem.config.js
+
+# Start without watch mode
+pm2 start server.js
+
+# View logs
+pm2 logs square-dashboard-addon
+
+# Stop/restart
+pm2 stop square-dashboard-addon
+pm2 restart square-dashboard-addon
 ```
+
+The `ecosystem.config.js` configures pm2 to ignore the `output/` folder (logs, feeds, temp files) to prevent restart loops.
 
 The server will start on port 5001 (configurable in `.env`).
 
