@@ -9,7 +9,7 @@ const db = require('./database');
 const logger = require('./logger');
 
 // Square API configuration
-const SQUARE_API_VERSION = '2024-10-17';
+const SQUARE_API_VERSION = '2025-10-16';
 const SQUARE_BASE_URL = 'https://connect.squareup.com';
 const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 
