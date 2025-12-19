@@ -29,6 +29,7 @@ const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for database imports
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/output', express.static(path.join(__dirname, 'output'))); // Serve generated files (feeds, etc.)
 
 // Request logging
 app.use((req, res, next) => {
@@ -251,7 +252,7 @@ app.put('/api/settings/env', async (req, res) => {
 app.get('/api/logs', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100;
-        const logsDir = path.join(__dirname, 'logs');
+        const logsDir = path.join(__dirname, 'output', 'logs');
 
         // Get today's log file
         const today = new Date().toISOString().split('T')[0];
@@ -275,7 +276,7 @@ app.get('/api/logs', async (req, res) => {
  */
 app.get('/api/logs/errors', async (req, res) => {
     try {
-        const logsDir = path.join(__dirname, 'logs');
+        const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
         const errorFile = path.join(logsDir, `error-${today}.log`);
 
@@ -296,7 +297,7 @@ app.get('/api/logs/errors', async (req, res) => {
  */
 app.get('/api/logs/download', async (req, res) => {
     try {
-        const logsDir = path.join(__dirname, 'logs');
+        const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
         const logFile = path.join(logsDir, `app-${today}.log`);
 
@@ -313,7 +314,7 @@ app.get('/api/logs/download', async (req, res) => {
  */
 app.get('/api/logs/stats', async (req, res) => {
     try {
-        const logsDir = path.join(__dirname, 'logs');
+        const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
         const logFile = path.join(logsDir, `app-${today}.log`);
         const errorFile = path.join(logsDir, `error-${today}.log`);
@@ -6653,7 +6654,7 @@ app.post('/api/database/import', async (req, res) => {
         });
 
         // Write SQL to temporary file
-        const tmpDir = tmpPath.join(__dirname, 'temp');
+        const tmpDir = tmpPath.join(__dirname, 'output', 'temp');
         await tmpFs.mkdir(tmpDir, { recursive: true });
 
         const tmpFile = tmpPath.join(tmpDir, `import_${Date.now()}.sql`);
@@ -7283,7 +7284,7 @@ async function startServer() {
     try {
         // Log system initialization
         logger.info('Logging system initialized', {
-            logsDir: path.join(__dirname, 'logs'),
+            logsDir: path.join(__dirname, 'output', 'logs'),
             maxSize: '20m',
             retention: '14 days (regular), 30 days (errors)',
             compression: 'enabled',

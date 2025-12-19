@@ -270,7 +270,8 @@ function generateTsvContent(products) {
  * @returns {Promise<string>} Full path to saved file
  */
 async function saveTsvFile(content, filename = 'gmc-feed.tsv') {
-    const feedsDir = path.join(__dirname, '..', 'public', 'feeds');
+    // Write to output/feeds directory (outside public/ to avoid pm2 watch loops)
+    const feedsDir = path.join(__dirname, '..', 'output', 'feeds');
 
     // Ensure feeds directory exists
     try {
@@ -330,7 +331,7 @@ async function generateFeed(options = {}) {
             success: true,
             stats,
             tsvPath,
-            feedUrl: '/feeds/gmc-feed.tsv',
+            feedUrl: '/output/feeds/gmc-feed.tsv',
             products: options.includeProducts ? products : undefined
         };
     } catch (error) {

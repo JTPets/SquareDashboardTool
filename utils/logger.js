@@ -2,8 +2,8 @@ const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const path = require('path');
 
-// Ensure logs directory exists
-const logsDir = path.join(__dirname, '../logs');
+// Ensure logs directory exists (in output folder to consolidate all file writes)
+const logsDir = path.join(__dirname, '../output/logs');
 const fs = require('fs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
