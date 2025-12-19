@@ -159,6 +159,23 @@
       color: #9ca3af;
     }
     .loading { text-align: center; padding: 40px; color: #6b7280; font-style: italic; }
+    .review-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .review-btn:hover { background: #2563eb; }
+    .review-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+    .mark-all-reviewed {
+      background: #8b5cf6 !important;
+    }
+    .mark-all-reviewed:hover { background: #7c3aed !important; }
+    .review-col { display: none; }
+    .review-mode .review-col { display: table-cell; }
     @media (max-width: 900px) {
       .gtin, .variation-name { display: none; }
       .product-image { width: 40px; height: 40px; }
@@ -221,6 +238,7 @@
       </select>
 
       <button onclick="loadItems()">Refresh</button>
+      <button id="mark-all-reviewed-btn" class="mark-all-reviewed" onclick="markAllAsReviewed()" style="display: none;">Mark All as Reviewed</button>
       <button class="sync-button" onclick="syncFromSquare()">Sync from Square</button>
     </div>
 
@@ -238,6 +256,7 @@
             <th>Current Expiry</th>
             <th>New Expiry Date</th>
             <th>Never Expires</th>
+            <th class="review-col">Reviewed</th>
           </tr>
         </thead>
         <tbody id="items-body">
@@ -274,9 +293,22 @@
     async function loadItems() {
       const expiryFilter = document.getElementById('expiry-filter').value;
       const categoryFilter = document.getElementById('category-filter').value;
+      const isReviewMode = expiryFilter === 'review';
+
+      // Toggle review mode UI
+      const container = document.querySelector('.container');
+      const markAllBtn = document.getElementById('mark-all-reviewed-btn');
+      if (isReviewMode) {
+        container.classList.add('review-mode');
+        markAllBtn.style.display = 'inline-block';
+      } else {
+        container.classList.remove('review-mode');
+        markAllBtn.style.display = 'none';
+      }
 
       const tbody = document.getElementById('items-body');
-      tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading...</td></tr>';
+      const colSpan = isReviewMode ? 11 : 10;
+      tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">Loading...</td></tr>`;
 
       try {
         let url = '/api/expirations?';
@@ -292,7 +324,10 @@
         allItems = allItems.filter(item => (item.quantity || 0) >= 1);
 
         if (allItems.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="9" class="loading">No items found. Please run sync first or adjust filters.</td></tr>';
+          const msg = isReviewMode
+            ? 'No items need review. All items in the 91-120 day window have been reviewed.'
+            : 'No items found. Please run sync first or adjust filters.';
+          tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">${msg}</td></tr>`;
           updateStats();
           return;
         }
@@ -304,7 +339,7 @@
 
       } catch (error) {
         console.error('Failed to load items:', error);
-        tbody.innerHTML = '<tr><td colspan="9" class="loading">Error: ' + error.message + '</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -358,9 +393,11 @@
       const start = (currentPage - 1) * itemsPerPage;
       const end = start + itemsPerPage;
       const pageItems = allItems.slice(start, end);
+      const isReviewMode = document.getElementById('expiry-filter').value === 'review';
+      const colSpan = isReviewMode ? 11 : 10;
 
       if (pageItems.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="loading">No products found</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">No products found</td></tr>`;
         return;
       }
 
@@ -395,6 +432,9 @@
           <td>
             <input type="checkbox" ${item.does_not_expire ? 'checked' : ''}
                    onchange="updateNeverExpires('${item.identifier}', this.checked)">
+          </td>
+          <td class="review-col">
+            <button class="review-btn" onclick="markAsReviewed('${item.identifier}', this)">Mark Reviewed</button>
           </td>
         </tr>`;
       }).join('');
@@ -527,6 +567,78 @@
         });
       } catch (error) {
         console.error('Failed to load categories:', error);
+      }
+    }
+
+    async function markAsReviewed(variationId, button) {
+      button.disabled = true;
+      button.textContent = 'Saving...';
+
+      try {
+        const response = await fetch('/api/expirations/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_ids: [variationId],
+            reviewed_by: 'User'
+          })
+        });
+
+        if (!response.ok) throw new Error('Failed to mark as reviewed');
+
+        // Remove the row from the table since it's been reviewed
+        const row = document.querySelector(`tr[data-id="${variationId}"]`);
+        if (row) {
+          row.style.transition = 'opacity 0.3s';
+          row.style.opacity = '0';
+          setTimeout(() => {
+            row.remove();
+            // Update allItems array
+            allItems = allItems.filter(item => item.identifier !== variationId);
+            updateStats();
+            updatePagination();
+          }, 300);
+        }
+
+      } catch (error) {
+        alert('Failed to mark as reviewed: ' + error.message);
+        button.disabled = false;
+        button.textContent = 'Mark Reviewed';
+      }
+    }
+
+    async function markAllAsReviewed() {
+      const btn = document.getElementById('mark-all-reviewed-btn');
+      if (!confirm(`Mark all ${allItems.length} items as reviewed?`)) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const variationIds = allItems.map(item => item.identifier);
+
+        const response = await fetch('/api/expirations/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_ids: variationIds,
+            reviewed_by: 'User'
+          })
+        });
+
+        if (!response.ok) throw new Error('Failed to mark as reviewed');
+
+        const result = await response.json();
+        alert(`Marked ${result.reviewed_count} items as reviewed`);
+
+        // Reload to show empty list
+        await loadItems();
+
+      } catch (error) {
+        alert('Failed to mark all as reviewed: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Mark All as Reviewed';
       }
     }
 

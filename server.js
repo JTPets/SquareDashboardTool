@@ -1654,6 +1654,7 @@ app.get('/api/expirations', async (req, res) => {
                 i.category_name,
                 ve.expiration_date,
                 ve.does_not_expire,
+                ve.reviewed_at,
                 COALESCE(SUM(ic.quantity), 0) as quantity,
                 v.images,
                 i.images as item_images
@@ -1674,7 +1675,7 @@ app.get('/api/expirations', async (req, res) => {
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, v.images, i.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, ve.reviewed_at, v.images, i.images
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -1684,11 +1685,12 @@ app.get('/api/expirations', async (req, res) => {
             } else if (expiry === 'never-expires') {
                 query += ` HAVING ve.does_not_expire = TRUE`;
             } else if (expiry === 'review') {
-                // Review items: 91-120 days out (flagged for discount review)
+                // Review items: 91-120 days out, NOT already reviewed in last 30 days
                 query += ` HAVING ve.expiration_date IS NOT NULL
                           AND ve.does_not_expire = FALSE
                           AND ve.expiration_date > NOW() + INTERVAL '90 days'
-                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'`;
+                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'
+                          AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
             } else {
                 const days = parseInt(expiry);
                 if (!isNaN(days)) {
@@ -1809,6 +1811,48 @@ app.post('/api/expirations', async (req, res) => {
     } catch (error) {
         logger.error('Save expirations error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: 'Failed to save expiration data', details: error.message });
+    }
+});
+
+/**
+ * POST /api/expirations/review
+ * Mark items as reviewed (so they don't reappear in review filter)
+ */
+app.post('/api/expirations/review', async (req, res) => {
+    try {
+        const { variation_ids, reviewed_by } = req.body;
+
+        if (!Array.isArray(variation_ids) || variation_ids.length === 0) {
+            return res.status(400).json({ error: 'Expected array of variation_ids' });
+        }
+
+        let reviewedCount = 0;
+
+        for (const variation_id of variation_ids) {
+            await db.query(`
+                INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at)
+                VALUES ($1, NOW(), $2, NOW())
+                ON CONFLICT (variation_id)
+                DO UPDATE SET
+                    reviewed_at = NOW(),
+                    reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
+                    updated_at = NOW()
+            `, [variation_id, reviewed_by || 'User']);
+
+            reviewedCount++;
+        }
+
+        logger.info('Marked items as reviewed', { count: reviewedCount, reviewed_by });
+
+        res.json({
+            success: true,
+            message: `Marked ${reviewedCount} item(s) as reviewed`,
+            reviewed_count: reviewedCount
+        });
+
+    } catch (error) {
+        logger.error('Mark as reviewed error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: 'Failed to mark items as reviewed', details: error.message });
     }
 });
 
