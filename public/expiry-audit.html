@@ -778,10 +778,25 @@
   <script>
     let allItems = [];
     let currentFilter = 'all';
-    let confirmedToday = {};  // { variation_id: tier_code }
+    let sessionConfirmed = {};  // { variation_id: tier_code } - items confirmed THIS session (avoids flicker)
 
     // Modal state
     let currentItem = null;
+
+    // Get today's date at midnight for comparison
+    function getTodayStart() {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return today;
+    }
+
+    // Check if a timestamp is from today
+    function isFromToday(timestamp) {
+      if (!timestamp) return false;
+      const reviewDate = new Date(timestamp);
+      const todayStart = getTodayStart();
+      return reviewDate >= todayStart;
+    }
 
     // Tier-specific configurations
     const tierConfig = {
@@ -844,35 +859,26 @@
       }
     };
 
-    // Load confirmed items from localStorage
-    function loadConfirmedToday() {
-      const today = new Date().toISOString().split('T')[0];
-      const stored = localStorage.getItem('expiryAuditConfirmed');
-      if (stored) {
-        try {
-          const data = JSON.parse(stored);
-          if (data.date === today) {
-            confirmedToday = data.items || {};
-          } else {
-            localStorage.removeItem('expiryAuditConfirmed');
-          }
-        } catch (e) {
-          console.error('Failed to parse confirmed data:', e);
-        }
-      }
-    }
-
-    function saveConfirmedToday() {
-      const today = new Date().toISOString().split('T')[0];
-      localStorage.setItem('expiryAuditConfirmed', JSON.stringify({
-        date: today,
-        items: confirmedToday
-      }));
-    }
-
+    // Check if item is confirmed - uses server's reviewed_at field
+    // Also checks sessionConfirmed for items confirmed during this session (to avoid UI flicker)
     function isConfirmed(variationId, tierCode) {
-      // Item is confirmed if it was confirmed in the same tier
-      return confirmedToday[variationId] === tierCode;
+      // First check if confirmed this session (for immediate feedback)
+      if (sessionConfirmed[variationId] === tierCode) {
+        return true;
+      }
+
+      // Check server-side reviewed_at from the item data
+      const item = allItems.find(i => i.variation_id === variationId);
+      if (item && item.reviewed_at && isFromToday(item.reviewed_at)) {
+        return true;
+      }
+
+      return false;
+    }
+
+    // Get count of items confirmed today (from server data)
+    function getConfirmedTodayCount() {
+      return allItems.filter(item => item.reviewed_at && isFromToday(item.reviewed_at)).length;
     }
 
     // Load items on page load
@@ -955,7 +961,7 @@
     function updateStats() {
       const filteredItems = getFilteredItems();
       const pending = filteredItems.filter(item => !isConfirmed(item.variation_id, item.tier_code)).length;
-      const confirmed = Object.keys(confirmedToday).length;
+      const confirmed = getConfirmedTodayCount();
       const total = allItems.length;
       const completion = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 
@@ -1208,9 +1214,10 @@
           throw new Error(data.details || data.error || 'Failed to record confirmation');
         }
 
-        // Mark as confirmed locally with tier
-        confirmedToday[currentItem.variation_id] = currentItem.tier_code;
-        saveConfirmedToday();
+        // Mark as confirmed in session cache for immediate UI feedback
+        sessionConfirmed[currentItem.variation_id] = currentItem.tier_code;
+        // Also update the item's reviewed_at so stats are accurate
+        currentItem.reviewed_at = new Date().toISOString();
 
         // Visual feedback
         const card = document.getElementById(`item-${currentItem.variation_id}`);
@@ -1288,9 +1295,8 @@
           })
         });
 
-        // Mark as confirmed locally
-        confirmedToday[currentItem.variation_id] = currentItem.tier_code;
-        saveConfirmedToday();
+        // Mark as confirmed in session cache
+        sessionConfirmed[currentItem.variation_id] = currentItem.tier_code;
 
         // Remove from list since date changed (tier may change)
         allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
@@ -1330,7 +1336,7 @@
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
-      loadConfirmedToday();
+      // No localStorage needed - confirmation status comes from server's reviewed_at field
       loadItems();
     });
 

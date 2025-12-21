@@ -2021,6 +2021,7 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
                 i.images as item_images,
                 ve.expiration_date,
                 ve.does_not_expire,
+                ve.reviewed_at,
                 edt.id as tier_id,
                 edt.tier_code,
                 edt.tier_name,
@@ -2055,8 +2056,8 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
             GROUP BY vds.variation_id, vds.days_until_expiry, vds.original_price_cents,
                      vds.discounted_price_cents, vds.discount_applied_at, vds.needs_pull,
                      vds.last_evaluated_at, v.sku, v.name, v.price_money, v.images, i.name, i.id,
-                     i.category_name, i.images, ve.expiration_date, ve.does_not_expire, edt.id,
-                     edt.tier_code, edt.tier_name, edt.discount_percent, edt.color_code,
+                     i.category_name, i.images, ve.expiration_date, ve.does_not_expire, ve.reviewed_at,
+                     edt.id, edt.tier_code, edt.tier_name, edt.discount_percent, edt.color_code,
                      edt.is_auto_apply, edt.requires_review
             ORDER BY vds.days_until_expiry ASC NULLS LAST
         `;
