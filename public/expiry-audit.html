@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Expiry Date Audit - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f7;
+      padding-bottom: 20px;
+      line-height: 1.4;
+      overscroll-behavior-y: contain;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      color: white;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 13px;
+      opacity: 0.9;
+      margin-bottom: 15px;
+    }
+    .stats-row {
+      display: flex;
+      justify-content: space-around;
+      gap: 10px;
+    }
+    .stat-card {
+      background: rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      flex: 1;
+      backdrop-filter: blur(10px);
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      display: block;
+    }
+    .stat-label {
+      font-size: 11px;
+      opacity: 0.9;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .toolbar {
+      background: white;
+      padding: 15px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      min-width: 80px;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: transform 0.1s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+    }
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+    }
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+
+    .info-banner {
+      background: #dbeafe;
+      border-left: 4px solid #3b82f6;
+      padding: 15px;
+      margin: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    .info-banner strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .items-container {
+      padding: 15px;
+    }
+
+    .item-card {
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+      position: relative;
+      transition: transform 0.2s;
+      border-left: 4px solid #3b82f6;
+    }
+    .item-card.confirmed {
+      opacity: 0.5;
+      transform: scale(0.95);
+      border-left-color: #10b981;
+    }
+
+    .item-header {
+      display: flex;
+      align-items: flex-start;
+      padding: 15px;
+      gap: 15px;
+    }
+    .item-image-container {
+      flex-shrink: 0;
+    }
+    .item-image {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 2px solid #e5e7eb;
+    }
+    .no-image {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 32px;
+      border: 2px solid #e5e7eb;
+    }
+
+    .item-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .item-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .item-variation {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+    .item-details {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .detail-item {
+      background: #f9fafb;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    .detail-item.highlight {
+      background: #dbeafe;
+      border: 2px solid #3b82f6;
+    }
+    .detail-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #6b7280;
+      letter-spacing: 0.5px;
+      display: block;
+    }
+    .detail-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #111827;
+      display: block;
+      font-family: monospace;
+    }
+    .detail-value.expiry-date {
+      color: #3b82f6;
+      font-size: 16px;
+    }
+
+    .days-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #fef3c7;
+      color: #92400e;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+
+    .item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-review {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .badge-category {
+      background: #f3e8ff;
+      color: #6b21a8;
+    }
+    .badge-stock {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .badge-price {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .badge-confirmed {
+      background: #10b981;
+      color: white;
+    }
+
+    .item-actions {
+      padding: 15px;
+      padding-top: 0;
+      display: flex;
+      gap: 10px;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .confirm-btn {
+      background: #10b981;
+      color: white;
+      box-shadow: 0 4px 6px rgba(16,185,129,0.2);
+    }
+    .confirm-btn:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 4px rgba(16,185,129,0.2);
+    }
+    .update-btn {
+      background: #f59e0b;
+      color: white;
+      box-shadow: 0 4px 6px rgba(245,158,11,0.2);
+    }
+    .update-btn:active {
+      transform: translateY(2px);
+    }
+    .action-btn.disabled {
+      background: #6b7280;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.5;
+    }
+    .empty-state h3 {
+      font-size: 20px;
+      color: #374151;
+      margin-bottom: 10px;
+    }
+    .empty-state p {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .loading-spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #3b82f6;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #111827;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+    .form-input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border 0.2s;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    .current-date-display {
+      background: #fee2e2;
+      border: 2px solid #dc2626;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .current-date-display .label {
+      font-size: 12px;
+      color: #991b1b;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .current-date-display .date {
+      font-size: 24px;
+      font-weight: 700;
+      color: #dc2626;
+    }
+
+    .new-date-input {
+      background: #d1fae5;
+      border: 2px solid #10b981;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 16px;
+    }
+    .new-date-input label {
+      display: block;
+      font-size: 12px;
+      color: #065f46;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .new-date-input input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #10b981;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      background: #111827;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
+      z-index: 2000;
+      transition: transform 0.3s;
+      max-width: 90%;
+    }
+    .toast.active {
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast.success {
+      background: #10b981;
+    }
+    .toast.error {
+      background: #ef4444;
+    }
+
+    @media (min-width: 768px) {
+      .items-container {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Expiry Date Audit</h1>
+    <p>Review items 91-120 days from expiry - confirm dates before auto-discount</p>
+    <div class="stats-row">
+      <div class="stat-card">
+        <span class="stat-value" id="pending-count">0</span>
+        <span class="stat-label">Pending Review</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="confirmed-today">0</span>
+        <span class="stat-label">Confirmed Today</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="completion-rate">0%</span>
+        <span class="stat-label">Complete</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-secondary" onclick="window.location.href='/'">
+      Home
+    </button>
+    <button class="btn btn-secondary" onclick="window.location.href='/expiry.html'">
+      Expiry Tracker
+    </button>
+    <button class="btn btn-secondary" onclick="window.location.href='/expiry-discounts.html'">
+      Discounts
+    </button>
+    <button class="btn btn-primary" onclick="loadItems()">
+      Refresh
+    </button>
+  </div>
+
+  <div class="info-banner">
+    <strong>Review Before Auto-Discount</strong>
+    These items are 91-120 days from expiry. Confirm the expiration date is correct before the system auto-applies discounts. If the date is wrong, update it now.
+  </div>
+
+  <div class="items-container" id="items-container">
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <p>Loading review items...</p>
+    </div>
+  </div>
+
+  <!-- Confirm Date Modal -->
+  <div class="modal" id="confirm-modal">
+    <div class="modal-content">
+      <h2 class="modal-title">Confirm Expiry Date</h2>
+
+      <div id="modal-item-info" style="margin-bottom: 16px;">
+        <div style="font-weight: 600; font-size: 18px;" id="modal-item-name"></div>
+        <div style="color: #6b7280;" id="modal-item-sku"></div>
+      </div>
+
+      <div class="current-date-display">
+        <div class="label">Current Expiry Date in System</div>
+        <div class="date" id="modal-current-date">2025-03-15</div>
+      </div>
+
+      <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 16px;">
+        <div style="font-size: 14px; color: #374151; margin-bottom: 8px;">
+          <strong>Please verify:</strong>
+        </div>
+        <ul style="font-size: 14px; color: #6b7280; margin-left: 20px;">
+          <li>Check the physical product's expiry date</li>
+          <li>Confirm it matches the date shown above</li>
+          <li>If different, click "Update Date" instead</li>
+        </ul>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Notes (optional):</label>
+        <textarea class="form-input" id="confirm-notes" rows="2" placeholder="Any observations..."></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+        <button class="btn btn-success" style="flex: 1;" onclick="confirmDate()" id="confirm-date-btn">
+          Date is Correct
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Update Date Modal -->
+  <div class="modal" id="update-modal">
+    <div class="modal-content">
+      <h2 class="modal-title">Update Expiry Date</h2>
+
+      <div id="update-modal-item-info" style="margin-bottom: 16px;">
+        <div style="font-weight: 600; font-size: 18px;" id="update-modal-item-name"></div>
+        <div style="color: #6b7280;" id="update-modal-item-sku"></div>
+      </div>
+
+      <div class="current-date-display">
+        <div class="label">Old Date (in system)</div>
+        <div class="date" id="update-modal-old-date">2025-03-15</div>
+      </div>
+
+      <div class="new-date-input">
+        <label>New Expiry Date (from product)</label>
+        <input type="date" id="new-expiry-date" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Reason for update:</label>
+        <textarea class="form-input" id="update-notes" rows="2" placeholder="e.g., Label shows different date..."></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeUpdateModal()">Cancel</button>
+        <button class="btn btn-success" style="flex: 1; background: #f59e0b;" onclick="updateDate()" id="update-date-btn">
+          Update Date
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Error Helper for user-friendly messages -->
+  <script src="/js/error-helper.js"></script>
+
+  <script>
+    let allItems = [];
+    let confirmedToday = new Set();
+
+    // Modal state
+    let currentItem = null;
+
+    // Load confirmed items from localStorage
+    function loadConfirmedToday() {
+      const today = new Date().toISOString().split('T')[0];
+      const stored = localStorage.getItem('expiryAuditConfirmed');
+      if (stored) {
+        try {
+          const data = JSON.parse(stored);
+          if (data.date === today) {
+            confirmedToday = new Set(data.items);
+          } else {
+            // New day, clear old data
+            localStorage.removeItem('expiryAuditConfirmed');
+          }
+        } catch (e) {
+          console.error('Failed to parse confirmed data:', e);
+        }
+      }
+    }
+
+    function saveConfirmedToday() {
+      const today = new Date().toISOString().split('T')[0];
+      localStorage.setItem('expiryAuditConfirmed', JSON.stringify({
+        date: today,
+        items: Array.from(confirmedToday)
+      }));
+    }
+
+    // Load items on page load
+    async function loadItems() {
+      const container = document.getElementById('items-container');
+      container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading review items...</p></div>';
+
+      try {
+        // Load items in REVIEW tier (91-120 days)
+        const response = await fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500');
+        const data = await response.json();
+
+        allItems = data.variations || [];
+
+        // Filter out items with 0 stock and already reviewed items
+        allItems = allItems.filter(item => (item.current_stock || 0) > 0);
+
+        // Sort by days until expiry (most urgent first - closest to 90 days)
+        allItems.sort((a, b) => (a.days_until_expiry || 999) - (b.days_until_expiry || 999));
+
+        updateStats();
+        renderItems();
+
+      } catch (error) {
+        console.error('Failed to load items:', error);
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">!</div>
+            <h3>Error Loading Items</h3>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+
+    function updateStats() {
+      const pending = allItems.filter(item => !confirmedToday.has(item.variation_id)).length;
+      const confirmed = confirmedToday.size;
+      const total = allItems.length;
+      const completion = total > 0 ? Math.round((confirmed / total) * 100) : 0;
+
+      document.getElementById('pending-count').textContent = pending;
+      document.getElementById('confirmed-today').textContent = confirmed;
+      document.getElementById('completion-rate').textContent = `${completion}%`;
+    }
+
+    function renderItems() {
+      const container = document.getElementById('items-container');
+
+      if (allItems.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">All Done</div>
+            <h3>No Items Need Review</h3>
+            <p>All items in the 91-120 day window have been reviewed, or there are no items in this range.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = allItems.map((item) => {
+        const isConfirmed = confirmedToday.has(item.variation_id);
+        const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
+        const price = item.current_price_cents ? `$${(item.current_price_cents / 100).toFixed(2)}` : 'N/A';
+
+        return `
+          <div class="item-card ${isConfirmed ? 'confirmed' : ''}" id="item-${item.variation_id}">
+            <div class="item-header">
+              <div class="item-image-container">
+                <div class="no-image">Box</div>
+              </div>
+              <div class="item-info">
+                <div class="item-name">${escapeHtml(item.item_name)}</div>
+                ${item.variation_name ? `<div class="item-variation">${escapeHtml(item.variation_name)}</div>` : ''}
+
+                <div class="item-details">
+                  <div class="detail-item">
+                    <span class="detail-label">SKU</span>
+                    <span class="detail-value">${escapeHtml(item.sku || 'N/A')}</span>
+                  </div>
+                  <div class="detail-item highlight">
+                    <span class="detail-label">Expiry Date</span>
+                    <span class="detail-value expiry-date">${expiryDate}</span>
+                  </div>
+                </div>
+
+                <div class="days-warning">
+                  ${item.days_until_expiry} days until expiry - verify date now
+                </div>
+
+                <div class="item-meta">
+                  <span class="badge badge-review">REVIEW</span>
+                  ${item.category_name ? `<span class="badge badge-category">${escapeHtml(item.category_name)}</span>` : ''}
+                  <span class="badge badge-stock">${item.current_stock || 0} in stock</span>
+                  <span class="badge badge-price">${price}</span>
+                  ${isConfirmed ? '<span class="badge badge-confirmed">Confirmed</span>' : ''}
+                </div>
+              </div>
+            </div>
+            <div class="item-actions">
+              <button class="action-btn update-btn ${isConfirmed ? 'disabled' : ''}"
+                      onclick="${isConfirmed ? '' : `showUpdateModal('${item.variation_id}')`}"
+                      ${isConfirmed ? 'disabled' : ''}>
+                Update Date
+              </button>
+              <button class="action-btn confirm-btn ${isConfirmed ? 'disabled' : ''}"
+                      onclick="${isConfirmed ? '' : `showConfirmModal('${item.variation_id}')`}"
+                      ${isConfirmed ? 'disabled' : ''}>
+                ${isConfirmed ? 'Confirmed' : 'Date Correct'}
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function showConfirmModal(variationId) {
+      const item = allItems.find(i => i.variation_id === variationId);
+      if (!item) {
+        showToast('Item not found. Please refresh the page.', 'error');
+        return;
+      }
+
+      currentItem = item;
+
+      // Populate modal
+      document.getElementById('modal-item-name').textContent = item.item_name;
+      document.getElementById('modal-item-sku').textContent = `SKU: ${item.sku || 'N/A'}`;
+
+      const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
+      document.getElementById('modal-current-date').textContent = expiryDate;
+
+      document.getElementById('confirm-notes').value = '';
+
+      // Show modal
+      document.getElementById('confirm-modal').classList.add('active');
+    }
+
+    function closeConfirmModal() {
+      document.getElementById('confirm-modal').classList.remove('active');
+      currentItem = null;
+    }
+
+    function showUpdateModal(variationId) {
+      const item = allItems.find(i => i.variation_id === variationId);
+      if (!item) {
+        showToast('Item not found. Please refresh the page.', 'error');
+        return;
+      }
+
+      currentItem = item;
+
+      // Populate modal
+      document.getElementById('update-modal-item-name').textContent = item.item_name;
+      document.getElementById('update-modal-item-sku').textContent = `SKU: ${item.sku || 'N/A'}`;
+
+      const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
+      document.getElementById('update-modal-old-date').textContent = expiryDate;
+
+      document.getElementById('new-expiry-date').value = '';
+      document.getElementById('update-notes').value = '';
+
+      // Show modal
+      document.getElementById('update-modal').classList.add('active');
+    }
+
+    function closeUpdateModal() {
+      document.getElementById('update-modal').classList.remove('active');
+      currentItem = null;
+    }
+
+    async function confirmDate() {
+      if (!currentItem) {
+        showToast('No item selected. Please try again.', 'error');
+        return;
+      }
+
+      const notes = document.getElementById('confirm-notes').value.trim();
+      const btn = document.getElementById('confirm-date-btn');
+      btn.disabled = true;
+      btn.textContent = 'Confirming...';
+
+      try {
+        // Record the confirmation via the existing review API
+        const response = await fetch('/api/expirations/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_ids: [currentItem.variation_id],
+            reviewed_by: 'Audit User',
+            notes: notes || 'Date confirmed via audit'
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to record confirmation');
+        }
+
+        // Mark as confirmed locally
+        confirmedToday.add(currentItem.variation_id);
+        saveConfirmedToday();
+
+        // Visual feedback
+        const card = document.getElementById(`item-${currentItem.variation_id}`);
+        if (card) {
+          card.classList.add('confirmed');
+          const confirmBtn = card.querySelector('.confirm-btn');
+          const updateBtn = card.querySelector('.update-btn');
+          if (confirmBtn) {
+            confirmBtn.classList.add('disabled');
+            confirmBtn.textContent = 'Confirmed';
+            confirmBtn.disabled = true;
+          }
+          if (updateBtn) {
+            updateBtn.classList.add('disabled');
+            updateBtn.disabled = true;
+          }
+        }
+
+        closeConfirmModal();
+        updateStats();
+        showToast('Expiry date confirmed! Item will proceed to auto-discount.', 'success');
+
+      } catch (error) {
+        console.error('Failed to confirm date:', error);
+        showToast('Failed to record confirmation: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Date is Correct';
+      }
+    }
+
+    async function updateDate() {
+      if (!currentItem) {
+        showToast('No item selected. Please try again.', 'error');
+        return;
+      }
+
+      const newDate = document.getElementById('new-expiry-date').value;
+      const notes = document.getElementById('update-notes').value.trim();
+
+      if (!newDate) {
+        showToast('Please enter the new expiry date.', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('update-date-btn');
+      btn.disabled = true;
+      btn.textContent = 'Updating...';
+
+      try {
+        // Update the expiration date
+        const response = await fetch('/api/expirations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{
+            variation_id: currentItem.variation_id,
+            expiration_date: newDate,
+            does_not_expire: false
+          }])
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update expiration date');
+        }
+
+        // Also mark as reviewed
+        await fetch('/api/expirations/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            variation_ids: [currentItem.variation_id],
+            reviewed_by: 'Audit User',
+            notes: notes || `Date updated from audit: ${currentItem.expiration_date?.split('T')[0]} -> ${newDate}`
+          })
+        });
+
+        // Mark as confirmed locally
+        confirmedToday.add(currentItem.variation_id);
+        saveConfirmedToday();
+
+        // Remove from list since date changed (tier may change)
+        allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
+
+        closeUpdateModal();
+        updateStats();
+        renderItems();
+        showToast(`Expiry date updated to ${newDate}. Item will be re-evaluated.`, 'success');
+
+      } catch (error) {
+        console.error('Failed to update date:', error);
+        showToast('Failed to update date: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Update Date';
+      }
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type}`;
+      toast.classList.add('active');
+
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 3000);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadConfirmedToday();
+      loadItems();
+    });
+
+    // Close modals on background click
+    document.getElementById('confirm-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'confirm-modal') {
+        closeConfirmModal();
+      }
+    });
+
+    document.getElementById('update-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'update-modal') {
+        closeUpdateModal();
+      }
+    });
+
+    // Refresh data when tab becomes visible
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        loadItems();
+      }
+    });
+  </script>
+</body>
+</html>
