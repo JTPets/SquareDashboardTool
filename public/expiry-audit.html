@@ -999,7 +999,9 @@
           <div class="item-card tier-${item.tier_code} ${confirmed ? 'confirmed' : ''}" id="item-${item.variation_id}">
             <div class="item-header">
               <div class="item-image-container">
-                <div class="no-image">Box</div>
+                ${item.image_urls && item.image_urls[0]
+                  ? `<img src="${item.image_urls[0]}" class="item-image" onerror="this.parentElement.innerHTML='<div class=\\'no-image\\'>Box</div>'">`
+                  : '<div class="no-image">Box</div>'}
               </div>
               <div class="item-info">
                 <div class="item-name">${escapeHtml(item.item_name)}</div>
@@ -1133,8 +1135,10 @@
           })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-          throw new Error('Failed to record confirmation');
+          throw new Error(data.details || data.error || 'Failed to record confirmation');
         }
 
         // Mark as confirmed locally with tier
