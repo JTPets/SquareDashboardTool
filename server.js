@@ -1831,6 +1831,7 @@ app.post('/api/expirations', async (req, res) => {
 /**
  * POST /api/expirations/review
  * Mark items as reviewed (so they don't reappear in review filter)
+ * Also syncs reviewed_at timestamp to Square for cross-platform consistency
  */
 app.post('/api/expirations/review', async (req, res) => {
     try {
@@ -1860,8 +1861,11 @@ app.post('/api/expirations/review', async (req, res) => {
         }
 
         let reviewedCount = 0;
+        const reviewedAt = new Date().toISOString();
+        let squarePushResults = { success: 0, failed: 0, errors: [] };
 
         for (const variation_id of variation_ids) {
+            // Save to local database
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at)
                 VALUES ($1, NOW(), $2, NOW())
@@ -1873,14 +1877,30 @@ app.post('/api/expirations/review', async (req, res) => {
             `, [variation_id, reviewed_by || 'User']);
 
             reviewedCount++;
+
+            // Push to Square for cross-platform consistency
+            try {
+                await squareApi.updateCustomAttributeValues(variation_id, {
+                    expiry_reviewed_at: { string_value: reviewedAt }
+                });
+                squarePushResults.success++;
+            } catch (squareError) {
+                squarePushResults.failed++;
+                squarePushResults.errors.push({ variation_id, error: squareError.message });
+                logger.warn('Failed to push review timestamp to Square', {
+                    variation_id,
+                    error: squareError.message
+                });
+            }
         }
 
-        logger.info('Marked items as reviewed', { count: reviewedCount, reviewed_by });
+        logger.info('Marked items as reviewed', { count: reviewedCount, reviewed_by, squarePush: squarePushResults });
 
         res.json({
             success: true,
             message: `Marked ${reviewedCount} item(s) as reviewed`,
-            reviewed_count: reviewedCount
+            reviewed_count: reviewedCount,
+            squarePush: squarePushResults
         });
 
     } catch (error) {

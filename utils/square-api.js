@@ -755,11 +755,13 @@ async function syncVariation(obj) {
         // Sync expiration data
         const expirationDateAttr = customAttrs.expiration_date;
         const doesNotExpireAttr = customAttrs.does_not_expire;
+        const expiryReviewedAtAttr = customAttrs.expiry_reviewed_at;
 
-        if (expirationDateAttr || doesNotExpireAttr) {
+        if (expirationDateAttr || doesNotExpireAttr || expiryReviewedAtAttr) {
             try {
                 let expirationDate = null;
                 let doesNotExpire = false;
+                let reviewedAt = null;
 
                 // Extract expiration_date (stored as string YYYY-MM-DD)
                 if (expirationDateAttr?.string_value) {
@@ -771,15 +773,21 @@ async function syncVariation(obj) {
                     doesNotExpire = doesNotExpireAttr.boolean_value === true;
                 }
 
+                // Extract expiry_reviewed_at (stored as ISO timestamp string)
+                if (expiryReviewedAtAttr?.string_value) {
+                    reviewedAt = expiryReviewedAtAttr.string_value;
+                }
+
                 // Update local variation_expiration table
                 await db.query(`
-                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
-                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, updated_at)
+                    VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id) DO UPDATE SET
                         expiration_date = EXCLUDED.expiration_date,
                         does_not_expire = EXCLUDED.does_not_expire,
+                        reviewed_at = COALESCE(EXCLUDED.reviewed_at, variation_expiration.reviewed_at),
                         updated_at = CURRENT_TIMESTAMP
-                `, [obj.id, expirationDate, doesNotExpire]);
+                `, [obj.id, expirationDate, doesNotExpire, reviewedAt]);
 
             } catch (error) {
                 logger.error('Error syncing expiration data from Square', {
@@ -2046,6 +2054,13 @@ async function initializeCustomAttributes() {
             name: 'Does Not Expire',
             description: 'Flag indicating product does not have an expiration date',
             type: 'BOOLEAN',
+            allowed_object_types: ['ITEM_VARIATION']
+        },
+        {
+            key: 'expiry_reviewed_at',
+            name: 'Expiry Reviewed At',
+            description: 'Timestamp when expiration date was last verified/audited',
+            type: 'STRING',  // Store as ISO timestamp string
             allowed_object_types: ['ITEM_VARIATION']
         }
     ];
