@@ -7222,7 +7222,17 @@ app.get('/api/subscriptions/admin/list', async (req, res) => {
 
 /**
  * POST /api/webhooks/square
- * Handle Square webhook events (subscriptions, payments)
+ * Handle Square webhook events
+ *
+ * Subscription Events:
+ *   - subscription.created, subscription.updated
+ *   - invoice.payment_made, invoice.payment_failed
+ *   - customer.deleted
+ *
+ * Catalog & Inventory Events (feature-flagged):
+ *   - catalog.version.updated  → WEBHOOK_CATALOG_SYNC
+ *   - inventory.count.updated  → WEBHOOK_INVENTORY_SYNC
+ *   - order.created/updated/fulfilled → WEBHOOK_ORDER_SYNC
  */
 app.post('/api/webhooks/square', async (req, res) => {
     try {
@@ -7350,6 +7360,71 @@ app.post('/api/webhooks/square', async (req, res) => {
                         await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'canceled');
                         logger.info('Customer deleted via webhook', { subscriberId: subscriber.id });
                     }
+                }
+                break;
+
+            // ==================== CATALOG & INVENTORY WEBHOOKS ====================
+
+            case 'catalog.version.updated':
+                // Catalog changed in Square - sync to local database
+                if (process.env.WEBHOOK_CATALOG_SYNC !== 'false') {
+                    try {
+                        logger.info('Catalog change detected via webhook, syncing...');
+                        const syncResult = await squareApi.syncCatalog();
+                        logger.info('Catalog sync completed via webhook', {
+                            items: syncResult.items,
+                            variations: syncResult.variations
+                        });
+                    } catch (syncError) {
+                        logger.error('Catalog sync via webhook failed', { error: syncError.message });
+                    }
+                } else {
+                    logger.info('Catalog webhook received but WEBHOOK_CATALOG_SYNC is disabled');
+                }
+                break;
+
+            case 'inventory.count.updated':
+                // Inventory changed in Square - sync to local database
+                if (process.env.WEBHOOK_INVENTORY_SYNC !== 'false') {
+                    try {
+                        const inventoryChange = data.inventory_count;
+                        logger.info('Inventory change detected via webhook', {
+                            catalogObjectId: inventoryChange?.catalog_object_id,
+                            quantity: inventoryChange?.quantity,
+                            locationId: inventoryChange?.location_id
+                        });
+                        const syncResult = await squareApi.syncInventory();
+                        logger.info('Inventory sync completed via webhook', { count: syncResult });
+                    } catch (syncError) {
+                        logger.error('Inventory sync via webhook failed', { error: syncError.message });
+                    }
+                } else {
+                    logger.info('Inventory webhook received but WEBHOOK_INVENTORY_SYNC is disabled');
+                }
+                break;
+
+            case 'order.created':
+            case 'order.updated':
+            case 'order.fulfilled':
+                // Order activity - sync sales data for velocity calculations
+                if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    try {
+                        const order = data.order;
+                        logger.info('Order event detected via webhook', {
+                            orderId: order?.id,
+                            state: order?.state,
+                            eventType: event.type
+                        });
+                        // Only sync on fulfilled orders to avoid incomplete data
+                        if (event.type === 'order.fulfilled' || order?.state === 'COMPLETED') {
+                            await squareApi.syncSalesData(91);  // Sync recent 91 days
+                            logger.info('Sales data sync completed via webhook');
+                        }
+                    } catch (syncError) {
+                        logger.error('Sales sync via webhook failed', { error: syncError.message });
+                    }
+                } else {
+                    logger.info('Order webhook received but WEBHOOK_ORDER_SYNC is disabled');
                 }
                 break;
 
