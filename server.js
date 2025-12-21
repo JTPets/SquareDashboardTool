@@ -7429,6 +7429,27 @@ async function startServer() {
         // Ensure database schema is up to date
         await db.ensureSchema();
 
+        // Ensure Square custom attributes exist (for expiry tracking, brands, etc.)
+        try {
+            logger.info('Checking Square custom attributes...');
+            const attrResult = await squareApi.initializeCustomAttributes();
+            if (attrResult.created > 0 || attrResult.updated > 0) {
+                logger.info('Square custom attributes initialized', {
+                    created: attrResult.created,
+                    updated: attrResult.updated,
+                    skipped: attrResult.skipped
+                });
+            } else {
+                logger.info('Square custom attributes already configured');
+            }
+        } catch (squareAttrError) {
+            // Don't fail startup if Square attributes can't be created
+            // They may be created later when Square credentials are configured
+            logger.warn('Could not initialize Square custom attributes', {
+                error: squareAttrError.message
+            });
+        }
+
         // Start server
         app.listen(PORT, () => {
             const banner = [
