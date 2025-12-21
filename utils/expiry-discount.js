@@ -999,7 +999,9 @@ async function getDiscountStatusSummary() {
             SUM(CASE WHEN vds.discount_applied_at IS NOT NULL THEN 1 ELSE 0 END) as discount_applied_count
         FROM expiry_discount_tiers edt
         LEFT JOIN variation_discount_status vds ON edt.id = vds.current_tier_id
+        LEFT JOIN variations v ON vds.variation_id = v.id
         WHERE edt.is_active = TRUE
+          AND (vds.variation_id IS NULL OR COALESCE(v.is_deleted, FALSE) = FALSE)
         GROUP BY edt.id, edt.tier_code, edt.tier_name, edt.discount_percent,
                  edt.color_code, edt.is_auto_apply, edt.requires_review, edt.priority
         ORDER BY edt.priority DESC

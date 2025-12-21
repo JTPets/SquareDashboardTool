@@ -162,6 +162,14 @@
       background: #374151;
       color: white;
     }
+    .filter-tab.tab-NO_EXPIRY {
+      background: #f3e8ff;
+      color: #6b21a8;
+    }
+    .filter-tab.tab-NO_EXPIRY.active {
+      background: #9333ea;
+      color: white;
+    }
 
     .items-container {
       padding: 15px;
@@ -184,6 +192,9 @@
     }
     .item-card.tier-AUTO50 {
       border-left: 4px solid #dc2626;
+    }
+    .item-card.tier-NO_EXPIRY {
+      border-left: 4px solid #9333ea;
     }
     .item-card.confirmed {
       display: none;
@@ -341,6 +352,10 @@
     .tier-indicator.tier-AUTO50 {
       background: #fee2e2;
       color: #991b1b;
+    }
+    .tier-indicator.tier-NO_EXPIRY {
+      background: #f3e8ff;
+      color: #6b21a8;
     }
 
     .item-meta {
@@ -671,6 +686,10 @@
       <span class="count" id="count-REVIEW">0</span>
       <span class="label">Review</span>
     </div>
+    <div class="filter-tab tab-NO_EXPIRY" onclick="filterByTier('NO_EXPIRY')">
+      <span class="count" id="count-NO_EXPIRY">0</span>
+      <span class="label">No Date</span>
+    </div>
   </div>
 
   <div class="items-container" id="items-container">
@@ -807,6 +826,21 @@
         ],
         getDisplayValue: (item) => '50% OFF',
         showUpdateButton: false
+      },
+      NO_EXPIRY: {
+        title: 'Set Expiration Status',
+        displayLabel: 'Current Status',
+        displayClass: 'review',
+        buttonText: 'Does Not Expire',
+        successMessage: 'Marked as does not expire!',
+        verification: [
+          'Check if product has an expiry date printed',
+          'If yes, click "Set Date" to enter it',
+          'If no expiry date exists, confirm below'
+        ],
+        getDisplayValue: (item) => 'No expiry date set',
+        showUpdateButton: true,
+        updateButtonText: 'Set Date'
       }
     };
 
@@ -847,24 +881,41 @@
       container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading items to audit...</p></div>';
 
       try {
-        // Load items from all three tiers
-        const [auto50, auto25, review] = await Promise.all([
+        // Load items from all tiers plus items with no expiry
+        const [auto50, auto25, review, noExpiry] = await Promise.all([
           fetch('/api/expiry-discounts/variations?tier_code=AUTO50&limit=500').then(r => r.json()),
           fetch('/api/expiry-discounts/variations?tier_code=AUTO25&limit=500').then(r => r.json()),
-          fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500').then(r => r.json())
+          fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500').then(r => r.json()),
+          fetch('/api/expirations?expiry=no-expiry').then(r => r.json())
         ]);
+
+        // Map no-expiry items to have tier_code
+        const noExpiryItems = (noExpiry.items || []).map(item => ({
+          ...item,
+          tier_code: 'NO_EXPIRY',
+          variation_id: item.id,
+          item_name: item.item_name || item.name,
+          variation_name: item.variation_name,
+          current_stock: item.quantity || 0,
+          image_urls: item.image_url ? [item.image_url] : []
+        }));
 
         allItems = [
           ...(auto50.variations || []),
           ...(auto25.variations || []),
-          ...(review.variations || [])
+          ...(review.variations || []),
+          ...noExpiryItems
         ];
 
         // Filter out items with 0 stock
         allItems = allItems.filter(item => (item.current_stock || 0) > 0);
 
-        // Sort by days until expiry (most urgent first)
-        allItems.sort((a, b) => (a.days_until_expiry || 999) - (b.days_until_expiry || 999));
+        // Sort: NO_EXPIRY items last, then by days until expiry (most urgent first)
+        allItems.sort((a, b) => {
+          if (a.tier_code === 'NO_EXPIRY' && b.tier_code !== 'NO_EXPIRY') return 1;
+          if (a.tier_code !== 'NO_EXPIRY' && b.tier_code === 'NO_EXPIRY') return -1;
+          return (a.days_until_expiry || 999) - (b.days_until_expiry || 999);
+        });
 
         updateCounts();
         updateStats();
@@ -883,7 +934,7 @@
     }
 
     function updateCounts() {
-      const counts = { all: 0, REVIEW: 0, AUTO25: 0, AUTO50: 0 };
+      const counts = { all: 0, REVIEW: 0, AUTO25: 0, AUTO50: 0, NO_EXPIRY: 0 };
 
       allItems.forEach(item => {
         if (!isConfirmed(item.variation_id, item.tier_code)) {
@@ -898,6 +949,7 @@
       document.getElementById('count-REVIEW').textContent = counts.REVIEW;
       document.getElementById('count-AUTO25').textContent = counts.AUTO25;
       document.getElementById('count-AUTO50').textContent = counts.AUTO50;
+      document.getElementById('count-NO_EXPIRY').textContent = counts.NO_EXPIRY;
     }
 
     function updateStats() {
@@ -962,6 +1014,12 @@
               ${item.days_until_expiry}d to expiry - verify date
             </div>
           `;
+        } else if (item.tier_code === 'NO_EXPIRY') {
+          tierIndicator = `
+            <div class="tier-indicator tier-NO_EXPIRY">
+              No expiry date - needs review
+            </div>
+          `;
         } else {
           const discountClass = item.tier_code === 'AUTO50' ? 'discount-50' : 'discount-25';
           tierIndicator = `
@@ -978,10 +1036,11 @@
           `;
         }
 
+        const updateButtonText = config.updateButtonText || 'Update Date';
         const updateButton = config.showUpdateButton && !confirmed ? `
           <button class="action-btn update-btn"
                   onclick="showUpdateModal('${item.variation_id}')">
-            Update Date
+            ${updateButtonText}
           </button>
         ` : '';
 
@@ -1002,9 +1061,9 @@
                     <span class="detail-label">SKU</span>
                     <span class="detail-value">${escapeHtml(item.sku || 'N/A')}</span>
                   </div>
-                  <div class="detail-item ${item.tier_code === 'REVIEW' ? 'highlight' : (item.tier_code === 'AUTO50' ? 'discount-critical' : 'discount-highlight')}">
-                    <span class="detail-label">${item.tier_code === 'REVIEW' ? 'Expiry Date' : 'Discount'}</span>
-                    <span class="detail-value">${item.tier_code === 'REVIEW' ? expiryDate : discountPercent + '% OFF'}</span>
+                  <div class="detail-item ${item.tier_code === 'REVIEW' ? 'highlight' : (item.tier_code === 'NO_EXPIRY' ? '' : (item.tier_code === 'AUTO50' ? 'discount-critical' : 'discount-highlight'))}">
+                    <span class="detail-label">${item.tier_code === 'REVIEW' ? 'Expiry Date' : (item.tier_code === 'NO_EXPIRY' ? 'Status' : 'Discount')}</span>
+                    <span class="detail-value">${item.tier_code === 'REVIEW' ? expiryDate : (item.tier_code === 'NO_EXPIRY' ? 'Not Set' : discountPercent + '% OFF')}</span>
                   </div>
                 </div>
 
@@ -1114,6 +1173,24 @@
       btn.textContent = 'Confirming...';
 
       try {
+        // For NO_EXPIRY items, mark as "does not expire" first
+        if (currentItem.tier_code === 'NO_EXPIRY') {
+          const expiryResponse = await fetch('/api/expirations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify([{
+              variation_id: currentItem.variation_id,
+              expiration_date: null,
+              does_not_expire: true
+            }])
+          });
+
+          if (!expiryResponse.ok) {
+            const expiryData = await expiryResponse.json();
+            throw new Error(expiryData.details || expiryData.error || 'Failed to mark as does not expire');
+          }
+        }
+
         // Record the confirmation via the review API
         const response = await fetch('/api/expirations/review', {
           method: 'POST',
