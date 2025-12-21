@@ -244,6 +244,45 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_reviewed ON variation_expiration(reviewed_at) WHERE reviewed_at IS NOT NULL');
         logger.info('Created variation_expiration table with indexes');
         appliedCount++;
+    } else {
+        // Table exists - ensure review tracking columns exist
+        // These may be missing if table was created before review feature was added
+        const reviewColumnMigrations = [
+            { column: 'reviewed_at', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ' },
+            { column: 'reviewed_by', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_by TEXT' }
+        ];
+
+        for (const migration of reviewColumnMigrations) {
+            try {
+                const colCheck = await query(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'variation_expiration' AND column_name = $1
+                `, [migration.column]);
+
+                if (colCheck.rows.length === 0) {
+                    await query(migration.sql);
+                    logger.info(`Added ${migration.column} column to variation_expiration`);
+                    appliedCount++;
+                }
+            } catch (err) {
+                // If ALTER fails due to permissions, try to provide helpful guidance
+                if (err.message.includes('must be owner') || err.message.includes('permission denied')) {
+                    logger.error(`Permission denied adding ${migration.column} column. Run as database owner:`, {
+                        sql: migration.sql,
+                        error: err.message
+                    });
+                } else {
+                    logger.error(`Failed to add ${migration.column} column to variation_expiration`, { error: err.message });
+                }
+            }
+        }
+
+        // Ensure index exists for reviewed_at
+        try {
+            await query('CREATE INDEX IF NOT EXISTS idx_variation_expiration_reviewed ON variation_expiration(reviewed_at) WHERE reviewed_at IS NOT NULL');
+        } catch (err) {
+            // Index may already exist or permissions issue
+        }
     }
 
     // Check if vendor_catalog_items table exists
