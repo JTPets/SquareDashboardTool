@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Expiry Date Audit - Square Dashboard Addon</title>
+  <title>Expiry Audit - Square Dashboard Addon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
@@ -99,18 +99,68 @@
       color: white;
     }
 
-    .info-banner {
-      background: #dbeafe;
-      border-left: 4px solid #3b82f6;
+    .filter-tabs {
+      display: flex;
+      gap: 8px;
       padding: 15px;
-      margin: 15px;
-      border-radius: 8px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      overflow-x: auto;
+    }
+    .filter-tab {
+      padding: 12px 16px;
+      border-radius: 10px;
       font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 90px;
+    }
+    .filter-tab .count {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .filter-tab .label {
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .filter-tab.tab-REVIEW {
+      background: #dbeafe;
       color: #1e40af;
     }
-    .info-banner strong {
-      display: block;
-      margin-bottom: 5px;
+    .filter-tab.tab-REVIEW.active {
+      background: #3b82f6;
+      color: white;
+    }
+    .filter-tab.tab-AUTO25 {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .filter-tab.tab-AUTO25.active {
+      background: #f59e0b;
+      color: white;
+    }
+    .filter-tab.tab-AUTO50 {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .filter-tab.tab-AUTO50.active {
+      background: #dc2626;
+      color: white;
+    }
+    .filter-tab.tab-all {
+      background: #e5e7eb;
+      color: #374151;
+    }
+    .filter-tab.tab-all.active {
+      background: #374151;
+      color: white;
     }
 
     .items-container {
@@ -125,11 +175,27 @@
       overflow: hidden;
       position: relative;
       transition: transform 0.2s;
+    }
+    .item-card.tier-REVIEW {
       border-left: 4px solid #3b82f6;
+    }
+    .item-card.tier-AUTO25 {
+      border-left: 4px solid #f59e0b;
+    }
+    .item-card.tier-AUTO50 {
+      border-left: 4px solid #dc2626;
     }
     .item-card.confirmed {
       opacity: 0.5;
       transform: scale(0.95);
+    }
+    .item-card.confirmed.tier-REVIEW {
+      border-left-color: #10b981;
+    }
+    .item-card.confirmed.tier-AUTO25 {
+      border-left-color: #10b981;
+    }
+    .item-card.confirmed.tier-AUTO50 {
       border-left-color: #10b981;
     }
 
@@ -194,6 +260,14 @@
       background: #dbeafe;
       border: 2px solid #3b82f6;
     }
+    .detail-item.discount-highlight {
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+    }
+    .detail-item.discount-critical {
+      background: #fee2e2;
+      border: 2px solid #dc2626;
+    }
     .detail-label {
       font-size: 10px;
       text-transform: uppercase;
@@ -213,17 +287,70 @@
       font-size: 16px;
     }
 
-    .days-warning {
+    .price-display {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    .price-display.discount-25 {
+      background: #fef3c7;
+    }
+    .price-display.discount-50 {
+      background: #fee2e2;
+    }
+    .original-price {
+      text-decoration: line-through;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .discounted-price {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .discounted-price.discount-25 {
+      color: #f59e0b;
+    }
+    .discounted-price.discount-50 {
+      color: #dc2626;
+    }
+    .discount-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      color: white;
+    }
+    .discount-badge.discount-25 {
+      background: #f59e0b;
+    }
+    .discount-badge.discount-50 {
+      background: #dc2626;
+    }
+
+    .tier-indicator {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: #fef3c7;
-      color: #92400e;
       padding: 8px 12px;
       border-radius: 8px;
       font-size: 14px;
       font-weight: 600;
       margin-top: 10px;
+    }
+    .tier-indicator.tier-REVIEW {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .tier-indicator.tier-AUTO25 {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .tier-indicator.tier-AUTO50 {
+      background: #fee2e2;
+      color: #991b1b;
     }
 
     .item-meta {
@@ -240,10 +367,6 @@
       font-weight: 600;
       text-transform: uppercase;
     }
-    .badge-review {
-      background: #dbeafe;
-      color: #1e40af;
-    }
     .badge-category {
       background: #f3e8ff;
       color: #6b21a8;
@@ -251,10 +374,6 @@
     .badge-stock {
       background: #d1fae5;
       color: #065f46;
-    }
-    .badge-price {
-      background: #fee2e2;
-      color: #991b1b;
     }
     .badge-confirmed {
       background: #10b981;
@@ -394,24 +513,58 @@
       border-color: #3b82f6;
     }
 
-    .current-date-display {
-      background: #fee2e2;
-      border: 2px solid #dc2626;
+    .confirm-display {
       border-radius: 8px;
       padding: 15px;
       margin-bottom: 16px;
       text-align: center;
     }
-    .current-date-display .label {
+    .confirm-display.review {
+      background: #dbeafe;
+      border: 2px solid #3b82f6;
+    }
+    .confirm-display.discount {
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+    }
+    .confirm-display.discount-50 {
+      background: #fee2e2;
+      border: 2px solid #dc2626;
+    }
+    .confirm-display .label {
       font-size: 12px;
-      color: #991b1b;
       text-transform: uppercase;
       margin-bottom: 5px;
     }
-    .current-date-display .date {
+    .confirm-display .value {
       font-size: 24px;
       font-weight: 700;
-      color: #dc2626;
+    }
+    .confirm-display.review .label { color: #1e40af; }
+    .confirm-display.review .value { color: #3b82f6; }
+    .confirm-display.discount .label { color: #92400e; }
+    .confirm-display.discount .value { color: #f59e0b; }
+    .confirm-display.discount-50 .label { color: #991b1b; }
+    .confirm-display.discount-50 .value { color: #dc2626; }
+
+    .verification-box {
+      background: #f9fafb;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    .verification-box strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+    .verification-box ul {
+      font-size: 14px;
+      color: #6b7280;
+      margin-left: 20px;
+    }
+    .verification-box li {
+      margin-bottom: 4px;
     }
 
     .new-date-input {
@@ -478,16 +631,16 @@
 </head>
 <body>
   <div class="header">
-    <h1>Expiry Date Audit</h1>
-    <p>Review items 91-120 days from expiry - confirm dates before auto-discount</p>
+    <h1>Expiry Audit</h1>
+    <p>Verify dates and discount stickers on expiring items</p>
     <div class="stats-row">
       <div class="stat-card">
         <span class="stat-value" id="pending-count">0</span>
-        <span class="stat-label">Pending Review</span>
+        <span class="stat-label">Pending</span>
       </div>
       <div class="stat-card">
         <span class="stat-value" id="confirmed-today">0</span>
-        <span class="stat-label">Confirmed Today</span>
+        <span class="stat-label">Confirmed</span>
       </div>
       <div class="stat-card">
         <span class="stat-value" id="completion-rate">0%</span>
@@ -511,41 +664,51 @@
     </button>
   </div>
 
-  <div class="info-banner">
-    <strong>Review Before Auto-Discount</strong>
-    These items are 91-120 days from expiry. Confirm the expiration date is correct before the system auto-applies discounts. If the date is wrong, update it now.
+  <div class="filter-tabs">
+    <div class="filter-tab tab-all active" onclick="filterByTier('all')">
+      <span class="count" id="count-all">0</span>
+      <span class="label">All</span>
+    </div>
+    <div class="filter-tab tab-AUTO50" onclick="filterByTier('AUTO50')">
+      <span class="count" id="count-AUTO50">0</span>
+      <span class="label">50% Off</span>
+    </div>
+    <div class="filter-tab tab-AUTO25" onclick="filterByTier('AUTO25')">
+      <span class="count" id="count-AUTO25">0</span>
+      <span class="label">25% Off</span>
+    </div>
+    <div class="filter-tab tab-REVIEW" onclick="filterByTier('REVIEW')">
+      <span class="count" id="count-REVIEW">0</span>
+      <span class="label">Review</span>
+    </div>
   </div>
 
   <div class="items-container" id="items-container">
     <div class="loading">
       <div class="loading-spinner"></div>
-      <p>Loading review items...</p>
+      <p>Loading items to audit...</p>
     </div>
   </div>
 
-  <!-- Confirm Date Modal -->
+  <!-- Confirm Modal (used for all tiers) -->
   <div class="modal" id="confirm-modal">
     <div class="modal-content">
-      <h2 class="modal-title">Confirm Expiry Date</h2>
+      <h2 class="modal-title" id="modal-title">Confirm</h2>
 
       <div id="modal-item-info" style="margin-bottom: 16px;">
         <div style="font-weight: 600; font-size: 18px;" id="modal-item-name"></div>
         <div style="color: #6b7280;" id="modal-item-sku"></div>
       </div>
 
-      <div class="current-date-display">
-        <div class="label">Current Expiry Date in System</div>
-        <div class="date" id="modal-current-date">2025-03-15</div>
+      <div class="confirm-display" id="modal-confirm-display">
+        <div class="label" id="modal-display-label">Expiry Date</div>
+        <div class="value" id="modal-display-value">2025-03-15</div>
       </div>
 
-      <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 16px;">
-        <div style="font-size: 14px; color: #374151; margin-bottom: 8px;">
-          <strong>Please verify:</strong>
-        </div>
-        <ul style="font-size: 14px; color: #6b7280; margin-left: 20px;">
-          <li>Check the physical product's expiry date</li>
-          <li>Confirm it matches the date shown above</li>
-          <li>If different, click "Update Date" instead</li>
+      <div class="verification-box" id="modal-verification-box">
+        <strong>Please verify:</strong>
+        <ul id="modal-verification-list">
+          <li>Check the physical product</li>
         </ul>
       </div>
 
@@ -556,14 +719,14 @@
 
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
-        <button class="btn btn-success" style="flex: 1;" onclick="confirmDate()" id="confirm-date-btn">
-          Date is Correct
+        <button class="btn btn-success" style="flex: 1;" onclick="confirmItem()" id="confirm-btn">
+          Confirm
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Update Date Modal -->
+  <!-- Update Date Modal (for REVIEW tier) -->
   <div class="modal" id="update-modal">
     <div class="modal-content">
       <h2 class="modal-title">Update Expiry Date</h2>
@@ -573,9 +736,9 @@
         <div style="color: #6b7280;" id="update-modal-item-sku"></div>
       </div>
 
-      <div class="current-date-display">
+      <div class="confirm-display review">
         <div class="label">Old Date (in system)</div>
-        <div class="date" id="update-modal-old-date">2025-03-15</div>
+        <div class="value" id="update-modal-old-date">2025-03-15</div>
       </div>
 
       <div class="new-date-input">
@@ -605,10 +768,57 @@
 
   <script>
     let allItems = [];
-    let confirmedToday = new Set();
+    let currentFilter = 'all';
+    let confirmedToday = {};  // { variation_id: tier_code }
 
     // Modal state
     let currentItem = null;
+
+    // Tier-specific configurations
+    const tierConfig = {
+      REVIEW: {
+        title: 'Confirm Expiry Date',
+        displayLabel: 'Expiry Date in System',
+        displayClass: 'review',
+        buttonText: 'Date is Correct',
+        successMessage: 'Expiry date confirmed!',
+        verification: [
+          'Check the physical product\'s expiry date',
+          'Confirm it matches the date shown above',
+          'If different, click "Update Date" instead'
+        ],
+        getDisplayValue: (item) => item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set',
+        showUpdateButton: true
+      },
+      AUTO25: {
+        title: 'Confirm 25% Discount Applied',
+        displayLabel: 'Required Discount',
+        displayClass: 'discount',
+        buttonText: 'Sticker Applied',
+        successMessage: '25% discount sticker confirmed!',
+        verification: [
+          'Check product has 25% OFF sticker visible',
+          'Verify discounted price is shown correctly',
+          'Ensure product is in clearance section'
+        ],
+        getDisplayValue: (item) => '25% OFF',
+        showUpdateButton: false
+      },
+      AUTO50: {
+        title: 'Confirm 50% Discount Applied',
+        displayLabel: 'Required Discount',
+        displayClass: 'discount-50',
+        buttonText: 'Sticker Applied',
+        successMessage: '50% discount sticker confirmed!',
+        verification: [
+          'Check product has 50% OFF sticker visible',
+          'Verify discounted price is shown correctly',
+          'Ensure product is in clearance section'
+        ],
+        getDisplayValue: (item) => '50% OFF',
+        showUpdateButton: false
+      }
+    };
 
     // Load confirmed items from localStorage
     function loadConfirmedToday() {
@@ -618,9 +828,8 @@
         try {
           const data = JSON.parse(stored);
           if (data.date === today) {
-            confirmedToday = new Set(data.items);
+            confirmedToday = data.items || {};
           } else {
-            // New day, clear old data
             localStorage.removeItem('expiryAuditConfirmed');
           }
         } catch (e) {
@@ -633,28 +842,41 @@
       const today = new Date().toISOString().split('T')[0];
       localStorage.setItem('expiryAuditConfirmed', JSON.stringify({
         date: today,
-        items: Array.from(confirmedToday)
+        items: confirmedToday
       }));
+    }
+
+    function isConfirmed(variationId, tierCode) {
+      // Item is confirmed if it was confirmed in the same tier
+      return confirmedToday[variationId] === tierCode;
     }
 
     // Load items on page load
     async function loadItems() {
       const container = document.getElementById('items-container');
-      container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading review items...</p></div>';
+      container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading items to audit...</p></div>';
 
       try {
-        // Load items in REVIEW tier (91-120 days)
-        const response = await fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500');
-        const data = await response.json();
+        // Load items from all three tiers
+        const [auto50, auto25, review] = await Promise.all([
+          fetch('/api/expiry-discounts/variations?tier_code=AUTO50&limit=500').then(r => r.json()),
+          fetch('/api/expiry-discounts/variations?tier_code=AUTO25&limit=500').then(r => r.json()),
+          fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500').then(r => r.json())
+        ]);
 
-        allItems = data.variations || [];
+        allItems = [
+          ...(auto50.variations || []),
+          ...(auto25.variations || []),
+          ...(review.variations || [])
+        ];
 
-        // Filter out items with 0 stock and already reviewed items
+        // Filter out items with 0 stock
         allItems = allItems.filter(item => (item.current_stock || 0) > 0);
 
-        // Sort by days until expiry (most urgent first - closest to 90 days)
+        // Sort by days until expiry (most urgent first)
         allItems.sort((a, b) => (a.days_until_expiry || 999) - (b.days_until_expiry || 999));
 
+        updateCounts();
         updateStats();
         renderItems();
 
@@ -670,9 +892,28 @@
       }
     }
 
+    function updateCounts() {
+      const counts = { all: 0, REVIEW: 0, AUTO25: 0, AUTO50: 0 };
+
+      allItems.forEach(item => {
+        if (!isConfirmed(item.variation_id, item.tier_code)) {
+          counts.all++;
+          if (counts[item.tier_code] !== undefined) {
+            counts[item.tier_code]++;
+          }
+        }
+      });
+
+      document.getElementById('count-all').textContent = counts.all;
+      document.getElementById('count-REVIEW').textContent = counts.REVIEW;
+      document.getElementById('count-AUTO25').textContent = counts.AUTO25;
+      document.getElementById('count-AUTO50').textContent = counts.AUTO50;
+    }
+
     function updateStats() {
-      const pending = allItems.filter(item => !confirmedToday.has(item.variation_id)).length;
-      const confirmed = confirmedToday.size;
+      const filteredItems = getFilteredItems();
+      const pending = filteredItems.filter(item => !isConfirmed(item.variation_id, item.tier_code)).length;
+      const confirmed = Object.keys(confirmedToday).length;
       const total = allItems.length;
       const completion = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 
@@ -681,27 +922,81 @@
       document.getElementById('completion-rate').textContent = `${completion}%`;
     }
 
+    function getFilteredItems() {
+      if (currentFilter === 'all') {
+        return allItems;
+      }
+      return allItems.filter(item => item.tier_code === currentFilter);
+    }
+
+    function filterByTier(tier) {
+      currentFilter = tier;
+
+      // Update active tab
+      document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelector(`.filter-tab.tab-${tier}`).classList.add('active');
+
+      updateStats();
+      renderItems();
+    }
+
     function renderItems() {
       const container = document.getElementById('items-container');
+      const items = getFilteredItems();
 
-      if (allItems.length === 0) {
+      if (items.length === 0) {
         container.innerHTML = `
           <div class="empty-state">
             <div class="empty-state-icon">All Done</div>
-            <h3>No Items Need Review</h3>
-            <p>All items in the 91-120 day window have been reviewed, or there are no items in this range.</p>
+            <h3>No Items to Audit</h3>
+            <p>All items in this category have been audited or there are no items needing attention.</p>
           </div>
         `;
         return;
       }
 
-      container.innerHTML = allItems.map((item) => {
-        const isConfirmed = confirmedToday.has(item.variation_id);
+      container.innerHTML = items.map((item) => {
+        const confirmed = isConfirmed(item.variation_id, item.tier_code);
+        const config = tierConfig[item.tier_code];
         const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
-        const price = item.current_price_cents ? `$${(item.current_price_cents / 100).toFixed(2)}` : 'N/A';
+        const originalPrice = item.original_price_cents || item.current_price_cents || 0;
+        const discountedPrice = item.discounted_price_cents || originalPrice;
+        const discountPercent = item.discount_percent || 0;
+
+        let tierIndicator = '';
+        let priceDisplay = '';
+
+        if (item.tier_code === 'REVIEW') {
+          tierIndicator = `
+            <div class="tier-indicator tier-REVIEW">
+              ${item.days_until_expiry}d to expiry - verify date
+            </div>
+          `;
+        } else {
+          const discountClass = item.tier_code === 'AUTO50' ? 'discount-50' : 'discount-25';
+          tierIndicator = `
+            <div class="tier-indicator tier-${item.tier_code}">
+              ${item.days_until_expiry}d left - verify ${discountPercent}% sticker
+            </div>
+          `;
+          priceDisplay = `
+            <div class="price-display ${discountClass}">
+              <span class="original-price">$${(originalPrice / 100).toFixed(2)}</span>
+              <span class="discounted-price ${discountClass}">$${(discountedPrice / 100).toFixed(2)}</span>
+              <span class="discount-badge ${discountClass}">${discountPercent}% OFF</span>
+            </div>
+          `;
+        }
+
+        const updateButton = config.showUpdateButton && !confirmed ? `
+          <button class="action-btn update-btn"
+                  onclick="showUpdateModal('${item.variation_id}')">
+            Update Date
+          </button>
+        ` : '';
 
         return `
-          <div class="item-card ${isConfirmed ? 'confirmed' : ''}" id="item-${item.variation_id}">
+          <div class="item-card tier-${item.tier_code} ${confirmed ? 'confirmed' : ''}" id="item-${item.variation_id}">
             <div class="item-header">
               <div class="item-image-container">
                 <div class="no-image">Box</div>
@@ -715,35 +1010,28 @@
                     <span class="detail-label">SKU</span>
                     <span class="detail-value">${escapeHtml(item.sku || 'N/A')}</span>
                   </div>
-                  <div class="detail-item highlight">
-                    <span class="detail-label">Expiry Date</span>
-                    <span class="detail-value expiry-date">${expiryDate}</span>
+                  <div class="detail-item ${item.tier_code === 'REVIEW' ? 'highlight' : (item.tier_code === 'AUTO50' ? 'discount-critical' : 'discount-highlight')}">
+                    <span class="detail-label">${item.tier_code === 'REVIEW' ? 'Expiry Date' : 'Discount'}</span>
+                    <span class="detail-value">${item.tier_code === 'REVIEW' ? expiryDate : discountPercent + '% OFF'}</span>
                   </div>
                 </div>
 
-                <div class="days-warning">
-                  ${item.days_until_expiry} days until expiry - verify date now
-                </div>
+                ${priceDisplay}
+                ${tierIndicator}
 
                 <div class="item-meta">
-                  <span class="badge badge-review">REVIEW</span>
                   ${item.category_name ? `<span class="badge badge-category">${escapeHtml(item.category_name)}</span>` : ''}
                   <span class="badge badge-stock">${item.current_stock || 0} in stock</span>
-                  <span class="badge badge-price">${price}</span>
-                  ${isConfirmed ? '<span class="badge badge-confirmed">Confirmed</span>' : ''}
+                  ${confirmed ? '<span class="badge badge-confirmed">Confirmed</span>' : ''}
                 </div>
               </div>
             </div>
             <div class="item-actions">
-              <button class="action-btn update-btn ${isConfirmed ? 'disabled' : ''}"
-                      onclick="${isConfirmed ? '' : `showUpdateModal('${item.variation_id}')`}"
-                      ${isConfirmed ? 'disabled' : ''}>
-                Update Date
-              </button>
-              <button class="action-btn confirm-btn ${isConfirmed ? 'disabled' : ''}"
-                      onclick="${isConfirmed ? '' : `showConfirmModal('${item.variation_id}')`}"
-                      ${isConfirmed ? 'disabled' : ''}>
-                ${isConfirmed ? 'Confirmed' : 'Date Correct'}
+              ${updateButton}
+              <button class="action-btn confirm-btn ${confirmed ? 'disabled' : ''}"
+                      onclick="${confirmed ? '' : `showConfirmModal('${item.variation_id}')`}"
+                      ${confirmed ? 'disabled' : ''}>
+                ${confirmed ? 'Confirmed' : config.buttonText}
               </button>
             </div>
           </div>
@@ -759,14 +1047,29 @@
       }
 
       currentItem = item;
+      const config = tierConfig[item.tier_code];
 
-      // Populate modal
+      // Set modal title
+      document.getElementById('modal-title').textContent = config.title;
+
+      // Populate item info
       document.getElementById('modal-item-name').textContent = item.item_name;
       document.getElementById('modal-item-sku').textContent = `SKU: ${item.sku || 'N/A'}`;
 
-      const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
-      document.getElementById('modal-current-date').textContent = expiryDate;
+      // Set display
+      const displayEl = document.getElementById('modal-confirm-display');
+      displayEl.className = `confirm-display ${config.displayClass}`;
+      document.getElementById('modal-display-label').textContent = config.displayLabel;
+      document.getElementById('modal-display-value').textContent = config.getDisplayValue(item);
 
+      // Set verification list
+      const listEl = document.getElementById('modal-verification-list');
+      listEl.innerHTML = config.verification.map(v => `<li>${v}</li>`).join('');
+
+      // Set button text
+      document.getElementById('confirm-btn').textContent = config.buttonText;
+
+      // Reset notes
       document.getElementById('confirm-notes').value = '';
 
       // Show modal
@@ -806,26 +1109,27 @@
       currentItem = null;
     }
 
-    async function confirmDate() {
+    async function confirmItem() {
       if (!currentItem) {
         showToast('No item selected. Please try again.', 'error');
         return;
       }
 
       const notes = document.getElementById('confirm-notes').value.trim();
-      const btn = document.getElementById('confirm-date-btn');
+      const config = tierConfig[currentItem.tier_code];
+      const btn = document.getElementById('confirm-btn');
       btn.disabled = true;
       btn.textContent = 'Confirming...';
 
       try {
-        // Record the confirmation via the existing review API
+        // Record the confirmation via the review API
         const response = await fetch('/api/expirations/review', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             variation_ids: [currentItem.variation_id],
             reviewed_by: 'Audit User',
-            notes: notes || 'Date confirmed via audit'
+            notes: notes || `${currentItem.tier_code} audit: ${config.successMessage}`
           })
         });
 
@@ -833,8 +1137,8 @@
           throw new Error('Failed to record confirmation');
         }
 
-        // Mark as confirmed locally
-        confirmedToday.add(currentItem.variation_id);
+        // Mark as confirmed locally with tier
+        confirmedToday[currentItem.variation_id] = currentItem.tier_code;
         saveConfirmedToday();
 
         // Visual feedback
@@ -855,15 +1159,16 @@
         }
 
         closeConfirmModal();
+        updateCounts();
         updateStats();
-        showToast('Expiry date confirmed! Item will proceed to auto-discount.', 'success');
+        showToast(config.successMessage, 'success');
 
       } catch (error) {
-        console.error('Failed to confirm date:', error);
+        console.error('Failed to confirm:', error);
         showToast('Failed to record confirmation: ' + error.message, 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Date is Correct';
+        btn.textContent = config.buttonText;
       }
     }
 
@@ -913,13 +1218,14 @@
         });
 
         // Mark as confirmed locally
-        confirmedToday.add(currentItem.variation_id);
+        confirmedToday[currentItem.variation_id] = currentItem.tier_code;
         saveConfirmedToday();
 
         // Remove from list since date changed (tier may change)
         allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
 
         closeUpdateModal();
+        updateCounts();
         updateStats();
         renderItems();
         showToast(`Expiry date updated to ${newDate}. Item will be re-evaluated.`, 'success');
