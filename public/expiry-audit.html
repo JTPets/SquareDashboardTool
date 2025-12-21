@@ -896,14 +896,15 @@
         ]);
 
         // Map no-expiry items to have tier_code
+        // Note: API returns image_urls (plural) already resolved, so we just keep it from spread
         const noExpiryItems = (noExpiry.items || []).map(item => ({
           ...item,
           tier_code: 'NO_EXPIRY',
-          variation_id: item.id,
+          variation_id: item.id || item.identifier,
           item_name: item.item_name || item.name,
-          variation_name: item.variation_name,
-          current_stock: item.quantity || 0,
-          image_urls: item.image_url ? [item.image_url] : []
+          variation_name: item.variation_name || item.variation,
+          current_stock: item.quantity || 0
+          // image_urls comes from ...item spread (API returns it as array)
         }));
 
         allItems = [
