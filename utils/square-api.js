@@ -1862,6 +1862,13 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
         const currentObject = retrieveData.object;
         const objectType = currentObject.type;
 
+        // Merge new custom attributes with existing ones (preserve existing values)
+        const existingCustomAttrs = currentObject.custom_attribute_values || {};
+        const mergedCustomAttrs = {
+            ...existingCustomAttrs,
+            ...customAttributeValues
+        };
+
         // Build the update request
         const idempotencyKey = generateIdempotencyKey('custom-attr-update');
 
@@ -1869,7 +1876,7 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
             type: objectType,
             id: catalogObjectId,
             version: currentObject.version,
-            custom_attribute_values: customAttributeValues
+            custom_attribute_values: mergedCustomAttrs
         };
 
         // Include required data field based on type
