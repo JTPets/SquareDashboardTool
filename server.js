@@ -1994,9 +1994,11 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
                 v.sku,
                 v.name as variation_name,
                 v.price_money as current_price_cents,
+                v.images,
                 i.name as item_name,
                 i.id as item_id,
                 i.category_name,
+                i.images as item_images,
                 ve.expiration_date,
                 ve.does_not_expire,
                 edt.id as tier_id,
@@ -2032,8 +2034,8 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
         query += `
             GROUP BY vds.variation_id, vds.days_until_expiry, vds.original_price_cents,
                      vds.discounted_price_cents, vds.discount_applied_at, vds.needs_pull,
-                     vds.last_evaluated_at, v.sku, v.name, v.price_money, i.name, i.id,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, edt.id,
+                     vds.last_evaluated_at, v.sku, v.name, v.price_money, v.images, i.name, i.id,
+                     i.category_name, i.images, ve.expiration_date, ve.does_not_expire, edt.id,
                      edt.tier_code, edt.tier_name, edt.discount_percent, edt.color_code,
                      edt.is_auto_apply, edt.requires_review
             ORDER BY vds.days_until_expiry ASC NULLS LAST
@@ -2065,8 +2067,17 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
 
         const countResult = await db.query(countQuery);
 
+        // Resolve image URLs
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+        const variations = result.rows.map((row, index) => ({
+            ...row,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,
+            item_images: undefined
+        }));
+
         res.json({
-            variations: result.rows,
+            variations,
             total: parseInt(countResult.rows[0]?.total || 0),
             limit: parseInt(limit),
             offset: parseInt(offset)
