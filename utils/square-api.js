@@ -585,6 +585,43 @@ async function syncItem(obj, category_name) {
         seoTitle,
         seoDescription
     ]);
+
+    // Sync brand custom attribute from Square
+    if (obj.custom_attribute_values?.brand?.string_value) {
+        const brandName = obj.custom_attribute_values.brand.string_value.trim();
+        if (brandName) {
+            try {
+                // Ensure brand exists in brands table
+                await db.query(
+                    'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+                    [brandName]
+                );
+
+                // Get brand ID
+                const brandResult = await db.query(
+                    'SELECT id FROM brands WHERE name = $1',
+                    [brandName]
+                );
+
+                if (brandResult.rows.length > 0) {
+                    const brandId = brandResult.rows[0].id;
+
+                    // Link item to brand
+                    await db.query(`
+                        INSERT INTO item_brands (item_id, brand_id)
+                        VALUES ($1, $2)
+                        ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+                    `, [obj.id, brandId]);
+                }
+            } catch (error) {
+                logger.error('Error syncing brand from Square', {
+                    item_id: obj.id,
+                    brand: brandName,
+                    error: error.message
+                });
+            }
+        }
+    }
 }
 
 /**
