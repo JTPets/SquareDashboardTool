@@ -1840,7 +1840,7 @@ app.post('/api/expirations/review', async (req, res) => {
             return res.status(400).json({ error: 'Expected array of variation_ids' });
         }
 
-        // Check if reviewed_at column exists
+        // Check if reviewed_at column exists, auto-create if not
         let hasReviewedColumn = false;
         try {
             const colCheck = await db.query(`
@@ -1853,10 +1853,19 @@ app.post('/api/expirations/review', async (req, res) => {
         }
 
         if (!hasReviewedColumn) {
-            return res.status(503).json({
-                error: 'Review feature not available',
-                details: 'Database migration required. Run: ALTER TABLE variation_expiration ADD COLUMN reviewed_at TIMESTAMPTZ;'
-            });
+            // Auto-create the columns instead of failing
+            try {
+                await db.query('ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ');
+                await db.query('ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_by TEXT');
+                logger.info('Auto-created reviewed_at and reviewed_by columns in variation_expiration');
+                hasReviewedColumn = true;
+            } catch (migrationError) {
+                logger.error('Failed to auto-create review columns', { error: migrationError.message });
+                return res.status(503).json({
+                    error: 'Review feature not available',
+                    details: 'Database migration failed: ' + migrationError.message
+                });
+            }
         }
 
         let reviewedCount = 0;
