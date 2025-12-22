@@ -1660,6 +1660,7 @@ app.get('/api/expirations', async (req, res) => {
                 v.id as identifier,
                 i.name as name,
                 v.name as variation,
+                v.sku,
                 v.upc as gtin,
                 v.price_money,
                 v.currency,
@@ -1686,7 +1687,7 @@ app.get('/api/expirations', async (req, res) => {
 
         // Group by to aggregate inventory across locations
         query += `
-            GROUP BY v.id, i.name, v.name, v.upc, v.price_money, v.currency,
+            GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
                      i.category_name, ve.expiration_date, ve.does_not_expire, ${hasReviewedColumn ? 've.reviewed_at,' : ''} v.images, i.images
         `;
 
