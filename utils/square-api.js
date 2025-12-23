@@ -823,12 +823,13 @@ async function syncVariation(obj) {
                 }
 
                 // Update local variation_expiration table
+                // Use COALESCE to preserve local values when Square has null (don't overwrite with null)
                 await db.query(`
                     INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, reviewed_by, updated_at)
                     VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id) DO UPDATE SET
-                        expiration_date = EXCLUDED.expiration_date,
-                        does_not_expire = EXCLUDED.does_not_expire,
+                        expiration_date = COALESCE(EXCLUDED.expiration_date, variation_expiration.expiration_date),
+                        does_not_expire = COALESCE(EXCLUDED.does_not_expire, variation_expiration.does_not_expire),
                         reviewed_at = COALESCE(EXCLUDED.reviewed_at, variation_expiration.reviewed_at),
                         reviewed_by = COALESCE(EXCLUDED.reviewed_by, variation_expiration.reviewed_by),
                         updated_at = CURRENT_TIMESTAMP
