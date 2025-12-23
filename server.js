@@ -1291,14 +1291,25 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
 
         // Auto-sync case_pack_quantity to Square if it was updated
         let squareSyncResult = null;
-        if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0) {
+        if (casePackUpdate) {
             try {
-                squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
-                    case_pack_quantity: {
-                        number_value: newCasePackValue.toString()
-                    }
-                });
-                logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
+                if (newCasePackValue !== null && newCasePackValue > 0) {
+                    // Set the case_pack_quantity value
+                    squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
+                        case_pack_quantity: {
+                            number_value: newCasePackValue.toString()
+                        }
+                    });
+                    logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
+                } else {
+                    // Clear the case_pack_quantity in Square when set to null/0
+                    squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
+                        case_pack_quantity: {
+                            number_value: ''
+                        }
+                    });
+                    logger.info('Case pack cleared in Square', { variation_id: id });
+                }
             } catch (syncError) {
                 logger.error('Failed to sync case pack to Square', { variation_id: id, error: syncError.message });
                 // Don't fail the request - local update succeeded
@@ -1580,6 +1591,7 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
 
         let updatedCount = 0;
         const errors = [];
+        const squarePushResults = { success: 0, failed: 0, errors: [] };
 
         for (const update of updates) {
             if (!update.sku) {
@@ -1598,6 +1610,10 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                 const values = [];
                 let paramCount = 1;
 
+                // Track if case_pack_quantity is being updated
+                const casePackUpdate = update.case_pack_quantity !== undefined;
+                const newCasePackValue = update.case_pack_quantity;
+
                 for (const [key, value] of Object.entries(update)) {
                     if (key !== 'sku' && allowedFields.includes(key)) {
                         sets.push(`${key} = $${paramCount}`);
@@ -1610,12 +1626,45 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                     sets.push('updated_at = CURRENT_TIMESTAMP');
                     values.push(update.sku);
 
+                    // Get variation ID before updating (needed for Square sync)
+                    const variationResult = await db.query(
+                        'SELECT id FROM variations WHERE sku = $1',
+                        [update.sku]
+                    );
+
                     await db.query(`
                         UPDATE variations
                         SET ${sets.join(', ')}
                         WHERE sku = $${paramCount}
                     `, values);
                     updatedCount++;
+
+                    // Auto-sync case_pack_quantity to Square if it was updated
+                    if (casePackUpdate && variationResult.rows.length > 0) {
+                        const variationId = variationResult.rows[0].id;
+                        try {
+                            if (newCasePackValue !== null && newCasePackValue > 0) {
+                                await squareApi.updateCustomAttributeValues(variationId, {
+                                    case_pack_quantity: {
+                                        number_value: newCasePackValue.toString()
+                                    }
+                                });
+                            } else {
+                                // Clear the custom attribute in Square when set to null/0
+                                await squareApi.updateCustomAttributeValues(variationId, {
+                                    case_pack_quantity: {
+                                        number_value: ''
+                                    }
+                                });
+                            }
+                            squarePushResults.success++;
+                            logger.info('Case pack synced to Square (bulk)', { variation_id: variationId, sku: update.sku, case_pack: newCasePackValue });
+                        } catch (syncError) {
+                            squarePushResults.failed++;
+                            squarePushResults.errors.push({ sku: update.sku, error: syncError.message });
+                            logger.error('Failed to sync case pack to Square (bulk)', { sku: update.sku, error: syncError.message });
+                        }
+                    }
                 }
             } catch (error) {
                 errors.push({ sku: update.sku, error: error.message });
@@ -1625,7 +1674,8 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
         res.json({
             status: 'success',
             updated_count: updatedCount,
-            errors: errors
+            errors: errors,
+            squarePush: squarePushResults
         });
     } catch (error) {
         logger.error('Bulk update error', { error: error.message, stack: error.stack });
@@ -1879,16 +1929,21 @@ app.post('/api/expirations/review', async (req, res) => {
 
             reviewedCount++;
 
-            // Push to Square for cross-platform consistency
+            // Push to Square for cross-platform consistency (both timestamp and user)
             try {
-                await squareApi.updateCustomAttributeValues(variation_id, {
+                const customAttributeValues = {
                     expiry_reviewed_at: { string_value: reviewedAt }
-                });
+                };
+                // Also push reviewed_by if provided
+                if (reviewed_by) {
+                    customAttributeValues.expiry_reviewed_by = { string_value: reviewed_by };
+                }
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
                 squarePushResults.success++;
             } catch (squareError) {
                 squarePushResults.failed++;
                 squarePushResults.errors.push({ variation_id, error: squareError.message });
-                logger.warn('Failed to push review timestamp to Square', {
+                logger.warn('Failed to push review data to Square', {
                     variation_id,
                     error: squareError.message
                 });
