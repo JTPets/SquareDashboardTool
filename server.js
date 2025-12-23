@@ -1813,32 +1813,33 @@ app.post('/api/expirations', async (req, res) => {
 
             updatedCount++;
 
-            // Push to Square immediately (Square is source of truth)
-            try {
-                const customAttributeValues = {};
+            // Push to Square only if we have values (don't overwrite Square data with null)
+            const customAttributeValues = {};
 
-                // Set expiration_date (as string YYYY-MM-DD)
-                if (expiration_date) {
-                    customAttributeValues.expiration_date = { string_value: expiration_date };
-                } else {
-                    // Clear expiration date if not set
-                    customAttributeValues.expiration_date = { string_value: '' };
+            // Only push expiration_date if we have a value
+            if (expiration_date) {
+                customAttributeValues.expiration_date = { string_value: expiration_date };
+            }
+
+            // Only push does_not_expire if explicitly true
+            if (does_not_expire === true) {
+                customAttributeValues.does_not_expire = { boolean_value: true };
+            }
+
+            // Only push to Square if we have values to push
+            if (Object.keys(customAttributeValues).length > 0) {
+                try {
+                    await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
+                    squarePushResults.success++;
+                    logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
+                } catch (squareError) {
+                    squarePushResults.failed++;
+                    squarePushResults.errors.push({ variation_id, error: squareError.message });
+                    logger.error('Failed to push expiry to Square', {
+                        variation_id,
+                        error: squareError.message
+                    });
                 }
-
-                // Set does_not_expire boolean
-                customAttributeValues.does_not_expire = { boolean_value: does_not_expire || false };
-
-                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
-                squarePushResults.success++;
-                logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
-            } catch (squareError) {
-                squarePushResults.failed++;
-                squarePushResults.errors.push({ variation_id, error: squareError.message });
-                logger.error('Failed to push expiry to Square', {
-                    variation_id,
-                    error: squareError.message
-                });
-                // Continue processing other changes even if Square push fails
             }
         }
 
