@@ -1796,6 +1796,13 @@ app.post('/api/expirations', async (req, res) => {
                 continue;
             }
 
+            // Determine effective expiration date
+            // If no date and not "does not expire", use 2020-01-01 to trigger review
+            let effectiveExpirationDate = expiration_date || null;
+            if (!expiration_date && does_not_expire !== true) {
+                effectiveExpirationDate = '2020-01-01';
+            }
+
             // Save to local database
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
@@ -1807,39 +1814,37 @@ app.post('/api/expirations', async (req, res) => {
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 variation_id,
-                expiration_date || null,
-                does_not_expire || false
+                effectiveExpirationDate,
+                does_not_expire === true
             ]);
 
             updatedCount++;
 
-            // Push to Square only if we have values (don't overwrite Square data with null)
-            const customAttributeValues = {};
+            // Push to Square
+            try {
+                const customAttributeValues = {};
 
-            // Only push expiration_date if we have a value
-            if (expiration_date) {
-                customAttributeValues.expiration_date = { string_value: expiration_date };
-            }
-
-            // Only push does_not_expire if explicitly true
-            if (does_not_expire === true) {
-                customAttributeValues.does_not_expire = { boolean_value: true };
-            }
-
-            // Only push to Square if we have values to push
-            if (Object.keys(customAttributeValues).length > 0) {
-                try {
-                    await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
-                    squarePushResults.success++;
-                    logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
-                } catch (squareError) {
-                    squarePushResults.failed++;
-                    squarePushResults.errors.push({ variation_id, error: squareError.message });
-                    logger.error('Failed to push expiry to Square', {
-                        variation_id,
-                        error: squareError.message
-                    });
+                // Handle expiration_date
+                if (expiration_date) {
+                    customAttributeValues.expiration_date = { string_value: expiration_date };
+                } else if (does_not_expire !== true) {
+                    // No date and doesn't have "does not expire" flag - set to 2020-01-01 to trigger review
+                    customAttributeValues.expiration_date = { string_value: '2020-01-01' };
                 }
+
+                // Always push does_not_expire toggle (it's a real setting)
+                customAttributeValues.does_not_expire = { boolean_value: does_not_expire === true };
+
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
+                squarePushResults.success++;
+                logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
+            } catch (squareError) {
+                squarePushResults.failed++;
+                squarePushResults.errors.push({ variation_id, error: squareError.message });
+                logger.error('Failed to push expiry to Square', {
+                    variation_id,
+                    error: squareError.message
+                });
             }
         }
 
