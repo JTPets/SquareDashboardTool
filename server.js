@@ -1289,27 +1289,16 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
             return res.status(404).json({ error: 'Variation not found' });
         }
 
-        // Auto-sync case_pack_quantity to Square if it was updated
+        // Auto-sync case_pack_quantity to Square if updated with a valid value (must be > 0)
         let squareSyncResult = null;
-        if (casePackUpdate) {
+        if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0) {
             try {
-                if (newCasePackValue !== null && newCasePackValue > 0) {
-                    // Set the case_pack_quantity value
-                    squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
-                        case_pack_quantity: {
-                            number_value: newCasePackValue.toString()
-                        }
-                    });
-                    logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
-                } else {
-                    // Clear the case_pack_quantity in Square when set to null/0
-                    squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
-                        case_pack_quantity: {
-                            number_value: ''
-                        }
-                    });
-                    logger.info('Case pack cleared in Square', { variation_id: id });
-                }
+                squareSyncResult = await squareApi.updateCustomAttributeValues(id, {
+                    case_pack_quantity: {
+                        number_value: newCasePackValue.toString()
+                    }
+                });
+                logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
             } catch (syncError) {
                 logger.error('Failed to sync case pack to Square', { variation_id: id, error: syncError.message });
                 // Don't fail the request - local update succeeded
@@ -1639,24 +1628,15 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                     `, values);
                     updatedCount++;
 
-                    // Auto-sync case_pack_quantity to Square if it was updated
-                    if (casePackUpdate && variationResult.rows.length > 0) {
+                    // Auto-sync case_pack_quantity to Square if updated with valid value (must be > 0)
+                    if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0 && variationResult.rows.length > 0) {
                         const variationId = variationResult.rows[0].id;
                         try {
-                            if (newCasePackValue !== null && newCasePackValue > 0) {
-                                await squareApi.updateCustomAttributeValues(variationId, {
-                                    case_pack_quantity: {
-                                        number_value: newCasePackValue.toString()
-                                    }
-                                });
-                            } else {
-                                // Clear the custom attribute in Square when set to null/0
-                                await squareApi.updateCustomAttributeValues(variationId, {
-                                    case_pack_quantity: {
-                                        number_value: ''
-                                    }
-                                });
-                            }
+                            await squareApi.updateCustomAttributeValues(variationId, {
+                                case_pack_quantity: {
+                                    number_value: newCasePackValue.toString()
+                                }
+                            });
                             squarePushResults.success++;
                             logger.info('Case pack synced to Square (bulk)', { variation_id: variationId, sku: update.sku, case_pack: newCasePackValue });
                         } catch (syncError) {
