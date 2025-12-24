@@ -1289,7 +1289,7 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
             return res.status(404).json({ error: 'Variation not found' });
         }
 
-        // Auto-sync case_pack_quantity to Square if it was updated
+        // Auto-sync case_pack_quantity to Square if updated with a valid value (must be > 0)
         let squareSyncResult = null;
         if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0) {
             try {
@@ -1580,6 +1580,7 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
 
         let updatedCount = 0;
         const errors = [];
+        const squarePushResults = { success: 0, failed: 0, errors: [] };
 
         for (const update of updates) {
             if (!update.sku) {
@@ -1598,6 +1599,10 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                 const values = [];
                 let paramCount = 1;
 
+                // Track if case_pack_quantity is being updated
+                const casePackUpdate = update.case_pack_quantity !== undefined;
+                const newCasePackValue = update.case_pack_quantity;
+
                 for (const [key, value] of Object.entries(update)) {
                     if (key !== 'sku' && allowedFields.includes(key)) {
                         sets.push(`${key} = $${paramCount}`);
@@ -1610,12 +1615,36 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                     sets.push('updated_at = CURRENT_TIMESTAMP');
                     values.push(update.sku);
 
+                    // Get variation ID before updating (needed for Square sync)
+                    const variationResult = await db.query(
+                        'SELECT id FROM variations WHERE sku = $1',
+                        [update.sku]
+                    );
+
                     await db.query(`
                         UPDATE variations
                         SET ${sets.join(', ')}
                         WHERE sku = $${paramCount}
                     `, values);
                     updatedCount++;
+
+                    // Auto-sync case_pack_quantity to Square if updated with valid value (must be > 0)
+                    if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0 && variationResult.rows.length > 0) {
+                        const variationId = variationResult.rows[0].id;
+                        try {
+                            await squareApi.updateCustomAttributeValues(variationId, {
+                                case_pack_quantity: {
+                                    number_value: newCasePackValue.toString()
+                                }
+                            });
+                            squarePushResults.success++;
+                            logger.info('Case pack synced to Square (bulk)', { variation_id: variationId, sku: update.sku, case_pack: newCasePackValue });
+                        } catch (syncError) {
+                            squarePushResults.failed++;
+                            squarePushResults.errors.push({ sku: update.sku, error: syncError.message });
+                            logger.error('Failed to sync case pack to Square (bulk)', { sku: update.sku, error: syncError.message });
+                        }
+                    }
                 }
             } catch (error) {
                 errors.push({ sku: update.sku, error: error.message });
@@ -1625,7 +1654,8 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
         res.json({
             status: 'success',
             updated_count: updatedCount,
-            errors: errors
+            errors: errors,
+            squarePush: squarePushResults
         });
     } catch (error) {
         logger.error('Bulk update error', { error: error.message, stack: error.stack });
@@ -1766,6 +1796,13 @@ app.post('/api/expirations', async (req, res) => {
                 continue;
             }
 
+            // Determine effective expiration date
+            // If no date and not "does not expire", use 2020-01-01 to trigger review
+            let effectiveExpirationDate = expiration_date || null;
+            if (!expiration_date && does_not_expire !== true) {
+                effectiveExpirationDate = '2020-01-01';
+            }
+
             // Save to local database
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
@@ -1777,26 +1814,26 @@ app.post('/api/expirations', async (req, res) => {
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 variation_id,
-                expiration_date || null,
-                does_not_expire || false
+                effectiveExpirationDate,
+                does_not_expire === true
             ]);
 
             updatedCount++;
 
-            // Push to Square immediately (Square is source of truth)
+            // Push to Square
             try {
                 const customAttributeValues = {};
 
-                // Set expiration_date (as string YYYY-MM-DD)
+                // Handle expiration_date
                 if (expiration_date) {
                     customAttributeValues.expiration_date = { string_value: expiration_date };
-                } else {
-                    // Clear expiration date if not set
-                    customAttributeValues.expiration_date = { string_value: '' };
+                } else if (does_not_expire !== true) {
+                    // No date and doesn't have "does not expire" flag - set to 2020-01-01 to trigger review
+                    customAttributeValues.expiration_date = { string_value: '2020-01-01' };
                 }
 
-                // Set does_not_expire boolean
-                customAttributeValues.does_not_expire = { boolean_value: does_not_expire || false };
+                // Always push does_not_expire toggle (it's a real setting)
+                customAttributeValues.does_not_expire = { boolean_value: does_not_expire === true };
 
                 await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
                 squarePushResults.success++;
@@ -1808,7 +1845,6 @@ app.post('/api/expirations', async (req, res) => {
                     variation_id,
                     error: squareError.message
                 });
-                // Continue processing other changes even if Square push fails
             }
         }
 
@@ -1879,16 +1915,21 @@ app.post('/api/expirations/review', async (req, res) => {
 
             reviewedCount++;
 
-            // Push to Square for cross-platform consistency
+            // Push to Square for cross-platform consistency (both timestamp and user)
             try {
-                await squareApi.updateCustomAttributeValues(variation_id, {
+                const customAttributeValues = {
                     expiry_reviewed_at: { string_value: reviewedAt }
-                });
+                };
+                // Also push reviewed_by if provided
+                if (reviewed_by) {
+                    customAttributeValues.expiry_reviewed_by = { string_value: reviewed_by };
+                }
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
                 squarePushResults.success++;
             } catch (squareError) {
                 squarePushResults.failed++;
                 squarePushResults.errors.push({ variation_id, error: squareError.message });
-                logger.warn('Failed to push review timestamp to Square', {
+                logger.warn('Failed to push review data to Square', {
                     variation_id,
                     error: squareError.message
                 });

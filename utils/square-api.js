@@ -793,12 +793,14 @@ async function syncVariation(obj) {
         const expirationDateAttr = customAttrs.expiration_date;
         const doesNotExpireAttr = customAttrs.does_not_expire;
         const expiryReviewedAtAttr = customAttrs.expiry_reviewed_at;
+        const expiryReviewedByAttr = customAttrs.expiry_reviewed_by;
 
-        if (expirationDateAttr || doesNotExpireAttr || expiryReviewedAtAttr) {
+        if (expirationDateAttr || doesNotExpireAttr || expiryReviewedAtAttr || expiryReviewedByAttr) {
             try {
                 let expirationDate = null;
                 let doesNotExpire = false;
                 let reviewedAt = null;
+                let reviewedBy = null;
 
                 // Extract expiration_date (stored as string YYYY-MM-DD)
                 if (expirationDateAttr?.string_value) {
@@ -815,16 +817,23 @@ async function syncVariation(obj) {
                     reviewedAt = expiryReviewedAtAttr.string_value;
                 }
 
+                // Extract expiry_reviewed_by (user who reviewed)
+                if (expiryReviewedByAttr?.string_value) {
+                    reviewedBy = expiryReviewedByAttr.string_value;
+                }
+
                 // Update local variation_expiration table
+                // Use COALESCE to preserve local values when Square has null (don't overwrite with null)
                 await db.query(`
-                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, updated_at)
-                    VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, reviewed_by, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id) DO UPDATE SET
-                        expiration_date = EXCLUDED.expiration_date,
-                        does_not_expire = EXCLUDED.does_not_expire,
+                        expiration_date = COALESCE(EXCLUDED.expiration_date, variation_expiration.expiration_date),
+                        does_not_expire = COALESCE(EXCLUDED.does_not_expire, variation_expiration.does_not_expire),
                         reviewed_at = COALESCE(EXCLUDED.reviewed_at, variation_expiration.reviewed_at),
+                        reviewed_by = COALESCE(EXCLUDED.reviewed_by, variation_expiration.reviewed_by),
                         updated_at = CURRENT_TIMESTAMP
-                `, [obj.id, expirationDate, doesNotExpire, reviewedAt]);
+                `, [obj.id, expirationDate, doesNotExpire, reviewedAt, reviewedBy]);
 
             } catch (error) {
                 logger.error('Error syncing expiration data from Square', {
@@ -2105,6 +2114,13 @@ async function initializeCustomAttributes() {
             name: 'Expiry Reviewed At',
             description: 'Timestamp when expiration date was last verified/audited',
             type: 'STRING',  // Store as ISO timestamp string
+            allowed_object_types: ['ITEM_VARIATION']
+        },
+        {
+            key: 'expiry_reviewed_by',
+            name: 'Expiry Reviewed By',
+            description: 'User who last verified/audited the expiration date',
+            type: 'STRING',
             allowed_object_types: ['ITEM_VARIATION']
         }
     ];
