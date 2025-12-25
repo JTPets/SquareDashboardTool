@@ -2847,6 +2847,48 @@ app.get('/api/square/custom-attributes', async (req, res) => {
 });
 
 /**
+ * GET /api/debug/expiry-status
+ * Debug endpoint to check expiration sync status
+ */
+app.get('/api/debug/expiry-status', async (req, res) => {
+    try {
+        const { sku, variation_id } = req.query;
+
+        let query = `
+            SELECT ve.variation_id, ve.expiration_date, ve.does_not_expire,
+                   ve.reviewed_at, ve.reviewed_by, ve.updated_at,
+                   v.sku, v.name as variation_name, v.custom_attributes,
+                   i.name as item_name
+            FROM variation_expiration ve
+            JOIN variations v ON ve.variation_id = v.id
+            JOIN items i ON v.item_id = i.id
+        `;
+        const params = [];
+
+        if (sku) {
+            params.push(sku);
+            query += ` WHERE v.sku = $1`;
+        } else if (variation_id) {
+            params.push(variation_id);
+            query += ` WHERE ve.variation_id = $1`;
+        } else {
+            // Show recently reviewed items
+            query += ` WHERE ve.reviewed_at IS NOT NULL ORDER BY ve.reviewed_at DESC LIMIT 10`;
+        }
+
+        const result = await db.query(query, params);
+        res.json({
+            count: result.rows.length,
+            data: result.rows,
+            query_params: { sku, variation_id }
+        });
+    } catch (error) {
+        logger.error('Debug expiry status error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/square/custom-attributes/init
  * Initialize custom attribute definitions in Square
  * Creates: case_pack_quantity (NUMBER), brand (STRING)
