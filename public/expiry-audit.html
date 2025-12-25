@@ -859,8 +859,35 @@
       }
     };
 
+    // Tier configuration (days until expiry ranges)
+    // This matches the expiry_discount_tiers table
+    const tierRanges = {
+      'EXPIRED': { min: null, max: 0 },
+      'AUTO50': { min: 1, max: 30 },
+      'AUTO25': { min: 31, max: 89 },
+      'REVIEW': { min: 90, max: 120 },
+      'OK': { min: 121, max: null }
+    };
+
+    // Calculate what tier an item was in at a given date
+    function getTierAtDate(expirationDate, reviewDate) {
+      if (!expirationDate || !reviewDate) return null;
+      const expiry = new Date(expirationDate);
+      const review = new Date(reviewDate);
+      const daysUntilExpiry = Math.floor((expiry - review) / (1000 * 60 * 60 * 24));
+
+      for (const [tierCode, range] of Object.entries(tierRanges)) {
+        const minOk = range.min === null || daysUntilExpiry >= range.min;
+        const maxOk = range.max === null || daysUntilExpiry <= range.max;
+        if (minOk && maxOk) {
+          return tierCode;
+        }
+      }
+      return null;
+    }
+
     // Check if item is confirmed - uses server's reviewed_at field
-    // Also checks sessionConfirmed for items confirmed during this session (to avoid UI flicker)
+    // Item is confirmed if it was reviewed while in the SAME tier (not just today)
     function isConfirmed(variationId, tierCode) {
       // First check if confirmed this session (for immediate feedback)
       if (sessionConfirmed[variationId] === tierCode) {
@@ -869,8 +896,13 @@
 
       // Check server-side reviewed_at from the item data
       const item = allItems.find(i => i.variation_id === variationId);
-      if (item && item.reviewed_at && isFromToday(item.reviewed_at)) {
-        return true;
+      if (item && item.reviewed_at && item.expiration_date) {
+        // Calculate what tier the item was in when it was reviewed
+        const tierAtReview = getTierAtDate(item.expiration_date, item.reviewed_at);
+        // If reviewed in the same tier, it's confirmed
+        if (tierAtReview === tierCode) {
+          return true;
+        }
       }
 
       return false;
