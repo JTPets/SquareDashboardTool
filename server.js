@@ -2754,8 +2754,14 @@ app.get('/api/catalog-audit', async (req, res) => {
             filteredData = result.rows.filter(r => r[issue_type] === true);
         }
 
-        // Calculate issue count per item and resolve image URLs
-        const itemsWithIssueCounts = await Promise.all(filteredData.map(async (row) => {
+        // Batch resolve ALL image URLs in a SINGLE query (much faster than per-item)
+        const imageUrlMap = await batchResolveImageUrls(filteredData.map(row => ({
+            images: row.variation_images,
+            item_images: row.item_images
+        })));
+
+        // Calculate issue count per item (synchronous - no DB calls)
+        const itemsWithIssueCounts = filteredData.map((row, index) => {
             let issueCount = 0;
             const issues = [];
 
@@ -2780,23 +2786,16 @@ app.get('/api/catalog-audit', async (req, res) => {
             // Tax configuration
             if (row.no_tax_ids) { issues.push('No Tax IDs'); }
 
-            // Resolve image URLs BEFORE cleaning up the fields
-            // Note: JSONB columns are already parsed by pg driver, no JSON.parse needed
-            const imageUrls = await resolveImageUrls(
-                row.variation_images,
-                row.item_images
-            );
-
             return {
                 ...row,
                 issue_count: issueCount,
                 issues: issues,
-                image_urls: imageUrls,
-                // Clean up internal fields AFTER using them
+                image_urls: imageUrlMap.get(index) || [],
+                // Clean up internal fields
                 variation_images: undefined,
                 item_images: undefined
             };
-        }));
+        });
 
         res.json({
             stats: stats,
