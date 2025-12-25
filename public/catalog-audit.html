@@ -377,6 +377,12 @@
         <optgroup label="Location">
           <option value="location_mismatch">Location Mismatch</option>
         </optgroup>
+        <optgroup label="Sales Channels">
+          <option value="all_channels_off">All Channels Off</option>
+          <option value="any_channel_off">Any Channel Off</option>
+          <option value="pos_disabled">POS Disabled</option>
+          <option value="online_disabled">Online Disabled</option>
+        </optgroup>
       </select>
       <select id="categoryFilter" onchange="filterData()">
         <option value="">All Categories</option>
@@ -496,7 +502,12 @@
       { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
       // Tax
       { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' },
-      { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' }
+      { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' },
+      // Sales Channels
+      { key: 'all_channels_off', label: 'All Channels Off', severity: 'critical' },
+      { key: 'any_channel_off', label: 'Channel Disabled', severity: 'warning' },
+      { key: 'pos_disabled', label: 'POS Disabled', severity: 'warning' },
+      { key: 'online_disabled', label: 'Online Disabled', severity: 'info' }
     ];
 
     function showLoading() {
