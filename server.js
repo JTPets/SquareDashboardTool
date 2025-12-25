@@ -2693,7 +2693,20 @@ app.get('/api/catalog-audit', async (req, res) => {
                 -- Tax configuration
                 (tax_ids IS NULL OR tax_ids::text = '[]' OR tax_ids::text = 'null') as no_tax_ids,
                 -- Location mismatch: variation enabled at all locations but parent item is not
-                (variation_present_at_all = TRUE AND item_present_at_all = FALSE) as location_mismatch
+                (variation_present_at_all = TRUE AND item_present_at_all = FALSE) as location_mismatch,
+                -- All sales channels disabled: not at POS locations AND not available online
+                (
+                    (item_present_at_all = FALSE OR item_present_at_all IS NULL)
+                    AND (available_online = FALSE OR available_online IS NULL)
+                ) as all_channels_off,
+                -- Any channel disabled: POS disabled OR online disabled
+                (
+                    (item_present_at_all = FALSE OR item_present_at_all IS NULL)
+                    OR (available_online = FALSE OR available_online IS NULL)
+                ) as any_channel_off,
+                -- Individual channel flags for filtering/display
+                (item_present_at_all = FALSE OR item_present_at_all IS NULL) as pos_disabled,
+                (available_online = FALSE OR available_online IS NULL) as online_disabled
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
@@ -2720,7 +2733,11 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_seo_title: result.rows.filter(r => r.missing_seo_title).length,
             missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
             no_tax_ids: result.rows.filter(r => r.no_tax_ids).length,
-            location_mismatch: result.rows.filter(r => r.location_mismatch).length
+            location_mismatch: result.rows.filter(r => r.location_mismatch).length,
+            all_channels_off: result.rows.filter(r => r.all_channels_off).length,
+            any_channel_off: result.rows.filter(r => r.any_channel_off).length,
+            pos_disabled: result.rows.filter(r => r.pos_disabled).length,
+            online_disabled: result.rows.filter(r => r.online_disabled).length
         };
 
         // Count items with at least one issue (excluding e-commerce settings from "issues" count)
@@ -2728,7 +2745,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             r.missing_category || r.not_taxable || r.missing_price ||
             r.missing_description || r.missing_item_image || r.missing_sku ||
             r.missing_upc || r.stock_tracking_off || r.no_reorder_threshold ||
-            r.missing_vendor || r.missing_cost || r.location_mismatch
+            r.missing_vendor || r.missing_cost || r.location_mismatch || r.all_channels_off
         ).length;
 
         // Filter by specific issue type if requested
@@ -2754,6 +2771,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }
             if (row.location_mismatch) { issueCount++; issues.push('Location Mismatch'); }
+            if (row.all_channels_off) { issueCount++; issues.push('All Channels Off'); }
             // E-commerce settings (informational, tracked separately)
             if (row.not_visible_online) { issues.push('Not Visible Online'); }
             // SEO fields
