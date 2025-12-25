@@ -2698,7 +2698,15 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (
                     (item_present_at_all = FALSE OR item_present_at_all IS NULL)
                     AND (available_online = FALSE OR available_online IS NULL)
-                ) as all_channels_off
+                ) as all_channels_off,
+                -- Any channel disabled: POS disabled OR online disabled
+                (
+                    (item_present_at_all = FALSE OR item_present_at_all IS NULL)
+                    OR (available_online = FALSE OR available_online IS NULL)
+                ) as any_channel_off,
+                -- Individual channel flags for filtering/display
+                (item_present_at_all = FALSE OR item_present_at_all IS NULL) as pos_disabled,
+                (available_online = FALSE OR available_online IS NULL) as online_disabled
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
@@ -2726,7 +2734,10 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_seo_description: result.rows.filter(r => r.missing_seo_description).length,
             no_tax_ids: result.rows.filter(r => r.no_tax_ids).length,
             location_mismatch: result.rows.filter(r => r.location_mismatch).length,
-            all_channels_off: result.rows.filter(r => r.all_channels_off).length
+            all_channels_off: result.rows.filter(r => r.all_channels_off).length,
+            any_channel_off: result.rows.filter(r => r.any_channel_off).length,
+            pos_disabled: result.rows.filter(r => r.pos_disabled).length,
+            online_disabled: result.rows.filter(r => r.online_disabled).length
         };
 
         // Count items with at least one issue (excluding e-commerce settings from "issues" count)
