@@ -364,9 +364,6 @@
           <option value="missing_vendor">Missing Vendor</option>
           <option value="missing_cost">Missing Cost</option>
         </optgroup>
-        <optgroup label="E-Commerce Settings">
-          <option value="not_visible_online">Not Visible Online</option>
-        </optgroup>
         <optgroup label="SEO">
           <option value="missing_seo_title">Missing SEO Title</option>
           <option value="missing_seo_description">Missing SEO Description</option>
@@ -378,8 +375,7 @@
           <option value="location_mismatch">Location Mismatch</option>
         </optgroup>
         <optgroup label="Sales Channels">
-          <option value="all_channels_off">All Channels Off</option>
-          <option value="any_channel_off">Any Channel Off</option>
+          <option value="any_channel_off">Any Channel Disabled</option>
           <option value="pos_disabled">POS Disabled</option>
           <option value="online_disabled">Online Disabled</option>
         </optgroup>
@@ -495,8 +491,6 @@
       { key: 'no_reorder_threshold', label: 'OOS, No Min', severity: 'critical' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning', note: 'Excludes SAMPLE variations' },
-      // E-Commerce Settings
-      { key: 'not_visible_online', label: 'Not Visible Online', severity: 'info' },
       // SEO
       { key: 'missing_seo_title', label: 'No SEO Title', severity: 'info' },
       { key: 'missing_seo_description', label: 'No SEO Desc', severity: 'info' },
@@ -504,9 +498,8 @@
       { key: 'no_tax_ids', label: 'No Tax IDs', severity: 'warning' },
       { key: 'location_mismatch', label: 'Location Mismatch', severity: 'critical' },
       // Sales Channels
-      { key: 'all_channels_off', label: 'All Channels Off', severity: 'critical' },
       { key: 'any_channel_off', label: 'Channel Disabled', severity: 'warning' },
-      { key: 'pos_disabled', label: 'POS Disabled', severity: 'warning' },
+      { key: 'pos_disabled', label: 'POS Disabled', severity: 'info' },
       { key: 'online_disabled', label: 'Online Disabled', severity: 'info' }
     ];
 
