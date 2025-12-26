@@ -859,15 +859,36 @@
       }
     };
 
-    // Tier configuration (days until expiry ranges)
-    // This matches the expiry_discount_tiers table
-    const tierRanges = {
-      'EXPIRED': { min: null, max: 0 },
-      'AUTO50': { min: 1, max: 30 },
-      'AUTO25': { min: 31, max: 89 },
-      'REVIEW': { min: 90, max: 120 },
-      'OK': { min: 121, max: null }
-    };
+    // Tier configuration - loaded dynamically from database
+    let tierRanges = {};
+
+    // Load tier configuration from database (ensures manual tier changes are respected)
+    async function loadTierConfig() {
+      try {
+        const response = await fetch('/api/expiry-discounts/tiers');
+        const data = await response.json();
+
+        // Build tierRanges from database config
+        tierRanges = {};
+        for (const tier of data.tiers || data) {
+          tierRanges[tier.tier_code] = {
+            min: tier.min_days_to_expiry,
+            max: tier.max_days_to_expiry
+          };
+        }
+        console.log('Loaded tier config from database:', tierRanges);
+      } catch (error) {
+        console.error('Failed to load tier config, using defaults:', error);
+        // Fallback to defaults only if API fails
+        tierRanges = {
+          'EXPIRED': { min: null, max: 0 },
+          'AUTO50': { min: 1, max: 30 },
+          'AUTO25': { min: 31, max: 89 },
+          'REVIEW': { min: 90, max: 120 },
+          'OK': { min: 121, max: null }
+        };
+      }
+    }
 
     // Get tier code from days until expiry
     function getTierFromDays(daysUntilExpiry) {
@@ -896,14 +917,10 @@
         return false;
       }
 
-      // For NO_EXPIRY items, check if reviewed within last 30 days
-      // (They don't have days_until_expiry, so can't calculate tier)
+      // NO_EXPIRY items are NEVER confirmed - they must get a date or "does not expire" flag
+      // They should always be visible until the issue is resolved
       if (tierCode === 'NO_EXPIRY') {
-        const reviewDate = new Date(item.reviewed_at);
-        const now = new Date();
-        const daysSinceReview = Math.floor((now - reviewDate) / (1000 * 60 * 60 * 24));
-        // Confirmed if reviewed within last 30 days
-        return daysSinceReview <= 30;
+        return false;
       }
 
       // For items with expiration, check if reviewed in same tier
@@ -1387,8 +1404,10 @@
     }
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-      // No localStorage needed - confirmation status comes from server's reviewed_at field
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Load tier config first (ensures manual tier changes from settings are respected)
+      await loadTierConfig();
+      // Then load items for audit
       loadItems();
     });
 
