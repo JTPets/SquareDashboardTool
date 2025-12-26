@@ -1030,12 +1030,12 @@
     function updateStats() {
       const filteredItems = getFilteredItems();
       const pending = filteredItems.filter(item => !isConfirmed(item.variation_id, item.tier_code)).length;
-      const confirmed = getConfirmedTodayCount();
-      const total = allItems.length;
-      const completion = total > 0 ? Math.round((confirmed / total) * 100) : 0;
+      const confirmedInTier = filteredItems.length - pending;
+      const total = filteredItems.length;
+      const completion = total > 0 ? Math.round((confirmedInTier / total) * 100) : 0;
 
       document.getElementById('pending-count').textContent = pending;
-      document.getElementById('confirmed-today').textContent = confirmed;
+      document.getElementById('confirmed-today').textContent = confirmedInTier;
       document.getElementById('completion-rate').textContent = `${completion}%`;
     }
 
