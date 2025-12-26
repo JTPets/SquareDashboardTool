@@ -2675,8 +2675,11 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
-                -- Inventory alerts not enabled (should be LOW_QUANTITY)
-                (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY') as inventory_alerts_off,
+                -- Inventory alerts not enabled - check both variation-level AND location-level settings
+                (
+                    (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY')
+                    AND (location_stock_alert_min IS NULL OR location_stock_alert_min = 0)
+                ) as inventory_alerts_off,
                 -- No reorder threshold: Out of stock AND no minimum threshold set anywhere
                 -- Check: Square's inventory_alert, global stock_alert_min, OR location-specific stock_alert_min
                 (
