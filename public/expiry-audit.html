@@ -869,13 +869,9 @@
       'OK': { min: 121, max: null }
     };
 
-    // Calculate what tier an item was in at a given date
-    function getTierAtDate(expirationDate, reviewDate) {
-      if (!expirationDate || !reviewDate) return null;
-      const expiry = new Date(expirationDate);
-      const review = new Date(reviewDate);
-      const daysUntilExpiry = Math.floor((expiry - review) / (1000 * 60 * 60 * 24));
-
+    // Get tier code from days until expiry
+    function getTierFromDays(daysUntilExpiry) {
+      if (daysUntilExpiry === null || daysUntilExpiry === undefined) return null;
       for (const [tierCode, range] of Object.entries(tierRanges)) {
         const minOk = range.min === null || daysUntilExpiry >= range.min;
         const maxOk = range.max === null || daysUntilExpiry <= range.max;
@@ -887,7 +883,7 @@
     }
 
     // Check if item is confirmed - uses server's reviewed_at field
-    // Item is confirmed if it was reviewed while in the SAME tier (not just today)
+    // Item is confirmed if it was reviewed while in the SAME tier
     function isConfirmed(variationId, tierCode) {
       // First check if confirmed this session (for immediate feedback)
       if (sessionConfirmed[variationId] === tierCode) {
@@ -896,9 +892,17 @@
 
       // Check server-side reviewed_at from the item data
       const item = allItems.find(i => i.variation_id === variationId);
-      if (item && item.reviewed_at && item.expiration_date) {
-        // Calculate what tier the item was in when it was reviewed
-        const tierAtReview = getTierAtDate(item.expiration_date, item.reviewed_at);
+      if (item && item.reviewed_at && item.days_until_expiry !== null && item.days_until_expiry !== undefined) {
+        // Calculate days until expiry at the time of review
+        // Current days + days elapsed since review = days at review time
+        const reviewDate = new Date(item.reviewed_at);
+        const now = new Date();
+        const daysSinceReview = Math.floor((now - reviewDate) / (1000 * 60 * 60 * 24));
+        const daysAtReview = item.days_until_expiry + daysSinceReview;
+
+        // Get tier at review time
+        const tierAtReview = getTierFromDays(daysAtReview);
+
         // If reviewed in the same tier, it's confirmed
         if (tierAtReview === tierCode) {
           return true;
