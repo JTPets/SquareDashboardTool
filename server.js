@@ -1728,10 +1728,10 @@ app.get('/api/expirations', async (req, res) => {
             } else if (expiry === 'never-expires') {
                 query += ` HAVING ve.does_not_expire = TRUE`;
             } else if (expiry === 'review') {
-                // Review items: 91-120 days out, NOT already reviewed in last 30 days
+                // Review items: 90-120 days out, NOT already reviewed in last 30 days
                 query += ` HAVING ve.expiration_date IS NOT NULL
                           AND ve.does_not_expire = FALSE
-                          AND ve.expiration_date > NOW() + INTERVAL '90 days'
+                          AND ve.expiration_date >= NOW() + INTERVAL '90 days'
                           AND ve.expiration_date <= NOW() + INTERVAL '120 days'`;
                 if (hasReviewedColumn) {
                     query += ` AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;

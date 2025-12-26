@@ -859,15 +859,36 @@
       }
     };
 
-    // Tier configuration (days until expiry ranges)
-    // This matches the expiry_discount_tiers table
-    const tierRanges = {
-      'EXPIRED': { min: null, max: 0 },
-      'AUTO50': { min: 1, max: 30 },
-      'AUTO25': { min: 31, max: 89 },
-      'REVIEW': { min: 90, max: 120 },
-      'OK': { min: 121, max: null }
-    };
+    // Tier configuration - loaded dynamically from database
+    let tierRanges = {};
+
+    // Load tier configuration from database (ensures manual tier changes are respected)
+    async function loadTierConfig() {
+      try {
+        const response = await fetch('/api/expiry-discounts/tiers');
+        const data = await response.json();
+
+        // Build tierRanges from database config
+        tierRanges = {};
+        for (const tier of data.tiers || data) {
+          tierRanges[tier.tier_code] = {
+            min: tier.min_days_to_expiry,
+            max: tier.max_days_to_expiry
+          };
+        }
+        console.log('Loaded tier config from database:', tierRanges);
+      } catch (error) {
+        console.error('Failed to load tier config, using defaults:', error);
+        // Fallback to defaults only if API fails
+        tierRanges = {
+          'EXPIRED': { min: null, max: 0 },
+          'AUTO50': { min: 1, max: 30 },
+          'AUTO25': { min: 31, max: 89 },
+          'REVIEW': { min: 90, max: 120 },
+          'OK': { min: 121, max: null }
+        };
+      }
+    }
 
     // Get tier code from days until expiry
     function getTierFromDays(daysUntilExpiry) {
@@ -892,7 +913,18 @@
 
       // Check server-side reviewed_at from the item data
       const item = allItems.find(i => i.variation_id === variationId);
-      if (item && item.reviewed_at && item.days_until_expiry !== null && item.days_until_expiry !== undefined) {
+      if (!item || !item.reviewed_at) {
+        return false;
+      }
+
+      // NO_EXPIRY items are NEVER confirmed - they must get a date or "does not expire" flag
+      // They should always be visible until the issue is resolved
+      if (tierCode === 'NO_EXPIRY') {
+        return false;
+      }
+
+      // For items with expiration, check if reviewed in same tier
+      if (item.days_until_expiry !== null && item.days_until_expiry !== undefined) {
         // Calculate days until expiry at the time of review
         // Current days + days elapsed since review = days at review time
         const reviewDate = new Date(item.reviewed_at);
@@ -1372,8 +1404,10 @@
     }
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-      // No localStorage needed - confirmation status comes from server's reviewed_at field
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Load tier config first (ensures manual tier changes from settings are respected)
+      await loadTierConfig();
+      // Then load items for audit
       loadItems();
     });
 
