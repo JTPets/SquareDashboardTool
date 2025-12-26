@@ -892,7 +892,22 @@
 
       // Check server-side reviewed_at from the item data
       const item = allItems.find(i => i.variation_id === variationId);
-      if (item && item.reviewed_at && item.days_until_expiry !== null && item.days_until_expiry !== undefined) {
+      if (!item || !item.reviewed_at) {
+        return false;
+      }
+
+      // For NO_EXPIRY items, check if reviewed within last 30 days
+      // (They don't have days_until_expiry, so can't calculate tier)
+      if (tierCode === 'NO_EXPIRY') {
+        const reviewDate = new Date(item.reviewed_at);
+        const now = new Date();
+        const daysSinceReview = Math.floor((now - reviewDate) / (1000 * 60 * 60 * 24));
+        // Confirmed if reviewed within last 30 days
+        return daysSinceReview <= 30;
+      }
+
+      // For items with expiration, check if reviewed in same tier
+      if (item.days_until_expiry !== null && item.days_until_expiry !== undefined) {
         // Calculate days until expiry at the time of review
         // Current days + days elapsed since review = days at review time
         const reviewDate = new Date(item.reviewed_at);
