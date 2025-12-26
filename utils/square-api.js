@@ -633,17 +633,27 @@ async function syncVariation(obj) {
     let vendorCount = 0;
 
     // Square stores inventory_alert settings per-location in location_overrides
-    // Extract from first location_override if not set at variation level
+    // Check ALL location_overrides and use any that has LOW_QUANTITY alert enabled
     let inventoryAlertType = data.inventory_alert_type || null;
     let inventoryAlertThreshold = data.inventory_alert_threshold || null;
 
     if (data.location_overrides && data.location_overrides.length > 0) {
-        const firstOverride = data.location_overrides[0];
-        if (!inventoryAlertType && firstOverride.inventory_alert_type) {
-            inventoryAlertType = firstOverride.inventory_alert_type;
+        // Find any location with LOW_QUANTITY alert enabled (not just the first)
+        for (const override of data.location_overrides) {
+            if (!inventoryAlertType && override.inventory_alert_type === 'LOW_QUANTITY') {
+                inventoryAlertType = override.inventory_alert_type;
+                if (inventoryAlertThreshold === null && override.inventory_alert_threshold !== undefined) {
+                    inventoryAlertThreshold = override.inventory_alert_threshold;
+                }
+                break; // Found one with alerts enabled, use it
+            }
         }
-        if (inventoryAlertThreshold === null && firstOverride.inventory_alert_threshold !== undefined) {
-            inventoryAlertThreshold = firstOverride.inventory_alert_threshold;
+        // If no LOW_QUANTITY found, fall back to first override's type (if any)
+        if (!inventoryAlertType && data.location_overrides[0].inventory_alert_type) {
+            inventoryAlertType = data.location_overrides[0].inventory_alert_type;
+        }
+        if (inventoryAlertThreshold === null && data.location_overrides[0].inventory_alert_threshold !== undefined) {
+            inventoryAlertThreshold = data.location_overrides[0].inventory_alert_threshold;
         }
     }
 
