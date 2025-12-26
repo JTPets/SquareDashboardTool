@@ -2675,6 +2675,8 @@ app.get('/api/catalog-audit', async (req, res) => {
                 (sku IS NULL OR sku = '') as missing_sku,
                 (upc IS NULL OR upc = '') as missing_upc,
                 (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
+                -- Inventory alerts not enabled (should be LOW_QUANTITY)
+                (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY') as inventory_alerts_off,
                 -- No reorder threshold: Out of stock AND no minimum threshold set anywhere
                 -- Check: Square's inventory_alert, global stock_alert_min, OR location-specific stock_alert_min
                 (
@@ -2718,6 +2720,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             missing_sku: result.rows.filter(r => r.missing_sku).length,
             missing_upc: result.rows.filter(r => r.missing_upc).length,
             stock_tracking_off: result.rows.filter(r => r.stock_tracking_off).length,
+            inventory_alerts_off: result.rows.filter(r => r.inventory_alerts_off).length,
             no_reorder_threshold: result.rows.filter(r => r.no_reorder_threshold).length,
             missing_vendor: result.rows.filter(r => r.missing_vendor).length,
             missing_cost: result.rows.filter(r => r.missing_cost).length,
@@ -2734,7 +2737,7 @@ app.get('/api/catalog-audit', async (req, res) => {
         stats.items_with_issues = result.rows.filter(r =>
             r.missing_category || r.not_taxable || r.missing_price ||
             r.missing_description || r.missing_item_image || r.missing_sku ||
-            r.missing_upc || r.stock_tracking_off || r.no_reorder_threshold ||
+            r.missing_upc || r.stock_tracking_off || r.inventory_alerts_off || r.no_reorder_threshold ||
             r.missing_vendor || r.missing_cost || r.location_mismatch || r.any_channel_off
         ).length;
 
@@ -2762,7 +2765,8 @@ app.get('/api/catalog-audit', async (req, res) => {
             if (row.missing_item_image) { issueCount++; issues.push('No Image'); }
             if (row.missing_sku) { issueCount++; issues.push('No SKU'); }
             if (row.missing_upc) { issueCount++; issues.push('No UPC'); }
-            if (row.stock_tracking_off) { issueCount++; issues.push('Low Stock Alerts Off'); }
+            if (row.stock_tracking_off) { issueCount++; issues.push('Stock Tracking Off'); }
+            if (row.inventory_alerts_off) { issueCount++; issues.push('Inv Alerts Off'); }
             if (row.no_reorder_threshold) { issueCount++; issues.push('OOS, No Min'); }
             if (row.missing_vendor) { issueCount++; issues.push('No Vendor'); }
             if (row.missing_cost) { issueCount++; issues.push('No Cost'); }

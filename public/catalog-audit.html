@@ -359,7 +359,8 @@
           <option value="missing_item_image">Missing Image</option>
           <option value="missing_sku">Missing SKU</option>
           <option value="missing_upc">Missing UPC/Barcode</option>
-          <option value="stock_tracking_off">Low Stock Alerts Off</option>
+          <option value="stock_tracking_off">Stock Tracking Off</option>
+          <option value="inventory_alerts_off">Inventory Alerts Off</option>
           <option value="no_reorder_threshold">Out of Stock, No Min Set</option>
           <option value="missing_vendor">Missing Vendor</option>
           <option value="missing_cost">Missing Cost</option>
@@ -487,7 +488,8 @@
       { key: 'missing_item_image', label: 'No Image', severity: 'warning' },
       { key: 'missing_sku', label: 'No SKU', severity: 'critical' },
       { key: 'missing_upc', label: 'No UPC', severity: 'info' },
-      { key: 'stock_tracking_off', label: 'Low Stock Alerts Off', severity: 'critical' },
+      { key: 'stock_tracking_off', label: 'Stock Tracking Off', severity: 'critical' },
+      { key: 'inventory_alerts_off', label: 'Inv Alerts Off', severity: 'critical' },
       { key: 'no_reorder_threshold', label: 'OOS, No Min', severity: 'critical' },
       { key: 'missing_vendor', label: 'No Vendor', severity: 'warning' },
       { key: 'missing_cost', label: 'No Cost', severity: 'warning', note: 'Excludes SAMPLE variations' },
@@ -588,11 +590,12 @@
       const withIssues = auditStats.items_with_issues;
       const completionRate = total > 0 ? (((total - withIssues) / total) * 100).toFixed(1) : 100;
 
-      // Count critical issues (missing category, price, sku, stock tracking)
+      // Count critical issues (missing category, price, sku, stock tracking, inventory alerts)
       const criticalCount = (auditStats.missing_category || 0) +
                            (auditStats.missing_price || 0) +
                            (auditStats.missing_sku || 0) +
-                           (auditStats.stock_tracking_off || 0);
+                           (auditStats.stock_tracking_off || 0) +
+                           (auditStats.inventory_alerts_off || 0);
 
       document.getElementById('totalProducts').textContent = total.toLocaleString();
       document.getElementById('itemsWithIssues').textContent = withIssues.toLocaleString();
@@ -749,7 +752,7 @@
     }
 
     function getIssueBadgeClass(issue) {
-      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Low Stock Alerts Off', 'OOS, No Min'];
+      const criticalIssues = ['No Category', 'No Price', 'No SKU', 'Stock Tracking Off', 'Inv Alerts Off', 'OOS, No Min'];
       const warningIssues = ['Not Taxable', 'No Description', 'No Image', 'No Vendor', 'No Cost', 'No Tax IDs'];
       const criticalIssues2 = ['Location Mismatch'];  // Additional critical issues
       const infoIssues = ['No UPC', 'Not Visible Online', 'No SEO Title', 'No SEO Description'];
@@ -841,7 +844,8 @@
         'Missing Image',
         'Missing SKU',
         'Missing UPC',
-        'Low Stock Alerts Off',
+        'Stock Tracking Off',
+        'Inventory Alerts Off',
         'OOS No Min Set',
         'Missing Vendor',
         'Missing Cost',
@@ -874,6 +878,7 @@
         item.missing_sku ? 'Yes' : 'No',
         item.missing_upc ? 'Yes' : 'No',
         item.stock_tracking_off ? 'Yes' : 'No',
+        item.inventory_alerts_off ? 'Yes' : 'No',
         item.no_reorder_threshold ? 'Yes' : 'No',
         item.missing_vendor ? 'Yes' : 'No',
         item.missing_cost ? 'Yes' : 'No',
