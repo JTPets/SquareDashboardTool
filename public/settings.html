@@ -714,6 +714,7 @@
         const varInfo = {
           PORT: { group: 'Server', desc: 'Server port number' },
           NODE_ENV: { group: 'Server', desc: 'Environment (development/production)' },
+          PUBLIC_APP_URL: { group: 'Server', desc: 'Public URL for browser redirects (e.g., after OAuth)' },
           DB_HOST: { group: 'Database', desc: 'Database host' },
           DB_PORT: { group: 'Database', desc: 'Database port' },
           DB_NAME: { group: 'Database', desc: 'Database name' },
@@ -734,7 +735,7 @@
 
         // Define preferred variable order (these will appear first, in this order)
         const preferredOrder = [
-          'PORT', 'NODE_ENV',
+          'PORT', 'NODE_ENV', 'PUBLIC_APP_URL',
           'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
           'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
           'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
@@ -759,9 +760,17 @@
           const maskedClass = isSensitive ? 'masked' : '';
           const sensitiveClass = isSensitive ? 'sensitive' : '';
 
-          // Special helper note for GOOGLE_REDIRECT_URI
+          // Special helper notes for OAuth-related variables
           let helperNote = '';
-          if (key === 'GOOGLE_REDIRECT_URI') {
+          if (key === 'PUBLIC_APP_URL') {
+            helperNote = `
+              <div class="helper-note" style="font-size: 12px; color: #666; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #10b981;">
+                <strong>LAN access (Raspberry Pi):</strong> <code>http://192.168.0.64:5001</code> (your Pi's LAN IP)<br>
+                <strong>Production:</strong> <code>https://yourdomain.com</code><br>
+                <em>Where browsers redirect after OAuth. Use LAN IP for local network access, domain for production.</em>
+              </div>
+            `;
+          } else if (key === 'GOOGLE_REDIRECT_URI') {
             helperNote = `
               <div class="helper-note" style="font-size: 12px; color: #666; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #2563eb;">
                 <strong>Local development:</strong> <code>http://localhost:5001/api/google/callback</code><br>

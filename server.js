@@ -21,6 +21,33 @@ const expiryDiscount = require('./utils/expiry-discount');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+/**
+ * Get the public-facing app URL for browser redirects.
+ *
+ * IMPORTANT: This is separate from GOOGLE_REDIRECT_URI!
+ * - GOOGLE_REDIRECT_URI: Used for OAuth callback (registered with Google, can be localhost)
+ * - PUBLIC_APP_URL: Where browsers should be redirected after OAuth (must be reachable by user)
+ *
+ * For LAN access on Raspberry Pi:
+ *   GOOGLE_REDIRECT_URI=http://localhost:5001/api/google/callback  (Google accepts localhost)
+ *   PUBLIC_APP_URL=http://192.168.0.64:5001  (LAN IP so other devices can reach it)
+ *
+ * For production:
+ *   GOOGLE_REDIRECT_URI=https://yourdomain.com/api/google/callback
+ *   PUBLIC_APP_URL=https://yourdomain.com
+ *
+ * @param {Object} req - Express request object (used for fallback)
+ * @returns {string} The public app URL
+ */
+function getPublicAppUrl(req) {
+    // Prefer explicit PUBLIC_APP_URL if set
+    if (process.env.PUBLIC_APP_URL) {
+        return process.env.PUBLIC_APP_URL.replace(/\/$/, ''); // Remove trailing slash
+    }
+    // Fallback: derive from request (works when accessed directly)
+    return `${req.protocol}://${req.get('host')}`;
+}
+
 // AWS S3 Configuration for product images
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'items-images-production';
 const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
@@ -154,7 +181,7 @@ app.get('/api/settings/env', async (req, res) => {
 
         // Define expected variables with defaults
         const expectedVars = [
-            'PORT', 'NODE_ENV',
+            'PORT', 'NODE_ENV', 'PUBLIC_APP_URL',
             'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
             'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
             'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
@@ -197,7 +224,7 @@ app.put('/api/settings/env', async (req, res) => {
 
         // Group variables
         const groups = {
-            'Server': ['PORT', 'NODE_ENV'],
+            'Server': ['PORT', 'NODE_ENV', 'PUBLIC_APP_URL'],
             'Database': ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'],
             'Square API': ['SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT'],
             'Google OAuth': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
@@ -3106,25 +3133,34 @@ app.get('/api/google/auth', async (req, res) => {
 /**
  * GET /api/google/callback
  * Google OAuth callback - exchanges code for tokens
+ *
+ * IMPORTANT: After OAuth, we redirect to PUBLIC_APP_URL (not relative path).
+ * This ensures the browser goes to the correct host (e.g., LAN IP) instead of
+ * staying on localhost (which Google redirected to for the OAuth callback).
  */
 app.get('/api/google/callback', async (req, res) => {
+    // Get the public URL for post-OAuth redirects
+    // This may differ from the OAuth callback URL (e.g., LAN IP vs localhost)
+    const publicUrl = getPublicAppUrl(req);
+
     try {
         const { code, error: oauthError } = req.query;
 
         if (oauthError) {
             logger.error('Google OAuth error', { error: oauthError });
-            return res.redirect('/settings.html?google_error=' + encodeURIComponent(oauthError));
+            return res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(oauthError)}`);
         }
 
         if (!code) {
-            return res.redirect('/settings.html?google_error=no_code');
+            return res.redirect(`${publicUrl}/settings.html?google_error=no_code`);
         }
 
         await googleSheets.exchangeCodeForTokens(code);
-        res.redirect('/settings.html?google_connected=true');
+        logger.info('Google OAuth successful, redirecting to public URL', { publicUrl });
+        res.redirect(`${publicUrl}/settings.html?google_connected=true`);
     } catch (error) {
         logger.error('Google callback error', { error: error.message });
-        res.redirect('/settings.html?google_error=' + encodeURIComponent(error.message));
+        res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(error.message)}`);
     }
 });
 
@@ -7628,6 +7664,10 @@ async function startServer() {
 
         // Start server
         app.listen(PORT, () => {
+            // Log OAuth configuration for debugging
+            const publicAppUrl = process.env.PUBLIC_APP_URL || '(auto-detect from request)';
+            const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || '(not set)';
+
             const banner = [
                 '='.repeat(60),
                 'Square Dashboard Addon Tool',
@@ -7635,6 +7675,10 @@ async function startServer() {
                 `Server running on port ${PORT}`,
                 `Environment: ${process.env.NODE_ENV || 'development'}`,
                 `Database: ${process.env.DB_NAME || 'square_dashboard_addon'}`,
+                '',
+                'OAuth Configuration:',
+                `  GOOGLE_REDIRECT_URI: ${googleRedirectUri}`,
+                `  PUBLIC_APP_URL:      ${publicAppUrl}`,
                 '='.repeat(60),
                 'API Endpoints (40 total):',
                 '  GET    /api/health',
