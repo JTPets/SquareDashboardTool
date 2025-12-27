@@ -762,6 +762,68 @@ async function ensureSchema() {
         `);
     }
 
+    // ==================== USER AUTHENTICATION TABLES ====================
+
+    // Check if users table exists
+    const usersCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'users'
+    `);
+
+    if (usersCheck.rows.length === 0) {
+        logger.info('Creating user authentication tables...');
+
+        // 1. Users table
+        await query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                name TEXT,
+                role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'readonly')),
+                is_active BOOLEAN DEFAULT TRUE,
+                failed_login_attempts INTEGER DEFAULT 0,
+                locked_until TIMESTAMPTZ,
+                last_login TIMESTAMPTZ,
+                password_changed_at TIMESTAMPTZ DEFAULT NOW(),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+        await query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
+        await query('CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active) WHERE is_active = TRUE');
+
+        // 2. Sessions table (for connect-pg-simple)
+        await query(`
+            CREATE TABLE IF NOT EXISTS sessions (
+                sid VARCHAR NOT NULL PRIMARY KEY,
+                sess JSON NOT NULL,
+                expire TIMESTAMPTZ NOT NULL
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire)');
+
+        // 3. Auth audit log table
+        await query(`
+            CREATE TABLE IF NOT EXISTS auth_audit_log (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                event_type TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                details JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_user ON auth_audit_log(user_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_event ON auth_audit_log(event_type)');
+        await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON auth_audit_log(created_at DESC)');
+
+        logger.info('Created user authentication tables with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
