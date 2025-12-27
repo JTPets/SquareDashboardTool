@@ -117,7 +117,30 @@ if (!process.env.SESSION_SECRET) {
     logger.warn('SESSION_SECRET not set! Using random secret. Sessions will be lost on restart.');
 }
 
-// Static files (login page accessible without auth)
+// ==================== PAGE AUTHENTICATION ====================
+// Redirect unauthenticated users to login page for protected HTML pages
+const authEnabled = process.env.AUTH_DISABLED !== 'true';
+
+if (authEnabled) {
+    app.use((req, res, next) => {
+        // Only check HTML page requests (not API, not static assets)
+        if (req.method === 'GET' && req.path.match(/\.(html)$/) || req.path === '/') {
+            // Allow login page without auth
+            if (req.path === '/login.html') {
+                return next();
+            }
+            // Check if user is authenticated
+            if (!req.session || !req.session.user) {
+                // Redirect to login with return URL
+                const returnUrl = encodeURIComponent(req.originalUrl);
+                return res.redirect(`/login.html?returnUrl=${returnUrl}`);
+            }
+        }
+        next();
+    });
+}
+
+// Static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/output', express.static(path.join(__dirname, 'output'))); // Serve generated files
 
@@ -134,13 +157,9 @@ app.use((req, res, next) => {
 // These routes are public (login, logout, etc.)
 app.use('/api/auth', authRoutes);
 
-// ==================== AUTHENTICATION MIDDLEWARE ====================
-// All routes below this point require authentication
-// Set AUTH_DISABLED=true to disable authentication (development only!)
-const authEnabled = process.env.AUTH_DISABLED !== 'true';
-
+// ==================== API AUTHENTICATION MIDDLEWARE ====================
+// Protect all API routes (authEnabled already set above)
 if (authEnabled) {
-    // Protect all API routes except public ones
     app.use('/api', (req, res, next) => {
         // Allow health check without auth
         if (req.path === '/health') {
