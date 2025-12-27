@@ -59,9 +59,10 @@ async function getSetting(key) {
  */
 async function updateSetting(key, value) {
     await db.query(`
-        UPDATE expiry_discount_settings
+        INSERT INTO expiry_discount_settings (setting_key, setting_value, updated_at)
+        VALUES ($2, $1, NOW())
+        ON CONFLICT (setting_key) DO UPDATE
         SET setting_value = $1, updated_at = NOW()
-        WHERE setting_key = $2
     `, [value, key]);
 }
 
