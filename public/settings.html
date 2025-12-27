@@ -732,8 +732,10 @@
       try {
         const response = await fetch('/api/locations');
         const data = await response.json();
-        if (data.length > 0) {
-          status.textContent = `Connected - Found ${data.length} location(s)`;
+        const locations = data.locations || data;
+        const count = data.count || locations.length || 0;
+        if (count > 0) {
+          status.textContent = `Connected - Found ${count} location(s)`;
           document.getElementById('square-connection').className = 'connection-card connected';
         } else {
           status.textContent = 'Connected but no locations found';
