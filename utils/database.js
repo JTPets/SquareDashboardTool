@@ -684,12 +684,14 @@ async function ensureSchema() {
         // Insert default settings
         await query(`
             INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
-                ('automation_enabled', 'true', 'Enable/disable automatic discount application'),
+                ('auto_apply_enabled', 'true', 'Enable/disable automatic discount application'),
                 ('email_notifications', 'true', 'Send email notifications for tier changes'),
                 ('notification_email', '', 'Email address for notifications'),
                 ('dry_run_mode', 'false', 'Run in dry-run mode (no actual changes)'),
                 ('last_run_at', NULL, 'Timestamp of last automation run'),
-                ('last_run_status', NULL, 'Status of last automation run')
+                ('last_run_status', NULL, 'Status of last automation run'),
+                ('cron_schedule', '0 6 * * *', 'Cron schedule for automation'),
+                ('timezone', 'America/Toronto', 'Timezone for cron schedule')
             ON CONFLICT (setting_key) DO NOTHING
         `);
 
@@ -730,6 +732,34 @@ async function ensureSchema() {
             logger.info('Fixed expiry_discount_audit_log schema');
             appliedCount++;
         }
+
+        // Fix setting key mismatch: automation_enabled -> auto_apply_enabled
+        const autoApplyCheck = await query(`
+            SELECT setting_key FROM expiry_discount_settings WHERE setting_key = 'auto_apply_enabled'
+        `);
+        if (autoApplyCheck.rows.length === 0) {
+            // Check if old key exists and get its value
+            const oldSettingCheck = await query(`
+                SELECT setting_value FROM expiry_discount_settings WHERE setting_key = 'automation_enabled'
+            `);
+            const defaultValue = oldSettingCheck.rows.length > 0 ? oldSettingCheck.rows[0].setting_value : 'true';
+
+            await query(`
+                INSERT INTO expiry_discount_settings (setting_key, setting_value, description)
+                VALUES ('auto_apply_enabled', $1, 'Enable/disable automatic discount application')
+                ON CONFLICT (setting_key) DO NOTHING
+            `, [defaultValue]);
+            logger.info('Added auto_apply_enabled setting for cron automation');
+            appliedCount++;
+        }
+
+        // Ensure cron_schedule and timezone settings exist
+        await query(`
+            INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
+                ('cron_schedule', '0 6 * * *', 'Cron schedule for automation'),
+                ('timezone', 'America/Toronto', 'Timezone for cron schedule')
+            ON CONFLICT (setting_key) DO NOTHING
+        `);
     }
 
     for (const migration of migrations) {
