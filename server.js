@@ -63,6 +63,10 @@ const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
 
 // ==================== SECURITY MIDDLEWARE ====================
 
+// Trust proxy (required when behind Cloudflare, nginx, etc.)
+// This ensures rate limiting and session cookies work correctly with X-Forwarded-For headers
+app.set('trust proxy', 1);
+
 // Security headers (helmet) - skip in development if causing issues
 if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
     app.use(configureHelmet());
