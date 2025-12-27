@@ -3,6 +3,9 @@
  * Express API server with Square POS integration
  */
 
+console.log('Starting Square Dashboard Addon Tool...');
+console.log('Loading configuration...');
+
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -77,12 +80,24 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for database import
 
 // Session configuration
 const sessionDurationHours = parseInt(process.env.SESSION_DURATION_HOURS) || 24;
+const pgSessionStore = new PgSession({
+    pool: db.pool,
+    tableName: 'sessions',
+    createTableIfMissing: true,
+    errorLog: (err) => {
+        logger.error('Session store error', { error: err.message });
+    }
+});
+
+// Handle session store errors
+pgSessionStore.on('error', (err) => {
+    logger.error('Session store connection error', { error: err.message });
+});
+
+console.log('Initializing session middleware...');
+
 app.use(session({
-    store: new PgSession({
-        pool: db.pool,
-        tableName: 'sessions',
-        createTableIfMissing: true
-    }),
+    store: pgSessionStore,
     secret: process.env.SESSION_SECRET || 'change-this-secret-in-production-' + Math.random().toString(36),
     resave: false,
     saveUninitialized: false,
@@ -94,6 +109,8 @@ app.use(session({
     },
     name: 'sid'  // Change from default 'connect.sid' for security
 }));
+
+console.log('Session middleware initialized');
 
 // Warn if using default session secret
 if (!process.env.SESSION_SECRET) {
