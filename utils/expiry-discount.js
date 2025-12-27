@@ -1001,8 +1001,15 @@ async function getDiscountStatusSummary() {
         FROM expiry_discount_tiers edt
         LEFT JOIN variation_discount_status vds ON edt.id = vds.current_tier_id
         LEFT JOIN variations v ON vds.variation_id = v.id
+        LEFT JOIN (
+            SELECT catalog_object_id, SUM(quantity) as total_stock
+            FROM inventory_counts
+            WHERE state = 'IN_STOCK'
+            GROUP BY catalog_object_id
+        ) ic ON vds.variation_id = ic.catalog_object_id
         WHERE edt.is_active = TRUE
           AND (vds.variation_id IS NULL OR COALESCE(v.is_deleted, FALSE) = FALSE)
+          AND (vds.variation_id IS NULL OR COALESCE(ic.total_stock, 0) > 0)
         GROUP BY edt.id, edt.tier_code, edt.tier_name, edt.discount_percent,
                  edt.color_code, edt.is_auto_apply, edt.requires_review, edt.priority
         ORDER BY edt.priority DESC
