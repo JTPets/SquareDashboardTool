@@ -1397,7 +1397,6 @@ SquareDashboardTool/
 │   ├── sales-velocity.html # Sales reports
 │   ├── cycle-count.html    # Cycle counting
 │   ├── cycle-count-history.html # Count history viewer
-│   ├── po-generator.html   # Purchase order generator
 │   ├── purchase-orders.html # PO management
 │   ├── deleted-items.html  # Deleted items management
 │   ├── database-backup.html # Database backup/restore
