@@ -106,12 +106,13 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
+        secure: 'auto',                                   // Auto-detect based on X-Forwarded-Proto (works with Cloudflare)
         httpOnly: true,                                   // No JavaScript access
         maxAge: sessionDurationHours * 60 * 60 * 1000,   // Configurable duration
         sameSite: 'lax'                                   // CSRF protection
     },
-    name: 'sid'  // Change from default 'connect.sid' for security
+    name: 'sid',  // Change from default 'connect.sid' for security
+    proxy: true   // Trust the reverse proxy (Cloudflare)
 }));
 
 console.log('Session middleware initialized');
