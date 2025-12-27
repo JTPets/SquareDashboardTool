@@ -1146,12 +1146,9 @@ Wellness"></textarea>
       try {
         const response = await fetch('/api/gmc/settings');
         const data = await response.json();
-        if (data.settings) {
-          const sheetId = data.settings.find(s => s.setting_key === 'google_sheet_id');
-          if (sheetId && sheetId.setting_value) {
-            document.getElementById('spreadsheet-id').value = sheetId.setting_value;
-            spreadsheetId = sheetId.setting_value;
-          }
+        if (data.settings && data.settings.google_sheet_id) {
+          document.getElementById('spreadsheet-id').value = data.settings.google_sheet_id;
+          spreadsheetId = data.settings.google_sheet_id;
         }
       } catch (e) {
         console.error('Failed to load spreadsheet ID:', e);
