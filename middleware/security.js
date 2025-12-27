@@ -12,20 +12,23 @@ const logger = require('../utils/logger');
  * Configure Helmet security headers
  */
 function configureHelmet() {
+    // Build CSP directives
+    const cspDirectives = {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],  // Allow inline scripts for now
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"]
+        // Note: upgradeInsecureRequests removed - causes issues behind Cloudflare proxy
+    };
+
     return helmet({
         // Content Security Policy
         contentSecurityPolicy: {
-            directives: {
-                defaultSrc: ["'self'"],
-                styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-                fontSrc: ["'self'", "https://fonts.gstatic.com"],
-                scriptSrc: ["'self'", "'unsafe-inline'"],  // Allow inline scripts for now
-                imgSrc: ["'self'", "data:", "https:"],
-                connectSrc: ["'self'"],
-                frameSrc: ["'none'"],
-                objectSrc: ["'none'"],
-                upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
-            }
+            directives: cspDirectives
         },
         // Prevent clickjacking
         frameguard: { action: 'deny' },
