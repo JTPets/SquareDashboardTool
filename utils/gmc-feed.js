@@ -91,13 +91,19 @@ async function generateFeedData(options = {}) {
                 v.upc,
                 v.price_money,
                 v.currency,
-                v.images as variation_images,
                 i.id as item_id,
                 i.name as item_name,
                 i.description,
                 i.category_id,
                 i.category_name,
-                i.images as item_images,
+                i.images as item_image_ids,
+                -- Resolve image URLs from images table
+                (
+                    SELECT ARRAY_AGG(img.url ORDER BY idx)
+                    FROM jsonb_array_elements_text(COALESCE(i.images, '[]'::jsonb)) WITH ORDINALITY AS t(image_id, idx)
+                    JOIN images img ON img.id = t.image_id
+                    WHERE img.url IS NOT NULL
+                ) as image_urls,
                 -- Brand
                 b.name as brand_name,
                 -- Google taxonomy
@@ -143,24 +149,15 @@ async function generateFeedData(options = {}) {
                     .replace('{slug}', slug)
                     .replace('{variation_id}', row.item_id);
 
-                // Get image URLs
+                // Get image URLs (now resolved from images table)
                 let imageLink = '';
                 const additionalImages = [];
 
-                // Try variation images first, then item images
-                const images = row.variation_images || row.item_images || [];
-                if (Array.isArray(images) && images.length > 0) {
-                    // Images might be IDs or URLs depending on how they're stored
-                    for (let i = 0; i < images.length; i++) {
-                        const img = images[i];
-                        const imgUrl = typeof img === 'string' ? img : img?.url;
-                        if (imgUrl) {
-                            if (i === 0) {
-                                imageLink = imgUrl;
-                            } else {
-                                additionalImages.push(imgUrl);
-                            }
-                        }
+                const imageUrls = row.image_urls || [];
+                if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+                    imageLink = imageUrls[0];
+                    for (let i = 1; i < imageUrls.length; i++) {
+                        additionalImages.push(imageUrls[i]);
                     }
                 }
 
