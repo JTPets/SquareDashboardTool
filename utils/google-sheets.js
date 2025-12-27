@@ -9,28 +9,81 @@ const logger = require('./logger');
 
 // OAuth2 client configuration
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
-const REDIRECT_URI_PATH = '/api/google/callback';
+
+// Private IP regex pattern - matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x
+const PRIVATE_IP_PATTERN = /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
 
 let oauth2Client = null;
 
 /**
- * Initialize OAuth2 client with credentials from environment
+ * Validate that a redirect URI is safe for Google OAuth
+ * @param {string} uri - The redirect URI to validate
+ * @returns {Object} Validation result with isValid boolean and error message
  */
-function getOAuth2Client(baseUrl = null) {
-    if (oauth2Client && !baseUrl) {
+function validateRedirectUri(uri) {
+    if (!uri) {
+        return { isValid: false, error: 'GOOGLE_REDIRECT_URI environment variable is not set' };
+    }
+
+    if (PRIVATE_IP_PATTERN.test(uri)) {
+        return {
+            isValid: false,
+            error: `GOOGLE_REDIRECT_URI contains a private IP address (${uri}). Use localhost for local development or a public domain for production.`
+        };
+    }
+
+    if (!uri.startsWith('http://localhost') && !uri.startsWith('https://')) {
+        return {
+            isValid: false,
+            error: `GOOGLE_REDIRECT_URI must start with 'http://localhost' or 'https://' (got: ${uri})`
+        };
+    }
+
+    if (!uri.includes('/api/google/callback')) {
+        return {
+            isValid: false,
+            error: `GOOGLE_REDIRECT_URI must end with '/api/google/callback' (got: ${uri})`
+        };
+    }
+
+    return { isValid: true };
+}
+
+/**
+ * Get the configured redirect URI from environment
+ * @returns {string} The redirect URI
+ * @throws {Error} If GOOGLE_REDIRECT_URI is not set or invalid
+ */
+function getRedirectUri() {
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    const validation = validateRedirectUri(redirectUri);
+
+    if (!validation.isValid) {
+        throw new Error(validation.error);
+    }
+
+    return redirectUri;
+}
+
+/**
+ * Initialize OAuth2 client with credentials from environment
+ * Uses GOOGLE_REDIRECT_URI as the single source of truth for redirect URI
+ */
+function getOAuth2Client() {
+    if (oauth2Client) {
         return oauth2Client;
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = baseUrl
-        ? `${baseUrl}${REDIRECT_URI_PATH}`
-        : process.env.GOOGLE_REDIRECT_URI || `http://localhost:${process.env.PORT || 3000}${REDIRECT_URI_PATH}`;
 
     if (!clientId || !clientSecret) {
         logger.warn('Google OAuth credentials not configured (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)');
         return null;
     }
+
+    const redirectUri = getRedirectUri();
+    logger.info('Initializing Google OAuth2 client', { redirectUri });
 
     oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
     return oauth2Client;
@@ -38,20 +91,27 @@ function getOAuth2Client(baseUrl = null) {
 
 /**
  * Generate OAuth authorization URL
- * @param {string} baseUrl - Base URL of the application
+ * Uses GOOGLE_REDIRECT_URI from environment as the redirect target
  * @returns {string} Authorization URL
  */
-function getAuthUrl(baseUrl) {
-    const client = getOAuth2Client(baseUrl);
+function getAuthUrl() {
+    const client = getOAuth2Client();
     if (!client) {
-        throw new Error('Google OAuth not configured');
+        throw new Error('Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in your environment.');
     }
 
-    return client.generateAuthUrl({
+    const authUrl = client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
         prompt: 'consent' // Force consent to get refresh token
     });
+
+    logger.info('Generated Google OAuth URL', {
+        redirectUri: process.env.GOOGLE_REDIRECT_URI,
+        authUrlPrefix: authUrl.substring(0, 80) + '...'
+    });
+
+    return authUrl;
 }
 
 /**
@@ -368,10 +428,16 @@ async function disconnect() {
  */
 async function getAuthStatus() {
     const tokens = await loadTokens();
-    const configured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+    const hasClientCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    const redirectValidation = validateRedirectUri(redirectUri);
 
     return {
-        configured,
+        configured: hasClientCredentials && redirectValidation.isValid,
+        hasClientCredentials,
+        redirectUriConfigured: !!redirectUri,
+        redirectUriValid: redirectValidation.isValid,
+        redirectUriError: redirectValidation.isValid ? null : redirectValidation.error,
         authenticated: tokens !== null && tokens.refresh_token !== null,
         hasAccessToken: tokens?.access_token !== null,
         tokenExpiry: tokens?.expiry_date ? new Date(tokens.expiry_date).toISOString() : null

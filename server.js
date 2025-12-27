@@ -157,7 +157,7 @@ app.get('/api/settings/env', async (req, res) => {
             'PORT', 'NODE_ENV',
             'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
             'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
-            'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+            'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
             'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS',
             'EMAIL_FROM', 'EMAIL_TO'
         ];
@@ -200,7 +200,7 @@ app.put('/api/settings/env', async (req, res) => {
             'Server': ['PORT', 'NODE_ENV'],
             'Database': ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'],
             'Square API': ['SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT'],
-            'Google OAuth': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'],
+            'Google OAuth': ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'],
             'Email/SMTP': ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'EMAIL_TO']
         };
 
@@ -3090,11 +3090,12 @@ app.get('/api/google/status', async (req, res) => {
 /**
  * GET /api/google/auth
  * Start Google OAuth flow - redirects to Google consent screen
+ * Uses GOOGLE_REDIRECT_URI from environment (not request hostname) to prevent private IP issues
  */
 app.get('/api/google/auth', async (req, res) => {
     try {
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const authUrl = googleSheets.getAuthUrl(baseUrl);
+        const authUrl = googleSheets.getAuthUrl();
+        logger.info('Redirecting to Google OAuth', { redirectUri: process.env.GOOGLE_REDIRECT_URI });
         res.redirect(authUrl);
     } catch (error) {
         logger.error('Google auth error', { error: error.message });
