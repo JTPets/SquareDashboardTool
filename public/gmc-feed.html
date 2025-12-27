@@ -1101,11 +1101,19 @@ Wellness"></textarea>
         const container = document.getElementById('google-status');
         const sheetConfig = document.getElementById('sheet-config');
 
-        if (!status.configured) {
+        if (!status.hasClientCredentials) {
           container.className = 'google-status disconnected';
           container.innerHTML = `
             <span class="status-icon">⚠️</span>
             <span class="status-text">Google OAuth not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file.</span>
+            <a href="settings.html" style="color: #2563eb; text-decoration: none; font-weight: 500;">Go to Settings</a>
+          `;
+          sheetConfig.style.display = 'none';
+        } else if (!status.redirectUriValid) {
+          container.className = 'google-status disconnected';
+          container.innerHTML = `
+            <span class="status-icon">⚠️</span>
+            <span class="status-text">${status.redirectUriError || 'GOOGLE_REDIRECT_URI not configured or invalid.'}</span>
             <a href="settings.html" style="color: #2563eb; text-decoration: none; font-weight: 500;">Go to Settings</a>
           `;
           sheetConfig.style.display = 'none';

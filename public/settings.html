@@ -626,9 +626,13 @@
         const response = await fetch('/api/google/status');
         const data = await response.json();
 
-        if (!data.configured) {
+        if (!data.hasClientCredentials) {
           card.className = 'connection-card warning';
           status.textContent = 'Not configured - Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET';
+          actions.innerHTML = '';
+        } else if (!data.redirectUriValid) {
+          card.className = 'connection-card warning';
+          status.textContent = data.redirectUriError || 'Invalid GOOGLE_REDIRECT_URI';
           actions.innerHTML = '';
         } else if (!data.authenticated) {
           card.className = 'connection-card disconnected';
@@ -719,6 +723,7 @@
           SQUARE_ENVIRONMENT: { group: 'Square', desc: 'sandbox or production' },
           GOOGLE_CLIENT_ID: { group: 'Google', desc: 'Google OAuth client ID' },
           GOOGLE_CLIENT_SECRET: { group: 'Google', desc: 'Google OAuth client secret' },
+          GOOGLE_REDIRECT_URI: { group: 'Google', desc: 'OAuth redirect URI (must match Google Console)' },
           SMTP_HOST: { group: 'Email', desc: 'SMTP server host' },
           SMTP_PORT: { group: 'Email', desc: 'SMTP server port' },
           SMTP_USER: { group: 'Email', desc: 'SMTP username' },
