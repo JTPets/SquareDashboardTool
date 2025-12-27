@@ -1038,11 +1038,8 @@
         // Load GMC sheet ID
         const gmcResponse = await fetch('/api/gmc/settings');
         const gmcData = await gmcResponse.json();
-        if (gmcData.settings) {
-          const sheetSetting = gmcData.settings.find(s => s.setting_key === 'google_sheet_id');
-          if (sheetSetting) {
-            document.getElementById('gmc-sheet-id').value = sheetSetting.setting_value || '';
-          }
+        if (gmcData.settings && gmcData.settings.google_sheet_id) {
+          document.getElementById('gmc-sheet-id').value = gmcData.settings.google_sheet_id;
         }
       } catch (e) {
         console.error('Failed to load sync settings:', e);
