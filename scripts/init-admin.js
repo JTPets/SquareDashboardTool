@@ -32,8 +32,9 @@ async function initAdmin() {
 
         if (!tableCheck.rows[0].exists) {
             console.error('\nError: users table does not exist.');
-            console.error('Run the migration first:');
-            console.error('  psql -d your_database -f database/migrations/005_user_authentication.sql\n');
+            console.error('The table should be created automatically on server startup.');
+            console.error('Please start the server first to create the authentication tables,');
+            console.error('then run this script again.\n');
             process.exit(1);
         }
 
