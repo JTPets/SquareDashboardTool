@@ -318,6 +318,7 @@
       <div class="tab" data-tab="environment">Environment Variables</div>
       <div class="tab" data-tab="api-tokens">API Tokens</div>
       <div class="tab" data-tab="sync">Sync Settings</div>
+      <div class="tab" data-tab="security">Security</div>
     </div>
 
     <!-- Connections Tab -->
@@ -495,6 +496,171 @@
           </label>
           <input type="text" class="form-input" id="gmc-sheet-id" placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
           <button class="btn-primary" onclick="saveGmcSheetId()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Tab -->
+    <div class="tab-content" id="tab-security">
+      <!-- Current User Section -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Your Account</div>
+            <div class="section-desc">Manage your login and session</div>
+          </div>
+        </div>
+
+        <div class="connection-card" id="user-info-card">
+          <div class="connection-header">
+            <span class="connection-icon">👤</span>
+            <span class="connection-name" id="current-user-email">Loading...</span>
+          </div>
+          <div class="connection-status" id="current-user-role">-</div>
+          <div style="margin-top: 15px; display: flex; gap: 10px;">
+            <button class="btn-primary" onclick="showChangePasswordModal()">Change Password</button>
+            <button class="btn-danger" onclick="logoutUser()">Logout</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session Settings Section -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Session Settings</div>
+            <div class="section-desc">Configure authentication session behavior (requires server restart)</div>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Session Duration
+              <small>How long users stay logged in</small>
+            </label>
+            <input type="number" class="form-input" id="session-duration" min="1" max="720" value="24">
+            <span style="padding-top: 8px; color: #6b7280;">hours</span>
+          </div>
+        </div>
+
+        <div class="alert info" style="margin-top: 15px;">
+          Session duration is configured via the <code>SESSION_DURATION_HOURS</code> environment variable.
+          Change it in the Environment Variables tab and restart the server.
+        </div>
+      </div>
+
+      <!-- CORS Settings Section -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">CORS / Allowed Origins</div>
+            <div class="section-desc">Control which domains can access the API (requires server restart)</div>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Allowed Origins
+              <small>Comma-separated list of allowed domains</small>
+            </label>
+            <input type="text" class="form-input" id="allowed-origins" placeholder="http://localhost:5001, https://yourdomain.com">
+            <div class="form-actions"></div>
+          </div>
+        </div>
+
+        <div class="alert info" style="margin-top: 15px;">
+          <strong>Development:</strong> Leave empty to allow all origins<br>
+          <strong>Production:</strong> Set <code>ALLOWED_ORIGINS</code> in Environment Variables to restrict access.<br>
+          Example: <code>https://yourdomain.com, https://admin.yourdomain.com</code>
+        </div>
+      </div>
+
+      <!-- User Management Section (Admin Only) -->
+      <div class="section" id="user-management-section" style="display: none;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">User Management</div>
+            <div class="section-desc">Manage user accounts (Admin only)</div>
+          </div>
+          <button class="btn-primary" onclick="showCreateUserModal()">+ Create User</button>
+        </div>
+
+        <div id="users-list">
+          <div class="alert info">Loading users...</div>
+        </div>
+      </div>
+
+      <!-- Rate Limiting Info -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Rate Limiting</div>
+            <div class="section-desc">Protection against brute force and abuse</div>
+          </div>
+        </div>
+
+        <div class="alert info">
+          <strong>General API:</strong> 100 requests per 15 minutes (configurable via <code>RATE_LIMIT_MAX_REQUESTS</code>)<br>
+          <strong>Login attempts:</strong> 5 per 15 minutes per IP/email combination<br>
+          <strong>Account lockout:</strong> After 5 failed logins, accounts are locked for 15 minutes
+        </div>
+      </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+      <div style="background: white; padding: 30px; border-radius: 8px; max-width: 400px; width: 90%;">
+        <h3 style="margin-bottom: 20px;">Change Password</h3>
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Current Password</label>
+          <input type="password" id="current-password" class="form-input" style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">New Password</label>
+          <input type="password" id="new-password" class="form-input" style="width: 100%;">
+          <small style="color: #6b7280;">Min 8 characters, 1 uppercase, 1 number</small>
+        </div>
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Confirm New Password</label>
+          <input type="password" id="confirm-password" class="form-input" style="width: 100%;">
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn-secondary" onclick="hideChangePasswordModal()">Cancel</button>
+          <button class="btn-primary" onclick="changePassword()">Change Password</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div id="create-user-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+      <div style="background: white; padding: 30px; border-radius: 8px; max-width: 400px; width: 90%;">
+        <h3 style="margin-bottom: 20px;">Create New User</h3>
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Email</label>
+          <input type="email" id="new-user-email" class="form-input" style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Name</label>
+          <input type="text" id="new-user-name" class="form-input" style="width: 100%;">
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Role</label>
+          <select id="new-user-role" class="form-input" style="width: 100%;">
+            <option value="user">User (read/write)</option>
+            <option value="readonly">Read-only</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 5px; font-weight: 500;">Temporary Password</label>
+          <input type="text" id="new-user-password" class="form-input" style="width: 100%;">
+          <small style="color: #6b7280;">Min 8 characters, 1 uppercase, 1 number. User should change on first login.</small>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn-secondary" onclick="hideCreateUserModal()">Cancel</button>
+          <button class="btn-primary" onclick="createUser()">Create User</button>
         </div>
       </div>
     </div>
@@ -962,10 +1128,267 @@
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // ==================== SECURITY TAB FUNCTIONS ====================
+
+    let currentUser = null;
+
+    // Load current user info
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (!response.ok) {
+          // Not logged in - redirect to login
+          window.location.href = '/login.html?returnUrl=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        const data = await response.json();
+        currentUser = data.user;
+
+        document.getElementById('current-user-email').textContent = currentUser.email;
+        document.getElementById('current-user-role').textContent = `Role: ${currentUser.role}`;
+
+        // Show user management section for admins
+        if (currentUser.role === 'admin') {
+          document.getElementById('user-management-section').style.display = 'block';
+          loadUsersList();
+        }
+      } catch (e) {
+        console.error('Failed to load user info:', e);
+      }
+    }
+
+    // Load users list (admin only)
+    async function loadUsersList() {
+      const container = document.getElementById('users-list');
+      try {
+        const response = await fetch('/api/auth/users');
+        if (!response.ok) {
+          container.innerHTML = '<div class="alert error">Failed to load users</div>';
+          return;
+        }
+        const data = await response.json();
+
+        if (!data.users || data.users.length === 0) {
+          container.innerHTML = '<div class="alert info">No users found</div>';
+          return;
+        }
+
+        let html = '<div style="display: grid; gap: 10px;">';
+        for (const user of data.users) {
+          const isActive = user.is_active;
+          const isLocked = user.locked_until && new Date(user.locked_until) > new Date();
+          const statusClass = !isActive ? 'disconnected' : isLocked ? 'warning' : 'connected';
+          const statusText = !isActive ? 'Inactive' : isLocked ? 'Locked' : 'Active';
+
+          html += `
+            <div class="connection-card ${statusClass}" style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-weight: 600;">${escapeHtml(user.email)}</div>
+                <div style="font-size: 13px; color: #6b7280;">
+                  ${escapeHtml(user.name || 'No name')} &bull; ${user.role} &bull; ${statusText}
+                </div>
+                ${user.last_login ? `<div style="font-size: 12px; color: #9ca3af;">Last login: ${new Date(user.last_login).toLocaleString()}</div>` : ''}
+              </div>
+              <div style="display: flex; gap: 8px;">
+                ${isLocked ? `<button class="btn-icon" onclick="unlockUser(${user.id})" title="Unlock">🔓</button>` : ''}
+                <button class="btn-icon" onclick="resetUserPassword(${user.id}, '${escapeHtml(user.email)}')" title="Reset Password">🔑</button>
+                ${user.id !== currentUser.id ? `
+                  <button class="btn-icon" onclick="toggleUserActive(${user.id}, ${isActive})" title="${isActive ? 'Deactivate' : 'Activate'}">${isActive ? '🚫' : '✅'}</button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+      } catch (e) {
+        container.innerHTML = '<div class="alert error">Error loading users: ' + e.message + '</div>';
+      }
+    }
+
+    // Logout
+    async function logoutUser() {
+      if (!confirm('Are you sure you want to logout?')) return;
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login.html';
+      } catch (e) {
+        alert('Logout failed: ' + e.message);
+      }
+    }
+
+    // Change password modal
+    function showChangePasswordModal() {
+      document.getElementById('change-password-modal').style.display = 'flex';
+      document.getElementById('current-password').value = '';
+      document.getElementById('new-password').value = '';
+      document.getElementById('confirm-password').value = '';
+    }
+
+    function hideChangePasswordModal() {
+      document.getElementById('change-password-modal').style.display = 'none';
+    }
+
+    async function changePassword() {
+      const currentPassword = document.getElementById('current-password').value;
+      const newPassword = document.getElementById('new-password').value;
+      const confirmPassword = document.getElementById('confirm-password').value;
+
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        alert('Please fill in all fields');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        alert('New passwords do not match');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+          alert('Password changed successfully!');
+          hideChangePasswordModal();
+        } else {
+          alert('Error: ' + (data.error || 'Failed to change password'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    // Create user modal (admin only)
+    function showCreateUserModal() {
+      document.getElementById('create-user-modal').style.display = 'flex';
+      document.getElementById('new-user-email').value = '';
+      document.getElementById('new-user-name').value = '';
+      document.getElementById('new-user-role').value = 'user';
+      document.getElementById('new-user-password').value = '';
+    }
+
+    function hideCreateUserModal() {
+      document.getElementById('create-user-modal').style.display = 'none';
+    }
+
+    async function createUser() {
+      const email = document.getElementById('new-user-email').value.trim();
+      const name = document.getElementById('new-user-name').value.trim();
+      const role = document.getElementById('new-user-role').value;
+      const password = document.getElementById('new-user-password').value;
+
+      if (!email || !password) {
+        alert('Email and password are required');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/auth/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, name, role, password })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+          alert('User created successfully!');
+          hideCreateUserModal();
+          loadUsersList();
+        } else {
+          alert('Error: ' + (data.error || 'Failed to create user'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    // Admin user actions
+    async function unlockUser(userId) {
+      if (!confirm('Unlock this user account?')) return;
+      try {
+        const response = await fetch(`/api/auth/users/${userId}/unlock`, { method: 'POST' });
+        if (response.ok) {
+          loadUsersList();
+        } else {
+          const data = await response.json();
+          alert('Error: ' + (data.error || 'Failed to unlock'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function resetUserPassword(userId, email) {
+      const newPassword = prompt(`Enter new password for ${email}:\n(Min 8 chars, 1 uppercase, 1 number)`);
+      if (!newPassword) return;
+
+      try {
+        const response = await fetch(`/api/auth/users/${userId}/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: newPassword })
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+          alert('Password reset successfully!');
+        } else {
+          alert('Error: ' + (data.error || 'Failed to reset password'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function toggleUserActive(userId, isCurrentlyActive) {
+      const action = isCurrentlyActive ? 'deactivate' : 'activate';
+      if (!confirm(`Are you sure you want to ${action} this user?`)) return;
+
+      try {
+        const response = await fetch(`/api/auth/users/${userId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: !isCurrentlyActive })
+        });
+
+        if (response.ok) {
+          loadUsersList();
+        } else {
+          const data = await response.json();
+          alert('Error: ' + (data.error || 'Failed to update user'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    // Load security settings
+    async function loadSecuritySettings() {
+      try {
+        const response = await fetch('/api/settings/env');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.variables) {
+            document.getElementById('session-duration').value = data.variables.SESSION_DURATION_HOURS || '24';
+            document.getElementById('allowed-origins').value = data.variables.ALLOWED_ORIGINS || '';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load security settings:', e);
+      }
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       handleOAuthCallback();
       loadAllStatuses();
+      loadCurrentUser();
+      loadSecuritySettings();
     });
   </script>
 </body>
