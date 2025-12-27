@@ -289,7 +289,6 @@ WEBHOOK_SALES_SYNC=true
 | inventory.html | Inventory management |
 | reorder.html | Reorder suggestions |
 | purchase-orders.html | PO management |
-| po-generator.html | Batch PO creation |
 | sales-velocity.html | Sales analytics |
 | cycle-count.html | Daily counting |
 | cycle-count-history.html | Count history |
