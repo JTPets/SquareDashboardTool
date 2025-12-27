@@ -732,12 +732,44 @@
           EMAIL_TO: { group: 'Email', desc: 'Default recipient email' }
         };
 
+        // Define preferred variable order (these will appear first, in this order)
+        const preferredOrder = [
+          'PORT', 'NODE_ENV',
+          'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
+          'SQUARE_ACCESS_TOKEN', 'SQUARE_ENVIRONMENT',
+          'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI',
+          'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS',
+          'EMAIL_FROM', 'EMAIL_TO'
+        ];
+
+        // Sort variables: preferred order first, then remaining in original order
+        const sortedEntries = Object.entries(data.variables).sort((a, b) => {
+          const aIndex = preferredOrder.indexOf(a[0]);
+          const bIndex = preferredOrder.indexOf(b[0]);
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return 0;
+        });
+
         let html = '';
-        for (const [key, value] of Object.entries(data.variables)) {
+        for (const [key, value] of sortedEntries) {
           const info = varInfo[key] || { group: 'Other', desc: '' };
           const isSensitive = sensitiveKeys.includes(key);
           const maskedClass = isSensitive ? 'masked' : '';
           const sensitiveClass = isSensitive ? 'sensitive' : '';
+
+          // Special helper note for GOOGLE_REDIRECT_URI
+          let helperNote = '';
+          if (key === 'GOOGLE_REDIRECT_URI') {
+            helperNote = `
+              <div class="helper-note" style="font-size: 12px; color: #666; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #2563eb;">
+                <strong>Local development:</strong> <code>http://localhost:5001/api/google/callback</code><br>
+                <strong>Production:</strong> <code>https://yourdomain.com/api/google/callback</code><br>
+                <em>Must exactly match the URI in Google Cloud Console. Never use private IPs (192.168.x.x).</em>
+              </div>
+            `;
+          }
 
           html += `
             <div class="form-group ${sensitiveClass}">
@@ -753,6 +785,7 @@
                 ${isSensitive ? `<button class="btn-icon" onclick="toggleMask(this)" title="Show/Hide">👁️</button>` : ''}
                 <button class="btn-icon" onclick="copyValue('${key}')" title="Copy">📋</button>
               </div>
+              ${helperNote}
             </div>
           `;
         }
