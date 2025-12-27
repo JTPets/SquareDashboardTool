@@ -806,6 +806,8 @@
         const in120Days = new Date(today.getTime() + 120*24*60*60*1000);
         const expiringSoon = expirations.filter(i => {
           if (!i.expiration_date || i.does_not_expire) return false;
+          // Filter out items with 0 stock (can't audit what you don't have)
+          if ((parseFloat(i.quantity) || 0) <= 0) return false;
           const expDate = new Date(i.expiration_date);
           return expDate <= in120Days && expDate >= today;
         }).length;
