@@ -824,6 +824,40 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // ==================== WEBHOOK EVENTS TABLE ====================
+    const webhookTableExists = await query(`
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'webhook_events'
+        )
+    `);
+
+    if (!webhookTableExists.rows[0].exists) {
+        await query(`
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id SERIAL PRIMARY KEY,
+                square_event_id TEXT UNIQUE,
+                event_type TEXT NOT NULL,
+                merchant_id TEXT,
+                event_data JSONB,
+                status TEXT NOT NULL DEFAULT 'received',
+                processed_at TIMESTAMPTZ,
+                error_message TEXT,
+                sync_results JSONB,
+                received_at TIMESTAMPTZ DEFAULT NOW(),
+                processing_time_ms INTEGER,
+                CONSTRAINT valid_webhook_status CHECK (status IN ('received', 'processing', 'completed', 'failed', 'skipped'))
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type)');
+        await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_status ON webhook_events(status)');
+        await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_received ON webhook_events(received_at DESC)');
+        await query('CREATE INDEX IF NOT EXISTS idx_webhook_events_square_id ON webhook_events(square_event_id)');
+
+        logger.info('Created webhook_events table with indexes');
+        appliedCount++;
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
