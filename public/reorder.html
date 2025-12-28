@@ -1032,7 +1032,7 @@
                      onkeydown="if(event.key==='Enter') this.blur()"
                      style="width: 70px;">
             </td>
-            <td class="text-right"><strong>$${totalCost}</strong></td>
+            <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
             <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
           </tr>
@@ -1540,6 +1540,13 @@
           unitsEl.style.color = '#6b7280';
           unitsEl.style.fontWeight = 'normal';
         }
+      }
+
+      // Update line item total
+      const lineTotalEl = document.getElementById(`line-total-${variationId}`);
+      if (lineTotalEl) {
+        const lineTotal = (actualUnits * item.unit_cost_cents / 100).toFixed(2);
+        lineTotalEl.innerHTML = `<strong>$${lineTotal}</strong>`;
       }
 
       // Update footer totals
