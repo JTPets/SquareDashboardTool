@@ -6127,6 +6127,14 @@ app.post('/api/purchase-orders', async (req, res) => {
             });
         }
 
+        // Filter out any items with zero or negative quantity
+        const validItems = items.filter(item => item.quantity_ordered > 0);
+        if (validItems.length === 0) {
+            return res.status(400).json({
+                error: 'No items with valid quantities. All items have zero or negative quantity.'
+            });
+        }
+
         // Generate PO number: PO-YYYYMMDD-XXX
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
@@ -6139,7 +6147,7 @@ app.post('/api/purchase-orders', async (req, res) => {
 
         // Calculate totals
         let subtotalCents = 0;
-        for (const item of items) {
+        for (const item of validItems) {
             subtotalCents += item.quantity_ordered * item.unit_cost_cents;
         }
 
@@ -6156,7 +6164,7 @@ app.post('/api/purchase-orders', async (req, res) => {
         const po = poResult.rows[0];
 
         // Create PO items
-        for (const item of items) {
+        for (const item of validItems) {
             const totalCost = item.quantity_ordered * item.unit_cost_cents;
             await db.query(`
                 INSERT INTO purchase_order_items (

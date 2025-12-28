@@ -1201,14 +1201,20 @@
           quantity_ordered: actualUnits, // Order in full cases
           unit_cost_cents: item.unit_cost_cents
         };
-      });
+      }).filter(item => item.quantity_ordered > 0); // Exclude zero-quantity items
+
+      // Check if any items remain after filtering
+      if (items.length === 0) {
+        alert('No items to order. All selected items have zero quantity.');
+        return;
+      }
 
       const poData = {
         vendor_id: vendorId,
         location_id: locationId,
         supply_days_override: supplyDays,
         items: items,
-        notes: `Auto-generated from reorder suggestions (${selectedSuggestions.length} items)`,
+        notes: `Auto-generated from reorder suggestions (${items.length} items)`,
         created_by: 'Reorder System'
       };
 
