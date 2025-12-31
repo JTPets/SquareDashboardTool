@@ -79,8 +79,16 @@ app.use(configureRateLimit());
 app.use(configureCors());
 app.use(corsErrorHandler);
 
-// Body parsing
-app.use(express.json({ limit: '50mb' })); // Increased limit for database imports
+// Body parsing - capture raw body for webhook signature verification
+app.use(express.json({
+    limit: '50mb',
+    verify: (req, res, buf) => {
+        // Store raw body for webhook signature verification
+        if (req.originalUrl === '/api/webhooks/square') {
+            req.rawBody = buf.toString('utf8');
+        }
+    }
+}));
 
 // Session configuration
 const sessionDurationHours = parseInt(process.env.SESSION_DURATION_HOURS) || 24;
@@ -7564,14 +7572,20 @@ app.post('/api/webhooks/square', async (req, res) => {
         // Verify webhook signature if configured
         if (process.env.SQUARE_WEBHOOK_SIGNATURE_KEY) {
             const crypto = require('crypto');
-            const notificationUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-            const payload = JSON.stringify(req.body);
+            // Use the exact URL Square sends to (must match what's registered)
+            const notificationUrl = `https://${req.get('host')}${req.originalUrl}`;
+            // Use raw body to ensure exact match (JSON.stringify may alter formatting)
+            const payload = req.rawBody || JSON.stringify(req.body);
             const hmac = crypto.createHmac('sha256', process.env.SQUARE_WEBHOOK_SIGNATURE_KEY);
             hmac.update(notificationUrl + payload);
             const expectedSignature = hmac.digest('base64');
 
             if (signature !== expectedSignature) {
-                logger.warn('Invalid webhook signature', { received: signature });
+                logger.warn('Invalid webhook signature', {
+                    received: signature,
+                    expected: expectedSignature,
+                    url: notificationUrl
+                });
                 return res.status(401).json({ error: 'Invalid signature' });
             }
         }
