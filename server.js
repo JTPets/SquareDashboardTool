@@ -7485,7 +7485,7 @@ app.get('/api/subscriptions/admin/list', async (req, res) => {
  * GET /api/webhooks/events
  * View recent webhook events (admin only)
  */
-app.get('/api/webhooks/events', requireAuth, requireRole('admin'), async (req, res) => {
+app.get('/api/webhooks/events', requireAuth, requireAdmin, async (req, res) => {
     try {
         const { limit = 50, status, event_type } = req.query;
 
