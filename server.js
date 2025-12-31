@@ -7482,6 +7482,60 @@ app.get('/api/subscriptions/admin/list', async (req, res) => {
 });
 
 /**
+ * GET /api/webhooks/events
+ * View recent webhook events (admin only)
+ */
+app.get('/api/webhooks/events', requireAuth, requireRole('admin'), async (req, res) => {
+    try {
+        const { limit = 50, status, event_type } = req.query;
+
+        let query = `
+            SELECT id, square_event_id, event_type, merchant_id, status,
+                   received_at, processed_at, processing_time_ms, error_message,
+                   sync_results
+            FROM webhook_events
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (status) {
+            params.push(status);
+            query += ` AND status = $${params.length}`;
+        }
+
+        if (event_type) {
+            params.push(event_type);
+            query += ` AND event_type = $${params.length}`;
+        }
+
+        params.push(parseInt(limit));
+        query += ` ORDER BY received_at DESC LIMIT $${params.length}`;
+
+        const result = await db.query(query, params);
+
+        // Get summary stats
+        const stats = await db.query(`
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 'completed') as completed,
+                COUNT(*) FILTER (WHERE status = 'failed') as failed,
+                COUNT(*) FILTER (WHERE status = 'skipped') as skipped,
+                AVG(processing_time_ms) FILTER (WHERE processing_time_ms IS NOT NULL) as avg_processing_ms
+            FROM webhook_events
+            WHERE received_at > NOW() - INTERVAL '24 hours'
+        `);
+
+        res.json({
+            events: result.rows,
+            stats: stats.rows[0]
+        });
+    } catch (error) {
+        logger.error('Error fetching webhook events', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/webhooks/square
  * Handle Square webhook events
  *
@@ -7493,9 +7547,16 @@ app.get('/api/subscriptions/admin/list', async (req, res) => {
  * Catalog & Inventory Events (feature-flagged):
  *   - catalog.version.updated  → WEBHOOK_CATALOG_SYNC
  *   - inventory.count.updated  → WEBHOOK_INVENTORY_SYNC
- *   - order.created/updated/fulfilled → WEBHOOK_ORDER_SYNC
+ *   - order.created/updated    → WEBHOOK_ORDER_SYNC (syncs committed inventory)
+ *   - order.fulfillment.updated → WEBHOOK_ORDER_SYNC (syncs committed + sales velocity)
+ *
+ * OAuth Events:
+ *   - oauth.authorization.revoked → Logs warning, requires re-auth
  */
 app.post('/api/webhooks/square', async (req, res) => {
+    const startTime = Date.now();
+    let webhookEventId = null;
+
     try {
         const signature = req.headers['x-square-hmacsha256-signature'];
         const event = req.body;
@@ -7515,12 +7576,34 @@ app.post('/api/webhooks/square', async (req, res) => {
             }
         }
 
+        // Check for duplicate events (idempotency)
+        if (event.event_id) {
+            const existing = await db.query(
+                'SELECT id FROM webhook_events WHERE square_event_id = $1',
+                [event.event_id]
+            );
+            if (existing.rows.length > 0) {
+                logger.info('Duplicate webhook event ignored', { eventId: event.event_id });
+                return res.json({ received: true, duplicate: true });
+            }
+        }
+
+        // Log the incoming event
+        const insertResult = await db.query(`
+            INSERT INTO webhook_events (square_event_id, event_type, merchant_id, event_data, status)
+            VALUES ($1, $2, $3, $4, 'processing')
+            RETURNING id
+        `, [event.event_id, event.type, event.merchant_id, JSON.stringify(event.data)]);
+        webhookEventId = insertResult.rows[0]?.id;
+
         logger.info('Square webhook received', {
             eventType: event.type,
-            eventId: event.event_id
+            eventId: event.event_id,
+            merchantId: event.merchant_id
         });
 
         let subscriberId = null;
+        let syncResults = {};
         const data = event.data?.object || {};
 
         // Handle different event types
@@ -7631,16 +7714,19 @@ app.post('/api/webhooks/square', async (req, res) => {
                 if (process.env.WEBHOOK_CATALOG_SYNC !== 'false') {
                     try {
                         logger.info('Catalog change detected via webhook, syncing...');
-                        const syncResult = await squareApi.syncCatalog();
-                        logger.info('Catalog sync completed via webhook', {
-                            items: syncResult.items,
-                            variations: syncResult.variations
-                        });
+                        const catalogSyncResult = await squareApi.syncCatalog();
+                        syncResults.catalog = {
+                            items: catalogSyncResult.items,
+                            variations: catalogSyncResult.variations
+                        };
+                        logger.info('Catalog sync completed via webhook', syncResults.catalog);
                     } catch (syncError) {
                         logger.error('Catalog sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
                     }
                 } else {
                     logger.info('Catalog webhook received but WEBHOOK_CATALOG_SYNC is disabled');
+                    syncResults.skipped = true;
                 }
                 break;
 
@@ -7654,20 +7740,25 @@ app.post('/api/webhooks/square', async (req, res) => {
                             quantity: inventoryChange?.quantity,
                             locationId: inventoryChange?.location_id
                         });
-                        const syncResult = await squareApi.syncInventory();
-                        logger.info('Inventory sync completed via webhook', { count: syncResult });
+                        const inventorySyncResult = await squareApi.syncInventory();
+                        syncResults.inventory = {
+                            count: inventorySyncResult,
+                            catalogObjectId: inventoryChange?.catalog_object_id
+                        };
+                        logger.info('Inventory sync completed via webhook', { count: inventorySyncResult });
                     } catch (syncError) {
                         logger.error('Inventory sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
                     }
                 } else {
                     logger.info('Inventory webhook received but WEBHOOK_INVENTORY_SYNC is disabled');
+                    syncResults.skipped = true;
                 }
                 break;
 
             case 'order.created':
             case 'order.updated':
-            case 'order.fulfilled':
-                // Order activity - sync sales data for velocity calculations
+                // Order created/updated - sync committed inventory (open orders)
                 if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
                     try {
                         const order = data.order;
@@ -7676,24 +7767,87 @@ app.post('/api/webhooks/square', async (req, res) => {
                             state: order?.state,
                             eventType: event.type
                         });
-                        // Only sync on fulfilled orders to avoid incomplete data
-                        if (event.type === 'order.fulfilled' || order?.state === 'COMPLETED') {
-                            await squareApi.syncSalesData(91);  // Sync recent 91 days
-                            logger.info('Sales data sync completed via webhook');
-                        }
+                        // Sync committed inventory for open orders
+                        const committedResult = await squareApi.syncCommittedInventory();
+                        syncResults.committedInventory = committedResult;
+                        logger.info('Committed inventory sync completed via webhook', { count: committedResult });
                     } catch (syncError) {
-                        logger.error('Sales sync via webhook failed', { error: syncError.message });
+                        logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
                     }
                 } else {
                     logger.info('Order webhook received but WEBHOOK_ORDER_SYNC is disabled');
+                    syncResults.skipped = true;
+                }
+                break;
+
+            case 'order.fulfillment.updated':
+                // Fulfillment status changed - update committed inventory and sales velocity
+                if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    try {
+                        const fulfillment = data.fulfillment;
+                        logger.info('Order fulfillment updated via webhook', {
+                            fulfillmentId: fulfillment?.uid,
+                            state: fulfillment?.state,
+                            orderId: data.order_id
+                        });
+                        // Sync committed inventory (fulfilled orders reduce committed qty)
+                        const committedResult = await squareApi.syncCommittedInventory();
+                        syncResults.committedInventory = committedResult;
+
+                        // If fulfilled/completed, also sync sales velocity
+                        if (fulfillment?.state === 'COMPLETED') {
+                            await squareApi.syncSalesVelocity(91);
+                            syncResults.salesVelocity = true;
+                            logger.info('Sales velocity sync completed via fulfillment webhook');
+                        }
+                    } catch (syncError) {
+                        logger.error('Fulfillment sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
+                    }
+                } else {
+                    logger.info('Fulfillment webhook received but WEBHOOK_ORDER_SYNC is disabled');
+                    syncResults.skipped = true;
+                }
+                break;
+
+            // ==================== OAUTH WEBHOOKS ====================
+
+            case 'oauth.authorization.revoked':
+                // Merchant or app revoked OAuth access
+                try {
+                    const revokedMerchantId = event.merchant_id;
+                    logger.warn('OAuth authorization revoked via webhook', {
+                        merchantId: revokedMerchantId,
+                        revokedAt: event.created_at
+                    });
+
+                    // Log the revocation event prominently
+                    syncResults.revoked = true;
+                    syncResults.merchantId = revokedMerchantId;
+
+                    // For future multi-tenant: mark merchant as disconnected
+                    // await db.query(
+                    //     'UPDATE merchants SET is_authorized = false, revoked_at = NOW() WHERE square_merchant_id = $1',
+                    //     [revokedMerchantId]
+                    // );
+
+                    // For now, just log prominently - admin will need to reconnect
+                    logger.error('⚠️ OAUTH REVOKED - Square access has been disconnected. Re-authorization required.', {
+                        merchantId: revokedMerchantId
+                    });
+                } catch (revokeError) {
+                    logger.error('Error handling OAuth revocation', { error: revokeError.message });
+                    syncResults.error = revokeError.message;
                 }
                 break;
 
             default:
                 logger.info('Unhandled webhook event type', { type: event.type });
+                syncResults.unhandled = true;
         }
 
-        // Log the event
+        // Log the event to subscription handler (legacy)
         await subscriptionHandler.logEvent({
             subscriberId,
             eventType: event.type,
@@ -7701,10 +7855,39 @@ app.post('/api/webhooks/square', async (req, res) => {
             squareEventId: event.event_id
         });
 
-        res.json({ received: true });
+        // Update webhook_events with results
+        const processingTime = Date.now() - startTime;
+        if (webhookEventId) {
+            const status = syncResults.error ? 'failed' : (syncResults.skipped ? 'skipped' : 'completed');
+            await db.query(`
+                UPDATE webhook_events
+                SET status = $1,
+                    processed_at = NOW(),
+                    sync_results = $2,
+                    processing_time_ms = $3,
+                    error_message = $4
+                WHERE id = $5
+            `, [status, JSON.stringify(syncResults), processingTime, syncResults.error || null, webhookEventId]);
+        }
+
+        res.json({ received: true, processingTimeMs: processingTime });
 
     } catch (error) {
-        logger.error('Webhook processing error', { error: error.message });
+        logger.error('Webhook processing error', { error: error.message, stack: error.stack });
+
+        // Update webhook_events with error
+        if (webhookEventId) {
+            const processingTime = Date.now() - startTime;
+            await db.query(`
+                UPDATE webhook_events
+                SET status = 'failed',
+                    processed_at = NOW(),
+                    error_message = $1,
+                    processing_time_ms = $2
+                WHERE id = $3
+            `, [error.message, processingTime, webhookEventId]).catch(() => {});
+        }
+
         res.status(500).json({ error: error.message });
     }
 });
