@@ -178,6 +178,10 @@ if (authEnabled) {
         if (req.path === '/health') {
             return next();
         }
+        // Allow webhook endpoint without auth (Square needs to POST to it)
+        if (req.path === '/webhooks/square') {
+            return next();
+        }
         // Require authentication for all other API routes
         return requireAuthApi(req, res, next);
     });
