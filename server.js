@@ -7570,13 +7570,14 @@ app.post('/api/webhooks/square', async (req, res) => {
         const event = req.body;
 
         // Verify webhook signature if configured
-        if (process.env.SQUARE_WEBHOOK_SIGNATURE_KEY) {
+        const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY?.trim();
+        if (signatureKey && process.env.WEBHOOK_SIGNATURE_VERIFY !== 'false') {
             const crypto = require('crypto');
-            // Use the exact URL Square sends to (must match what's registered)
-            const notificationUrl = `https://${req.get('host')}${req.originalUrl}`;
+            // Use the exact URL registered with Square (hardcode to avoid proxy issues)
+            const notificationUrl = process.env.SQUARE_WEBHOOK_URL || `https://${req.get('host')}${req.originalUrl}`;
             // Use raw body to ensure exact match (JSON.stringify may alter formatting)
             const payload = req.rawBody || JSON.stringify(req.body);
-            const hmac = crypto.createHmac('sha256', process.env.SQUARE_WEBHOOK_SIGNATURE_KEY);
+            const hmac = crypto.createHmac('sha256', signatureKey);
             hmac.update(notificationUrl + payload);
             const expectedSignature = hmac.digest('base64');
 
@@ -7584,10 +7585,14 @@ app.post('/api/webhooks/square', async (req, res) => {
                 logger.warn('Invalid webhook signature', {
                     received: signature,
                     expected: expectedSignature,
-                    url: notificationUrl
+                    url: notificationUrl,
+                    hasRawBody: !!req.rawBody,
+                    bodyLength: payload?.length
                 });
                 return res.status(401).json({ error: 'Invalid signature' });
             }
+        } else if (!signatureKey) {
+            logger.info('Webhook signature verification skipped (no key configured)');
         }
 
         // Check for duplicate events (idempotency)
