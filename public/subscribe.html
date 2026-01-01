@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Subscribe - Square Dashboard Addon Tool</title>
-  <!-- Square Web Payments SDK -->
-  <script type="text/javascript" src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
+  <!-- Square Web Payments SDK loaded dynamically based on environment -->
   <style>
     /* BASE STYLES */
     * {
@@ -556,16 +555,33 @@
       }
     };
 
+    // Load Square SDK dynamically based on environment
+    function loadSquareSDK(environment) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = environment === 'production'
+          ? 'https://web.squarecdn.com/v1/square.js'
+          : 'https://sandbox.web.squarecdn.com/v1/square.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load Square SDK'));
+        document.head.appendChild(script);
+      });
+    }
+
     // Initialize Square Payments
     async function initializeSquare() {
       try {
-        // Fetch application ID and location ID from server
+        // Fetch application ID, location ID, and environment from server
         const config = await fetch('/api/square/payment-config').then(r => r.json());
 
         if (!config.applicationId) {
           console.error('Square application ID not configured');
           return;
         }
+
+        // Load the correct SDK for the environment
+        await loadSquareSDK(config.environment);
+        console.log(`Loaded Square SDK for ${config.environment} environment`);
 
         payments = Square.payments(config.applicationId, config.locationId);
 
