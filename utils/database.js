@@ -583,6 +583,90 @@ async function ensureSchema() {
 
         logger.info('Created subscription tables with indexes');
         appliedCount++;
+    } else {
+        // Add promo code columns to subscribers if missing
+        const promoColCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'subscribers' AND column_name = 'promo_code_id'
+        `);
+        if (promoColCheck.rows.length === 0) {
+            await query('ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS promo_code_id INTEGER');
+            await query('ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS discount_applied_cents INTEGER DEFAULT 0');
+            logger.info('Added promo code columns to subscribers');
+            appliedCount++;
+        }
+    }
+
+    // ==================== PROMO CODES TABLES ====================
+
+    // Check if promo_codes table exists
+    const promoCodesCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'promo_codes'
+    `);
+
+    if (promoCodesCheck.rows.length === 0) {
+        logger.info('Creating promo codes tables...');
+
+        // 1. Promo codes table
+        await query(`
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                id SERIAL PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                description TEXT,
+                discount_type TEXT NOT NULL DEFAULT 'percent',
+                discount_value INTEGER NOT NULL,
+                max_uses INTEGER,
+                times_used INTEGER DEFAULT 0,
+                min_purchase_cents INTEGER DEFAULT 0,
+                valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                valid_until TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE,
+                applies_to_plans TEXT[],
+                created_by TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes(is_active)');
+
+        // 2. Promo code uses tracking
+        await query(`
+            CREATE TABLE IF NOT EXISTS promo_code_uses (
+                id SERIAL PRIMARY KEY,
+                promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+                subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+                discount_applied_cents INTEGER NOT NULL,
+                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(promo_code_id, subscriber_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code ON promo_code_uses(promo_code_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_code_uses_subscriber ON promo_code_uses(subscriber_id)');
+
+        // Insert default promo codes for testing
+        await query(`
+            INSERT INTO promo_codes (code, description, discount_type, discount_value, max_uses, created_by) VALUES
+                ('BETA100', 'Beta tester - 100% off first payment', 'percent', 100, 50, 'system'),
+                ('HALFOFF', '50% off first month', 'percent', 50, NULL, 'system'),
+                ('SAVE5', '$5 off any plan', 'fixed', 500, NULL, 'system')
+            ON CONFLICT (code) DO NOTHING
+        `);
+
+        // Add foreign key to subscribers if promo_codes table now exists
+        try {
+            await query(`
+                ALTER TABLE subscribers
+                ADD CONSTRAINT fk_subscribers_promo_code
+                FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id)
+            `);
+        } catch (e) {
+            // Constraint may already exist
+        }
+
+        logger.info('Created promo codes tables with indexes');
+        appliedCount++;
     }
 
     // ==================== EXPIRY DISCOUNT TABLES ====================
