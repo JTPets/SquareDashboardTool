@@ -134,12 +134,15 @@ if (!process.env.SESSION_SECRET) {
 // Redirect unauthenticated users to login page for protected HTML pages
 const authEnabled = process.env.AUTH_DISABLED !== 'true';
 
+// Public pages that don't require authentication
+const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html'];
+
 if (authEnabled) {
     app.use((req, res, next) => {
         // Only check HTML page requests (not API, not static assets)
-        if (req.method === 'GET' && req.path.match(/\.(html)$/) || req.path === '/') {
-            // Allow login page without auth
-            if (req.path === '/login.html') {
+        if (req.method === 'GET' && (req.path.match(/\.(html)$/) || req.path === '/')) {
+            // Allow public pages without auth
+            if (publicPages.includes(req.path)) {
                 return next();
             }
             // Check if user is authenticated

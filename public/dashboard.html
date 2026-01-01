@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Square Dashboard Addon Tool</title>
+  <style>
+    /* BASE STYLES */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+
+    /* CONTAINER */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    /* HEADER */
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-content {
+      text-align: left;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .header p {
+      font-size: 15px;
+      color: #e5e7eb;
+      opacity: 0.9;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .user-info {
+      text-align: right;
+      font-size: 14px;
+    }
+
+    .user-info .user-email {
+      opacity: 0.9;
+    }
+
+    .user-info .user-role {
+      font-size: 11px;
+      opacity: 0.7;
+      text-transform: uppercase;
+    }
+
+    .btn-logout {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    .btn-logout:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    /* STATS BAR */
+    .stats-bar {
+      background: #1f2937;
+      color: white;
+      padding: 15px 30px;
+    }
+
+    .stats-row {
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 10px 0;
+    }
+
+    .stats-row:not(:last-child) {
+      border-bottom: 1px solid #374151;
+    }
+
+    .stat {
+      text-align: center;
+      min-width: 100px;
+    }
+
+    .stat-number {
+      font-size: 24px;
+      font-weight: bold;
+      color: #10b981;
+    }
+
+    .stat-number.alert {
+      color: #ef4444;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    /* SYNC STATUS */
+    .sync-status {
+      background: #10b981;
+      color: white;
+      padding: 12px 20px;
+      margin: 20px 30px;
+      border-radius: 6px;
+      font-size: 14px;
+      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .sync-status.loading {
+      background: #f59e0b;
+    }
+
+    .sync-status button {
+      background: white;
+      color: #10b981;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .sync-status button:hover {
+      background: #f3f4f6;
+    }
+
+    /* TOOL CARDS GRID */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      padding: 30px;
+    }
+
+    .tool-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      min-height: 180px;
+    }
+
+    .tool-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    }
+
+    .tool-card h2 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #111827;
+      font-weight: 600;
+    }
+
+    .tool-card p {
+      flex-grow: 1;
+      font-size: 14px;
+      color: #4b5563;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .tool-card a {
+      display: inline-block;
+      text-align: center;
+      background: #059669;
+      color: white;
+      padding: 10px 16px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.15s ease;
+      font-size: 14px;
+    }
+
+    .tool-card a:hover {
+      background: #047857;
+    }
+
+    /* CARD CATEGORIES */
+    .critical {
+      border-left: 4px solid #ef4444;
+    }
+
+    .inventory {
+      border-left: 4px solid #f59e0b;
+    }
+
+    .api {
+      border-left: 4px solid #3b82f6;
+    }
+
+    .operations {
+      border-left: 4px solid #8b5cf6;
+    }
+
+    /* TAGS */
+    .tag {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #ef4444;
+      color: white;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+
+    .tag.new {
+      background: #10b981;
+    }
+
+    .tag.value {
+      background: #8b5cf6;
+    }
+
+    /* Make START HERE tag more prominent */
+    .tool-card .tag.value {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    /* API SECTION */
+    .api-section {
+      display: none;
+      background: #f3f4f6;
+      padding: 20px;
+      margin: 0 30px 20px 30px;
+      border-radius: 8px;
+    }
+
+    .api-section h3 {
+      margin-bottom: 15px;
+      color: #374151;
+      font-size: 18px;
+    }
+
+    .api-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 15px;
+    }
+
+    .api-category {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      border-left: 4px solid #3b82f6;
+    }
+
+    .api-category h4 {
+      color: #1f2937;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+
+    .api-category a {
+      color: #2563eb;
+      text-decoration: none;
+      font-size: 13px;
+      line-height: 1.8;
+      display: block;
+    }
+
+    .api-category a:hover {
+      text-decoration: underline;
+    }
+
+    /* FOOTER */
+    .footer {
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .footer a {
+      color: #6b7280;
+      text-decoration: none;
+      margin: 0 8px;
+    }
+
+    .footer a:hover {
+      color: #374151;
+      text-decoration: underline;
+    }
+
+    /* LOADING STATE */
+    .loading-placeholder {
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      body {
+        padding: 10px;
+      }
+
+      .stats-bar {
+        padding: 15px;
+      }
+
+      .stats-row {
+        flex-direction: column;
+        gap: 10px;
+        padding: 10px 0;
+      }
+
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+      }
+
+      .tools-grid {
+        grid-template-columns: 1fr;
+        padding: 15px;
+      }
+
+      .sync-status {
+        flex-direction: column;
+        gap: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HEADER -->
+    <div class="header">
+      <div class="header-content">
+        <h1>Dashboard</h1>
+        <p>Manage store operations, inventory, and automations</p>
+      </div>
+      <div class="header-actions">
+        <div class="user-info">
+          <div class="user-email" id="user-email">Loading...</div>
+          <div class="user-role" id="user-role"></div>
+        </div>
+        <button class="btn-logout" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <!-- STATS BAR -->
+    <div class="stats-bar" id="stats-bar">
+      <!-- Row 1: Inventory & Stock Metrics -->
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-variations">--</div>
+          <div class="stat-label">Total Variations</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-total-units">--</div>
+          <div class="stat-label">Total Units</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-value-retail">--</div>
+          <div class="stat-label">Inventory Value (Retail)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-value-cog">--</div>
+          <div class="stat-label">Inventory Value (COG)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-out-of-stock">--</div>
+          <div class="stat-label">Out of Stock</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-alerts">--</div>
+          <div class="stat-label">Reorder Alerts</div>
+        </div>
+      </div>
+
+      <!-- Row 2: Expiration & Cycle Count Metrics -->
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
+          <div class="stat-label">With Expiry Data</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
+          <div class="stat-label">Expiring &lt; 120 Days</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-pending">--</div>
+          <div class="stat-label">Cycle Counts Pending</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-target">--</div>
+          <div class="stat-label">Today's Target</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number loading-placeholder" id="stat-cycle-complete">--</div>
+          <div class="stat-label">Completion Rate</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SYNC STATUS -->
+    <div class="sync-status" id="sync-status">
+      <span>Loading sync status...</span>
+    </div>
+
+    <!-- TOOL CARDS -->
+    <div class="tools-grid">
+
+      <!-- REORDER SUGGESTIONS -->
+      <div class="tool-card inventory">
+        <div class="tag value">START HERE</div>
+        <h2>📦 Reorder Suggestions</h2>
+        <p>Smart reorder suggestions by vendor with one-click purchase order creation. View stock levels, sales velocity, and generate POs instantly.</p>
+        <a href="reorder.html">View Reorders</a>
+      </div>
+
+      <!-- PO MANAGEMENT -->
+      <div class="tool-card inventory">
+        <div class="tag new">NEW</div>
+        <h2>📋 Manage Purchase Orders</h2>
+        <p>View, edit, and track all purchase orders. Export to CSV, view history, and mark orders as received.</p>
+        <a href="purchase-orders.html">View All POs</a>
+      </div>
+
+      <!-- EXPIRATION TRACKER -->
+      <div class="tool-card inventory">
+        <h2>📅 Expiration Tracker</h2>
+        <p>Track and update product expiration dates to ensure freshness and compliance.</p>
+        <a href="expiry.html">Open Tool</a>
+      </div>
+
+      <!-- FULL INVENTORY -->
+      <div class="tool-card inventory">
+        <div class="tag new">NEW</div>
+        <h2>📦 Full Inventory Overview</h2>
+        <p>Complete view of all inventory records across all locations with stock levels and values.</p>
+        <a href="inventory.html">View Inventory</a>
+      </div>
+
+      <!-- SALES VELOCITY -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>📈 Sales Velocity Reports</h2>
+        <p>91/182/365 day sales trends. Identify fast-moving and slow-moving products.</p>
+        <a href="sales-velocity.html">View Reports</a>
+      </div>
+
+      <!-- CYCLE COUNT -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>🔄 Cycle Count System</h2>
+        <p>Mobile-optimized cycle counting with rotation logic. Track count history and priority items.</p>
+        <a href="cycle-count.html">Start Counting</a>
+      </div>
+
+      <!-- CYCLE COUNT HISTORY -->
+      <div class="tool-card operations">
+        <h2>📊 Cycle Count History</h2>
+        <p>View historical cycle count data, accuracy tracking, and variance reports.</p>
+        <a href="cycle-count-history.html">View History</a>
+      </div>
+
+      <!-- DELETED ITEMS -->
+      <div class="tool-card operations">
+        <h2>🗑️ Deleted Items Management</h2>
+        <p>View soft-deleted items with zeroed inventory. Clean up items deleted more than 1 year ago.</p>
+        <a href="deleted-items.html">View Deleted</a>
+      </div>
+
+      <!-- VENDOR CATALOG IMPORT -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>📥 Vendor Catalog Import</h2>
+        <p>Import vendor catalogs from CSV/XLSX for rapid lookup. Track costs, prices, and margins across vendors.</p>
+        <a href="vendor-catalog.html">Import Catalog</a>
+      </div>
+
+      <!-- CATALOG AUDIT -->
+      <div class="tool-card critical">
+        <div class="tag new">NEW</div>
+        <h2>🔍 Catalog Audit</h2>
+        <p>Comprehensive audit of catalog data quality. Find items missing categories, prices, images, descriptions, SKUs, and more.</p>
+        <a href="catalog-audit.html">Run Audit</a>
+      </div>
+
+      <!-- GMC FEED VIEWER -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>🛒 Google Merchant Feed</h2>
+        <p>View and manage Google Merchant Center feed. Check for missing images, GTINs, brands, and sync to Google Sheets.</p>
+        <a href="gmc-feed.html">View Feed</a>
+      </div>
+
+      <!-- SYSTEM SETTINGS -->
+      <div class="tool-card api">
+        <div class="tag new">NEW</div>
+        <h2>⚙️ System Settings</h2>
+        <p>Configure API connections, environment variables, and service integrations. Manage Square, Google, and email settings.</p>
+        <a href="settings.html">Open Settings</a>
+      </div>
+
+      <!-- SYSTEM HEALTH -->
+      <div class="tool-card api">
+        <h2>💚 System Health Check</h2>
+        <p>Monitor database connection, sync status, and system performance.</p>
+        <a href="/api/health" target="_blank">Check Health</a>
+      </div>
+
+      <!-- DATABASE BACKUP -->
+      <div class="tool-card operations">
+        <div class="tag new">NEW</div>
+        <h2>💾 Database Backup & Restore</h2>
+        <p>Export and import complete database backups. Restore to empty or existing databases.</p>
+        <a href="database-backup.html">Manage Backups</a>
+      </div>
+
+      <!-- RAW API ACCESS -->
+      <div class="tool-card api">
+        <h2>🔌 Raw API Access</h2>
+        <p>Direct JSON access to all database endpoints for development and integration.</p>
+        <a href="#" onclick="toggleApiList(); return false;">View All APIs</a>
+      </div>
+
+    </div>
+
+    <!-- API DOCUMENTATION (collapsible) -->
+    <div class="api-section" id="api-section">
+      <h3>📚 Raw API Endpoints (68 Total)</h3>
+      <div class="api-grid">
+
+        <div class="api-category">
+          <h4>💚 Health & Status</h4>
+          <a href="/api/health" target="_blank">GET /api/health</a>
+          <a href="/api/config" target="_blank">GET /api/config</a>
+        </div>
+
+        <div class="api-category">
+          <h4>💾 Database Backup</h4>
+          <a href="/api/database/info" target="_blank">GET /api/database/info</a>
+          <a href="/api/database/export" target="_blank">GET /api/database/export</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/database/import</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📋 Logging</h4>
+          <a href="/api/logs" target="_blank">GET /api/logs</a>
+          <a href="/api/logs/errors" target="_blank">GET /api/logs/errors</a>
+          <a href="/api/logs/stats" target="_blank">GET /api/logs/stats</a>
+          <a href="/api/logs/download" target="_blank">GET /api/logs/download</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🧪 Testing</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-email</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-error</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-backup-email</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔄 Sync Operations</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-smart</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-sales</a>
+          <a href="/api/sync-status" target="_blank">GET /api/sync-status</a>
+          <a href="/api/sync-history" target="_blank">GET /api/sync-history</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📦 Items & Catalog</h4>
+          <a href="/api/categories" target="_blank">GET /api/categories</a>
+          <a href="/api/items" target="_blank">GET /api/items</a>
+          <a href="/api/variations" target="_blank">GET /api/variations</a>
+          <a href="/api/variations-with-costs" target="_blank">GET /api/variations-with-costs</a>
+        </div>
+
+        <div class="api-category">
+          <h4>✏️ Variation Extended Fields</h4>
+          <a href="#" onclick="alert('Use PATCH with variation ID')" target="_blank">PATCH /api/variations/:id/extended</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/variations/bulk-update-extended</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📅 Expiration Tracking</h4>
+          <a href="/api/expirations" target="_blank">GET /api/expirations</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/expirations</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📊 Inventory</h4>
+          <a href="/api/inventory" target="_blank">GET /api/inventory</a>
+          <a href="/api/low-stock" target="_blank">GET /api/low-stock</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🗑️ Deleted Items</h4>
+          <a href="/api/deleted-items" target="_blank">GET /api/deleted-items</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔍 Catalog Audit</h4>
+          <a href="/api/catalog-audit" target="_blank">GET /api/catalog-audit</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🏪 Vendors & Locations</h4>
+          <a href="/api/vendors" target="_blank">GET /api/vendors</a>
+          <a href="/api/locations" target="_blank">GET /api/locations</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📥 Vendor Catalog Import</h4>
+          <a href="/api/vendor-catalog" target="_blank">GET /api/vendor-catalog</a>
+          <a href="/api/vendor-catalog/stats" target="_blank">GET /api/vendor-catalog/stats</a>
+          <a href="/api/vendor-catalog/batches" target="_blank">GET /api/vendor-catalog/batches</a>
+          <a href="#" onclick="alert('Use POST with JSON body')" target="_blank">POST /api/vendor-catalog/import</a>
+          <a href="#" onclick="alert('Use GET with UPC param')" target="_blank">GET /api/vendor-catalog/lookup/:upc</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📈 Sales Velocity</h4>
+          <a href="/api/sales-velocity" target="_blank">GET /api/sales-velocity</a>
+          <a href="/api/sales-velocity?period_days=91" target="_blank">GET /api/sales-velocity?period=91</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔔 Reorder Suggestions</h4>
+          <a href="/api/reorder-suggestions" target="_blank">GET /api/reorder-suggestions</a>
+          <a href="/api/reorder-suggestions?supply_days=45" target="_blank">GET /api/reorder-suggestions?supply_days=45</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🔄 Cycle Count</h4>
+          <a href="/api/cycle-counts/pending" target="_blank">GET /api/cycle-counts/pending</a>
+          <a href="/api/cycle-counts/stats" target="_blank">GET /api/cycle-counts/stats</a>
+          <a href="/api/cycle-counts/history" target="_blank">GET /api/cycle-counts/history</a>
+          <a href="#" onclick="alert('Use POST with count ID')" target="_blank">POST /api/cycle-counts/:id/complete</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/send-now</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/email-report</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/generate-batch</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/reset</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📝 Purchase Orders</h4>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/purchase-orders</a>
+          <a href="/api/purchase-orders" target="_blank">GET /api/purchase-orders</a>
+          <a href="#" onclick="alert('Use GET with PO ID')" target="_blank">GET /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use PATCH with PO ID')" target="_blank">PATCH /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/submit</a>
+          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/receive</a>
+          <a href="#" onclick="alert('Use DELETE with PO ID')" target="_blank">DELETE /api/purchase-orders/:id</a>
+          <a href="#" onclick="alert('Use GET with PO number')" target="_blank">GET /api/purchase-orders/:po_number/export-csv</a>
+        </div>
+
+        <div class="api-category">
+          <h4>🛒 Google Merchant Center</h4>
+          <a href="/api/gmc/feed" target="_blank">GET /api/gmc/feed</a>
+          <a href="/api/gmc/feed.tsv" target="_blank">GET /api/gmc/feed.tsv</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/generate</a>
+          <a href="/api/gmc/settings" target="_blank">GET /api/gmc/settings</a>
+          <a href="/api/gmc/brands" target="_blank">GET /api/gmc/brands</a>
+          <a href="/api/gmc/taxonomy" target="_blank">GET /api/gmc/taxonomy</a>
+          <a href="/api/gmc/history" target="_blank">GET /api/gmc/history</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/sync-sheet</a>
+        </div>
+
+        <div class="api-category">
+          <h4>📊 Google OAuth</h4>
+          <a href="/api/google/status" target="_blank">GET /api/google/status</a>
+          <a href="/api/google/auth" target="_blank">GET /api/google/auth</a>
+          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/google/disconnect</a>
+        </div>
+
+        <div class="api-category">
+          <h4>⚙️ Settings</h4>
+          <a href="/api/settings/env" target="_blank">GET /api/settings/env</a>
+          <a href="#" onclick="alert('Use PUT request')" target="_blank">PUT /api/settings/env</a>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      &copy; <span id="year"></span> Square Dashboard Addon Tool |
+      <strong>Quick Access:</strong>
+      <a href="/api/items">Items</a>
+      <a href="/api/inventory">Inventory</a>
+      <a href="/api/reorder-suggestions?supply_days=45">Alerts</a>
+      <a href="/api/health">Health</a>
+      |
+      <a href="/support.html">Support</a>
+      |
+      Created by <a href="https://jtpets.ca" target="_blank" rel="noopener">JTPets.ca</a>
+    </div>
+  </div>
+
+  <!-- Error Helper for user-friendly messages -->
+  <script src="/js/error-helper.js"></script>
+
+  <script>
+    // Set current year
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Toggle API documentation
+    function toggleApiList() {
+      const section = document.getElementById('api-section');
+      section.style.display = section.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Format timestamp as "2h ago"
+    function formatTimestamp(timestamp) {
+      if (!timestamp) return 'Never';
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return `${diffHours}h ago`;
+      const diffDays = Math.floor(diffHours / 24);
+      return `${diffDays}d ago`;
+    }
+
+    // Format next sync time
+    function formatNextSync(timestamp) {
+      if (!timestamp) return 'N/A';
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffMs = date - now;
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 1) return 'now';
+      if (diffMins < 60) return `${diffMins}m`;
+      const diffHours = Math.floor(diffMins / 60);
+      return `${diffHours}h`;
+    }
+
+    // Helper function to update a stat
+    function updateStat(id, value) {
+      const elem = document.getElementById(id);
+      if (elem) {
+        elem.textContent = value;
+        elem.classList.remove('loading-placeholder');
+      }
+    }
+
+    // Load dashboard stats
+    async function loadStats() {
+      try {
+        console.log('Loading dashboard stats...');
+
+        // Fetch all data in parallel
+        const [inventoryResponse, expiryResponse, reorderResponse, cycleResponse] = await Promise.all([
+          fetch('/api/inventory'),
+          fetch('/api/expirations'),
+          fetch('/api/reorder-suggestions?supply_days=45'),
+          fetch('/api/cycle-counts/pending')
+        ]);
+
+        // Process inventory data
+        const inventoryData = await inventoryResponse.json();
+        const inventory = Array.isArray(inventoryData) ? inventoryData : (inventoryData.inventory || []);
+
+        const uniqueVariations = new Set(inventory.map(i => i.variation_id)).size;
+        const totalUnits = inventory.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+        const outOfStock = inventory.filter(item => (parseFloat(item.quantity) || 0) === 0).length;
+
+        // Calculate retail value (using price_money)
+        const totalValueRetail = inventory.reduce((sum, item) => {
+          const qty = item.quantity || 0;
+          const price = item.price_money || 0;
+          return sum + (qty * price / 100);
+        }, 0);
+
+        // Calculate COG value (using unit_cost_cents)
+        const totalValueCOG = inventory.reduce((sum, item) => {
+          const qty = item.quantity || 0;
+          const cost = item.unit_cost_cents || 0;
+          return sum + (qty * cost / 100);
+        }, 0);
+
+        // Process expiration data
+        const expiryData = await expiryResponse.json();
+        const expirations = Array.isArray(expiryData) ? expiryData : (expiryData.items || []);
+
+        const withExpiryData = expirations.filter(i => i.expiration_date || i.does_not_expire).length;
+        const expiryPercent = uniqueVariations > 0 ? ((withExpiryData / uniqueVariations) * 100).toFixed(1) : 0;
+
+        const today = new Date();
+        const in120Days = new Date(today.getTime() + 120*24*60*60*1000);
+        const expiringSoon = expirations.filter(i => {
+          if (!i.expiration_date || i.does_not_expire) return false;
+          // Filter out items with 0 stock (can't audit what you don't have)
+          if ((parseFloat(i.quantity) || 0) <= 0) return false;
+          const expDate = new Date(i.expiration_date);
+          return expDate <= in120Days && expDate >= today;
+        }).length;
+
+        // Process reorder data
+        const reorderData = await reorderResponse.json();
+        const alertCount = reorderData.count || reorderData.suggestions?.length || 0;
+
+        // Process cycle count data
+        const cycleData = await cycleResponse.json();
+        const pendingCount = cycleData.items?.length || 0;
+        const targetCount = cycleData.target || 0;
+        // Completion rate: 0% if pending >= target, otherwise (target - pending) / target * 100
+        // Always clamp between 0% and 100%
+        const completionRate = targetCount > 0
+          ? Math.max(0, Math.min(100, Math.round(((targetCount - pendingCount) / targetCount) * 100)))
+          : 0;
+
+        // Update all stats
+        updateStat('stat-variations', uniqueVariations.toLocaleString());
+        updateStat('stat-total-units', Math.floor(totalUnits).toLocaleString());
+        updateStat('stat-value-retail', '$' + totalValueRetail.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
+        updateStat('stat-value-cog', '$' + totalValueCOG.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
+        updateStat('stat-out-of-stock', outOfStock.toLocaleString());
+
+        updateStat('stat-expiry-data', `${withExpiryData.toLocaleString()} (${expiryPercent}%)`);
+        updateStat('stat-expiring-soon', expiringSoon.toLocaleString());
+
+        updateStat('stat-alerts', alertCount.toLocaleString());
+
+        updateStat('stat-cycle-pending', pendingCount.toLocaleString());
+        updateStat('stat-cycle-target', targetCount.toLocaleString());
+        updateStat('stat-cycle-complete', `${completionRate}%`);
+
+        console.log('Dashboard stats updated successfully');
+
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+
+        // Show error state
+        ['stat-variations', 'stat-total-units', 'stat-value-retail', 'stat-value-cog', 'stat-out-of-stock',
+         'stat-expiry-data', 'stat-expiring-soon', 'stat-alerts',
+         'stat-cycle-pending', 'stat-cycle-target', 'stat-cycle-complete'].forEach(id => {
+          const elem = document.getElementById(id);
+          if (elem) {
+            elem.textContent = 'Error';
+            elem.style.color = '#ef4444';
+            elem.classList.remove('loading-placeholder');
+          }
+        });
+
+        // Update sync status banner with friendly message
+        const statusEl = document.getElementById('sync-status');
+        if (statusEl) {
+          const friendlyMsg = window.ErrorHelper
+            ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
+            : 'Unable to load dashboard data. Please refresh the page.';
+          statusEl.innerHTML = '⚠️ ' + friendlyMsg;
+          statusEl.style.background = '#fee2e2';
+          statusEl.style.color = '#991b1b';
+        }
+      }
+    }
+
+    // Update sync status
+    async function updateSyncStatus() {
+      try {
+        const status = await fetch('/api/sync-status').then(r => r.json());
+
+        let html = '✅ ';
+        const syncTypes = ['catalog', 'inventory', 'sales_91d'];
+        const parts = [];
+
+        syncTypes.forEach(type => {
+          if (status[type]) {
+            const last = formatTimestamp(status[type].last_sync);
+            const next = formatNextSync(status[type].next_sync_due);
+            parts.push(`${type}: ${last} (next in ${next})`);
+          }
+        });
+
+        html += parts.join(' | ');
+        html += ' | <button onclick="runSmartSync()">Manual Sync</button>';
+
+        document.getElementById('sync-status').innerHTML = html;
+        document.getElementById('sync-status').classList.remove('loading');
+
+      } catch (error) {
+        console.error('Failed to load sync status:', error);
+      }
+    }
+
+    // Run smart sync
+    async function runSmartSync() {
+      const statusEl = document.getElementById('sync-status');
+      statusEl.innerHTML = '⏳ Syncing...';
+      statusEl.classList.add('loading');
+
+      try {
+        const result = await fetch('/api/sync-smart', { method: 'POST' }).then(r => r.json());
+
+        statusEl.innerHTML = `✅ Sync complete! Synced: ${result.synced.join(', ') || 'none (up to date)'}`;
+        statusEl.classList.remove('loading');
+
+        // Reload stats after sync
+        setTimeout(() => {
+          loadStats();
+          updateSyncStatus();
+        }, 2000);
+
+      } catch (error) {
+        const friendlyMsg = window.ErrorHelper
+          ? ErrorHelper.getFriendlyMessage(error, 'sync', 'error')
+          : 'Sync failed. Please try again.';
+        statusEl.innerHTML = '❌ ' + friendlyMsg;
+        statusEl.classList.remove('loading');
+        statusEl.style.background = '#fee2e2';
+        statusEl.style.color = '#991b1b';
+      }
+    }
+
+    // Load user info
+    async function loadUserInfo() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const data = await response.json();
+          document.getElementById('user-email').textContent = data.user?.email || 'User';
+          document.getElementById('user-role').textContent = data.user?.role || '';
+        }
+      } catch (error) {
+        console.error('Failed to load user info:', error);
+      }
+    }
+
+    // Logout function
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        window.location.href = '/';
+      } catch (error) {
+        console.error('Logout failed:', error);
+        window.location.href = '/login.html';
+      }
+    }
+
+    // Initialize dashboard
+    document.addEventListener('DOMContentLoaded', () => {
+      loadUserInfo();
+      loadStats();
+      updateSyncStatus();
+
+      // Auto-refresh every 5 minutes
+      setInterval(() => {
+        loadStats();
+        updateSyncStatus();
+      }, 300000);
+    });
+  </script>
+</body>
+</html>
