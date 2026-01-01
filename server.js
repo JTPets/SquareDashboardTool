@@ -3292,26 +3292,29 @@ app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, re
             WHERE id = $1
         `, [merchantId]);
 
-        // Diagnostic: Check why inventory JOIN might be failing
+        // Diagnostic: Check why inventory JOIN might be failing (step by step)
         const joinDiagnostic = await db.query(`
             SELECT
-                (SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1 AND state = 'IN_STOCK') as inv_in_stock,
-                (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN variations v ON ic.catalog_object_id = v.id
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as inv_with_variation,
+                (SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1 AND state = 'IN_STOCK') as step1_inv_in_stock,
                 (SELECT COUNT(*) FROM inventory_counts ic
                  JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as inv_with_variation_merchant,
+                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step2_plus_variations,
                 (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN locations l ON ic.location_id = l.id
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as inv_with_location,
+                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
+                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step3_plus_items,
                 (SELECT COUNT(*) FROM inventory_counts ic
+                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
+                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
                  JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as inv_with_location_merchant,
-                (SELECT COUNT(DISTINCT ic.location_id) FROM inventory_counts ic WHERE ic.merchant_id = $1) as unique_location_ids_in_inv,
-                (SELECT COUNT(*) FROM locations WHERE merchant_id = $1) as locations_for_merchant,
-                (SELECT string_agg(DISTINCT l.id, ', ') FROM locations l WHERE l.merchant_id = $1) as location_ids_merchant,
-                (SELECT string_agg(DISTINCT ic.location_id, ', ' ORDER BY ic.location_id) FROM inventory_counts ic WHERE ic.merchant_id = $1 LIMIT 1) as sample_inv_location_ids
+                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step4_plus_locations,
+                (SELECT COUNT(*) FROM inventory_counts ic
+                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
+                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                 JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
+                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK'
+                   AND COALESCE(v.is_deleted, FALSE) = FALSE
+                   AND COALESCE(i.is_deleted, FALSE) = FALSE) as step5_with_deleted_filter
         `, [merchantId]);
 
         res.json({
