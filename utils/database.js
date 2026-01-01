@@ -1013,6 +1013,61 @@ async function ensureSchema() {
         logger.error('Failed to add merchant_id to auth_audit_log:', error.message);
     }
 
+    // Add email column to auth_audit_log (needed for audit logging)
+    try {
+        const emailColumnCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'auth_audit_log' AND column_name = 'email'
+        `);
+        if (emailColumnCheck.rows.length === 0) {
+            await query('ALTER TABLE auth_audit_log ADD COLUMN IF NOT EXISTS email TEXT');
+            logger.info('Added email column to auth_audit_log');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to add email to auth_audit_log:', error.message);
+    }
+
+    // ==================== MULTI-TENANT CONSTRAINT MIGRATIONS ====================
+    // Update unique constraints to include merchant_id for multi-tenant support
+
+    // count_sessions: Update unique constraint from (session_date) to (session_date, merchant_id)
+    try {
+        const countSessionsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'count_sessions')
+        `);
+
+        if (countSessionsTableCheck.rows[0].exists) {
+            // Check if old constraint exists
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'count_sessions' AND constraint_name = 'count_sessions_session_date_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                // Drop old constraint and create new one with merchant_id
+                await query('ALTER TABLE count_sessions DROP CONSTRAINT IF EXISTS count_sessions_session_date_key');
+                await query('ALTER TABLE count_sessions ADD CONSTRAINT count_sessions_session_date_merchant_key UNIQUE (session_date, merchant_id)');
+                logger.info('Updated count_sessions unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                // Check if new constraint exists, if not create it
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'count_sessions' AND constraint_name = 'count_sessions_session_date_merchant_key'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE count_sessions ADD CONSTRAINT count_sessions_session_date_merchant_key UNIQUE (session_date, merchant_id)');
+                    logger.info('Added count_sessions unique constraint on (session_date, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update count_sessions constraint:', error.message);
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
