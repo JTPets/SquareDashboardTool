@@ -3436,11 +3436,12 @@ const googleSheets = require('./utils/google-sheets');
 
 /**
  * GET /api/google/status
- * Check Google OAuth authentication status
+ * Check Google OAuth authentication status for current merchant
  */
-app.get('/api/google/status', requireAuth, async (req, res) => {
+app.get('/api/google/status', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const status = await googleSheets.getAuthStatus();
+        const merchantId = req.merchantContext.id;
+        const status = await googleSheets.getAuthStatus(merchantId);
         res.json(status);
     } catch (error) {
         logger.error('Google status error', { error: error.message });
@@ -3450,13 +3451,17 @@ app.get('/api/google/status', requireAuth, async (req, res) => {
 
 /**
  * GET /api/google/auth
- * Start Google OAuth flow - redirects to Google consent screen
+ * Start Google OAuth flow for current merchant - redirects to Google consent screen
  * Uses GOOGLE_REDIRECT_URI from environment (not request hostname) to prevent private IP issues
  */
-app.get('/api/google/auth', async (req, res) => {
+app.get('/api/google/auth', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const authUrl = googleSheets.getAuthUrl();
-        logger.info('Redirecting to Google OAuth', { redirectUri: process.env.GOOGLE_REDIRECT_URI });
+        const merchantId = req.merchantContext.id;
+        const authUrl = googleSheets.getAuthUrl(merchantId);
+        logger.info('Redirecting to Google OAuth', {
+            merchantId,
+            redirectUri: process.env.GOOGLE_REDIRECT_URI
+        });
         res.redirect(authUrl);
     } catch (error) {
         logger.error('Google auth error', { error: error.message });
@@ -3467,6 +3472,7 @@ app.get('/api/google/auth', async (req, res) => {
 /**
  * GET /api/google/callback
  * Google OAuth callback - exchanges code for tokens
+ * Merchant ID is encoded in the state parameter
  *
  * IMPORTANT: After OAuth, we redirect to PUBLIC_APP_URL (not relative path).
  * This ensures the browser goes to the correct host (e.g., LAN IP) instead of
@@ -3478,33 +3484,40 @@ app.get('/api/google/callback', async (req, res) => {
     const publicUrl = getPublicAppUrl(req);
 
     try {
-        const { code, error: oauthError } = req.query;
+        const { code, state, error: oauthError } = req.query;
 
         if (oauthError) {
             logger.error('Google OAuth error', { error: oauthError });
-            return res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(oauthError)}`);
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(oauthError)}`);
         }
 
-        if (!code) {
-            return res.redirect(`${publicUrl}/settings.html?google_error=no_code`);
+        if (!code || !state) {
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=missing_code_or_state`);
         }
 
-        await googleSheets.exchangeCodeForTokens(code);
-        logger.info('Google OAuth successful, redirecting to public URL', { publicUrl });
-        res.redirect(`${publicUrl}/settings.html?google_connected=true`);
+        // Parse merchant ID from state
+        const { merchantId } = googleSheets.parseAuthState(state);
+        if (!merchantId) {
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=invalid_state`);
+        }
+
+        await googleSheets.exchangeCodeForTokens(code, merchantId);
+        logger.info('Google OAuth successful for merchant', { merchantId, publicUrl });
+        res.redirect(`${publicUrl}/gmc-feed.html?google_connected=true`);
     } catch (error) {
         logger.error('Google callback error', { error: error.message });
-        res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(error.message)}`);
+        res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(error.message)}`);
     }
 });
 
 /**
  * POST /api/google/disconnect
- * Disconnect Google OAuth (remove tokens)
+ * Disconnect Google OAuth for current merchant (remove tokens)
  */
-app.post('/api/google/disconnect', requireAuth, async (req, res) => {
+app.post('/api/google/disconnect', requireAuth, requireMerchant, async (req, res) => {
     try {
-        await googleSheets.disconnect();
+        const merchantId = req.merchantContext.id;
+        await googleSheets.disconnect(merchantId);
         res.json({ success: true, message: 'Google account disconnected' });
     } catch (error) {
         logger.error('Google disconnect error', { error: error.message });
@@ -3514,7 +3527,7 @@ app.post('/api/google/disconnect', requireAuth, async (req, res) => {
 
 /**
  * POST /api/gmc/sync-sheet
- * Write GMC feed to Google Sheets
+ * Write GMC feed to merchant's Google Sheets
  */
 app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) => {
     try {
@@ -3525,8 +3538,8 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
             return res.status(400).json({ error: 'spreadsheet_id is required' });
         }
 
-        // Check if authenticated
-        const authenticated = await googleSheets.isAuthenticated();
+        // Check if merchant is authenticated with Google
+        const authenticated = await googleSheets.isAuthenticated(merchantId);
         if (!authenticated) {
             return res.status(401).json({
                 error: 'Not authenticated with Google',
@@ -3534,21 +3547,21 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
             });
         }
 
-        // Generate feed data
+        // Generate feed data for this merchant
         const { products, stats } = await gmcFeed.generateFeedData({ merchantId });
 
-        // Write to Google Sheet
-        const result = await googleSheets.writeFeedToSheet(spreadsheet_id, products, {
+        // Write to merchant's Google Sheet
+        const result = await googleSheets.writeFeedToSheet(merchantId, spreadsheet_id, products, {
             sheetName: sheet_name || 'GMC Feed',
             clearFirst: true
         });
 
-        // Update gmc_settings with spreadsheet ID
+        // Update gmc_settings with spreadsheet ID for this merchant
         await db.query(`
-            INSERT INTO gmc_settings (setting_key, setting_value, description)
-            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed')
-            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
-        `, [spreadsheet_id]);
+            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
+            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [spreadsheet_id, merchantId]);
 
         res.json({
             success: true,
@@ -3563,15 +3576,78 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
 });
 
 /**
- * GET /api/google/spreadsheet/:id
- * Get spreadsheet info
+ * POST /api/google/create-spreadsheet
+ * Create a new spreadsheet in merchant's Google Drive
  */
-app.get('/api/google/spreadsheet/:id', requireAuth, async (req, res) => {
+app.post('/api/google/create-spreadsheet', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const info = await googleSheets.getSpreadsheetInfo(req.params.id);
+        const merchantId = req.merchantContext.id;
+        const { title } = req.body;
+
+        // Check if merchant is authenticated with Google
+        const authenticated = await googleSheets.isAuthenticated(merchantId);
+        if (!authenticated) {
+            return res.status(401).json({
+                error: 'Not authenticated with Google',
+                authRequired: true
+            });
+        }
+
+        const result = await googleSheets.createSpreadsheet(merchantId, title || 'GMC Product Feed');
+
+        // Save the spreadsheet ID to merchant's settings
+        await db.query(`
+            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
+            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [result.spreadsheetId, merchantId]);
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        logger.error('Create spreadsheet error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/spreadsheet/:id
+ * Get spreadsheet info (uses merchant's Google credentials)
+ */
+app.get('/api/google/spreadsheet/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const info = await googleSheets.getSpreadsheetInfo(merchantId, req.params.id);
         res.json(info);
     } catch (error) {
         logger.error('Get spreadsheet error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/sheet-config
+ * Get merchant's saved Google Sheet configuration
+ */
+app.get('/api/google/sheet-config', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(
+            "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id' AND merchant_id = $1",
+            [merchantId]
+        );
+
+        const spreadsheetId = result.rows.length > 0 ? result.rows[0].setting_value : null;
+
+        res.json({
+            spreadsheetId,
+            spreadsheetUrl: spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : null
+        });
+    } catch (error) {
+        logger.error('Get sheet config error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
