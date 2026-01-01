@@ -27,23 +27,12 @@ const CLIENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 async function loadMerchantContext(req, res, next) {
     // Skip if no authenticated user
     if (!req.session || !req.session.user) {
-        logger.info('DEBUG loadMerchantContext: No session or user', {
-            hasSession: !!req.session,
-            hasUser: !!req.session?.user,
-            path: req.path
-        });
         return next();
     }
 
     try {
         // Get active merchant from session or query user's primary merchant
         let merchantId = req.session.activeMerchantId;
-
-        logger.info('DEBUG loadMerchantContext: Starting', {
-            userId: req.session.user.id,
-            sessionActiveMerchantId: merchantId,
-            path: req.path
-        });
 
         if (!merchantId) {
             // Find user's primary merchant
@@ -54,12 +43,6 @@ async function loadMerchantContext(req, res, next) {
                 WHERE um.user_id = $1 AND um.is_primary = TRUE AND m.is_active = TRUE
                 LIMIT 1
             `, [req.session.user.id]);
-
-            logger.info('DEBUG loadMerchantContext: Query result', {
-                userId: req.session.user.id,
-                foundRows: result.rows.length,
-                result: result.rows[0] || null
-            });
 
             if (result.rows.length === 0) {
                 // User has no merchants - they need to connect one
