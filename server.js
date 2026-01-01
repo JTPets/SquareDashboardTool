@@ -528,7 +528,7 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
  * GET /api/logs/errors
  * View errors only
  */
-app.get('/api/logs/errors', async (req, res) => {
+app.get('/api/logs/errors', requireAdmin, async (req, res) => {
     try {
         const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
@@ -549,7 +549,7 @@ app.get('/api/logs/errors', async (req, res) => {
  * GET /api/logs/download
  * Download log file
  */
-app.get('/api/logs/download', async (req, res) => {
+app.get('/api/logs/download', requireAdmin, async (req, res) => {
     try {
         const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
@@ -566,7 +566,7 @@ app.get('/api/logs/download', async (req, res) => {
  * GET /api/logs/stats
  * Log statistics
  */
-app.get('/api/logs/stats', async (req, res) => {
+app.get('/api/logs/stats', requireAdmin, async (req, res) => {
     try {
         const logsDir = path.join(__dirname, 'output', 'logs');
         const today = new Date().toISOString().split('T')[0];
@@ -602,7 +602,7 @@ app.get('/api/logs/stats', async (req, res) => {
  * POST /api/test-email
  * Test email notifications
  */
-app.post('/api/test-email', async (req, res) => {
+app.post('/api/test-email', requireAdmin, async (req, res) => {
     try {
         await emailNotifier.testEmail();
         res.json({ success: true, message: 'Test email sent' });
@@ -615,7 +615,7 @@ app.post('/api/test-email', async (req, res) => {
  * POST /api/test-error
  * Test error logging and email
  */
-app.post('/api/test-error', async (req, res) => {
+app.post('/api/test-error', requireAdmin, async (req, res) => {
     const testError = new Error('This is a test error');
     logger.error('Test error triggered', {
         error: testError.message,
@@ -635,7 +635,7 @@ app.post('/api/test-error', async (req, res) => {
  * POST /api/test-backup-email
  * Test backup email functionality
  */
-app.post('/api/test-backup-email', async (req, res) => {
+app.post('/api/test-backup-email', requireAdmin, async (req, res) => {
     try {
         logger.info('Testing backup email');
         await runAutomatedBackup();
@@ -1089,10 +1089,11 @@ async function runSmartSync() {
  * POST /api/sync
  * Trigger full synchronization from Square (force sync, ignores intervals)
  */
-app.post('/api/sync', async (req, res) => {
+app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Full sync requested');
-        const summary = await squareApi.fullSync();
+        const merchantId = req.merchantContext.id;
+        logger.info('Full sync requested', { merchantId });
+        const summary = await squareApi.fullSync({ merchantId });
 
         // Generate GMC feed after sync completes
         let gmcFeedResult = null;
@@ -1189,13 +1190,14 @@ app.post('/api/sync', async (req, res) => {
  * POST /api/sync-sales
  * Sync only sales velocity data (faster, can run frequently)
  */
-app.post('/api/sync-sales', async (req, res) => {
+app.post('/api/sync-sales', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Sales velocity sync requested');
+        const merchantId = req.merchantContext.id;
+        logger.info('Sales velocity sync requested', { merchantId });
         const results = {};
 
         for (const days of [91, 182, 365]) {
-            results[`${days}d`] = await squareApi.syncSalesVelocity(days);
+            results[`${days}d`] = await squareApi.syncSalesVelocity(days, { merchantId });
         }
 
         res.json({
@@ -1217,10 +1219,11 @@ app.post('/api/sync-sales', async (req, res) => {
  * Smart sync that only syncs data types whose interval has elapsed
  * This is the recommended endpoint for scheduled/cron jobs
  */
-app.post('/api/sync-smart', async (req, res) => {
+app.post('/api/sync-smart', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Smart sync requested');
-        const result = await runSmartSync();
+        const merchantId = req.merchantContext.id;
+        logger.info('Smart sync requested', { merchantId });
+        const result = await runSmartSync({ merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Smart sync error', { error: error.message, stack: error.stack });
@@ -1270,8 +1273,9 @@ app.get('/api/sync-history', requireMerchant, async (req, res) => {
  * GET /api/sync-status
  * Get current sync status for all sync types
  */
-app.get('/api/sync-status', async (req, res) => {
+app.get('/api/sync-status', requireAuth, requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const intervals = {
             catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
             vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
@@ -1284,7 +1288,7 @@ app.get('/api/sync-status', async (req, res) => {
         const status = {};
 
         for (const [syncType, intervalHours] of Object.entries(intervals)) {
-            const check = await isSyncNeeded(syncType, intervalHours);
+            const check = await isSyncNeeded(syncType, intervalHours, merchantId);
 
             status[syncType] = {
                 last_sync: check.lastSync,
@@ -1299,10 +1303,10 @@ app.get('/api/sync-status', async (req, res) => {
                 const lastSyncResult = await db.query(`
                     SELECT status, records_synced, duration_seconds
                     FROM sync_history
-                    WHERE sync_type = $1 AND completed_at IS NOT NULL
+                    WHERE sync_type = $1 AND completed_at IS NOT NULL AND merchant_id = $2
                     ORDER BY completed_at DESC
                     LIMIT 1
-                `, [syncType]);
+                `, [syncType, merchantId]);
 
                 if (lastSyncResult.rows.length > 0) {
                     status[syncType].last_status = lastSyncResult.rows[0].status;
@@ -1443,8 +1447,9 @@ app.get('/api/variations', requireMerchant, async (req, res) => {
  * GET /api/variations-with-costs
  * Get variations with cost and margin information
  */
-app.get('/api/variations-with-costs', async (req, res) => {
+app.get('/api/variations-with-costs', requireAuth, requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const query = `
             SELECT
                 v.id,
@@ -1468,14 +1473,14 @@ app.get('/api/variations-with-costs', async (req, res) => {
                     ELSE NULL
                 END as profit_cents
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
-            LEFT JOIN vendors ve ON vv.vendor_id = ve.id
-            WHERE v.price_money IS NOT NULL
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $1
+            LEFT JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $1
+            WHERE v.price_money IS NOT NULL AND v.merchant_id = $1
             ORDER BY i.name, v.name, ve.name
         `;
 
-        const result = await db.query(query);
+        const result = await db.query(query, [merchantId]);
 
         // Resolve image URLs for each variation (with item fallback)
         const variations = await Promise.all(result.rows.map(async (variation) => {
@@ -1502,9 +1507,17 @@ app.get('/api/variations-with-costs', async (req, res) => {
  * Update custom fields on a variation
  * Automatically syncs case_pack_quantity to Square if changed
  */
-app.patch('/api/variations/:id/extended', async (req, res) => {
+app.patch('/api/variations/:id/extended', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
+        const merchantId = req.merchantContext.id;
+
+        // Verify variation belongs to this merchant
+        const varCheck = await db.query('SELECT id FROM variations WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
+        if (varCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found' });
+        }
+
         const allowedFields = [
             'case_pack_quantity', 'stock_alert_min', 'stock_alert_max',
             'preferred_stock_level', 'shelf_location', 'bin_location',
@@ -1582,10 +1595,11 @@ app.patch('/api/variations/:id/extended', async (req, res) => {
  * Update min stock (inventory alert threshold) and sync to Square
  * Uses location-specific overrides in Square
  */
-app.patch('/api/variations/:id/min-stock', async (req, res) => {
+app.patch('/api/variations/:id/min-stock', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const { min_stock, location_id } = req.body;
+        const merchantId = req.merchantContext.id;
 
         // Validate input
         if (min_stock !== null && (typeof min_stock !== 'number' || min_stock < 0)) {
@@ -1594,14 +1608,14 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             });
         }
 
-        // Get variation details
+        // Get variation details (verify ownership)
         const variationResult = await db.query(
             `SELECT v.id, v.sku, v.name, v.item_id, v.track_inventory,
                     v.inventory_alert_threshold, i.name as item_name
              FROM variations v
-             JOIN items i ON v.item_id = i.id
-             WHERE v.id = $1`,
-            [id]
+             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+             WHERE v.id = $1 AND v.merchant_id = $2`,
+            [id, merchantId]
         );
 
         if (variationResult.rows.length === 0) {
@@ -1619,11 +1633,12 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             const inventoryLocationResult = await db.query(
                 `SELECT ic.location_id
                  FROM inventory_counts ic
-                 JOIN locations l ON ic.location_id = l.id
+                 JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $2
                  WHERE ic.catalog_object_id = $1 AND l.active = TRUE AND ic.state = 'IN_STOCK'
+                   AND ic.merchant_id = $2
                  ORDER BY ic.quantity DESC NULLS LAST
                  LIMIT 1`,
-                [id]
+                [id, merchantId]
             );
 
             if (inventoryLocationResult.rows.length > 0) {
@@ -1631,7 +1646,8 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
             } else {
                 // Fall back to the primary/first active location
                 const locationResult = await db.query(
-                    'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+                    'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1 ORDER BY name LIMIT 1',
+                    [merchantId]
                 );
 
                 if (locationResult.rows.length === 0) {
@@ -1654,7 +1670,7 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
         });
 
         try {
-            await squareApi.setSquareInventoryAlertThreshold(id, targetLocationId, min_stock);
+            await squareApi.setSquareInventoryAlertThreshold(id, targetLocationId, min_stock, { merchantId });
         } catch (squareError) {
             logger.error('Failed to update Square inventory alert threshold', {
                 variationId: id,
@@ -1674,21 +1690,22 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
                  inventory_alert_type = $2,
                  stock_alert_min = $1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
+             WHERE id = $3 AND merchant_id = $4`,
             [
                 min_stock,
                 min_stock !== null && min_stock > 0 ? 'LOW_QUANTITY' : 'NONE',
-                id
+                id,
+                merchantId
             ]
         );
 
         // Also update location-specific settings if table exists
         await db.query(
-            `INSERT INTO variation_location_settings (variation_id, location_id, stock_alert_min, updated_at)
-             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+            `INSERT INTO variation_location_settings (variation_id, location_id, stock_alert_min, merchant_id, updated_at)
+             VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
              ON CONFLICT (variation_id, location_id)
              DO UPDATE SET stock_alert_min = EXCLUDED.stock_alert_min, updated_at = CURRENT_TIMESTAMP`,
-            [id, targetLocationId, min_stock]
+            [id, targetLocationId, min_stock, merchantId]
         );
 
         logger.info('Min stock updated successfully', {
@@ -1720,10 +1737,11 @@ app.patch('/api/variations/:id/min-stock', async (req, res) => {
  * PATCH /api/variations/:id/cost
  * Update unit cost (vendor cost) and sync to Square
  */
-app.patch('/api/variations/:id/cost', async (req, res) => {
+app.patch('/api/variations/:id/cost', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const { cost_cents, vendor_id } = req.body;
+        const merchantId = req.merchantContext.id;
 
         // Validate input
         if (cost_cents === undefined || cost_cents === null) {
@@ -1734,19 +1752,19 @@ app.patch('/api/variations/:id/cost', async (req, res) => {
             return res.status(400).json({ error: 'cost_cents must be a non-negative number' });
         }
 
-        // Get variation details
+        // Get variation details (verify ownership)
         const variationResult = await db.query(`
             SELECT v.id, v.sku, v.name, i.name as item_name,
                    vv.vendor_id, vv.unit_cost_money as current_cost,
                    ven.name as vendor_name
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
-            LEFT JOIN vendors ven ON vv.vendor_id = ven.id
-            WHERE v.id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
+            LEFT JOIN vendors ven ON vv.vendor_id = ven.id AND ven.merchant_id = $2
+            WHERE v.id = $1 AND v.merchant_id = $2
             ORDER BY vv.unit_cost_money ASC NULLS LAST
             LIMIT 1
-        `, [id]);
+        `, [id, merchantId]);
 
         if (variationResult.rows.length === 0) {
             return res.status(404).json({ error: 'Variation not found' });
@@ -1763,7 +1781,8 @@ app.patch('/api/variations/:id/cost', async (req, res) => {
                     id,
                     targetVendorId,
                     Math.round(cost_cents),
-                    'CAD'
+                    'CAD',
+                    { merchantId }
                 );
 
                 logger.info('Cost updated in Square', {
@@ -1831,9 +1850,11 @@ app.patch('/api/variations/:id/cost', async (req, res) => {
  * POST /api/variations/bulk-update-extended
  * Bulk update custom fields by SKU
  */
-app.post('/api/variations/bulk-update-extended', async (req, res) => {
+app.post('/api/variations/bulk-update-extended', requireAuth, requireMerchant, async (req, res) => {
     try {
         const updates = req.body;
+        const merchantId = req.merchantContext.id;
+
         if (!Array.isArray(updates)) {
             return res.status(400).json({ error: 'Request body must be an array' });
         }
@@ -1874,17 +1895,18 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                 if (sets.length > 0) {
                     sets.push('updated_at = CURRENT_TIMESTAMP');
                     values.push(update.sku);
+                    values.push(merchantId);
 
                     // Get variation ID before updating (needed for Square sync)
                     const variationResult = await db.query(
-                        'SELECT id FROM variations WHERE sku = $1',
-                        [update.sku]
+                        'SELECT id FROM variations WHERE sku = $1 AND merchant_id = $2',
+                        [update.sku, merchantId]
                     );
 
                     await db.query(`
                         UPDATE variations
                         SET ${sets.join(', ')}
-                        WHERE sku = $${paramCount}
+                        WHERE sku = $${paramCount} AND merchant_id = $${paramCount + 1}
                     `, values);
                     updatedCount++;
 
@@ -1896,9 +1918,9 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
                                 case_pack_quantity: {
                                     number_value: newCasePackValue.toString()
                                 }
-                            });
+                            }, { merchantId });
                             squarePushResults.success++;
-                            logger.info('Case pack synced to Square (bulk)', { variation_id: variationId, sku: update.sku, case_pack: newCasePackValue });
+                            logger.info('Case pack synced to Square (bulk)', { variation_id: variationId, sku: update.sku, case_pack: newCasePackValue, merchantId });
                         } catch (syncError) {
                             squarePushResults.failed++;
                             squarePushResults.errors.push({ sku: update.sku, error: syncError.message });
@@ -2813,9 +2835,10 @@ app.get('/api/low-stock', requireMerchant, async (req, res) => {
  * GET /api/deleted-items
  * Get soft-deleted items for cleanup management
  */
-app.get('/api/deleted-items', async (req, res) => {
+app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { age_months } = req.query;
+        const merchantId = req.merchantContext.id;
 
         let query = `
             SELECT
@@ -2833,11 +2856,11 @@ app.get('/api/deleted-items', async (req, res) => {
                 v.images,
                 i.images as item_images
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
-            WHERE v.is_deleted = TRUE
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK' AND ic.merchant_id = $1
+            WHERE v.is_deleted = TRUE AND v.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         // Filter by age if specified
         if (age_months) {
@@ -2882,9 +2905,10 @@ app.get('/api/deleted-items', async (req, res) => {
  * GET /api/catalog-audit
  * Get comprehensive catalog audit data - identifies items with missing/incomplete data
  */
-app.get('/api/catalog-audit', async (req, res) => {
+app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { location_id, issue_type } = req.query;
+        const merchantId = req.merchantContext.id;
 
         // Build comprehensive audit query
         const query = `
@@ -2917,19 +2941,19 @@ app.get('/api/catalog-audit', async (req, res) => {
                     i.present_at_all_locations as item_present_at_all,
                     v.present_at_all_locations as variation_present_at_all,
                     -- Check for vendor assignment
-                    (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id) as vendor_count,
+                    (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id AND vv.merchant_id = v.merchant_id) as vendor_count,
                     -- Get primary vendor info
                     (SELECT ve.name
                      FROM variation_vendors vv
-                     JOIN vendors ve ON vv.vendor_id = ve.id
-                     WHERE vv.variation_id = v.id
+                     JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = v.merchant_id
+                     WHERE vv.variation_id = v.id AND vv.merchant_id = v.merchant_id
                      ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
                      LIMIT 1
                     ) as vendor_name,
                     -- Get unit cost
                     (SELECT vv.unit_cost_money
                      FROM variation_vendors vv
-                     WHERE vv.variation_id = v.id
+                     WHERE vv.variation_id = v.id AND vv.merchant_id = v.merchant_id
                      ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
                      LIMIT 1
                     ) as unit_cost_cents,
@@ -2938,7 +2962,8 @@ app.get('/api/catalog-audit', async (req, res) => {
                      FROM inventory_counts ic
                      WHERE ic.catalog_object_id = v.id
                        AND ic.state = 'IN_STOCK'
-                       ${location_id ? "AND ic.location_id = $1" : ""}
+                       AND ic.merchant_id = v.merchant_id
+                       ${location_id ? "AND ic.location_id = '" + location_id.replace(/'/g, "''") + "'" : ""}
                     ) as current_stock,
                     -- Check if ANY location has a stock_alert_min set (for reorder threshold check)
                     (SELECT MAX(vls.stock_alert_min)
@@ -2946,6 +2971,7 @@ app.get('/api/catalog-audit', async (req, res) => {
                      WHERE vls.variation_id = v.id
                        AND vls.stock_alert_min IS NOT NULL
                        AND vls.stock_alert_min > 0
+                       AND vls.merchant_id = v.merchant_id
                     ) as location_stock_alert_min,
                     -- Sales velocity (all periods like reorder.html)
                     COALESCE(sv91.daily_avg_quantity, 0) as daily_velocity,
@@ -2954,11 +2980,12 @@ app.get('/api/catalog-audit', async (req, res) => {
                     COALESCE(sv365.weekly_avg_quantity, 0) as weekly_avg_365d,
                     COALESCE(sv91.total_quantity_sold, 0) as total_sold_91d
                 FROM variations v
-                JOIN items i ON v.item_id = i.id
-                LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
-                LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
-                LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
-                WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+                JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $1
+                LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $1
+                LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $1
+                WHERE v.merchant_id = $1
+                  AND COALESCE(v.is_deleted, FALSE) = FALSE
                   AND COALESCE(i.is_deleted, FALSE) = FALSE
             )
             SELECT
@@ -3012,7 +3039,7 @@ app.get('/api/catalog-audit', async (req, res) => {
             ORDER BY item_name, variation_name
         `;
 
-        const params = location_id ? [location_id] : [];
+        const params = [merchantId];
         const result = await db.query(query, params);
 
         // Calculate aggregate statistics
@@ -3115,11 +3142,12 @@ app.get('/api/catalog-audit', async (req, res) => {
  * POST /api/catalog-audit/fix-locations
  * Fix all location mismatches by setting items/variations to present_at_all_locations = true
  */
-app.post('/api/catalog-audit/fix-locations', async (req, res) => {
+app.post('/api/catalog-audit/fix-locations', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Starting location mismatch fix from API');
+        const merchantId = req.merchantContext.id;
+        logger.info('Starting location mismatch fix from API', { merchantId });
 
-        const result = await squareApi.fixLocationMismatches();
+        const result = await squareApi.fixLocationMismatches({ merchantId });
 
         if (result.success) {
             res.json({
@@ -3151,9 +3179,10 @@ app.post('/api/catalog-audit/fix-locations', async (req, res) => {
  * GET /api/square/custom-attributes
  * List all custom attribute definitions from Square
  */
-app.get('/api/square/custom-attributes', async (req, res) => {
+app.get('/api/square/custom-attributes', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const definitions = await squareApi.listCustomAttributeDefinitions();
+        const merchantId = req.merchantContext.id;
+        const definitions = await squareApi.listCustomAttributeDefinitions({ merchantId });
         res.json({
             success: true,
             count: definitions.length,
@@ -3169,9 +3198,10 @@ app.get('/api/square/custom-attributes', async (req, res) => {
  * GET /api/debug/expiry-status
  * Debug endpoint to check expiration sync status
  */
-app.get('/api/debug/expiry-status', async (req, res) => {
+app.get('/api/debug/expiry-status', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { sku, variation_id } = req.query;
+        const merchantId = req.merchantContext.id;
 
         let query = `
             SELECT ve.variation_id, ve.expiration_date, ve.does_not_expire,
@@ -3179,20 +3209,21 @@ app.get('/api/debug/expiry-status', async (req, res) => {
                    v.sku, v.name as variation_name, v.custom_attributes,
                    i.name as item_name
             FROM variation_expiration ve
-            JOIN variations v ON ve.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
+            JOIN variations v ON ve.variation_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE ve.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (sku) {
             params.push(sku);
-            query += ` WHERE v.sku = $1`;
+            query += ` AND v.sku = $${params.length}`;
         } else if (variation_id) {
             params.push(variation_id);
-            query += ` WHERE ve.variation_id = $1`;
+            query += ` AND ve.variation_id = $${params.length}`;
         } else {
             // Show recently reviewed items
-            query += ` WHERE ve.reviewed_at IS NOT NULL ORDER BY ve.reviewed_at DESC LIMIT 10`;
+            query += ` AND ve.reviewed_at IS NOT NULL ORDER BY ve.reviewed_at DESC LIMIT 10`;
         }
 
         const result = await db.query(query, params);
@@ -3212,10 +3243,11 @@ app.get('/api/debug/expiry-status', async (req, res) => {
  * Initialize custom attribute definitions in Square
  * Creates: case_pack_quantity (NUMBER), brand (STRING)
  */
-app.post('/api/square/custom-attributes/init', async (req, res) => {
+app.post('/api/square/custom-attributes/init', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Initializing custom attribute definitions');
-        const result = await squareApi.initializeCustomAttributes();
+        const merchantId = req.merchantContext.id;
+        logger.info('Initializing custom attribute definitions', { merchantId });
+        const result = await squareApi.initializeCustomAttributes({ merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Init custom attributes error', { error: error.message });
@@ -3227,15 +3259,16 @@ app.post('/api/square/custom-attributes/init', async (req, res) => {
  * POST /api/square/custom-attributes/definition
  * Create or update a single custom attribute definition
  */
-app.post('/api/square/custom-attributes/definition', async (req, res) => {
+app.post('/api/square/custom-attributes/definition', requireAuth, requireMerchant, async (req, res) => {
     try {
         const definition = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!definition.key || !definition.name) {
             return res.status(400).json({ error: 'key and name are required' });
         }
 
-        const result = await squareApi.upsertCustomAttributeDefinition(definition);
+        const result = await squareApi.upsertCustomAttributeDefinition(definition, { merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Create custom attribute definition error', { error: error.message });
@@ -3248,11 +3281,12 @@ app.post('/api/square/custom-attributes/definition', async (req, res) => {
  * Delete a custom attribute definition by key or ID
  * WARNING: This also deletes all values using this definition
  */
-app.delete('/api/square/custom-attributes/definition/:key', async (req, res) => {
+app.delete('/api/square/custom-attributes/definition/:key', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { key } = req.params;
-        logger.info('Deleting custom attribute definition', { key });
-        const result = await squareApi.deleteCustomAttributeDefinition(key);
+        const merchantId = req.merchantContext.id;
+        logger.info('Deleting custom attribute definition', { key, merchantId });
+        const result = await squareApi.deleteCustomAttributeDefinition(key, { merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Delete custom attribute definition error', { error: error.message, key: req.params.key });
@@ -3264,16 +3298,17 @@ app.delete('/api/square/custom-attributes/definition/:key', async (req, res) => 
  * PUT /api/square/custom-attributes/:objectId
  * Update custom attribute values on a single catalog object (item or variation)
  */
-app.put('/api/square/custom-attributes/:objectId', async (req, res) => {
+app.put('/api/square/custom-attributes/:objectId', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { objectId } = req.params;
         const customAttributeValues = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!customAttributeValues || Object.keys(customAttributeValues).length === 0) {
             return res.status(400).json({ error: 'customAttributeValues object is required' });
         }
 
-        const result = await squareApi.updateCustomAttributeValues(objectId, customAttributeValues);
+        const result = await squareApi.updateCustomAttributeValues(objectId, customAttributeValues, { merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Update custom attribute values error', { error: error.message, objectId: req.params.objectId });
@@ -3285,10 +3320,11 @@ app.put('/api/square/custom-attributes/:objectId', async (req, res) => {
  * POST /api/square/custom-attributes/push/case-pack
  * Push all local case_pack_quantity values to Square
  */
-app.post('/api/square/custom-attributes/push/case-pack', async (req, res) => {
+app.post('/api/square/custom-attributes/push/case-pack', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Pushing case pack quantities to Square');
-        const result = await squareApi.pushCasePackToSquare();
+        const merchantId = req.merchantContext.id;
+        logger.info('Pushing case pack quantities to Square', { merchantId });
+        const result = await squareApi.pushCasePackToSquare({ merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Push case pack error', { error: error.message });
@@ -3300,10 +3336,11 @@ app.post('/api/square/custom-attributes/push/case-pack', async (req, res) => {
  * POST /api/square/custom-attributes/push/brand
  * Push all local brand assignments to Square
  */
-app.post('/api/square/custom-attributes/push/brand', async (req, res) => {
+app.post('/api/square/custom-attributes/push/brand', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Pushing brand assignments to Square');
-        const result = await squareApi.pushBrandsToSquare();
+        const merchantId = req.merchantContext.id;
+        logger.info('Pushing brand assignments to Square', { merchantId });
+        const result = await squareApi.pushBrandsToSquare({ merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Push brands error', { error: error.message });
@@ -3315,10 +3352,11 @@ app.post('/api/square/custom-attributes/push/brand', async (req, res) => {
  * POST /api/square/custom-attributes/push/expiry
  * Push all local expiration dates to Square
  */
-app.post('/api/square/custom-attributes/push/expiry', async (req, res) => {
+app.post('/api/square/custom-attributes/push/expiry', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Pushing expiry dates to Square');
-        const result = await squareApi.pushExpiryDatesToSquare();
+        const merchantId = req.merchantContext.id;
+        logger.info('Pushing expiry dates to Square', { merchantId });
+        const result = await squareApi.pushExpiryDatesToSquare({ merchantId });
         res.json(result);
     } catch (error) {
         logger.error('Push expiry dates error', { error: error.message });
@@ -3330,9 +3368,10 @@ app.post('/api/square/custom-attributes/push/expiry', async (req, res) => {
  * POST /api/square/custom-attributes/push/all
  * Push all local custom attribute data to Square (case pack, brand, expiry)
  */
-app.post('/api/square/custom-attributes/push/all', async (req, res) => {
+app.post('/api/square/custom-attributes/push/all', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Pushing all custom attributes to Square');
+        const merchantId = req.merchantContext.id;
+        logger.info('Pushing all custom attributes to Square', { merchantId });
 
         const results = {
             success: true,
@@ -3344,7 +3383,7 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
 
         // Push case pack quantities
         try {
-            results.casePack = await squareApi.pushCasePackToSquare();
+            results.casePack = await squareApi.pushCasePackToSquare({ merchantId });
         } catch (error) {
             results.errors.push({ type: 'casePack', error: error.message });
             results.success = false;
@@ -3352,7 +3391,7 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
 
         // Push brand assignments
         try {
-            results.brand = await squareApi.pushBrandsToSquare();
+            results.brand = await squareApi.pushBrandsToSquare({ merchantId });
         } catch (error) {
             results.errors.push({ type: 'brand', error: error.message });
             results.success = false;
@@ -3360,7 +3399,7 @@ app.post('/api/square/custom-attributes/push/all', async (req, res) => {
 
         // Push expiry dates
         try {
-            results.expiry = await squareApi.pushExpiryDatesToSquare();
+            results.expiry = await squareApi.pushExpiryDatesToSquare({ merchantId });
         } catch (error) {
             results.errors.push({ type: 'expiry', error: error.message });
             results.success = false;
@@ -3381,7 +3420,7 @@ const googleSheets = require('./utils/google-sheets');
  * GET /api/google/status
  * Check Google OAuth authentication status
  */
-app.get('/api/google/status', async (req, res) => {
+app.get('/api/google/status', requireAuth, async (req, res) => {
     try {
         const status = await googleSheets.getAuthStatus();
         res.json(status);
@@ -3445,7 +3484,7 @@ app.get('/api/google/callback', async (req, res) => {
  * POST /api/google/disconnect
  * Disconnect Google OAuth (remove tokens)
  */
-app.post('/api/google/disconnect', async (req, res) => {
+app.post('/api/google/disconnect', requireAuth, async (req, res) => {
     try {
         await googleSheets.disconnect();
         res.json({ success: true, message: 'Google account disconnected' });
@@ -3509,7 +3548,7 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
  * GET /api/google/spreadsheet/:id
  * Get spreadsheet info
  */
-app.get('/api/google/spreadsheet/:id', async (req, res) => {
+app.get('/api/google/spreadsheet/:id', requireAuth, async (req, res) => {
     try {
         const info = await googleSheets.getSpreadsheetInfo(req.params.id);
         res.json(info);
@@ -3980,7 +4019,7 @@ app.post('/api/gmc/brands/bulk-assign', requireAuth, requireMerchant, async (req
  * GET /api/gmc/taxonomy
  * List Google taxonomy categories
  */
-app.get('/api/gmc/taxonomy', async (req, res) => {
+app.get('/api/gmc/taxonomy', requireAuth, async (req, res) => {
     try {
         const { search, limit } = req.query;
         let query = 'SELECT * FROM google_taxonomy';
@@ -4010,7 +4049,7 @@ app.get('/api/gmc/taxonomy', async (req, res) => {
  * POST /api/gmc/taxonomy/import
  * Import Google taxonomy from array
  */
-app.post('/api/gmc/taxonomy/import', async (req, res) => {
+app.post('/api/gmc/taxonomy/import', requireAdmin, async (req, res) => {
     try {
         const { taxonomy } = req.body;
         if (!Array.isArray(taxonomy)) {
@@ -4192,7 +4231,7 @@ app.delete('/api/gmc/category-taxonomy', requireAuth, requireMerchant, async (re
  * GET /api/gmc/taxonomy/fetch-google
  * Fetch and import Google's official taxonomy file
  */
-app.get('/api/gmc/taxonomy/fetch-google', async (req, res) => {
+app.get('/api/gmc/taxonomy/fetch-google', requireAdmin, async (req, res) => {
     try {
         const taxonomyUrl = 'https://www.google.com/basepages/producttype/taxonomy-with-ids.en-US.txt';
 
@@ -4241,11 +4280,12 @@ app.get('/api/gmc/taxonomy/fetch-google', async (req, res) => {
  * GET /api/gmc/history
  * Get feed generation history
  */
-app.get('/api/gmc/history', async (req, res) => {
+app.get('/api/gmc/history', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { limit } = req.query;
-        let query = 'SELECT * FROM gmc_feed_history ORDER BY generated_at DESC';
-        const params = [];
+        const merchantId = req.merchantContext.id;
+        let query = 'SELECT * FROM gmc_feed_history WHERE merchant_id = $1 ORDER BY generated_at DESC';
+        const params = [merchantId];
 
         if (limit) {
             params.push(parseInt(limit));
@@ -7162,7 +7202,7 @@ function findPgDumpOnWindows() {
  * GET /api/database/export
  * Export database as SQL dump
  */
-app.get('/api/database/export', async (req, res) => {
+app.get('/api/database/export', requireAdmin, async (req, res) => {
     try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
@@ -7262,7 +7302,7 @@ function findPsqlOnWindows() {
  * Import database from SQL dump
  * Body: { sql: "SQL dump content" }
  */
-app.post('/api/database/import', async (req, res) => {
+app.post('/api/database/import', requireAdmin, async (req, res) => {
     try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
@@ -7356,7 +7396,7 @@ app.post('/api/database/import', async (req, res) => {
  * GET /api/database/info
  * Get database information
  */
-app.get('/api/database/info', async (req, res) => {
+app.get('/api/database/info', requireAdmin, async (req, res) => {
     try {
         // Get database size
         const sizeResult = await db.query(`
@@ -7613,7 +7653,7 @@ app.get('/api/subscriptions/status', async (req, res) => {
  * POST /api/subscriptions/cancel
  * Cancel a subscription
  */
-app.post('/api/subscriptions/cancel', async (req, res) => {
+app.post('/api/subscriptions/cancel', requireAuth, async (req, res) => {
     try {
         const { email, reason } = req.body;
 
@@ -7650,7 +7690,7 @@ app.post('/api/subscriptions/cancel', async (req, res) => {
  * POST /api/subscriptions/refund
  * Process a refund for a subscription payment
  */
-app.post('/api/subscriptions/refund', async (req, res) => {
+app.post('/api/subscriptions/refund', requireAdmin, async (req, res) => {
     try {
         const { email, reason } = req.body;
 
@@ -7724,7 +7764,7 @@ app.post('/api/subscriptions/refund', async (req, res) => {
  * GET /api/subscriptions/admin/list
  * Get all subscribers (admin endpoint)
  */
-app.get('/api/subscriptions/admin/list', async (req, res) => {
+app.get('/api/subscriptions/admin/list', requireAdmin, async (req, res) => {
     try {
         const { status } = req.query;
         const subscribers = await subscriptionHandler.getAllSubscribers({ status });
