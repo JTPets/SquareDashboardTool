@@ -1,10 +1,10 @@
 # Multi-User Account Isolation Plan
 ## Square App Marketplace Readiness
 
-**Document Version:** 2.0
+**Document Version:** 2.1
 **Created:** December 28, 2025
 **Last Updated:** January 1, 2026
-**Status:** Implementation Ready - Trial Launch Target: January 2026
+**Status:** Phase 1-3 COMPLETE - API Layer Updates In Progress
 
 ---
 
@@ -20,12 +20,73 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | Session Management | ✅ COMPLETE | PostgreSQL-backed sessions |
 | Landing Page | ✅ COMPLETE | Public marketing page separated from dashboard |
 | Dashboard Restructure | ✅ COMPLETE | User homepage at /dashboard.html |
-| Database Multi-Tenant Schema | ✅ COMPLETE | Migration 005_multi_tenant.sql created |
-| Square OAuth | ✅ COMPLETE | routes/square-oauth.js with token encryption |
+| Database Multi-Tenant Schema | ✅ COMPLETE | Migration + startup validation |
+| Square OAuth Routes | ✅ COMPLETE | routes/square-oauth.js |
+| Token Encryption | ✅ COMPLETE | utils/token-encryption.js (AES-256-GCM) |
 | Merchant Context Middleware | ✅ COMPLETE | middleware/merchant.js |
 | MerchantDB Wrapper | ✅ COMPLETE | utils/merchant-db.js |
-| API Layer Updates | ⏳ IN PROGRESS | Merchant endpoints added, 111 data endpoints pending |
+| Startup Schema Validation | ✅ COMPLETE | utils/database.js auto-creates tables |
+| Merchant Management API | ✅ COMPLETE | /api/merchants endpoints in server.js |
+| API Layer Updates | ⏳ IN PROGRESS | 111 data endpoints need merchant filtering |
 | Merchant Management UI | ⏳ NOT STARTED | Frontend work - Phase 4 |
+
+### Files Created/Modified (Phase 1-3)
+
+| File | Type | Purpose |
+|------|------|---------|
+| `database/migrations/005_multi_tenant.sql` | New | Schema migration |
+| `database/migrations/005_multi_tenant_rollback.sql` | New | Rollback script |
+| `utils/token-encryption.js` | New | AES-256-GCM token encryption |
+| `routes/square-oauth.js` | New | OAuth flow endpoints |
+| `middleware/merchant.js` | New | Merchant context middleware |
+| `utils/merchant-db.js` | New | Tenant-isolated DB wrapper |
+| `utils/database.js` | Modified | Added startup schema validation |
+| `server.js` | Modified | Registered routes & middleware |
+| `.env.example` | Modified | Added OAuth env vars |
+| `package.json` | Modified | Added `square` SDK dependency |
+
+---
+
+## Development Standards & Safeguards
+
+### ⚠️ MANDATORY CHECKLIST FOR ALL CHANGES
+
+When adding new features that involve database, dependencies, or configuration:
+
+#### 1. Database Changes
+- [ ] Create migration file in `database/migrations/XXX_name.sql`
+- [ ] Create rollback file in `database/migrations/XXX_name_rollback.sql`
+- [ ] **Add tables/columns to `utils/database.js` → `ensureSchema()`** for new installs
+- [ ] Test migration on staging before production
+- [ ] Verify rollback works
+
+#### 2. New Dependencies
+- [ ] **Add to `package.json` dependencies** (not just `npm install`)
+- [ ] Commit `package.json` changes
+- [ ] Document why the dependency is needed
+- [ ] Check for security vulnerabilities: `npm audit`
+
+#### 3. Environment Variables
+- [ ] **Add to `.env.example`** with clear documentation
+- [ ] Add validation in code for required variables
+- [ ] Document in this plan if related to multi-tenant
+- [ ] Never commit actual secrets to git
+
+#### 4. New API Endpoints
+- [ ] Add `requireAuth` middleware for protected routes
+- [ ] Add `requireMerchant` middleware for tenant-scoped routes
+- [ ] Use `MerchantDB` wrapper for database queries
+- [ ] Document in API section of this plan
+
+### Key Files That Must Stay In Sync
+
+| When you change... | Also update... |
+|-------------------|----------------|
+| Database schema | `utils/database.js` ensureSchema() |
+| New npm package | `package.json` dependencies |
+| New env variable | `.env.example` |
+| New API endpoint | This planning document |
+| OAuth scopes | `routes/square-oauth.js` REQUIRED_SCOPES |
 
 ---
 
