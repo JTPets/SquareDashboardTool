@@ -3342,6 +3342,47 @@ app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, re
 });
 
 /**
+ * POST /api/debug/restore-deleted-items
+ * Recovery endpoint to restore items/variations incorrectly marked as deleted
+ * This is used to fix the multi-tenant deletion bug
+ */
+app.post('/api/debug/restore-deleted-items', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Restore all items for this merchant
+        const itemsResult = await db.query(`
+            UPDATE items
+            SET is_deleted = FALSE, deleted_at = NULL
+            WHERE merchant_id = $1 AND is_deleted = TRUE
+        `, [merchantId]);
+
+        // Restore all variations for this merchant
+        const variationsResult = await db.query(`
+            UPDATE variations
+            SET is_deleted = FALSE, deleted_at = NULL
+            WHERE merchant_id = $1 AND is_deleted = TRUE
+        `, [merchantId]);
+
+        logger.info('Restored deleted items', {
+            merchantId,
+            itemsRestored: itemsResult.rowCount,
+            variationsRestored: variationsResult.rowCount
+        });
+
+        res.json({
+            success: true,
+            itemsRestored: itemsResult.rowCount,
+            variationsRestored: variationsResult.rowCount,
+            message: `Restored ${itemsResult.rowCount} items and ${variationsResult.rowCount} variations`
+        });
+    } catch (error) {
+        logger.error('Restore deleted items error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/debug/expiry-status
  * Debug endpoint to check expiration sync status
  */
