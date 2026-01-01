@@ -8142,13 +8142,16 @@ app.post('/api/webhooks/square', async (req, res) => {
                     syncResults.revoked = true;
                     syncResults.merchantId = revokedMerchantId;
 
-                    // For future multi-tenant: mark merchant as disconnected
-                    // await db.query(
-                    //     'UPDATE merchants SET is_authorized = false, revoked_at = NOW() WHERE square_merchant_id = $1',
-                    //     [revokedMerchantId]
-                    // );
+                    // Mark merchant as disconnected in database
+                    await db.query(`
+                        UPDATE merchants
+                        SET is_active = FALSE,
+                            square_access_token = 'REVOKED',
+                            square_refresh_token = NULL,
+                            updated_at = NOW()
+                        WHERE square_merchant_id = $1
+                    `, [revokedMerchantId]);
 
-                    // For now, just log prominently - admin will need to reconnect
                     logger.error('⚠️ OAUTH REVOKED - Square access has been disconnected. Re-authorization required.', {
                         merchantId: revokedMerchantId
                     });

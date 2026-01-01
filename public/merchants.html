@@ -520,6 +520,54 @@
     let activeMerchantId = null;
     let disconnectMerchantId = null;
 
+    // Check for OAuth callback messages on page load
+    function checkOAuthMessages() {
+      const params = new URLSearchParams(window.location.search);
+
+      // Check for success
+      if (params.get('connected') === 'true') {
+        const merchantName = params.get('merchant') || 'Square Account';
+        showToast(`Successfully connected to ${merchantName}!`, 'success');
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
+      // Check for errors (OAuth denial or other errors)
+      if (params.get('error')) {
+        const errorMsg = params.get('error_description') || params.get('error') || 'Authorization was denied or failed';
+        showToast(errorMsg, 'error');
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    // Show toast notification
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 500;
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      `;
+      toast.style.backgroundColor = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
+    }
+
     // Load merchants on page load
     async function loadMerchants() {
       try {
@@ -639,19 +687,23 @@
       if (!disconnectMerchantId) return;
 
       try {
-        const response = await fetch(`/api/merchants/${disconnectMerchantId}`, {
-          method: 'DELETE'
+        const response = await fetch('/api/square/oauth/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchantId: disconnectMerchantId })
         });
 
         if (!response.ok) {
-          throw new Error('Failed to disconnect');
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to disconnect');
         }
 
         closeDisconnectModal();
+        showToast('Square account disconnected successfully', 'success');
         loadMerchants();
       } catch (error) {
         console.error('Error disconnecting:', error);
-        alert('Failed to disconnect. Please try again.');
+        showToast(error.message || 'Failed to disconnect. Please try again.', 'error');
       }
     }
 
@@ -692,7 +744,10 @@
     }
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', loadMerchants);
+    document.addEventListener('DOMContentLoaded', function() {
+      checkOAuthMessages();
+      loadMerchants();
+    });
 
     // Close modal on outside click
     document.getElementById('disconnect-modal').addEventListener('click', function(e) {

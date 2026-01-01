@@ -37,9 +37,59 @@
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| OAuth authorization revocation | ✅ Complete | `server.js:8132-8159` - Handles `oauth.authorization.revoked` webhook, logs warning, flags for re-auth |
+| OAuth authorization revocation | ✅ Complete | `server.js:8132-8159` - Handles `oauth.authorization.revoked` webhook, deactivates merchant in DB |
 | Refund handling | ✅ Complete | Subscription refunds via `/api/subscriptions/refund` endpoint |
 | Webhook signature verification | ✅ Complete | HMAC-SHA256 validation of Square webhook signatures |
+
+---
+
+## OAuth API Requirements Checklist
+
+*Configuration: Hosted OAuth, Single role, User revocation supported*
+
+### App Configuration
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| App name is seller-friendly (no Prod, V1, test) | ⚠️ Verify | Check Square Developer Dashboard before submission |
+| OAuth flow moved into Production | ⚠️ Verify | Ensure `SQUARE_ENVIRONMENT=production` before go-live |
+
+### OAuth Flow & Security
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Users logged in before OAuth initiation | ✅ Complete | `requireAuth` middleware on `/api/square/oauth/connect` |
+| State parameter for CSRF validation | ✅ Complete | `routes/square-oauth.js:64` - 32-byte random hex, stored in DB with 10min expiry |
+| Minimum OAuth permissions requested | ✅ Complete | 6 scopes: MERCHANT_PROFILE_READ, ITEMS_READ/WRITE, INVENTORY_READ/WRITE, ORDERS_READ |
+| Deny shows user-friendly message | ✅ Complete | `merchants.html` - Toast notification displays OAuth errors to user |
+| OAuth flow completes successfully | ✅ Complete | Full authorization_code flow with token exchange |
+| Success redirect with message | ✅ Complete | Redirects with `?connected=true&merchant=<name>`, toast shown |
+
+### Token Management
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Token validity checked regularly | ✅ Complete | `middleware/merchant.js:220-232` - Checks expiry on each request |
+| Shows connection state (connected/disconnected) | ✅ Complete | `merchants.html` - Status badges, active indicator, role display |
+| Token refresh every 7-14 days | ✅ Complete | Auto-refresh within 1 hour of expiry via `refreshMerchantToken()` |
+| Handles revoked tokens gracefully | ✅ Complete | Webhook handler deactivates merchant, UI shows disconnected state |
+
+### Token Security
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Access tokens AES-encrypted in database | ✅ Complete | `utils/token-encryption.js` - AES-256-GCM with auth tags |
+| Encryption key not in source control | ✅ Complete | `TOKEN_ENCRYPTION_KEY` in .env, .env excluded via .gitignore |
+| Separate keys for staging/production | ✅ Complete | Different .env files per environment |
+| OAuth secret not in source control | ✅ Complete | `SQUARE_APPLICATION_SECRET` in .env, excluded from git |
+
+### Access Control & Revocation
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Only authorized personnel manage OAuth | ✅ Complete | `routes/square-oauth.js:300` - Only `owner` role can revoke |
+| App successfully revokes OAuth tokens | ✅ Complete | `POST /api/square/oauth/revoke` - Calls Square API, clears local tokens |
+| User can revoke from within app | ✅ Complete | Disconnect button on `merchants.html` with confirmation modal |
 
 ---
 
