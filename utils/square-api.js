@@ -7,6 +7,7 @@ const fetch = require('node-fetch');
 const crypto = require('crypto');
 const db = require('./database');
 const logger = require('./logger');
+const { decryptToken } = require('./token-encryption');
 
 // Square API configuration
 const SQUARE_API_VERSION = '2025-10-16';
@@ -16,6 +17,32 @@ const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 // Rate limiting and retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+
+// Current sync context (set by sync functions for helper functions to access)
+let currentSyncMerchantId = null;
+
+/**
+ * Get decrypted access token for a merchant
+ * @param {number} merchantId - The merchant ID
+ * @returns {Promise<string>} Decrypted access token
+ */
+async function getMerchantToken(merchantId) {
+    if (!merchantId) {
+        // Legacy single-tenant mode - use environment variable
+        return ACCESS_TOKEN;
+    }
+
+    const result = await db.query(
+        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+        [merchantId]
+    );
+
+    if (result.rows.length === 0) {
+        throw new Error(`Merchant ${merchantId} not found or inactive`);
+    }
+
+    return decryptToken(result.rows[0].square_access_token);
+}
 
 /**
  * Generate a unique idempotency key for Square API requests
@@ -30,17 +57,21 @@ function generateIdempotencyKey(prefix) {
 /**
  * Make a Square API request with error handling and retry logic
  * @param {string} endpoint - API endpoint path
- * @param {Object} options - Fetch options
+ * @param {Object} options - Fetch options (can include accessToken for multi-tenant)
  * @returns {Promise<Object>} Response data
  */
 async function makeSquareRequest(endpoint, options = {}) {
     const url = `${SQUARE_BASE_URL}${endpoint}`;
+    // Use provided accessToken (for multi-tenant) or fall back to global ACCESS_TOKEN (legacy)
+    const token = options.accessToken || ACCESS_TOKEN;
     const headers = {
         'Square-Version': SQUARE_API_VERSION,
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         ...options.headers
     };
+    // Remove accessToken from options so it doesn't get passed to fetch
+    delete options.accessToken;
 
     let lastError;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -116,26 +147,30 @@ function sleep(ms) {
 
 /**
  * Sync locations from Square
+ * @param {number} merchantId - The merchant ID to sync for
  * @returns {Promise<number>} Number of locations synced
  */
-async function syncLocations() {
-    logger.info('Starting location sync');
+async function syncLocations(merchantId) {
+    logger.info('Starting location sync', { merchantId });
 
     try {
-        const data = await makeSquareRequest('/v2/locations');
+        // Get merchant-specific token
+        const accessToken = await getMerchantToken(merchantId);
+        const data = await makeSquareRequest('/v2/locations', { accessToken });
         const locations = data.locations || [];
 
         let synced = 0;
         for (const loc of locations) {
             await db.query(`
-                INSERT INTO locations (id, name, square_location_id, active, address, timezone, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                INSERT INTO locations (id, name, square_location_id, active, address, timezone, merchant_id, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
                     square_location_id = EXCLUDED.square_location_id,
                     active = EXCLUDED.active,
                     address = EXCLUDED.address,
                     timezone = EXCLUDED.timezone,
+                    merchant_id = EXCLUDED.merchant_id,
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 loc.id,
@@ -143,12 +178,13 @@ async function syncLocations() {
                 loc.id,
                 loc.status === 'ACTIVE',
                 loc.address ? JSON.stringify(loc.address) : null,
-                loc.timezone
+                loc.timezone,
+                merchantId
             ]);
             synced++;
         }
 
-        logger.info('Location sync complete', { count: synced });
+        logger.info('Location sync complete', { merchantId, count: synced });
         return synced;
     } catch (error) {
         logger.error('Location sync failed', { error: error.message, stack: error.stack });
@@ -158,12 +194,14 @@ async function syncLocations() {
 
 /**
  * Sync vendors from Square
+ * @param {number} merchantId - The merchant ID to sync for
  * @returns {Promise<number>} Number of vendors synced
  */
-async function syncVendors() {
-    logger.info('Starting vendor sync');
+async function syncVendors(merchantId) {
+    logger.info('Starting vendor sync', { merchantId });
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
         let cursor = null;
         let totalSynced = 0;
 
@@ -181,7 +219,8 @@ async function syncVendors() {
 
             const data = await makeSquareRequest('/v2/vendors/search', {
                 method: 'POST',
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                accessToken
             });
 
             const vendors = data.vendors || [];
@@ -189,15 +228,16 @@ async function syncVendors() {
             for (const vendor of vendors) {
                 await db.query(`
                     INSERT INTO vendors (
-                        id, name, status, contact_name, contact_email, contact_phone, updated_at
+                        id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
                         status = EXCLUDED.status,
                         contact_name = EXCLUDED.contact_name,
                         contact_email = EXCLUDED.contact_email,
                         contact_phone = EXCLUDED.contact_phone,
+                        merchant_id = EXCLUDED.merchant_id,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     vendor.id,
@@ -205,30 +245,35 @@ async function syncVendors() {
                     vendor.status,
                     vendor.contacts?.[0]?.name || null,
                     vendor.contacts?.[0]?.email_address || null,
-                    vendor.contacts?.[0]?.phone_number || null
+                    vendor.contacts?.[0]?.phone_number || null,
+                    merchantId
                 ]);
                 totalSynced++;
             }
 
             cursor = data.cursor;
-            logger.info('Vendor sync progress', { count: totalSynced });
+            logger.info('Vendor sync progress', { merchantId, count: totalSynced });
 
         } while (cursor);
 
-        logger.info('Vendor sync complete', { count: totalSynced });
+        logger.info('Vendor sync complete', { merchantId, count: totalSynced });
         return totalSynced;
     } catch (error) {
-        logger.error('Vendor sync failed', { error: error.message, stack: error.stack });
+        logger.error('Vendor sync failed', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
 
 /**
  * Sync catalog (categories, images, items, variations) from Square
+ * @param {number} merchantId - The merchant ID to sync for
  * @returns {Promise<Object>} Sync statistics
  */
-async function syncCatalog() {
-    logger.info('Starting catalog sync');
+async function syncCatalog(merchantId) {
+    logger.info('Starting catalog sync', { merchantId });
+
+    // Store merchantId for helper functions to access
+    currentSyncMerchantId = merchantId;
 
     const stats = {
         categories: 0,
@@ -252,14 +297,15 @@ async function syncCatalog() {
     const categoriesMap = new Map();
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
         let cursor = null;
 
         // Fetch ALL catalog objects in one pass - building maps first
         // Use include_related_objects=true to get category associations
-        logger.info('Starting catalog fetch');
+        logger.info('Starting catalog fetch', { merchantId });
         do {
             const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false&include_related_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
-            const data = await makeSquareRequest(endpoint);
+            const data = await makeSquareRequest(endpoint, { accessToken });
 
             const objects = data.objects || [];
             const relatedObjects = data.related_objects || [];
@@ -479,13 +525,15 @@ async function syncCatalog() {
  */
 async function syncCategory(obj) {
     await db.query(`
-        INSERT INTO categories (id, name)
-        VALUES ($1, $2)
+        INSERT INTO categories (id, name, merchant_id)
+        VALUES ($1, $2, $3)
         ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name
+            name = EXCLUDED.name,
+            merchant_id = EXCLUDED.merchant_id
     `, [
         obj.id,
-        obj.category_data?.name || 'Uncategorized'
+        obj.category_data?.name || 'Uncategorized',
+        currentSyncMerchantId
     ]);
 }
 
@@ -494,17 +542,19 @@ async function syncCategory(obj) {
  */
 async function syncImage(obj) {
     await db.query(`
-        INSERT INTO images (id, name, url, caption)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO images (id, name, url, caption, merchant_id)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             url = EXCLUDED.url,
-            caption = EXCLUDED.caption
+            caption = EXCLUDED.caption,
+            merchant_id = EXCLUDED.merchant_id
     `, [
         obj.id,
         obj.image_data?.name || null,
         obj.image_data?.url || null,
-        obj.image_data?.caption || null
+        obj.image_data?.caption || null,
+        currentSyncMerchantId
     ]);
 }
 
@@ -541,9 +591,9 @@ async function syncItem(obj, category_name) {
             id, name, description, category_id, category_name, product_type,
             taxable, tax_ids, visibility, present_at_all_locations, present_at_location_ids,
             absent_at_location_ids, modifier_list_info, item_options, images,
-            available_online, available_for_pickup, seo_title, seo_description, updated_at
+            available_online, available_for_pickup, seo_title, seo_description, merchant_id, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             description = EXCLUDED.description,
@@ -563,6 +613,7 @@ async function syncItem(obj, category_name) {
             available_for_pickup = EXCLUDED.available_for_pickup,
             seo_title = EXCLUDED.seo_title,
             seo_description = EXCLUDED.seo_description,
+            merchant_id = EXCLUDED.merchant_id,
             updated_at = CURRENT_TIMESTAMP
     `, [
         obj.id,
@@ -583,7 +634,8 @@ async function syncItem(obj, category_name) {
         availableOnline,  // Derived from ecom_visibility === 'VISIBLE'
         false,  // availableForPickup - Square doesn't expose this per-item via API
         seoTitle,
-        seoDescription
+        seoDescription,
+        currentSyncMerchantId
     ]);
 
     // Sync brand custom attribute from Square
@@ -675,9 +727,9 @@ async function syncVariation(obj) {
             id, item_id, name, sku, upc, price_money, currency, pricing_type,
             track_inventory, inventory_alert_type, inventory_alert_threshold,
             present_at_all_locations, present_at_location_ids, absent_at_location_ids,
-            item_option_values, custom_attributes, images, updated_at
+            item_option_values, custom_attributes, images, merchant_id, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             item_id = EXCLUDED.item_id,
             name = EXCLUDED.name,
@@ -695,6 +747,7 @@ async function syncVariation(obj) {
             item_option_values = EXCLUDED.item_option_values,
             custom_attributes = EXCLUDED.custom_attributes,
             images = EXCLUDED.images,
+            merchant_id = EXCLUDED.merchant_id,
             updated_at = CURRENT_TIMESTAMP
     `, [
         obj.id,
@@ -713,7 +766,8 @@ async function syncVariation(obj) {
         obj.absent_at_location_ids ? JSON.stringify(obj.absent_at_location_ids) : null,
         data.item_option_values ? JSON.stringify(data.item_option_values) : null,
         obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,
-        data.image_ids ? JSON.stringify(data.image_ids) : null
+        data.image_ids ? JSON.stringify(data.image_ids) : null,
+        currentSyncMerchantId
     ]);
 
     // Sync location-specific settings from location_overrides
@@ -724,19 +778,21 @@ async function syncVariation(obj) {
                     INSERT INTO variation_location_settings (
                         variation_id, location_id,
                         stock_alert_min, stock_alert_max,
-                        active, updated_at
+                        active, merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, true, CURRENT_TIMESTAMP)
+                    VALUES ($1, $2, $3, $4, true, $5, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id, location_id) DO UPDATE SET
                         stock_alert_min = EXCLUDED.stock_alert_min,
                         stock_alert_max = EXCLUDED.stock_alert_max,
                         active = EXCLUDED.active,
+                        merchant_id = EXCLUDED.merchant_id,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     obj.id,
                     override.location_id,
                     override.inventory_alert_threshold || null,
-                    null  // stock_alert_max not available in Square API
+                    null,  // stock_alert_max not available in Square API
+                    currentSyncMerchantId
                 ]);
             } catch (error) {
                 logger.error('Error syncing location override', { variation_id: obj.id, location_id: override.location_id, error: error.message });
@@ -753,20 +809,22 @@ async function syncVariation(obj) {
             try {
                 await db.query(`
                     INSERT INTO variation_vendors (
-                        variation_id, vendor_id, vendor_code, unit_cost_money, currency, updated_at
+                        variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                    VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
                     ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
                         vendor_code = EXCLUDED.vendor_code,
                         unit_cost_money = EXCLUDED.unit_cost_money,
                         currency = EXCLUDED.currency,
+                        merchant_id = EXCLUDED.merchant_id,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     obj.id,
                     vendorInfo.vendor_id,
                     vendorInfo.vendor_code || null,
                     vendorInfo.unit_cost_money?.amount || null,
-                    vendorInfo.unit_cost_money?.currency || 'CAD'
+                    vendorInfo.unit_cost_money?.currency || 'CAD',
+                    currentSyncMerchantId
                 ]);
                 vendorCount++;
             } catch (error) {
@@ -859,27 +917,30 @@ async function syncVariation(obj) {
 
 /**
  * Sync inventory counts from Square
+ * @param {number} merchantId - The merchant ID to sync for
  * @returns {Promise<number>} Number of inventory records synced
  */
-async function syncInventory() {
-    logger.info('Starting inventory sync');
+async function syncInventory(merchantId) {
+    logger.info('Starting inventory sync', { merchantId });
 
     try {
-        // Get all locations
-        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE');
+        const accessToken = await getMerchantToken(merchantId);
+
+        // Get all locations for this merchant
+        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1', [merchantId]);
         const locationIds = locationsResult.rows.map(r => r.id);
 
         if (locationIds.length === 0) {
-            logger.warn('No active locations found. Run location sync first');
+            logger.warn('No active locations found. Run location sync first', { merchantId });
             return 0;
         }
 
-        // Get all variation IDs from database
-        const variationsResult = await db.query('SELECT id FROM variations');
+        // Get all variation IDs for this merchant
+        const variationsResult = await db.query('SELECT id FROM variations WHERE merchant_id = $1', [merchantId]);
         const catalogObjectIds = variationsResult.rows.map(r => r.id);
 
         if (catalogObjectIds.length === 0) {
-            logger.warn('No variations found. Run catalog sync first');
+            logger.warn('No variations found. Run catalog sync first', { merchantId });
             return 0;
         }
 
@@ -899,7 +960,8 @@ async function syncInventory() {
             try {
                 const data = await makeSquareRequest('/v2/inventory/counts/batch-retrieve', {
                     method: 'POST',
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify(requestBody),
+                    accessToken
                 });
 
                 const counts = data.counts || [];
@@ -909,29 +971,31 @@ async function syncInventory() {
                     acc[c.state] = (acc[c.state] || 0) + 1;
                     return acc;
                 }, {});
-                logger.info('Inventory counts by state', { batch: Math.floor(i / batchSize) + 1, states: stateCount });
+                logger.info('Inventory counts by state', { merchantId, batch: Math.floor(i / batchSize) + 1, states: stateCount });
 
                 for (const count of counts) {
                     await db.query(`
                         INSERT INTO inventory_counts (
-                            catalog_object_id, location_id, state, quantity, updated_at
+                            catalog_object_id, location_id, state, quantity, merchant_id, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
                         ON CONFLICT (catalog_object_id, location_id, state) DO UPDATE SET
                             quantity = EXCLUDED.quantity,
+                            merchant_id = EXCLUDED.merchant_id,
                             updated_at = CURRENT_TIMESTAMP
                     `, [
                         count.catalog_object_id,
                         count.location_id,
                         count.state,
-                        parseInt(count.quantity) || 0
+                        parseInt(count.quantity) || 0,
+                        merchantId
                     ]);
                     totalSynced++;
                 }
 
-                logger.info('Inventory sync batch complete', { batch: Math.floor(i / batchSize) + 1, total_synced: totalSynced });
+                logger.info('Inventory sync batch complete', { merchantId, batch: Math.floor(i / batchSize) + 1, total_synced: totalSynced });
             } catch (error) {
-                logger.error('Inventory sync batch failed', { batch: Math.floor(i / batchSize) + 1, error: error.message });
+                logger.error('Inventory sync batch failed', { merchantId, batch: Math.floor(i / batchSize) + 1, error: error.message });
                 // Continue with next batch
             }
 
@@ -939,10 +1003,10 @@ async function syncInventory() {
             await sleep(100);
         }
 
-        logger.info('Inventory sync complete', { records: totalSynced });
+        logger.info('Inventory sync complete', { merchantId, records: totalSynced });
         return totalSynced;
     } catch (error) {
-        logger.error('Inventory sync failed', { error: error.message, stack: error.stack });
+        logger.error('Inventory sync failed', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -950,19 +1014,22 @@ async function syncInventory() {
 /**
  * Sync sales velocity for a specific time period
  * @param {number} periodDays - Number of days to analyze (91, 182, or 365)
+ * @param {number} merchantId - The merchant ID to sync for
  * @returns {Promise<number>} Number of variations with velocity data
  */
-async function syncSalesVelocity(periodDays = 91) {
-    logger.info('Starting sales velocity sync', { period_days: periodDays });
+async function syncSalesVelocity(periodDays = 91, merchantId) {
+    logger.info('Starting sales velocity sync', { period_days: periodDays, merchantId });
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
+
         // Calculate date range
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - periodDays);
 
-        // Get all active locations
-        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE');
+        // Get all active locations for this merchant
+        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1', [merchantId]);
         const locationIds = locationsResult.rows.map(r => r.id);
 
         if (locationIds.length === 0) {
@@ -1001,7 +1068,8 @@ async function syncSalesVelocity(periodDays = 91) {
 
             const data = await makeSquareRequest('/v2/orders/search', {
                 method: 'POST',
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                accessToken
             });
 
             const orders = data.orders || [];
@@ -1089,9 +1157,9 @@ async function syncSalesVelocity(periodDays = 91) {
                     period_start_date, period_end_date,
                     daily_avg_quantity, daily_avg_revenue_cents,
                     weekly_avg_quantity, monthly_avg_quantity,
-                    updated_at
+                    merchant_id, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
                 ON CONFLICT (variation_id, location_id, period_days) DO UPDATE SET
                     total_quantity_sold = EXCLUDED.total_quantity_sold,
                     total_revenue_cents = EXCLUDED.total_revenue_cents,
@@ -1101,6 +1169,7 @@ async function syncSalesVelocity(periodDays = 91) {
                     daily_avg_revenue_cents = EXCLUDED.daily_avg_revenue_cents,
                     weekly_avg_quantity = EXCLUDED.weekly_avg_quantity,
                     monthly_avg_quantity = EXCLUDED.monthly_avg_quantity,
+                    merchant_id = EXCLUDED.merchant_id,
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 data.variation_id,
@@ -1113,7 +1182,8 @@ async function syncSalesVelocity(periodDays = 91) {
                 dailyAvg,
                 dailyRevenueAvg,
                 weeklyAvg,
-                monthlyAvg
+                monthlyAvg,
+                merchantId
             ]);
             savedCount++;
         }

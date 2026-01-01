@@ -986,7 +986,7 @@ async function runSmartSync({ merchantId } = {}) {
             } else {
                 logger.info('Syncing locations');
             }
-            const result = await loggedSync('locations', () => squareApi.syncLocations(), merchantId);
+            const result = await loggedSync('locations', () => squareApi.syncLocations(merchantId), merchantId);
             synced.push('locations');
             summary.locations = result;
         } catch (error) {
@@ -1002,7 +1002,7 @@ async function runSmartSync({ merchantId } = {}) {
     if (vendorsCheck.needed) {
         try {
             logger.info('Syncing vendors');
-            const result = await loggedSync('vendors', () => squareApi.syncVendors(), merchantId);
+            const result = await loggedSync('vendors', () => squareApi.syncVendors(merchantId), merchantId);
             synced.push('vendors');
             summary.vendors = result;
         } catch (error) {
@@ -1019,7 +1019,7 @@ async function runSmartSync({ merchantId } = {}) {
         try {
             logger.info('Syncing catalog');
             const result = await loggedSync('catalog', async () => {
-                const stats = await squareApi.syncCatalog();
+                const stats = await squareApi.syncCatalog(merchantId);
                 return stats.items + stats.variations;
             }, merchantId);
             synced.push('catalog');
@@ -1037,7 +1037,7 @@ async function runSmartSync({ merchantId } = {}) {
     if (inventoryCheck.needed) {
         try {
             logger.info('Syncing inventory');
-            const result = await loggedSync('inventory', () => squareApi.syncInventory(), merchantId);
+            const result = await loggedSync('inventory', () => squareApi.syncInventory(merchantId), merchantId);
             synced.push('inventory');
             summary.inventory = result;
         } catch (error) {
@@ -1053,7 +1053,7 @@ async function runSmartSync({ merchantId } = {}) {
     if (sales91Check.needed) {
         try {
             logger.info('Syncing 91-day sales velocity');
-            const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91), merchantId);
+            const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91, merchantId), merchantId);
             synced.push('sales_91d');
             summary.sales_91d = result;
         } catch (error) {
@@ -1069,7 +1069,7 @@ async function runSmartSync({ merchantId } = {}) {
     if (sales182Check.needed) {
         try {
             logger.info('Syncing 182-day sales velocity');
-            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182), merchantId);
+            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182, merchantId), merchantId);
             synced.push('sales_182d');
             summary.sales_182d = result;
         } catch (error) {
@@ -1085,7 +1085,7 @@ async function runSmartSync({ merchantId } = {}) {
     if (sales365Check.needed) {
         try {
             logger.info('Syncing 365-day sales velocity');
-            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365), merchantId);
+            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365, merchantId), merchantId);
             synced.push('sales_365d');
             summary.sales_365d = result;
         } catch (error) {
