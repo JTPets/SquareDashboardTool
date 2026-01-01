@@ -8692,16 +8692,28 @@ async function startServer() {
 
         // Backfill NULL merchant_id values for legacy data
         try {
+            // Find legacy merchant (created by migration or first merchant)
             const legacyMerchant = await db.query(
-                "SELECT id FROM merchants WHERE is_legacy = TRUE OR email LIKE '%admin%' ORDER BY created_at LIMIT 1"
+                "SELECT id FROM merchants WHERE square_merchant_id = 'legacy_single_tenant' OR is_legacy = TRUE ORDER BY id LIMIT 1"
             );
-            if (legacyMerchant.rows.length > 0) {
-                const legacyId = legacyMerchant.rows[0].id;
+
+            // If no legacy merchant found, try to find first active merchant
+            let legacyId = legacyMerchant.rows.length > 0 ? legacyMerchant.rows[0].id : null;
+            if (!legacyId) {
+                const firstMerchant = await db.query(
+                    "SELECT id FROM merchants WHERE is_active = TRUE ORDER BY created_at LIMIT 1"
+                );
+                legacyId = firstMerchant.rows.length > 0 ? firstMerchant.rows[0].id : null;
+            }
+
+            if (legacyId) {
+                // Backfill data tables with NULL merchant_id
                 const tables = [
                     'count_queue_priority', 'count_queue_daily', 'count_history', 'count_sessions',
                     'items', 'variations', 'categories', 'vendors', 'variation_vendors',
                     'inventory_counts', 'locations', 'purchase_orders', 'purchase_order_items',
-                    'variation_expiration', 'expiry_discounts', 'sales_velocity', 'gmc_feed_history'
+                    'variation_expiration', 'expiry_discounts', 'sales_velocity', 'gmc_feed_history',
+                    'variation_location_settings', 'sync_history'
                 ];
                 let fixed = 0;
                 for (const table of tables) {
@@ -8720,6 +8732,30 @@ async function startServer() {
                 }
                 if (fixed > 0) {
                     logger.info(`Backfilled ${fixed} total rows with legacy merchant_id`);
+                }
+
+                // Ensure all users have a user_merchants entry (critical for legacy users)
+                const usersWithoutMerchant = await db.query(`
+                    SELECT u.id, u.role
+                    FROM users u
+                    LEFT JOIN user_merchants um ON um.user_id = u.id
+                    WHERE um.id IS NULL
+                `);
+
+                if (usersWithoutMerchant.rows.length > 0) {
+                    for (const user of usersWithoutMerchant.rows) {
+                        try {
+                            await db.query(`
+                                INSERT INTO user_merchants (user_id, merchant_id, role, is_primary, accepted_at)
+                                VALUES ($1, $2, $3, TRUE, NOW())
+                                ON CONFLICT (user_id, merchant_id) DO NOTHING
+                            `, [user.id, legacyId, user.role === 'admin' ? 'owner' : (user.role || 'viewer')]);
+                            logger.info(`Linked legacy user ${user.id} to merchant ${legacyId}`);
+                        } catch (e) {
+                            logger.warn(`Could not link user ${user.id} to merchant`, { error: e.message });
+                        }
+                    }
+                    logger.info(`Linked ${usersWithoutMerchant.rows.length} legacy users to merchant ${legacyId}`);
                 }
             }
         } catch (backfillError) {
