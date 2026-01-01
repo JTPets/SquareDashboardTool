@@ -52,7 +52,7 @@
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
 | App name is seller-friendly (no Prod, V1, test) | ⚠️ Verify | Check Square Developer Dashboard before submission |
-| OAuth flow moved into Production | ⚠️ Verify | Ensure `SQUARE_ENVIRONMENT=production` before go-live |
+| OAuth flow moved into Production | ✅ Complete | `SQUARE_ENVIRONMENT=production` configured in .env |
 
 ### OAuth Flow & Security
 
