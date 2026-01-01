@@ -93,6 +93,27 @@
 
 ---
 
+## Catalog API Requirements Checklist
+
+*Configuration: Merchant-level data (no location selector), No Location Custom Attributes*
+
+### Location Handling
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Location connection method | ✅ Complete | Merchant-level - auto-syncs all locations, no selection required |
+| Supports multi-location merchants | ✅ Complete | Inventory tracked per-location, POs can filter by location |
+
+### Custom Attributes (Catalog)
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| No PCI/sensitive data in custom attributes | ✅ Complete | Only stores: case_pack_quantity, brand, expiration_date, does_not_expire |
+| Custom attribute names unique per seller | ✅ Complete | App-scoped keys managed by Square (enforces uniqueness per app) |
+| Custom attributes used | ✅ Documented | case_pack_quantity (NUMBER), brand (STRING), expiration_date (STRING), does_not_expire (BOOLEAN) |
+
+---
+
 ## App Marketplace Listing Content
 
 ### App Description (Draft)

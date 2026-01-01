@@ -194,14 +194,21 @@ app.use(loadMerchantContext);
 // Protect all API routes (authEnabled already set above)
 if (authEnabled) {
     app.use('/api', (req, res, next) => {
-        // Allow health check without auth
-        if (req.path === '/health') {
+        // Public routes that don't require authentication
+        const publicPaths = [
+            '/health',
+            '/webhooks/square',
+            '/square/payment-config',
+            '/subscriptions/plans',
+            '/subscriptions/create',
+            '/subscriptions/status'
+        ];
+
+        // Allow public routes without auth
+        if (publicPaths.includes(req.path)) {
             return next();
         }
-        // Allow webhook endpoint without auth (Square needs to POST to it)
-        if (req.path === '/webhooks/square') {
-            return next();
-        }
+
         // Require authentication for all other API routes
         return requireAuthApi(req, res, next);
     });
