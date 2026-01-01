@@ -4300,9 +4300,10 @@ const vendorCatalog = require('./utils/vendor-catalog');
  * Import vendor catalog from CSV or XLSX file
  * Expects multipart form data with 'file' field or JSON body with 'data' and 'fileType'
  */
-app.post('/api/vendor-catalog/import', async (req, res) => {
+app.post('/api/vendor-catalog/import', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { data, fileType, fileName, defaultVendorName } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!data) {
             return res.status(400).json({
@@ -4334,7 +4335,8 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
         }
 
         const result = await vendorCatalog.importVendorCatalog(fileData, type, {
-            defaultVendorName: defaultVendorName || null
+            defaultVendorName: defaultVendorName || null,
+            merchantId
         });
 
         if (result.success) {
@@ -4365,7 +4367,7 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
  * POST /api/vendor-catalog/preview
  * Preview file contents and get auto-detected column mappings
  */
-app.post('/api/vendor-catalog/preview', async (req, res) => {
+app.post('/api/vendor-catalog/preview', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { data, fileType, fileName } = req.body;
 
@@ -4430,11 +4432,12 @@ app.post('/api/vendor-catalog/preview', async (req, res) => {
  * Requires: vendorId (selected vendor), columnMappings
  * Optional: importName (catalog name like "ABC Corp 2025 Price List")
  */
-app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
+app.post('/api/vendor-catalog/import-mapped', requireAuth, requireMerchant, async (req, res) => {
     try {
         // Accept both 'mappings' (frontend) and 'columnMappings' (API) for compatibility
         const { data, fileType, fileName, columnMappings, mappings, vendorId, vendorName, importName } = req.body;
         const resolvedMappings = columnMappings || mappings;
+        const merchantId = req.merchantContext.id;
 
         if (!data) {
             return res.status(400).json({
@@ -4475,7 +4478,8 @@ app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
             columnMappings: resolvedMappings || {},
             vendorId,
             vendorName: vendorName || 'Unknown Vendor',
-            importName: importName || null
+            importName: importName || null,
+            merchantId
         });
 
         if (result.success) {
@@ -4612,15 +4616,16 @@ app.get('/api/vendor-catalog/batches', requireAuth, requireMerchant, async (req,
  * POST /api/vendor-catalog/batches/:batchId/archive
  * Archive an import batch (soft delete - keeps for searches)
  */
-app.post('/api/vendor-catalog/batches/:batchId/archive', async (req, res) => {
+app.post('/api/vendor-catalog/batches/:batchId/archive', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const archivedCount = await vendorCatalog.archiveImportBatch(batchId);
+        const archivedCount = await vendorCatalog.archiveImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Archived ${archivedCount} items from batch ${batchId}`,
@@ -4636,15 +4641,16 @@ app.post('/api/vendor-catalog/batches/:batchId/archive', async (req, res) => {
  * POST /api/vendor-catalog/batches/:batchId/unarchive
  * Unarchive an import batch
  */
-app.post('/api/vendor-catalog/batches/:batchId/unarchive', async (req, res) => {
+app.post('/api/vendor-catalog/batches/:batchId/unarchive', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId);
+        const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Unarchived ${unarchivedCount} items from batch ${batchId}`,
@@ -4660,15 +4666,16 @@ app.post('/api/vendor-catalog/batches/:batchId/unarchive', async (req, res) => {
  * DELETE /api/vendor-catalog/batches/:batchId
  * Permanently delete an import batch
  */
-app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
+app.delete('/api/vendor-catalog/batches/:batchId', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const deletedCount = await vendorCatalog.deleteImportBatch(batchId);
+        const deletedCount = await vendorCatalog.deleteImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Permanently deleted ${deletedCount} items from batch ${batchId}`,
@@ -4684,9 +4691,10 @@ app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
  * GET /api/vendor-catalog/stats
  * Get vendor catalog statistics
  */
-app.get('/api/vendor-catalog/stats', async (req, res) => {
+app.get('/api/vendor-catalog/stats', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const stats = await vendorCatalog.getStats();
+        const merchantId = req.merchantContext.id;
+        const stats = await vendorCatalog.getStats(merchantId);
         res.json(stats);
     } catch (error) {
         logger.error('Get vendor catalog stats error', { error: error.message, stack: error.stack });
@@ -4699,9 +4707,10 @@ app.get('/api/vendor-catalog/stats', async (req, res) => {
  * Push selected price changes to Square
  * Body: { priceChanges: [{variationId, newPriceCents, currency?}] }
  */
-app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
+app.post('/api/vendor-catalog/push-price-changes', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { priceChanges } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!priceChanges || !Array.isArray(priceChanges) || priceChanges.length === 0) {
             return res.status(400).json({
@@ -4710,7 +4719,7 @@ app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
             });
         }
 
-        // Validate each price change
+        // Validate each price change and verify variations belong to merchant
         for (const change of priceChanges) {
             if (!change.variationId) {
                 return res.status(400).json({
@@ -4726,7 +4735,7 @@ app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
             }
         }
 
-        logger.info('Pushing price changes to Square', { count: priceChanges.length });
+        logger.info('Pushing price changes to Square', { count: priceChanges.length, merchantId });
 
         const squareApi = require('./utils/square-api');
         const result = await squareApi.batchUpdateVariationPrices(priceChanges);
