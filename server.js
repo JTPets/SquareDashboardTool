@@ -1135,7 +1135,7 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         logger.info('Full sync requested', { merchantId });
-        const summary = await squareApi.fullSync({ merchantId });
+        const summary = await squareApi.fullSync(merchantId);
 
         // Generate GMC feed after sync completes
         let gmcFeedResult = null;
@@ -3189,7 +3189,7 @@ app.post('/api/catalog-audit/fix-locations', requireAuth, requireMerchant, async
         const merchantId = req.merchantContext.id;
         logger.info('Starting location mismatch fix from API', { merchantId });
 
-        const result = await squareApi.fixLocationMismatches({ merchantId });
+        const result = await squareApi.fixLocationMismatches(merchantId);
 
         if (result.success) {
             res.json({
@@ -6485,7 +6485,7 @@ app.post('/api/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, a
             dbQuantity
         });
 
-        const squareQuantity = await squareApi.getSquareInventoryCount(id, targetLocationId);
+        const squareQuantity = await squareApi.getSquareInventoryCount(id, targetLocationId, merchantId);
 
         // Compare Square's current inventory with our database
         if (squareQuantity !== dbQuantity) {
@@ -6521,7 +6521,8 @@ app.post('/api/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, a
             id,
             targetLocationId,
             actualQty,
-            `Cycle count adjustment - SKU: ${variation.sku || 'N/A'}`
+            `Cycle count adjustment - SKU: ${variation.sku || 'N/A'}`,
+            merchantId
         );
 
         // Update our local database with the new quantity
