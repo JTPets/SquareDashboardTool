@@ -1254,6 +1254,244 @@ async function ensureSchema() {
         logger.error('Failed to update count_sessions constraint:', error.message);
     }
 
+    // count_history: Update unique constraint from (catalog_object_id) to (catalog_object_id, merchant_id)
+    try {
+        const countHistoryTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'count_history')
+        `);
+
+        if (countHistoryTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'count_history' AND constraint_name = 'count_history_catalog_object_id_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE count_history DROP CONSTRAINT count_history_catalog_object_id_key');
+                await query('ALTER TABLE count_history ADD CONSTRAINT count_history_catalog_merchant_unique UNIQUE (catalog_object_id, merchant_id)');
+                logger.info('Updated count_history unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'count_history' AND constraint_name = 'count_history_catalog_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE count_history ADD CONSTRAINT count_history_catalog_merchant_unique UNIQUE (catalog_object_id, merchant_id)');
+                    logger.info('Added count_history unique constraint on (catalog_object_id, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update count_history constraint:', error.message);
+    }
+
+    // count_queue_daily: Update unique constraint to include merchant_id
+    try {
+        const countQueueDailyTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'count_queue_daily')
+        `);
+
+        if (countQueueDailyTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'count_queue_daily' AND constraint_name = 'count_queue_daily_catalog_object_id_batch_date_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE count_queue_daily DROP CONSTRAINT count_queue_daily_catalog_object_id_batch_date_key');
+                await query('ALTER TABLE count_queue_daily ADD CONSTRAINT count_queue_daily_catalog_batch_merchant_unique UNIQUE (catalog_object_id, batch_date, merchant_id)');
+                logger.info('Updated count_queue_daily unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'count_queue_daily' AND constraint_name = 'count_queue_daily_catalog_batch_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE count_queue_daily ADD CONSTRAINT count_queue_daily_catalog_batch_merchant_unique UNIQUE (catalog_object_id, batch_date, merchant_id)');
+                    logger.info('Added count_queue_daily unique constraint on (catalog_object_id, batch_date, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update count_queue_daily constraint:', error.message);
+    }
+
+    // inventory_counts: Update unique constraint to include merchant_id
+    try {
+        const inventoryCountsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'inventory_counts')
+        `);
+
+        if (inventoryCountsTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'inventory_counts' AND constraint_name = 'inventory_counts_catalog_object_id_location_id_state_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE inventory_counts DROP CONSTRAINT inventory_counts_catalog_object_id_location_id_state_key');
+                await query('ALTER TABLE inventory_counts ADD CONSTRAINT inventory_counts_catalog_location_state_merchant_unique UNIQUE (catalog_object_id, location_id, state, merchant_id)');
+                logger.info('Updated inventory_counts unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'inventory_counts' AND constraint_name = 'inventory_counts_catalog_location_state_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE inventory_counts ADD CONSTRAINT inventory_counts_catalog_location_state_merchant_unique UNIQUE (catalog_object_id, location_id, state, merchant_id)');
+                    logger.info('Added inventory_counts unique constraint');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update inventory_counts constraint:', error.message);
+    }
+
+    // brands: Update unique constraint from (name) to (name, merchant_id)
+    try {
+        const brandsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'brands')
+        `);
+
+        if (brandsTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'brands' AND constraint_name = 'brands_name_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE brands DROP CONSTRAINT brands_name_key');
+                await query('ALTER TABLE brands ADD CONSTRAINT brands_name_merchant_unique UNIQUE (name, merchant_id)');
+                logger.info('Updated brands unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'brands' AND constraint_name = 'brands_name_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE brands ADD CONSTRAINT brands_name_merchant_unique UNIQUE (name, merchant_id)');
+                    logger.info('Added brands unique constraint on (name, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update brands constraint:', error.message);
+    }
+
+    // category_taxonomy_mapping: Update unique constraint to include merchant_id
+    try {
+        const categoryMappingTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'category_taxonomy_mapping')
+        `);
+
+        if (categoryMappingTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'category_taxonomy_mapping' AND constraint_name = 'category_taxonomy_mapping_category_id_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE category_taxonomy_mapping DROP CONSTRAINT category_taxonomy_mapping_category_id_key');
+                await query('ALTER TABLE category_taxonomy_mapping ADD CONSTRAINT category_taxonomy_mapping_category_merchant_unique UNIQUE (category_id, merchant_id)');
+                logger.info('Updated category_taxonomy_mapping unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'category_taxonomy_mapping' AND constraint_name = 'category_taxonomy_mapping_category_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE category_taxonomy_mapping ADD CONSTRAINT category_taxonomy_mapping_category_merchant_unique UNIQUE (category_id, merchant_id)');
+                    logger.info('Added category_taxonomy_mapping unique constraint on (category_id, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update category_taxonomy_mapping constraint:', error.message);
+    }
+
+    // item_brands: Update unique constraint to include merchant_id
+    try {
+        const itemBrandsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'item_brands')
+        `);
+
+        if (itemBrandsTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'item_brands' AND constraint_name = 'item_brands_item_id_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE item_brands DROP CONSTRAINT item_brands_item_id_key');
+                await query('ALTER TABLE item_brands ADD CONSTRAINT item_brands_item_merchant_unique UNIQUE (item_id, merchant_id)');
+                logger.info('Updated item_brands unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'item_brands' AND constraint_name = 'item_brands_item_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE item_brands ADD CONSTRAINT item_brands_item_merchant_unique UNIQUE (item_id, merchant_id)');
+                    logger.info('Added item_brands unique constraint on (item_id, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update item_brands constraint:', error.message);
+    }
+
+    // gmc_settings: Update unique constraint to include merchant_id
+    try {
+        const gmcSettingsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'gmc_settings')
+        `);
+
+        if (gmcSettingsTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'gmc_settings' AND constraint_name = 'gmc_settings_setting_key_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE gmc_settings DROP CONSTRAINT gmc_settings_setting_key_key');
+                await query('ALTER TABLE gmc_settings ADD CONSTRAINT gmc_settings_key_merchant_unique UNIQUE (setting_key, merchant_id)');
+                logger.info('Updated gmc_settings unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'gmc_settings' AND constraint_name = 'gmc_settings_key_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    await query('ALTER TABLE gmc_settings ADD CONSTRAINT gmc_settings_key_merchant_unique UNIQUE (setting_key, merchant_id)');
+                    logger.info('Added gmc_settings unique constraint on (setting_key, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update gmc_settings constraint:', error.message);
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists

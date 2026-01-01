@@ -168,10 +168,11 @@ CREATE TABLE inventory_counts (
     location_id TEXT NOT NULL,
     state TEXT NOT NULL,
     quantity INTEGER DEFAULT 0,
+    merchant_id INTEGER REFERENCES merchants(id),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
-    UNIQUE(catalog_object_id, location_id, state)
+    UNIQUE(catalog_object_id, location_id, state, merchant_id)
 );
 
 -- 10. Sales velocity calculations for demand forecasting
@@ -397,7 +398,7 @@ END $$;
 -- Table to track when each item was last counted
 CREATE TABLE IF NOT EXISTS count_history (
     id SERIAL PRIMARY KEY,
-    catalog_object_id TEXT NOT NULL UNIQUE,
+    catalog_object_id TEXT NOT NULL,
     last_counted_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     counted_by TEXT,
     is_accurate BOOLEAN DEFAULT NULL,
@@ -405,8 +406,10 @@ CREATE TABLE IF NOT EXISTS count_history (
     expected_quantity INTEGER DEFAULT NULL,
     variance INTEGER DEFAULT NULL,
     notes TEXT DEFAULT NULL,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE
+    FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
+    UNIQUE(catalog_object_id, merchant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_count_history_catalog_id ON count_history(catalog_object_id);
@@ -422,6 +425,7 @@ CREATE TABLE IF NOT EXISTS count_queue_priority (
     notes TEXT,
     completed BOOLEAN DEFAULT FALSE,
     completed_date TIMESTAMP,
+    merchant_id INTEGER REFERENCES merchants(id),
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE
 );
 
@@ -437,8 +441,9 @@ CREATE TABLE IF NOT EXISTS count_queue_daily (
     completed BOOLEAN DEFAULT FALSE,
     completed_date TIMESTAMP,
     notes TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
-    UNIQUE(catalog_object_id, batch_date)
+    UNIQUE(catalog_object_id, batch_date, merchant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_count_queue_daily_catalog_id ON count_queue_daily(catalog_object_id);
@@ -454,7 +459,9 @@ CREATE TABLE IF NOT EXISTS count_sessions (
     completion_rate DECIMAL(5,2),
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
-    notes TEXT
+    notes TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
+    UNIQUE(session_date, merchant_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_count_sessions_date ON count_sessions(session_date DESC);
@@ -577,11 +584,13 @@ END $$;
 -- 1. Brands table - store product brands
 CREATE TABLE IF NOT EXISTS brands (
     id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
     logo_url TEXT,
     website TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(name, merchant_id)
 );
 
 -- 2. Google Taxonomy - master list of Google product categories
@@ -598,9 +607,10 @@ CREATE TABLE IF NOT EXISTS category_taxonomy_mapping (
     id SERIAL PRIMARY KEY,
     category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     google_taxonomy_id INTEGER NOT NULL REFERENCES google_taxonomy(id) ON DELETE CASCADE,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(category_id)
+    UNIQUE(category_id, merchant_id)
 );
 
 -- 4. Item/Variation brand assignments
@@ -608,30 +618,23 @@ CREATE TABLE IF NOT EXISTS item_brands (
     id SERIAL PRIMARY KEY,
     item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     brand_id INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(item_id)
+    UNIQUE(item_id, merchant_id)
 );
 
 -- 5. GMC Feed Settings
 CREATE TABLE IF NOT EXISTS gmc_settings (
     id SERIAL PRIMARY KEY,
-    setting_key TEXT NOT NULL UNIQUE,
+    setting_key TEXT NOT NULL,
     setting_value TEXT,
     description TEXT,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    merchant_id INTEGER REFERENCES merchants(id),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(setting_key, merchant_id)
 );
 
--- Insert default GMC settings
-INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
-    ('website_base_url', 'https://your-store-url.com', 'Base URL for product links'),
-    ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
-    ('default_condition', 'new', 'Default product condition'),
-    ('default_availability', 'in_stock', 'Default availability when stock > 0'),
-    ('currency', 'CAD', 'Default currency code'),
-    ('feed_title', 'Product Feed', 'Feed title for GMC'),
-    ('adult_content', 'no', 'Default adult content flag'),
-    ('is_bundle', 'no', 'Default bundle flag')
-ON CONFLICT (setting_key) DO NOTHING;
+-- Note: Default GMC settings are now inserted per-merchant during OAuth flow
 
 -- 6. GMC Feed Generation History
 CREATE TABLE IF NOT EXISTS gmc_feed_history (
