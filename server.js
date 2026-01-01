@@ -788,19 +788,20 @@ async function batchResolveImageUrls(items) {
  * Log a sync operation to sync_history
  * @param {string} syncType - Type of sync operation
  * @param {Function} syncFunction - The sync function to execute
+ * @param {number} merchantId - Merchant ID to record sync history for
  * @returns {Promise<Object>} Result with records synced
  */
-async function loggedSync(syncType, syncFunction) {
+async function loggedSync(syncType, syncFunction, merchantId) {
     const startTime = Date.now();
     const startedAt = new Date();
 
     try {
         // Create sync history record
         const insertResult = await db.query(`
-            INSERT INTO sync_history (sync_type, started_at, status)
-            VALUES ($1, $2, 'running')
+            INSERT INTO sync_history (sync_type, started_at, status, merchant_id)
+            VALUES ($1, $2, 'running', $3)
             RETURNING id
-        `, [syncType, startedAt]);
+        `, [syncType, startedAt, merchantId]);
 
         const syncId = insertResult.rows[0].id;
 
@@ -833,8 +834,8 @@ async function loggedSync(syncType, syncFunction) {
                     completed_at = CURRENT_TIMESTAMP,
                     error_message = $1,
                     duration_seconds = $2
-                WHERE sync_type = $3 AND started_at = $4
-            `, [error.message, durationSeconds, syncType, startedAt]);
+                WHERE sync_type = $3 AND started_at = $4 AND merchant_id = $5
+            `, [error.message, durationSeconds, syncType, startedAt, merchantId]);
         } catch (updateError) {
             logger.error('Failed to update sync history', { error: updateError.message });
         }
@@ -847,16 +848,17 @@ async function loggedSync(syncType, syncFunction) {
  * Check if a sync is needed based on interval
  * @param {string} syncType - Type of sync to check
  * @param {number} intervalHours - Required interval in hours
+ * @param {number} merchantId - Merchant ID to check sync status for
  * @returns {Promise<Object>} {needed: boolean, lastSync: Date|null, nextDue: Date|null}
  */
-async function isSyncNeeded(syncType, intervalHours) {
+async function isSyncNeeded(syncType, intervalHours, merchantId) {
     const result = await db.query(`
         SELECT completed_at, status
         FROM sync_history
-        WHERE sync_type = $1 AND status = 'success'
+        WHERE sync_type = $1 AND status = 'success' AND merchant_id = $2
         ORDER BY completed_at DESC
         LIMIT 1
-    `, [syncType]);
+    `, [syncType, merchantId]);
 
     if (result.rows.length === 0) {
         // Never synced before, sync is needed
@@ -947,10 +949,12 @@ async function runAutomatedBackup() {
 /**
  * Run smart sync - intelligently syncs only data types whose interval has elapsed
  * This is the core function used by both the API endpoint and cron job
+ * @param {Object} options - Options for smart sync
+ * @param {number} options.merchantId - Merchant ID to sync for
  * @returns {Promise<Object>} Sync result with status, synced types, and summary
  */
-async function runSmartSync() {
-    logger.info('Smart sync initiated');
+async function runSmartSync({ merchantId } = {}) {
+    logger.info('Smart sync initiated', { merchantId });
 
     // Get intervals from environment variables
     const intervals = {
@@ -971,9 +975,9 @@ async function runSmartSync() {
     // CRITICAL: Check and sync locations FIRST
     // Always sync if there are 0 active locations, regardless of interval
     // Locations are required for inventory and sales velocity syncs
-    const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE');
+    const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE AND merchant_id = $1', [merchantId]);
     const locationCount = parseInt(locationCountResult.rows[0].count);
-    const locationsCheck = await isSyncNeeded('locations', intervals.locations);
+    const locationsCheck = await isSyncNeeded('locations', intervals.locations, merchantId);
 
     if (locationCount === 0 || locationsCheck.needed) {
         try {
@@ -982,7 +986,7 @@ async function runSmartSync() {
             } else {
                 logger.info('Syncing locations');
             }
-            const result = await loggedSync('locations', () => squareApi.syncLocations());
+            const result = await loggedSync('locations', () => squareApi.syncLocations(), merchantId);
             synced.push('locations');
             summary.locations = result;
         } catch (error) {
@@ -994,11 +998,11 @@ async function runSmartSync() {
     }
 
     // Check and sync vendors
-    const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors);
+    const vendorsCheck = await isSyncNeeded('vendors', intervals.vendors, merchantId);
     if (vendorsCheck.needed) {
         try {
             logger.info('Syncing vendors');
-            const result = await loggedSync('vendors', () => squareApi.syncVendors());
+            const result = await loggedSync('vendors', () => squareApi.syncVendors(), merchantId);
             synced.push('vendors');
             summary.vendors = result;
         } catch (error) {
@@ -1010,14 +1014,14 @@ async function runSmartSync() {
     }
 
     // Check and sync catalog
-    const catalogCheck = await isSyncNeeded('catalog', intervals.catalog);
+    const catalogCheck = await isSyncNeeded('catalog', intervals.catalog, merchantId);
     if (catalogCheck.needed) {
         try {
             logger.info('Syncing catalog');
             const result = await loggedSync('catalog', async () => {
                 const stats = await squareApi.syncCatalog();
                 return stats.items + stats.variations;
-            });
+            }, merchantId);
             synced.push('catalog');
             summary.catalog = result;
         } catch (error) {
@@ -1029,11 +1033,11 @@ async function runSmartSync() {
     }
 
     // Check and sync inventory
-    const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory);
+    const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory, merchantId);
     if (inventoryCheck.needed) {
         try {
             logger.info('Syncing inventory');
-            const result = await loggedSync('inventory', () => squareApi.syncInventory());
+            const result = await loggedSync('inventory', () => squareApi.syncInventory(), merchantId);
             synced.push('inventory');
             summary.inventory = result;
         } catch (error) {
@@ -1045,11 +1049,11 @@ async function runSmartSync() {
     }
 
     // Check and sync sales_91d
-    const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d);
+    const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d, merchantId);
     if (sales91Check.needed) {
         try {
             logger.info('Syncing 91-day sales velocity');
-            const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91));
+            const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91), merchantId);
             synced.push('sales_91d');
             summary.sales_91d = result;
         } catch (error) {
@@ -1061,11 +1065,11 @@ async function runSmartSync() {
     }
 
     // Check and sync sales_182d
-    const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d);
+    const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d, merchantId);
     if (sales182Check.needed) {
         try {
             logger.info('Syncing 182-day sales velocity');
-            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182));
+            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182), merchantId);
             synced.push('sales_182d');
             summary.sales_182d = result;
         } catch (error) {
@@ -1077,11 +1081,11 @@ async function runSmartSync() {
     }
 
     // Check and sync sales_365d
-    const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d);
+    const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d, merchantId);
     if (sales365Check.needed) {
         try {
             logger.info('Syncing 365-day sales velocity');
-            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365));
+            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365), merchantId);
             synced.push('sales_365d');
             summary.sales_365d = result;
         } catch (error) {
@@ -8844,22 +8848,49 @@ async function startServer() {
 
         // Initialize automated database sync cron job
         // Runs hourly by default (configurable via SYNC_CRON_SCHEDULE)
+        // Iterates over all merchants and syncs each one
         const syncCronSchedule = process.env.SYNC_CRON_SCHEDULE || '0 * * * *';
         cronTasks.push(cron.schedule(syncCronSchedule, async () => {
-            logger.info('Running scheduled smart sync');
+            logger.info('Running scheduled smart sync for all merchants');
             try {
-                const result = await runSmartSync();
-                logger.info('Scheduled smart sync completed', {
-                    synced: result.synced,
-                    skipped: Object.keys(result.skipped).length,
-                    errors: result.errors?.length || 0
-                });
+                // Get all active merchants
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchants = merchantsResult.rows;
 
-                // Send alert if there were errors
-                if (result.errors && result.errors.length > 0) {
+                if (merchants.length === 0) {
+                    logger.info('No merchants to sync');
+                    return;
+                }
+
+                const allErrors = [];
+                for (const merchant of merchants) {
+                    try {
+                        logger.info('Running smart sync for merchant', { merchantId: merchant.id, businessName: merchant.business_name });
+                        const result = await runSmartSync({ merchantId: merchant.id });
+                        logger.info('Scheduled smart sync completed for merchant', {
+                            merchantId: merchant.id,
+                            synced: result.synced,
+                            skipped: Object.keys(result.skipped).length,
+                            errors: result.errors?.length || 0
+                        });
+
+                        if (result.errors && result.errors.length > 0) {
+                            allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: result.errors });
+                        }
+                    } catch (error) {
+                        logger.error('Smart sync failed for merchant', { merchantId: merchant.id, error: error.message });
+                        allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: [{ type: 'general', error: error.message }] });
+                    }
+                }
+
+                // Send alert if there were errors for any merchant
+                if (allErrors.length > 0) {
+                    const errorDetails = allErrors.map(m =>
+                        `Merchant ${m.businessName} (${m.merchantId}):\n${m.errors.map(e => `  - ${e.type}: ${e.error}`).join('\n')}`
+                    ).join('\n\n');
                     await emailNotifier.sendAlert(
                         'Database Sync Partial Failure',
-                        `Some sync operations failed:\n\n${result.errors.map(e => `- ${e.type}: ${e.error}`).join('\n')}`
+                        `Some sync operations failed:\n\n${errorDetails}`
                     );
                 }
             } catch (error) {
@@ -9000,7 +9031,16 @@ async function startServer() {
         // This handles cases where server was offline during scheduled sync time
         (async () => {
             try {
-                logger.info('Checking for stale data on startup');
+                logger.info('Checking for stale data on startup for all merchants');
+
+                // Get all active merchants
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchants = merchantsResult.rows;
+
+                if (merchants.length === 0) {
+                    logger.info('No merchants to check on startup');
+                    return;
+                }
 
                 // Get intervals from environment variables
                 const intervals = {
@@ -9013,38 +9053,59 @@ async function startServer() {
                     sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
                 };
 
-                // Check if any sync type is stale
-                let needsSync = false;
-                const staleTypes = [];
+                const allErrors = [];
+                for (const merchant of merchants) {
+                    try {
+                        // Check if any sync type is stale for this merchant
+                        let needsSync = false;
+                        const staleTypes = [];
 
-                for (const [syncType, intervalHours] of Object.entries(intervals)) {
-                    const check = await isSyncNeeded(syncType, intervalHours);
-                    if (check.needed) {
-                        needsSync = true;
-                        staleTypes.push(syncType);
+                        for (const [syncType, intervalHours] of Object.entries(intervals)) {
+                            const check = await isSyncNeeded(syncType, intervalHours, merchant.id);
+                            if (check.needed) {
+                                needsSync = true;
+                                staleTypes.push(syncType);
+                            }
+                        }
+
+                        if (needsSync) {
+                            logger.info('Stale data detected on startup for merchant - running smart sync', {
+                                merchantId: merchant.id,
+                                businessName: merchant.business_name,
+                                stale_types: staleTypes
+                            });
+                            const result = await runSmartSync({ merchantId: merchant.id });
+                            logger.info('Startup smart sync completed for merchant', {
+                                merchantId: merchant.id,
+                                synced: result.synced,
+                                skipped: Object.keys(result.skipped).length,
+                                errors: result.errors?.length || 0
+                            });
+
+                            if (result.errors && result.errors.length > 0) {
+                                allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: result.errors });
+                            }
+                        } else {
+                            logger.info('All data is current for merchant - no sync needed on startup', {
+                                merchantId: merchant.id,
+                                businessName: merchant.business_name
+                            });
+                        }
+                    } catch (error) {
+                        logger.error('Startup sync failed for merchant', { merchantId: merchant.id, error: error.message });
+                        allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: [{ type: 'general', error: error.message }] });
                     }
                 }
 
-                if (needsSync) {
-                    logger.info('Stale data detected on startup - running smart sync', {
-                        stale_types: staleTypes
-                    });
-                    const result = await runSmartSync();
-                    logger.info('Startup smart sync completed', {
-                        synced: result.synced,
-                        skipped: Object.keys(result.skipped).length,
-                        errors: result.errors?.length || 0
-                    });
-
-                    // Send alert if there were errors
-                    if (result.errors && result.errors.length > 0) {
-                        await emailNotifier.sendAlert(
-                            'Startup Database Sync Partial Failure',
-                            `Some sync operations failed during startup:\n\n${result.errors.map(e => `- ${e.type}: ${e.error}`).join('\n')}`
-                        );
-                    }
-                } else {
-                    logger.info('All data is current - no sync needed on startup');
+                // Send alert if there were errors for any merchant
+                if (allErrors.length > 0) {
+                    const errorDetails = allErrors.map(m =>
+                        `Merchant ${m.businessName} (${m.merchantId}):\n${m.errors.map(e => `  - ${e.type}: ${e.error}`).join('\n')}`
+                    ).join('\n\n');
+                    await emailNotifier.sendAlert(
+                        'Startup Database Sync Partial Failure',
+                        `Some sync operations failed during startup:\n\n${errorDetails}`
+                    );
                 }
             } catch (error) {
                 logger.error('Startup sync check failed', { error: error.message });
