@@ -643,27 +643,27 @@ async function syncItem(obj, category_name) {
         const brandName = obj.custom_attribute_values.brand.string_value.trim();
         if (brandName) {
             try {
-                // Ensure brand exists in brands table
+                // Ensure brand exists in brands table (per-merchant)
                 await db.query(
-                    'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-                    [brandName]
+                    'INSERT INTO brands (name, merchant_id) VALUES ($1, $2) ON CONFLICT (name, merchant_id) DO NOTHING',
+                    [brandName, currentSyncMerchantId]
                 );
 
-                // Get brand ID
+                // Get brand ID for this merchant
                 const brandResult = await db.query(
-                    'SELECT id FROM brands WHERE name = $1',
-                    [brandName]
+                    'SELECT id FROM brands WHERE name = $1 AND merchant_id = $2',
+                    [brandName, currentSyncMerchantId]
                 );
 
                 if (brandResult.rows.length > 0) {
                     const brandId = brandResult.rows[0].id;
 
-                    // Link item to brand
+                    // Link item to brand (per-merchant)
                     await db.query(`
-                        INSERT INTO item_brands (item_id, brand_id)
-                        VALUES ($1, $2)
-                        ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-                    `, [obj.id, brandId]);
+                        INSERT INTO item_brands (item_id, brand_id, merchant_id)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+                    `, [obj.id, brandId, currentSyncMerchantId]);
                 }
             } catch (error) {
                 logger.error('Error syncing brand from Square', {
@@ -979,9 +979,8 @@ async function syncInventory(merchantId) {
                             catalog_object_id, location_id, state, quantity, merchant_id, updated_at
                         )
                         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-                        ON CONFLICT (catalog_object_id, location_id, state) DO UPDATE SET
+                        ON CONFLICT (catalog_object_id, location_id, state, merchant_id) DO UPDATE SET
                             quantity = EXCLUDED.quantity,
-                            merchant_id = EXCLUDED.merchant_id,
                             updated_at = CURRENT_TIMESTAMP
                     `, [
                         count.catalog_object_id,
