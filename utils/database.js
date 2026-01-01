@@ -1163,6 +1163,27 @@ async function ensureSchema() {
         logger.error('Failed to add email to auth_audit_log:', error.message);
     }
 
+    // Add gmc_feed_token column to merchants table for secure GMC feed access
+    try {
+        const feedTokenCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'merchants' AND column_name = 'gmc_feed_token'
+        `);
+        if (feedTokenCheck.rows.length === 0) {
+            await query(`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS gmc_feed_token TEXT UNIQUE`);
+            // Generate tokens for existing merchants
+            const merchants = await query('SELECT id FROM merchants WHERE gmc_feed_token IS NULL');
+            for (const merchant of merchants.rows) {
+                const token = require('crypto').randomBytes(32).toString('hex');
+                await query('UPDATE merchants SET gmc_feed_token = $1 WHERE id = $2', [token, merchant.id]);
+            }
+            logger.info('Added gmc_feed_token column to merchants and generated tokens');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to add gmc_feed_token to merchants:', error.message);
+    }
+
     // ==================== MULTI-TENANT CONSTRAINT MIGRATIONS ====================
     // Update unique constraints to include merchant_id for multi-tenant support
 

@@ -3630,11 +3630,37 @@ app.post('/api/gmc/generate', requireAuth, requireMerchant, async (req, res) => 
 /**
  * GET /api/gmc/feed.tsv
  * Download the current GMC feed as TSV
+ * Requires either: authenticated session OR valid feed token in query param
+ * Token URL format: /api/gmc/feed.tsv?token=<merchant_feed_token>
  */
 app.get('/api/gmc/feed.tsv', async (req, res) => {
     try {
-        const { location_id } = req.query;
-        const { products } = await gmcFeed.generateFeedData({ locationId: location_id });
+        const { location_id, token } = req.query;
+        let merchantId = null;
+
+        // Check for feed token (for Google Merchant Center access)
+        if (token) {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
+                [token]
+            );
+            if (merchantResult.rows.length === 0) {
+                return res.status(401).json({ error: 'Invalid or expired feed token' });
+            }
+            merchantId = merchantResult.rows[0].id;
+        }
+        // Check for authenticated session
+        else if (req.session?.user && req.merchantContext?.id) {
+            merchantId = req.merchantContext.id;
+        }
+        // No auth provided
+        else {
+            return res.status(401).json({
+                error: 'Authentication required. Use ?token=<feed_token> or login to access.'
+            });
+        }
+
+        const { products } = await gmcFeed.generateFeedData({ locationId: location_id, merchantId });
         const tsvContent = gmcFeed.generateTsvContent(products);
 
         res.setHeader('Content-Type', 'text/tab-separated-values');
@@ -3687,6 +3713,71 @@ app.put('/api/gmc/settings', requireAuth, requireMerchant, async (req, res) => {
         res.json({ success: true, settings: updatedSettings });
     } catch (error) {
         logger.error('GMC settings update error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/feed-url
+ * Get the merchant's GMC feed URL with token for Google Merchant Center
+ */
+app.get('/api/gmc/feed-url', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(
+            'SELECT gmc_feed_token FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+
+        if (result.rows.length === 0 || !result.rows[0].gmc_feed_token) {
+            return res.status(404).json({ error: 'Feed token not found. Please contact support.' });
+        }
+
+        const token = result.rows[0].gmc_feed_token;
+        const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+        const feedUrl = `${baseUrl}/api/gmc/feed.tsv?token=${token}`;
+
+        res.json({
+            success: true,
+            feedUrl,
+            token,
+            instructions: 'Use this URL in Google Merchant Center as your product feed URL. Keep the token secret.'
+        });
+    } catch (error) {
+        logger.error('GMC feed URL error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/regenerate-token
+ * Regenerate the GMC feed token (invalidates old feed URLs)
+ */
+app.post('/api/gmc/regenerate-token', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const crypto = require('crypto');
+        const newToken = crypto.randomBytes(32).toString('hex');
+
+        await db.query(
+            'UPDATE merchants SET gmc_feed_token = $1, updated_at = NOW() WHERE id = $2',
+            [newToken, merchantId]
+        );
+
+        const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+        const feedUrl = `${baseUrl}/api/gmc/feed.tsv?token=${newToken}`;
+
+        logger.info('GMC feed token regenerated', { merchantId });
+
+        res.json({
+            success: true,
+            feedUrl,
+            token: newToken,
+            warning: 'Your previous feed URL is now invalid. Update Google Merchant Center with the new URL.'
+        });
+    } catch (error) {
+        logger.error('GMC token regeneration error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });

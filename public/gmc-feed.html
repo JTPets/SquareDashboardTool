@@ -153,6 +153,61 @@
     }
     .controls button.secondary:hover { background: #4b5563; }
 
+    /* Feed URL Section */
+    .feed-url-section {
+      padding: 15px 20px;
+      background: #eff6ff;
+      border-bottom: 1px solid #bfdbfe;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .feed-url-section .label {
+      font-size: 14px;
+      color: #1e40af;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .feed-url-section .url-container {
+      flex: 1;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      min-width: 300px;
+    }
+    .feed-url-section input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #93c5fd;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: monospace;
+      background: white;
+    }
+    .feed-url-section button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .feed-url-section .btn-copy {
+      background: #2563eb;
+      color: white;
+    }
+    .feed-url-section .btn-copy:hover { background: #1d4ed8; }
+    .feed-url-section .btn-regenerate {
+      background: #dc2626;
+      color: white;
+    }
+    .feed-url-section .btn-regenerate:hover { background: #b91c1c; }
+    .feed-url-section .help-text {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
     /* Spreadsheet Config */
     .sheet-config {
       padding: 15px 20px;
@@ -640,6 +695,17 @@
       </div>
     </div>
 
+    <!-- Feed URL for Google Merchant Center -->
+    <div class="feed-url-section" id="feed-url-section">
+      <span class="label">GMC Feed URL:</span>
+      <div class="url-container">
+        <input type="text" id="feed-url-input" readonly placeholder="Loading...">
+        <button class="btn-copy" onclick="copyFeedUrl()">Copy</button>
+        <button class="btn-regenerate" onclick="regenerateFeedToken()">Regenerate Token</button>
+      </div>
+      <span class="help-text">Use this URL in Google Merchant Center. Keep it private.</span>
+    </div>
+
     <!-- Google Auth Status -->
     <div class="google-status disconnected" id="google-status">
       <span class="status-icon">...</span>
@@ -844,6 +910,72 @@ Wellness"></textarea>
     const pageSize = 100;
     let currentFilter = 'all';
     let spreadsheetId = '';
+    let feedUrl = '';
+
+    // Load GMC feed URL with token
+    async function loadFeedUrl() {
+      try {
+        const response = await fetch('/api/gmc/feed-url');
+        const data = await response.json();
+
+        if (data.success && data.feedUrl) {
+          feedUrl = data.feedUrl;
+          document.getElementById('feed-url-input').value = feedUrl;
+        } else {
+          document.getElementById('feed-url-input').value = 'Error loading feed URL';
+          document.getElementById('feed-url-input').style.color = '#dc2626';
+        }
+      } catch (error) {
+        console.error('Error loading feed URL:', error);
+        document.getElementById('feed-url-input').value = 'Error: ' + error.message;
+        document.getElementById('feed-url-input').style.color = '#dc2626';
+      }
+    }
+
+    // Copy feed URL to clipboard
+    async function copyFeedUrl() {
+      const input = document.getElementById('feed-url-input');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.background = '#16a34a';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.background = '';
+        }, 2000);
+      } catch (err) {
+        // Fallback for older browsers
+        input.select();
+        document.execCommand('copy');
+        alert('URL copied to clipboard');
+      }
+    }
+
+    // Regenerate feed token (invalidates old URL)
+    async function regenerateFeedToken() {
+      if (!confirm('This will invalidate your current feed URL. You will need to update the URL in Google Merchant Center. Continue?')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/gmc/regenerate-token', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success && data.feedUrl) {
+          feedUrl = data.feedUrl;
+          document.getElementById('feed-url-input').value = feedUrl;
+          document.getElementById('feed-url-input').style.color = '';
+          alert('Token regenerated successfully. Please update the URL in Google Merchant Center.');
+        } else {
+          throw new Error(data.error || 'Failed to regenerate token');
+        }
+      } catch (error) {
+        console.error('Error regenerating token:', error);
+        alert('Error regenerating token: ' + error.message);
+      }
+    }
 
     // Load feed data
     async function loadFeedData() {
@@ -1756,6 +1888,7 @@ Wellness"></textarea>
     document.addEventListener('DOMContentLoaded', () => {
       handleOAuthCallback();
       loadFeedData();
+      loadFeedUrl();
       checkGoogleStatus();
     });
   </script>
