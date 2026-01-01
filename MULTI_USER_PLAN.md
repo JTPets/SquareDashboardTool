@@ -20,9 +20,11 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | Session Management | ✅ COMPLETE | PostgreSQL-backed sessions |
 | Landing Page | ✅ COMPLETE | Public marketing page separated from dashboard |
 | Dashboard Restructure | ✅ COMPLETE | User homepage at /dashboard.html |
-| Database Multi-Tenant Schema | ⏳ NOT STARTED | Critical path - Phase 1 |
-| Square OAuth | ⏳ NOT STARTED | Critical path - Phase 2 |
-| API Layer Updates | ⏳ NOT STARTED | 111 endpoints need merchant filtering |
+| Database Multi-Tenant Schema | ✅ COMPLETE | Migration 005_multi_tenant.sql created |
+| Square OAuth | ✅ COMPLETE | routes/square-oauth.js with token encryption |
+| Merchant Context Middleware | ✅ COMPLETE | middleware/merchant.js |
+| MerchantDB Wrapper | ✅ COMPLETE | utils/merchant-db.js |
+| API Layer Updates | ⏳ IN PROGRESS | Merchant endpoints added, 111 data endpoints pending |
 | Merchant Management UI | ⏳ NOT STARTED | Frontend work - Phase 4 |
 
 ---
