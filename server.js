@@ -6245,8 +6245,9 @@ app.post('/api/cycle-counts/reset', async (req, res) => {
  * POST /api/purchase-orders
  * Create a new purchase order
  */
-app.post('/api/purchase-orders', async (req, res) => {
+app.post('/api/purchase-orders', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { vendor_id, location_id, supply_days_override, items, notes, created_by } = req.body;
 
         if (!vendor_id || !location_id || !items || items.length === 0) {
@@ -6267,8 +6268,8 @@ app.post('/api/purchase-orders', async (req, res) => {
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
         const countResult = await db.query(
-            "SELECT COUNT(*) as count FROM purchase_orders WHERE po_number LIKE $1",
-            [`PO-${dateStr}-%`]
+            "SELECT COUNT(*) as count FROM purchase_orders WHERE po_number LIKE $1 AND merchant_id = $2",
+            [`PO-${dateStr}-%`, merchantId]
         );
         const sequence = parseInt(countResult.rows[0].count) + 1;
         const poNumber = `PO-${dateStr}-${sequence.toString().padStart(3, '0')}`;
@@ -6283,11 +6284,11 @@ app.post('/api/purchase-orders', async (req, res) => {
         const poResult = await db.query(`
             INSERT INTO purchase_orders (
                 po_number, vendor_id, location_id, status, supply_days_override,
-                subtotal_cents, total_cents, notes, created_by
+                subtotal_cents, total_cents, notes, created_by, merchant_id
             )
-            VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7)
+            VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7, $8)
             RETURNING *
-        `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by]);
+        `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by, merchantId]);
 
         const po = poResult.rows[0];
 
@@ -6297,9 +6298,9 @@ app.post('/api/purchase-orders', async (req, res) => {
             await db.query(`
                 INSERT INTO purchase_order_items (
                     purchase_order_id, variation_id, quantity_override,
-                    quantity_ordered, unit_cost_cents, total_cost_cents, notes
+                    quantity_ordered, unit_cost_cents, total_cost_cents, notes, merchant_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
                 po.id,
                 item.variation_id,
@@ -6307,7 +6308,8 @@ app.post('/api/purchase-orders', async (req, res) => {
                 item.quantity_ordered,
                 item.unit_cost_cents,
                 totalCost,
-                item.notes || null
+                item.notes || null,
+                merchantId
             ]);
         }
 
@@ -6325,21 +6327,22 @@ app.post('/api/purchase-orders', async (req, res) => {
  * GET /api/purchase-orders
  * List purchase orders with filtering
  */
-app.get('/api/purchase-orders', async (req, res) => {
+app.get('/api/purchase-orders', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { status, vendor_id } = req.query;
         let query = `
             SELECT
                 po.*,
                 v.name as vendor_name,
                 l.name as location_name,
-                (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id) as item_count
+                (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id AND merchant_id = $1) as item_count
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE 1=1
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $1
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $1
+            WHERE po.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (status) {
             params.push(status);
@@ -6368,8 +6371,9 @@ app.get('/api/purchase-orders', async (req, res) => {
  * GET /api/purchase-orders/:id
  * Get single purchase order with all items
  */
-app.get('/api/purchase-orders/:id', async (req, res) => {
+app.get('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { id } = req.params;
 
         // Get PO header
@@ -6380,10 +6384,10 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
                 v.lead_time_days,
                 l.name as location_name
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE po.id = $1
-        `, [id]);
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $2
+            WHERE po.id = $1 AND po.merchant_id = $2
+        `, [id, merchantId]);
 
         if (poResult.rows.length === 0) {
             return res.status(404).json({ error: 'Purchase order not found' });
@@ -6399,11 +6403,11 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
                 i.name as item_name,
                 v.name as variation_name
             FROM purchase_order_items poi
-            JOIN variations v ON poi.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            WHERE poi.purchase_order_id = $1
+            JOIN variations v ON poi.variation_id = v.id AND v.merchant_id = $2
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            WHERE poi.purchase_order_id = $1 AND poi.merchant_id = $2
             ORDER BY i.name, v.name
-        `, [id]);
+        `, [id, merchantId]);
 
         po.items = itemsResult.rows;
 
@@ -6418,15 +6422,16 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
  * PATCH /api/purchase-orders/:id
  * Update a draft purchase order
  */
-app.patch('/api/purchase-orders/:id', async (req, res) => {
+app.patch('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { id } = req.params;
         const { supply_days_override, items, notes } = req.body;
 
-        // Check if PO is in DRAFT status
+        // Check if PO is in DRAFT status and belongs to this merchant
         const statusCheck = await db.query(
-            'SELECT status FROM purchase_orders WHERE id = $1',
-            [id]
+            'SELECT status FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
+            [id, merchantId]
         );
 
         if (statusCheck.rows.length === 0) {
@@ -6460,17 +6465,18 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
             if (updates.length > 0) {
                 updates.push('updated_at = CURRENT_TIMESTAMP');
                 values.push(id);
+                values.push(merchantId);
                 await client.query(`
                     UPDATE purchase_orders
                     SET ${updates.join(', ')}
-                    WHERE id = $${paramCount}
+                    WHERE id = $${paramCount} AND merchant_id = $${paramCount + 1}
                 `, values);
             }
 
             // Update items if provided
             if (items) {
                 // Delete existing items
-                await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [id]);
+                await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1 AND merchant_id = $2', [id, merchantId]);
 
                 // Insert new items and calculate totals
                 let subtotalCents = 0;
@@ -6481,23 +6487,23 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
                     await client.query(`
                         INSERT INTO purchase_order_items (
                             purchase_order_id, variation_id, quantity_ordered,
-                            unit_cost_cents, total_cost_cents, notes
+                            unit_cost_cents, total_cost_cents, notes, merchant_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                    `, [id, item.variation_id, item.quantity_ordered, item.unit_cost_cents, totalCost, item.notes]);
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    `, [id, item.variation_id, item.quantity_ordered, item.unit_cost_cents, totalCost, item.notes, merchantId]);
                 }
 
                 // Update totals
                 await client.query(`
                     UPDATE purchase_orders
                     SET subtotal_cents = $1, total_cents = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $2
-                `, [subtotalCents, id]);
+                    WHERE id = $2 AND merchant_id = $3
+                `, [subtotalCents, id, merchantId]);
             }
         });
 
         // Return updated PO
-        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1', [id]);
+        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
         res.json({
             status: 'success',
             purchase_order: result.rows[0]
