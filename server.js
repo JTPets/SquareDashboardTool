@@ -8261,6 +8261,42 @@ async function startServer() {
         // Ensure database schema is up to date
         await db.ensureSchema();
 
+        // Backfill NULL merchant_id values for legacy data
+        try {
+            const legacyMerchant = await db.query(
+                "SELECT id FROM merchants WHERE is_legacy = TRUE OR email LIKE '%admin%' ORDER BY created_at LIMIT 1"
+            );
+            if (legacyMerchant.rows.length > 0) {
+                const legacyId = legacyMerchant.rows[0].id;
+                const tables = [
+                    'count_queue_priority', 'count_queue_daily', 'count_history', 'count_sessions',
+                    'items', 'variations', 'categories', 'vendors', 'variation_vendors',
+                    'inventory_counts', 'locations', 'purchase_orders', 'purchase_order_items',
+                    'variation_expiration', 'expiry_discounts', 'sales_velocity', 'gmc_feed_history'
+                ];
+                let fixed = 0;
+                for (const table of tables) {
+                    try {
+                        const result = await db.query(
+                            `UPDATE ${table} SET merchant_id = $1 WHERE merchant_id IS NULL`,
+                            [legacyId]
+                        );
+                        if (result.rowCount > 0) {
+                            fixed += result.rowCount;
+                            logger.info(`Backfilled ${result.rowCount} rows in ${table} with merchant_id=${legacyId}`);
+                        }
+                    } catch (e) {
+                        // Table might not have merchant_id column yet
+                    }
+                }
+                if (fixed > 0) {
+                    logger.info(`Backfilled ${fixed} total rows with legacy merchant_id`);
+                }
+            }
+        } catch (backfillError) {
+            logger.warn('Could not backfill legacy merchant data', { error: backfillError.message });
+        }
+
         // Ensure Square custom attributes exist (for expiry tracking, brands, etc.)
         try {
             logger.info('Checking Square custom attributes...');
