@@ -446,14 +446,14 @@ async function syncCatalog(merchantId) {
         // ===== DETECT DELETIONS =====
         logger.info('Detecting deleted items');
 
-        // Get all non-deleted items from database
+        // Get all non-deleted items from database FOR THIS MERCHANT ONLY
         const dbItemsResult = await db.query(`
-            SELECT id, name FROM items WHERE is_deleted = FALSE
-        `);
+            SELECT id, name FROM items WHERE is_deleted = FALSE AND merchant_id = $1
+        `, [merchantId]);
 
         const dbVariationsResult = await db.query(`
-            SELECT id, name, sku FROM variations WHERE is_deleted = FALSE
-        `);
+            SELECT id, name, sku FROM variations WHERE is_deleted = FALSE AND merchant_id = $1
+        `, [merchantId]);
 
         // Find items in DB but NOT in Square sync (they were deleted)
         let itemsMarkedDeleted = 0;
@@ -466,17 +466,17 @@ async function syncCatalog(merchantId) {
                 await db.query(`
                     UPDATE items
                     SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP
-                    WHERE id = $1
-                `, [row.id]);
+                    WHERE id = $1 AND merchant_id = $2
+                `, [row.id, merchantId]);
 
-                // Zero inventory for all variations of this item
+                // Zero inventory for all variations of this item (for this merchant only)
                 const invResult = await db.query(`
                     UPDATE inventory_counts
                     SET quantity = 0, updated_at = CURRENT_TIMESTAMP
-                    WHERE catalog_object_id IN (
-                        SELECT id FROM variations WHERE item_id = $1
+                    WHERE merchant_id = $2 AND catalog_object_id IN (
+                        SELECT id FROM variations WHERE item_id = $1 AND merchant_id = $2
                     )
-                `, [row.id]);
+                `, [row.id, merchantId]);
 
                 inventoryZeroed += invResult.rowCount;
                 itemsMarkedDeleted++;
@@ -490,15 +490,15 @@ async function syncCatalog(merchantId) {
                 await db.query(`
                     UPDATE variations
                     SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP
-                    WHERE id = $1
-                `, [row.id]);
+                    WHERE id = $1 AND merchant_id = $2
+                `, [row.id, merchantId]);
 
-                // Zero inventory for this variation
+                // Zero inventory for this variation (for this merchant only)
                 const invResult = await db.query(`
                     UPDATE inventory_counts
                     SET quantity = 0, updated_at = CURRENT_TIMESTAMP
-                    WHERE catalog_object_id = $1
-                `, [row.id]);
+                    WHERE catalog_object_id = $1 AND merchant_id = $2
+                `, [row.id, merchantId]);
 
                 inventoryZeroed += invResult.rowCount;
                 variationsMarkedDeleted++;
