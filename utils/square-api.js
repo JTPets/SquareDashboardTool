@@ -7,7 +7,7 @@ const fetch = require('node-fetch');
 const crypto = require('crypto');
 const db = require('./database');
 const logger = require('./logger');
-const { decryptToken } = require('./token-encryption');
+const { decryptToken, isEncryptedToken, encryptToken } = require('./token-encryption');
 
 // Square API configuration
 const SQUARE_API_VERSION = '2025-10-16';
@@ -17,9 +17,6 @@ const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 // Rate limiting and retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
-
-// Current sync context (set by sync functions for helper functions to access)
-let currentSyncMerchantId = null;
 
 /**
  * Get decrypted access token for a merchant
@@ -41,7 +38,31 @@ async function getMerchantToken(merchantId) {
         throw new Error(`Merchant ${merchantId} not found or inactive`);
     }
 
-    return decryptToken(result.rows[0].square_access_token);
+    const token = result.rows[0].square_access_token;
+
+    if (!token) {
+        throw new Error(`Merchant ${merchantId} has no access token configured`);
+    }
+
+    // Check if token is encrypted - if not, it's a legacy unencrypted token
+    if (!isEncryptedToken(token)) {
+        logger.warn('Found unencrypted legacy token, encrypting for future use', { merchantId });
+        // Token is not encrypted - this is a legacy token
+        // Encrypt it and save for next time, but return the raw token for this request
+        try {
+            const encryptedToken = encryptToken(token);
+            await db.query(
+                'UPDATE merchants SET square_access_token = $1 WHERE id = $2',
+                [encryptedToken, merchantId]
+            );
+            logger.info('Legacy token encrypted and saved', { merchantId });
+        } catch (encryptError) {
+            logger.error('Failed to encrypt legacy token', { merchantId, error: encryptError.message });
+        }
+        return token; // Return the raw token for this request
+    }
+
+    return decryptToken(token);
 }
 
 /**
@@ -270,10 +291,12 @@ async function syncVendors(merchantId) {
  * @returns {Promise<Object>} Sync statistics
  */
 async function syncCatalog(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for syncCatalog');
+    }
     logger.info('Starting catalog sync', { merchantId });
 
-    // Store merchantId for helper functions to access
-    currentSyncMerchantId = merchantId;
+    // Note: merchantId is passed as parameter - no global variable needed
 
     const stats = {
         categories: 0,
@@ -533,7 +556,7 @@ async function syncCategory(obj) {
     `, [
         obj.id,
         obj.category_data?.name || 'Uncategorized',
-        currentSyncMerchantId
+        merchantId
     ]);
 }
 
@@ -554,7 +577,7 @@ async function syncImage(obj) {
         obj.image_data?.name || null,
         obj.image_data?.url || null,
         obj.image_data?.caption || null,
-        currentSyncMerchantId
+        merchantId
     ]);
 }
 
@@ -635,7 +658,7 @@ async function syncItem(obj, category_name) {
         false,  // availableForPickup - Square doesn't expose this per-item via API
         seoTitle,
         seoDescription,
-        currentSyncMerchantId
+        merchantId
     ]);
 
     // Sync brand custom attribute from Square
@@ -646,13 +669,13 @@ async function syncItem(obj, category_name) {
                 // Ensure brand exists in brands table (per-merchant)
                 await db.query(
                     'INSERT INTO brands (name, merchant_id) VALUES ($1, $2) ON CONFLICT (name, merchant_id) DO NOTHING',
-                    [brandName, currentSyncMerchantId]
+                    [brandName, merchantId]
                 );
 
                 // Get brand ID for this merchant
                 const brandResult = await db.query(
                     'SELECT id FROM brands WHERE name = $1 AND merchant_id = $2',
-                    [brandName, currentSyncMerchantId]
+                    [brandName, merchantId]
                 );
 
                 if (brandResult.rows.length > 0) {
@@ -663,7 +686,7 @@ async function syncItem(obj, category_name) {
                         INSERT INTO item_brands (item_id, brand_id, merchant_id)
                         VALUES ($1, $2, $3)
                         ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-                    `, [obj.id, brandId, currentSyncMerchantId]);
+                    `, [obj.id, brandId, merchantId]);
                 }
             } catch (error) {
                 logger.error('Error syncing brand from Square', {
@@ -767,7 +790,7 @@ async function syncVariation(obj) {
         data.item_option_values ? JSON.stringify(data.item_option_values) : null,
         obj.custom_attribute_values ? JSON.stringify(obj.custom_attribute_values) : null,
         data.image_ids ? JSON.stringify(data.image_ids) : null,
-        currentSyncMerchantId
+        merchantId
     ]);
 
     // Sync location-specific settings from location_overrides
@@ -792,7 +815,7 @@ async function syncVariation(obj) {
                     override.location_id,
                     override.inventory_alert_threshold || null,
                     null,  // stock_alert_max not available in Square API
-                    currentSyncMerchantId
+                    merchantId
                 ]);
             } catch (error) {
                 logger.error('Error syncing location override', { variation_id: obj.id, location_id: override.location_id, error: error.message });
@@ -824,7 +847,7 @@ async function syncVariation(obj) {
                     vendorInfo.vendor_code || null,
                     vendorInfo.unit_cost_money?.amount || null,
                     vendorInfo.unit_cost_money?.currency || 'CAD',
-                    currentSyncMerchantId
+                    merchantId
                 ]);
                 vendorCount++;
             } catch (error) {
@@ -1205,12 +1228,17 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
  * Get current inventory count from Square for a specific variation and location
  * @param {string} catalogObjectId - The variation ID
  * @param {string} locationId - The location ID
+ * @param {number} merchantId - The merchant ID for multi-tenant token lookup
  * @returns {Promise<number>} Current quantity in Square
  */
-async function getSquareInventoryCount(catalogObjectId, locationId) {
-    logger.info('Fetching inventory count from Square', { catalogObjectId, locationId });
+async function getSquareInventoryCount(catalogObjectId, locationId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getSquareInventoryCount');
+    }
+    logger.info('Fetching inventory count from Square', { catalogObjectId, locationId, merchantId });
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
         const requestBody = {
             catalog_object_ids: [catalogObjectId],
             location_ids: [locationId],
@@ -1219,7 +1247,8 @@ async function getSquareInventoryCount(catalogObjectId, locationId) {
 
         const data = await makeSquareRequest('/v2/inventory/counts/batch-retrieve', {
             method: 'POST',
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            accessToken
         });
 
         const counts = data.counts || [];
@@ -1239,6 +1268,7 @@ async function getSquareInventoryCount(catalogObjectId, locationId) {
         logger.error('Failed to get Square inventory count', {
             catalogObjectId,
             locationId,
+            merchantId,
             error: error.message
         });
         throw error;
@@ -1252,12 +1282,17 @@ async function getSquareInventoryCount(catalogObjectId, locationId) {
  * @param {string} locationId - The location ID
  * @param {number} quantity - The new absolute quantity to set
  * @param {string} reason - Reason for the adjustment (for memo)
+ * @param {number} merchantId - The merchant ID for multi-tenant token lookup
  * @returns {Promise<Object>} Result of the inventory change
  */
-async function setSquareInventoryCount(catalogObjectId, locationId, quantity, reason = 'Cycle count adjustment') {
-    logger.info('Setting Square inventory count', { catalogObjectId, locationId, quantity, reason });
+async function setSquareInventoryCount(catalogObjectId, locationId, quantity, reason = 'Cycle count adjustment', merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for setSquareInventoryCount');
+    }
+    logger.info('Setting Square inventory count', { catalogObjectId, locationId, quantity, reason, merchantId });
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
         // Generate idempotency key for the request
         const idempotencyKey = generateIdempotencyKey(`cycle-count-${catalogObjectId}-${locationId}`);
 
@@ -1278,7 +1313,8 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
 
         const data = await makeSquareRequest('/v2/inventory/changes/batch-create', {
             method: 'POST',
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            accessToken
         });
 
         logger.info('Square inventory updated successfully', {
@@ -1298,6 +1334,7 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
             catalogObjectId,
             locationId,
             quantity,
+            merchantId,
             error: error.message,
             stack: error.stack
         });
@@ -1408,23 +1445,35 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 /**
  * Sync committed inventory from open/unpaid invoices
  * This calculates quantities reserved for invoices that haven't been paid yet
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  * @returns {Promise<number>} Number of committed inventory records synced
  */
-async function syncCommittedInventory() {
-    logger.info('Starting committed inventory sync from invoices');
+async function syncCommittedInventory(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for syncCommittedInventory');
+    }
+    logger.info('Starting committed inventory sync from invoices', { merchantId });
 
     try {
-        // Get all active locations
-        const locationsResult = await db.query('SELECT id FROM locations WHERE active = TRUE');
+        const accessToken = await getMerchantToken(merchantId);
+
+        // Get all active locations FOR THIS MERCHANT ONLY
+        const locationsResult = await db.query(
+            'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1',
+            [merchantId]
+        );
         const locationIds = locationsResult.rows.map(r => r.id);
 
         if (locationIds.length === 0) {
-            logger.warn('No active locations found for committed inventory sync');
+            logger.warn('No active locations found for committed inventory sync', { merchantId });
             return 0;
         }
 
-        // Clear existing RESERVED_FOR_SALE records before recalculating
-        await db.query("DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE'");
+        // Clear existing RESERVED_FOR_SALE records FOR THIS MERCHANT ONLY before recalculating
+        await db.query(
+            "DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE' AND merchant_id = $1",
+            [merchantId]
+        );
 
         // Track committed quantities: Map<variationId:locationId, quantity>
         const committedQuantities = new Map();
@@ -1455,7 +1504,8 @@ async function syncCommittedInventory() {
 
             const data = await makeSquareRequest('/v2/invoices/search', {
                 method: 'POST',
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(requestBody),
+                accessToken
             });
 
             const invoices = data.invoices || [];
@@ -1472,7 +1522,8 @@ async function syncCommittedInventory() {
                 // The search endpoint may not return all line item details
                 try {
                     const invoiceDetail = await makeSquareRequest(`/v2/invoices/${invoice.id}`, {
-                        method: 'GET'
+                        method: 'GET',
+                        accessToken
                     });
 
                     const fullInvoice = invoiceDetail.invoice;
@@ -1480,7 +1531,8 @@ async function syncCommittedInventory() {
 
                     // Fetch the order to get line items with catalog_object_id
                     const orderData = await makeSquareRequest(`/v2/orders/${fullInvoice.order_id}`, {
-                        method: 'GET'
+                        method: 'GET',
+                        accessToken
                     });
 
                     const order = orderData.order;
@@ -1519,19 +1571,20 @@ async function syncCommittedInventory() {
             try {
                 await db.query(`
                     INSERT INTO inventory_counts (
-                        catalog_object_id, location_id, state, quantity, updated_at
+                        catalog_object_id, location_id, state, quantity, merchant_id, updated_at
                     )
-                    VALUES ($1, $2, 'RESERVED_FOR_SALE', $3, CURRENT_TIMESTAMP)
-                    ON CONFLICT (catalog_object_id, location_id, state) DO UPDATE SET
+                    VALUES ($1, $2, 'RESERVED_FOR_SALE', $3, $4, CURRENT_TIMESTAMP)
+                    ON CONFLICT (catalog_object_id, location_id, state, merchant_id) DO UPDATE SET
                         quantity = EXCLUDED.quantity,
                         updated_at = CURRENT_TIMESTAMP
-                `, [variationId, locationId, quantity]);
+                `, [variationId, locationId, quantity, merchantId]);
                 recordsInserted++;
             } catch (error) {
                 logger.warn('Failed to insert committed inventory record', {
                     variation_id: variationId,
                     location_id: locationId,
                     quantity,
+                    merchantId,
                     error: error.message
                 });
             }
@@ -1552,10 +1605,14 @@ async function syncCommittedInventory() {
 
 /**
  * Run full sync of all data from Square
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  * @returns {Promise<Object>} Sync summary
  */
-async function fullSync() {
-    logger.info('Starting full Square sync');
+async function fullSync(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for fullSync');
+    }
+    logger.info('Starting full Square sync', { merchantId });
     const startTime = Date.now();
 
     const summary = {
@@ -1572,35 +1629,35 @@ async function fullSync() {
     try {
         // Step 1: Sync locations
         try {
-            summary.locations = await syncLocations();
+            summary.locations = await syncLocations(merchantId);
         } catch (error) {
             summary.errors.push(`Locations: ${error.message}`);
         }
 
         // Step 2: Sync vendors
         try {
-            summary.vendors = await syncVendors();
+            summary.vendors = await syncVendors(merchantId);
         } catch (error) {
             summary.errors.push(`Vendors: ${error.message}`);
         }
 
         // Step 3: Sync catalog
         try {
-            summary.catalog = await syncCatalog();
+            summary.catalog = await syncCatalog(merchantId);
         } catch (error) {
             summary.errors.push(`Catalog: ${error.message}`);
         }
 
         // Step 4: Sync inventory
         try {
-            summary.inventory = await syncInventory();
+            summary.inventory = await syncInventory(merchantId);
         } catch (error) {
             summary.errors.push(`Inventory: ${error.message}`);
         }
 
         // Step 5: Sync committed inventory from open invoices
         try {
-            summary.committedInventory = await syncCommittedInventory();
+            summary.committedInventory = await syncCommittedInventory(merchantId);
         } catch (error) {
             summary.errors.push(`Committed inventory: ${error.message}`);
         }
@@ -1608,7 +1665,7 @@ async function fullSync() {
         // Step 6: Sync sales velocity for multiple periods
         for (const days of [91, 182, 365]) {
             try {
-                summary.salesVelocity[`${days}d`] = await syncSalesVelocity(days);
+                summary.salesVelocity[`${days}d`] = await syncSalesVelocity(days, merchantId);
             } catch (error) {
                 summary.errors.push(`Sales velocity (${days}d): ${error.message}`);
             }
@@ -1634,10 +1691,14 @@ async function fullSync() {
 /**
  * Fix location mismatches by setting items and variations to present_at_all_locations = true
  * This resolves issues where variations are enabled at different locations than their parent items
+ * @param {number} merchantId - The merchant ID for multi-tenant token lookup
  * @returns {Promise<Object>} Summary of fixes applied
  */
-async function fixLocationMismatches() {
-    logger.info('Starting location mismatch fix');
+async function fixLocationMismatches(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for fixLocationMismatches');
+    }
+    logger.info('Starting location mismatch fix', { merchantId });
 
     const summary = {
         success: true,
@@ -1648,6 +1709,8 @@ async function fixLocationMismatches() {
     };
 
     try {
+        const accessToken = await getMerchantToken(merchantId);
+
         // Fetch all catalog items with their variations
         let cursor = null;
         const itemsToFix = [];
@@ -1661,7 +1724,7 @@ async function fixLocationMismatches() {
                 params.append('cursor', cursor);
             }
 
-            const data = await makeSquareRequest(`/v2/catalog/list?${params.toString()}`);
+            const data = await makeSquareRequest(`/v2/catalog/list?${params.toString()}`, { accessToken });
             const objects = data.objects || [];
 
             for (const obj of objects) {
@@ -1751,7 +1814,8 @@ async function fixLocationMismatches() {
                     body: JSON.stringify({
                         idempotency_key: idempotencyKey,
                         batches: [{ objects: objectsForBatch }]
-                    })
+                    }),
+                    accessToken
                 });
 
                 const updatedCount = response.objects?.length || 0;
