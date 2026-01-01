@@ -3314,7 +3314,12 @@ app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, re
                  JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
                  WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK'
                    AND COALESCE(v.is_deleted, FALSE) = FALSE
-                   AND COALESCE(i.is_deleted, FALSE) = FALSE) as step5_with_deleted_filter
+                   AND COALESCE(i.is_deleted, FALSE) = FALSE) as step5_with_deleted_filter,
+                -- Check is_deleted status breakdown
+                (SELECT COUNT(*) FROM items WHERE merchant_id = $1 AND is_deleted = TRUE) as items_deleted_true,
+                (SELECT COUNT(*) FROM items WHERE merchant_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL)) as items_not_deleted,
+                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1 AND is_deleted = TRUE) as vars_deleted_true,
+                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL)) as vars_not_deleted
         `, [merchantId]);
 
         res.json({
