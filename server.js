@@ -3593,9 +3593,10 @@ app.get('/api/gmc/feed.tsv', async (req, res) => {
  * GET /api/gmc/settings
  * Get GMC feed settings
  */
-app.get('/api/gmc/settings', async (req, res) => {
+app.get('/api/gmc/settings', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const settings = await gmcFeed.getSettings();
+        const merchantId = req.merchantContext.id;
+        const settings = await gmcFeed.getSettings(merchantId);
         res.json({ settings });
     } catch (error) {
         logger.error('GMC settings error', { error: error.message, stack: error.stack });
@@ -3607,24 +3608,25 @@ app.get('/api/gmc/settings', async (req, res) => {
  * PUT /api/gmc/settings
  * Update GMC feed settings
  */
-app.put('/api/gmc/settings', async (req, res) => {
+app.put('/api/gmc/settings', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { settings } = req.body;
+        const merchantId = req.merchantContext.id;
         if (!settings || typeof settings !== 'object') {
             return res.status(400).json({ error: 'Settings object required' });
         }
 
         for (const [key, value] of Object.entries(settings)) {
             await db.query(`
-                INSERT INTO gmc_settings (setting_key, setting_value, updated_at)
-                VALUES ($1, $2, CURRENT_TIMESTAMP)
-                ON CONFLICT (setting_key) DO UPDATE SET
+                INSERT INTO gmc_settings (setting_key, setting_value, updated_at, merchant_id)
+                VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
+                ON CONFLICT (setting_key, merchant_id) DO UPDATE SET
                     setting_value = EXCLUDED.setting_value,
                     updated_at = CURRENT_TIMESTAMP
-            `, [key, value]);
+            `, [key, value, merchantId]);
         }
 
-        const updatedSettings = await gmcFeed.getSettings();
+        const updatedSettings = await gmcFeed.getSettings(merchantId);
         res.json({ success: true, settings: updatedSettings });
     } catch (error) {
         logger.error('GMC settings update error', { error: error.message, stack: error.stack });
@@ -3636,9 +3638,10 @@ app.put('/api/gmc/settings', async (req, res) => {
  * GET /api/gmc/brands
  * List all brands
  */
-app.get('/api/gmc/brands', async (req, res) => {
+app.get('/api/gmc/brands', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM brands ORDER BY name');
+        const merchantId = req.merchantContext.id;
+        const result = await db.query('SELECT * FROM brands WHERE merchant_id = $1 ORDER BY name', [merchantId]);
         res.json({ count: result.rows.length, brands: result.rows });
     } catch (error) {
         logger.error('GMC brands error', { error: error.message, stack: error.stack });
@@ -3650,14 +3653,15 @@ app.get('/api/gmc/brands', async (req, res) => {
  * POST /api/gmc/brands/import
  * Import brands from array
  */
-app.post('/api/gmc/brands/import', async (req, res) => {
+app.post('/api/gmc/brands/import', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { brands } = req.body;
+        const merchantId = req.merchantContext.id;
         if (!Array.isArray(brands)) {
             return res.status(400).json({ error: 'Brands array required' });
         }
 
-        const imported = await gmcFeed.importBrands(brands);
+        const imported = await gmcFeed.importBrands(brands, merchantId);
         res.json({ success: true, imported });
     } catch (error) {
         logger.error('GMC brands import error', { error: error.message, stack: error.stack });
@@ -3669,16 +3673,17 @@ app.post('/api/gmc/brands/import', async (req, res) => {
  * POST /api/gmc/brands
  * Create a new brand
  */
-app.post('/api/gmc/brands', async (req, res) => {
+app.post('/api/gmc/brands', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { name, logo_url, website } = req.body;
+        const merchantId = req.merchantContext.id;
         if (!name) {
             return res.status(400).json({ error: 'Brand name required' });
         }
 
         const result = await db.query(
-            'INSERT INTO brands (name, logo_url, website) VALUES ($1, $2, $3) RETURNING *',
-            [name, logo_url, website]
+            'INSERT INTO brands (name, logo_url, website, merchant_id) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, logo_url, website, merchantId]
         );
         res.json({ success: true, brand: result.rows[0] });
     } catch (error) {
@@ -3695,17 +3700,24 @@ app.post('/api/gmc/brands', async (req, res) => {
  * Assign a brand to an item
  * Automatically syncs brand to Square custom attribute
  */
-app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
+app.put('/api/gmc/items/:itemId/brand', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { itemId } = req.params;
         const { brand_id } = req.body;
+        const merchantId = req.merchantContext.id;
+
+        // Verify item belongs to this merchant
+        const itemCheck = await db.query('SELECT id FROM items WHERE id = $1 AND merchant_id = $2', [itemId, merchantId]);
+        if (itemCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
 
         let squareSyncResult = null;
         let brandName = null;
 
         if (!brand_id) {
             // Remove brand assignment
-            await db.query('DELETE FROM item_brands WHERE item_id = $1', [itemId]);
+            await db.query('DELETE FROM item_brands WHERE item_id = $1 AND merchant_id = $2', [itemId, merchantId]);
 
             // Also remove from Square (set to empty string)
             try {
@@ -3722,7 +3734,7 @@ app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
         }
 
         // Get brand name for Square sync
-        const brandResult = await db.query('SELECT name FROM brands WHERE id = $1', [brand_id]);
+        const brandResult = await db.query('SELECT name FROM brands WHERE id = $1 AND merchant_id = $2', [brand_id, merchantId]);
         if (brandResult.rows.length === 0) {
             return res.status(404).json({ error: 'Brand not found' });
         }
@@ -3730,10 +3742,10 @@ app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
 
         // Save to local database
         await db.query(`
-            INSERT INTO item_brands (item_id, brand_id)
-            VALUES ($1, $2)
-            ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-        `, [itemId, brand_id]);
+            INSERT INTO item_brands (item_id, brand_id, merchant_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+        `, [itemId, brand_id, merchantId]);
 
         // Auto-sync brand to Square
         try {
@@ -3759,9 +3771,10 @@ app.put('/api/gmc/items/:itemId/brand', async (req, res) => {
  * Matches item names against the provided master brand list only
  * Handles multi-word brands (e.g., "Blue Buffalo", "Taste of the Wild")
  */
-app.post('/api/gmc/brands/auto-detect', async (req, res) => {
+app.post('/api/gmc/brands/auto-detect', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { brands: brandList } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!brandList || !Array.isArray(brandList) || brandList.length === 0) {
             return res.status(400).json({ error: 'brands array required (list of brand names)' });
@@ -3776,19 +3789,19 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
             return res.status(400).json({ error: 'No valid brand names provided' });
         }
 
-        // Ensure all brands exist in our brands table
+        // Ensure all brands exist in our brands table for this merchant
         for (const brandName of cleanedBrands) {
             await db.query(
-                'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-                [brandName]
+                'INSERT INTO brands (name, merchant_id) VALUES ($1, $2) ON CONFLICT (name, merchant_id) DO NOTHING',
+                [brandName, merchantId]
             );
         }
 
         // Get the brands from the master list with their DB IDs
         // Sort by length DESC so longer brand names match first (e.g., "Blue Buffalo" before "Blue")
         const brandsResult = await db.query(
-            `SELECT id, name FROM brands WHERE name = ANY($1) ORDER BY LENGTH(name) DESC`,
-            [cleanedBrands]
+            `SELECT id, name FROM brands WHERE name = ANY($1) AND merchant_id = $2 ORDER BY LENGTH(name) DESC`,
+            [cleanedBrands, merchantId]
         );
 
         // Build matching structures - use lowercase for case-insensitive matching
@@ -3802,11 +3815,12 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
         const itemsResult = await db.query(`
             SELECT i.id, i.name, i.category_name
             FROM items i
-            LEFT JOIN item_brands ib ON i.id = ib.item_id
+            LEFT JOIN item_brands ib ON i.id = ib.item_id AND ib.merchant_id = $1
             WHERE ib.item_id IS NULL
               AND i.is_deleted = FALSE
+              AND i.merchant_id = $1
             ORDER BY i.name
-        `);
+        `, [merchantId]);
 
         const detectedMatches = [];
         const noMatch = [];
@@ -3868,9 +3882,10 @@ app.post('/api/gmc/brands/auto-detect', async (req, res) => {
  * Bulk assign brands to items and sync to Square
  * Expects array of {item_id, brand_id} objects
  */
-app.post('/api/gmc/brands/bulk-assign', async (req, res) => {
+app.post('/api/gmc/brands/bulk-assign', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { assignments } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
             return res.status(400).json({ error: 'assignments array required (array of {item_id, brand_id})' });
@@ -3884,7 +3899,7 @@ app.post('/api/gmc/brands/bulk-assign', async (req, res) => {
             errors: []
         };
 
-        // Get brand names for Square sync
+        // Get brand names for Square sync (filtered by merchant)
         const brandIds = [...new Set(assignments.map(a => a.brand_id))];
         const brandsResult = await db.query(
             `SELECT id, name FROM brands WHERE id = ANY($1)`,
@@ -4014,24 +4029,31 @@ app.post('/api/gmc/taxonomy/import', async (req, res) => {
  * PUT /api/gmc/categories/:categoryId/taxonomy
  * Map a Square category to a Google taxonomy
  */
-app.put('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
+app.put('/api/gmc/categories/:categoryId/taxonomy', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { categoryId } = req.params;
         const { google_taxonomy_id } = req.body;
+        const merchantId = req.merchantContext.id;
+
+        // Verify category belongs to this merchant
+        const catCheck = await db.query('SELECT id FROM categories WHERE id = $1 AND merchant_id = $2', [categoryId, merchantId]);
+        if (catCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Category not found' });
+        }
 
         if (!google_taxonomy_id) {
             // Remove mapping
-            await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+            await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
             return res.json({ success: true, message: 'Taxonomy mapping removed' });
         }
 
         await db.query(`
-            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id)
-            VALUES ($1, $2)
-            ON CONFLICT (category_id) DO UPDATE SET
+            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id, merchant_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (category_id, merchant_id) DO UPDATE SET
                 google_taxonomy_id = EXCLUDED.google_taxonomy_id,
                 updated_at = CURRENT_TIMESTAMP
-        `, [categoryId, google_taxonomy_id]);
+        `, [categoryId, google_taxonomy_id, merchantId]);
 
         res.json({ success: true });
     } catch (error) {
@@ -4044,10 +4066,11 @@ app.put('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
  * DELETE /api/gmc/categories/:categoryId/taxonomy
  * Remove a category's Google taxonomy mapping
  */
-app.delete('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
+app.delete('/api/gmc/categories/:categoryId/taxonomy', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { categoryId } = req.params;
-        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+        const merchantId = req.merchantContext.id;
+        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
         res.json({ success: true, message: 'Taxonomy mapping removed' });
     } catch (error) {
         logger.error('GMC category taxonomy delete error', { error: error.message, stack: error.stack });
@@ -4059,8 +4082,9 @@ app.delete('/api/gmc/categories/:categoryId/taxonomy', async (req, res) => {
  * GET /api/gmc/category-mappings
  * Get all category to taxonomy mappings
  */
-app.get('/api/gmc/category-mappings', async (req, res) => {
+app.get('/api/gmc/category-mappings', requireAuth, requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const result = await db.query(`
             SELECT
                 c.id as category_id,
@@ -4068,10 +4092,11 @@ app.get('/api/gmc/category-mappings', async (req, res) => {
                 gt.id as google_taxonomy_id,
                 gt.name as google_taxonomy_name
             FROM categories c
-            LEFT JOIN category_taxonomy_mapping ctm ON c.id = ctm.category_id
+            LEFT JOIN category_taxonomy_mapping ctm ON c.id = ctm.category_id AND ctm.merchant_id = $1
             LEFT JOIN google_taxonomy gt ON ctm.google_taxonomy_id = gt.id
+            WHERE c.merchant_id = $1
             ORDER BY c.name
-        `);
+        `, [merchantId]);
         res.json({ count: result.rows.length, mappings: result.rows });
     } catch (error) {
         logger.error('GMC category mappings error', { error: error.message, stack: error.stack });
@@ -4084,9 +4109,10 @@ app.get('/api/gmc/category-mappings', async (req, res) => {
  * Map a category (by name) to a Google taxonomy
  * Creates the category in the categories table if it doesn't exist
  */
-app.put('/api/gmc/category-taxonomy', async (req, res) => {
+app.put('/api/gmc/category-taxonomy', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { category_name, google_taxonomy_id } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!category_name) {
             return res.status(400).json({ error: 'category_name is required' });
@@ -4095,18 +4121,18 @@ app.put('/api/gmc/category-taxonomy', async (req, res) => {
             return res.status(400).json({ error: 'google_taxonomy_id is required' });
         }
 
-        // Find or create the category by name
+        // Find or create the category by name for this merchant
         let categoryResult = await db.query(
-            'SELECT id FROM categories WHERE name = $1',
-            [category_name]
+            'SELECT id FROM categories WHERE name = $1 AND merchant_id = $2',
+            [category_name, merchantId]
         );
 
         let categoryId;
         if (categoryResult.rows.length === 0) {
             // Create the category (use name as ID since Square categories use UUIDs)
             const insertResult = await db.query(
-                'INSERT INTO categories (id, name) VALUES ($1, $2) RETURNING id',
-                [category_name, category_name]
+                'INSERT INTO categories (id, name, merchant_id) VALUES ($1, $2, $3) RETURNING id',
+                [category_name, category_name, merchantId]
             );
             categoryId = insertResult.rows[0].id;
         } else {
@@ -4115,12 +4141,12 @@ app.put('/api/gmc/category-taxonomy', async (req, res) => {
 
         // Create or update the mapping
         await db.query(`
-            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id)
-            VALUES ($1, $2)
-            ON CONFLICT (category_id) DO UPDATE SET
+            INSERT INTO category_taxonomy_mapping (category_id, google_taxonomy_id, merchant_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (category_id, merchant_id) DO UPDATE SET
                 google_taxonomy_id = EXCLUDED.google_taxonomy_id,
                 updated_at = CURRENT_TIMESTAMP
-        `, [categoryId, google_taxonomy_id]);
+        `, [categoryId, google_taxonomy_id, merchantId]);
 
         res.json({ success: true, category_id: categoryId });
     } catch (error) {
@@ -4133,18 +4159,19 @@ app.put('/api/gmc/category-taxonomy', async (req, res) => {
  * DELETE /api/gmc/category-taxonomy
  * Remove a category's Google taxonomy mapping (by name)
  */
-app.delete('/api/gmc/category-taxonomy', async (req, res) => {
+app.delete('/api/gmc/category-taxonomy', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { category_name } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!category_name) {
             return res.status(400).json({ error: 'category_name is required' });
         }
 
-        // Find the category by name
+        // Find the category by name for this merchant
         const categoryResult = await db.query(
-            'SELECT id FROM categories WHERE name = $1',
-            [category_name]
+            'SELECT id FROM categories WHERE name = $1 AND merchant_id = $2',
+            [category_name, merchantId]
         );
 
         if (categoryResult.rows.length === 0) {
@@ -4152,7 +4179,7 @@ app.delete('/api/gmc/category-taxonomy', async (req, res) => {
         }
 
         const categoryId = categoryResult.rows[0].id;
-        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1', [categoryId]);
+        await db.query('DELETE FROM category_taxonomy_mapping WHERE category_id = $1 AND merchant_id = $2', [categoryId, merchantId]);
 
         res.json({ success: true, message: 'Taxonomy mapping removed' });
     } catch (error) {
@@ -4273,9 +4300,10 @@ const vendorCatalog = require('./utils/vendor-catalog');
  * Import vendor catalog from CSV or XLSX file
  * Expects multipart form data with 'file' field or JSON body with 'data' and 'fileType'
  */
-app.post('/api/vendor-catalog/import', async (req, res) => {
+app.post('/api/vendor-catalog/import', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { data, fileType, fileName, defaultVendorName } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!data) {
             return res.status(400).json({
@@ -4307,7 +4335,8 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
         }
 
         const result = await vendorCatalog.importVendorCatalog(fileData, type, {
-            defaultVendorName: defaultVendorName || null
+            defaultVendorName: defaultVendorName || null,
+            merchantId
         });
 
         if (result.success) {
@@ -4338,7 +4367,7 @@ app.post('/api/vendor-catalog/import', async (req, res) => {
  * POST /api/vendor-catalog/preview
  * Preview file contents and get auto-detected column mappings
  */
-app.post('/api/vendor-catalog/preview', async (req, res) => {
+app.post('/api/vendor-catalog/preview', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { data, fileType, fileName } = req.body;
 
@@ -4403,11 +4432,12 @@ app.post('/api/vendor-catalog/preview', async (req, res) => {
  * Requires: vendorId (selected vendor), columnMappings
  * Optional: importName (catalog name like "ABC Corp 2025 Price List")
  */
-app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
+app.post('/api/vendor-catalog/import-mapped', requireAuth, requireMerchant, async (req, res) => {
     try {
         // Accept both 'mappings' (frontend) and 'columnMappings' (API) for compatibility
         const { data, fileType, fileName, columnMappings, mappings, vendorId, vendorName, importName } = req.body;
         const resolvedMappings = columnMappings || mappings;
+        const merchantId = req.merchantContext.id;
 
         if (!data) {
             return res.status(400).json({
@@ -4448,7 +4478,8 @@ app.post('/api/vendor-catalog/import-mapped', async (req, res) => {
             columnMappings: resolvedMappings || {},
             vendorId,
             vendorName: vendorName || 'Unknown Vendor',
-            importName: importName || null
+            importName: importName || null,
+            merchantId
         });
 
         if (result.success) {
@@ -4585,15 +4616,16 @@ app.get('/api/vendor-catalog/batches', requireAuth, requireMerchant, async (req,
  * POST /api/vendor-catalog/batches/:batchId/archive
  * Archive an import batch (soft delete - keeps for searches)
  */
-app.post('/api/vendor-catalog/batches/:batchId/archive', async (req, res) => {
+app.post('/api/vendor-catalog/batches/:batchId/archive', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const archivedCount = await vendorCatalog.archiveImportBatch(batchId);
+        const archivedCount = await vendorCatalog.archiveImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Archived ${archivedCount} items from batch ${batchId}`,
@@ -4609,15 +4641,16 @@ app.post('/api/vendor-catalog/batches/:batchId/archive', async (req, res) => {
  * POST /api/vendor-catalog/batches/:batchId/unarchive
  * Unarchive an import batch
  */
-app.post('/api/vendor-catalog/batches/:batchId/unarchive', async (req, res) => {
+app.post('/api/vendor-catalog/batches/:batchId/unarchive', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId);
+        const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Unarchived ${unarchivedCount} items from batch ${batchId}`,
@@ -4633,15 +4666,16 @@ app.post('/api/vendor-catalog/batches/:batchId/unarchive', async (req, res) => {
  * DELETE /api/vendor-catalog/batches/:batchId
  * Permanently delete an import batch
  */
-app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
+app.delete('/api/vendor-catalog/batches/:batchId', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!batchId) {
             return res.status(400).json({ error: 'Batch ID is required' });
         }
 
-        const deletedCount = await vendorCatalog.deleteImportBatch(batchId);
+        const deletedCount = await vendorCatalog.deleteImportBatch(batchId, merchantId);
         res.json({
             success: true,
             message: `Permanently deleted ${deletedCount} items from batch ${batchId}`,
@@ -4657,9 +4691,10 @@ app.delete('/api/vendor-catalog/batches/:batchId', async (req, res) => {
  * GET /api/vendor-catalog/stats
  * Get vendor catalog statistics
  */
-app.get('/api/vendor-catalog/stats', async (req, res) => {
+app.get('/api/vendor-catalog/stats', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const stats = await vendorCatalog.getStats();
+        const merchantId = req.merchantContext.id;
+        const stats = await vendorCatalog.getStats(merchantId);
         res.json(stats);
     } catch (error) {
         logger.error('Get vendor catalog stats error', { error: error.message, stack: error.stack });
@@ -4672,9 +4707,10 @@ app.get('/api/vendor-catalog/stats', async (req, res) => {
  * Push selected price changes to Square
  * Body: { priceChanges: [{variationId, newPriceCents, currency?}] }
  */
-app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
+app.post('/api/vendor-catalog/push-price-changes', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { priceChanges } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!priceChanges || !Array.isArray(priceChanges) || priceChanges.length === 0) {
             return res.status(400).json({
@@ -4683,7 +4719,7 @@ app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
             });
         }
 
-        // Validate each price change
+        // Validate each price change and verify variations belong to merchant
         for (const change of priceChanges) {
             if (!change.variationId) {
                 return res.status(400).json({
@@ -4699,7 +4735,7 @@ app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
             }
         }
 
-        logger.info('Pushing price changes to Square', { count: priceChanges.length });
+        logger.info('Pushing price changes to Square', { count: priceChanges.length, merchantId });
 
         const squareApi = require('./utils/square-api');
         const result = await squareApi.batchUpdateVariationPrices(priceChanges);
