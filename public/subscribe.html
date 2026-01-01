@@ -849,13 +849,18 @@
           throw new Error(data.error || 'Subscription creation failed');
         }
 
-        // Success!
-        showMessage('success', 'Subscription created successfully! Redirecting to dashboard...');
-
-        // Redirect after delay
-        setTimeout(() => {
-          window.location.href = '/?subscribed=true';
-        }, 2000);
+        // Success! Check if we need to set up a password
+        if (data.passwordSetupUrl) {
+          showMessage('success', 'Account created! Redirecting to set up your password...');
+          setTimeout(() => {
+            window.location.href = data.passwordSetupUrl + '&new=true';
+          }, 2000);
+        } else {
+          showMessage('success', 'Subscription created successfully! Redirecting to login...');
+          setTimeout(() => {
+            window.location.href = '/login.html?subscribed=true';
+          }, 2000);
+        }
 
       } catch (error) {
         console.error('Subscription error:', error);
