@@ -1929,9 +1929,10 @@ app.post('/api/variations/bulk-update-extended', async (req, res) => {
  * GET /api/expirations
  * Get variations with expiration data for expiration tracker
  */
-app.get('/api/expirations', async (req, res) => {
+app.get('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { expiry, category } = req.query;
+        const merchantId = req.merchantContext.id;
 
         // Check if reviewed_at column exists (for backwards compatibility)
         let hasReviewedColumn = false;
@@ -1962,12 +1963,12 @@ app.get('/api/expirations', async (req, res) => {
                 v.images,
                 i.images as item_images
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK'
-            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK' AND ic.merchant_id = $1
+            WHERE COALESCE(v.is_deleted, FALSE) = FALSE AND v.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         // Filter by category
         if (category) {
@@ -2037,9 +2038,10 @@ app.get('/api/expirations', async (req, res) => {
  * POST /api/expirations
  * Save/update expiration data for variations
  */
-app.post('/api/expirations', async (req, res) => {
+app.post('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
     try {
         const changes = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!Array.isArray(changes)) {
             return res.status(400).json({ error: 'Expected array of changes' });
@@ -2056,6 +2058,16 @@ app.post('/api/expirations', async (req, res) => {
                 continue;
             }
 
+            // Verify variation belongs to this merchant
+            const varCheck = await db.query(
+                'SELECT id FROM variations WHERE id = $1 AND merchant_id = $2',
+                [variation_id, merchantId]
+            );
+            if (varCheck.rows.length === 0) {
+                logger.warn('Skipping change - variation not found for merchant', { variation_id, merchantId });
+                continue;
+            }
+
             // Determine effective expiration date
             // If no date and not "does not expire", use 2020-01-01 to trigger review
             let effectiveExpirationDate = expiration_date || null;
@@ -2065,8 +2077,8 @@ app.post('/api/expirations', async (req, res) => {
 
             // Save to local database
             await db.query(`
-                INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at)
-                VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at, merchant_id)
+                VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
                 ON CONFLICT (variation_id)
                 DO UPDATE SET
                     expiration_date = EXCLUDED.expiration_date,
@@ -2075,7 +2087,8 @@ app.post('/api/expirations', async (req, res) => {
             `, [
                 variation_id,
                 effectiveExpirationDate,
-                does_not_expire === true
+                does_not_expire === true,
+                merchantId
             ]);
 
             updatedCount++;
@@ -2130,9 +2143,10 @@ app.post('/api/expirations', async (req, res) => {
  * Mark items as reviewed (so they don't reappear in review filter)
  * Also syncs reviewed_at timestamp to Square for cross-platform consistency
  */
-app.post('/api/expirations/review', async (req, res) => {
+app.post('/api/expirations/review', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { variation_ids, reviewed_by } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!Array.isArray(variation_ids) || variation_ids.length === 0) {
             return res.status(400).json({ error: 'Expected array of variation_ids' });
@@ -2162,16 +2176,25 @@ app.post('/api/expirations/review', async (req, res) => {
         let squarePushResults = { success: 0, failed: 0, errors: [] };
 
         for (const variation_id of variation_ids) {
+            // Verify variation belongs to this merchant
+            const varCheck = await db.query(
+                'SELECT id FROM variations WHERE id = $1 AND merchant_id = $2',
+                [variation_id, merchantId]
+            );
+            if (varCheck.rows.length === 0) {
+                continue;
+            }
+
             // Save to local database
             await db.query(`
-                INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at)
-                VALUES ($1, NOW(), $2, NOW())
+                INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
+                VALUES ($1, NOW(), $2, NOW(), $3)
                 ON CONFLICT (variation_id)
                 DO UPDATE SET
                     reviewed_at = NOW(),
                     reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
                     updated_at = NOW()
-            `, [variation_id, reviewed_by || 'User']);
+            `, [variation_id, reviewed_by || 'User', merchantId]);
 
             reviewedCount++;
 
@@ -2217,9 +2240,10 @@ app.post('/api/expirations/review', async (req, res) => {
  * GET /api/expiry-discounts/status
  * Get summary of current expiry discount status
  */
-app.get('/api/expiry-discounts/status', async (req, res) => {
+app.get('/api/expiry-discounts/status', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const summary = await expiryDiscount.getDiscountStatusSummary();
+        const merchantId = req.merchantContext.id;
+        const summary = await expiryDiscount.getDiscountStatusSummary(merchantId);
         res.json(summary);
     } catch (error) {
         logger.error('Get expiry discount status error', { error: error.message });
@@ -2231,12 +2255,14 @@ app.get('/api/expiry-discounts/status', async (req, res) => {
  * GET /api/expiry-discounts/tiers
  * Get all discount tier configurations
  */
-app.get('/api/expiry-discounts/tiers', async (req, res) => {
+app.get('/api/expiry-discounts/tiers', requireAuth, requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const result = await db.query(`
             SELECT * FROM expiry_discount_tiers
+            WHERE merchant_id = $1
             ORDER BY priority DESC
-        `);
+        `, [merchantId]);
         res.json({ tiers: result.rows });
     } catch (error) {
         logger.error('Get expiry discount tiers error', { error: error.message });
@@ -2248,10 +2274,11 @@ app.get('/api/expiry-discounts/tiers', async (req, res) => {
  * PATCH /api/expiry-discounts/tiers/:id
  * Update a discount tier configuration
  */
-app.patch('/api/expiry-discounts/tiers/:id', async (req, res) => {
+app.patch('/api/expiry-discounts/tiers/:id', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const updates = req.body;
+        const merchantId = req.merchantContext.id;
 
         // Build dynamic update query
         const allowedFields = [
@@ -2261,7 +2288,7 @@ app.patch('/api/expiry-discounts/tiers/:id', async (req, res) => {
         ];
 
         const setClauses = [];
-        const params = [id];
+        const params = [id, merchantId];
 
         for (const [key, value] of Object.entries(updates)) {
             if (allowedFields.includes(key)) {
@@ -2279,7 +2306,7 @@ app.patch('/api/expiry-discounts/tiers/:id', async (req, res) => {
         const result = await db.query(`
             UPDATE expiry_discount_tiers
             SET ${setClauses.join(', ')}
-            WHERE id = $1
+            WHERE id = $1 AND merchant_id = $2
             RETURNING *
         `, params);
 
@@ -2300,9 +2327,10 @@ app.patch('/api/expiry-discounts/tiers/:id', async (req, res) => {
  * GET /api/expiry-discounts/variations
  * Get variations with their discount status
  */
-app.get('/api/expiry-discounts/variations', async (req, res) => {
+app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { tier_code, needs_pull, limit = 100, offset = 0 } = req.query;
+        const merchantId = req.merchantContext.id;
 
         let query = `
             SELECT
@@ -2335,15 +2363,15 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
                 COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0)
                     - COALESCE(SUM(CASE WHEN ic.state = 'RESERVED_FOR_SALE' THEN ic.quantity ELSE 0 END), 0) as available_to_sell
             FROM variation_discount_status vds
-            JOIN variations v ON vds.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
-            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
-            WHERE v.is_deleted = FALSE
+            JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
+            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE') AND ic.merchant_id = $1
+            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
         `;
 
-        const params = [];
+        const params = [merchantId];
 
         if (tier_code) {
             params.push(tier_code);
@@ -2376,19 +2404,21 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
         let countQuery = `
             SELECT COUNT(DISTINCT vds.variation_id) as total
             FROM variation_discount_status vds
-            JOIN variations v ON vds.variation_id = v.id
-            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
-            WHERE v.is_deleted = FALSE
+            JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+            LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
+            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
         `;
+        const countParams = [merchantId];
 
         if (tier_code) {
-            countQuery += ` AND edt.tier_code = '${tier_code}'`;
+            countParams.push(tier_code);
+            countQuery += ` AND edt.tier_code = $${countParams.length}`;
         }
         if (needs_pull === 'true') {
             countQuery += ` AND vds.needs_pull = TRUE`;
         }
 
-        const countResult = await db.query(countQuery);
+        const countResult = await db.query(countQuery, countParams);
 
         // Resolve image URLs
         const imageUrlMap = await batchResolveImageUrls(result.rows);
@@ -2416,15 +2446,17 @@ app.get('/api/expiry-discounts/variations', async (req, res) => {
  * POST /api/expiry-discounts/evaluate
  * Run expiry tier evaluation for all variations
  */
-app.post('/api/expiry-discounts/evaluate', async (req, res) => {
+app.post('/api/expiry-discounts/evaluate', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { dry_run = false } = req.body;
+        const merchantId = req.merchantContext.id;
 
-        logger.info('Manual expiry evaluation requested', { dry_run });
+        logger.info('Manual expiry evaluation requested', { dry_run, merchantId });
 
         const result = await expiryDiscount.evaluateAllVariations({
             dryRun: dry_run,
-            triggeredBy: 'MANUAL'
+            triggeredBy: 'MANUAL',
+            merchantId
         });
 
         res.json({
@@ -2442,13 +2474,14 @@ app.post('/api/expiry-discounts/evaluate', async (req, res) => {
  * POST /api/expiry-discounts/apply
  * Apply discounts based on current tier assignments
  */
-app.post('/api/expiry-discounts/apply', async (req, res) => {
+app.post('/api/expiry-discounts/apply', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { dry_run = false } = req.body;
+        const merchantId = req.merchantContext.id;
 
-        logger.info('Manual discount application requested', { dry_run });
+        logger.info('Manual discount application requested', { dry_run, merchantId });
 
-        const result = await expiryDiscount.applyDiscounts({ dryRun: dry_run });
+        const result = await expiryDiscount.applyDiscounts({ dryRun: dry_run, merchantId });
 
         res.json({
             success: true,
@@ -2465,13 +2498,14 @@ app.post('/api/expiry-discounts/apply', async (req, res) => {
  * POST /api/expiry-discounts/run
  * Run full expiry discount automation (evaluate + apply)
  */
-app.post('/api/expiry-discounts/run', async (req, res) => {
+app.post('/api/expiry-discounts/run', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { dry_run = false } = req.body;
+        const merchantId = req.merchantContext.id;
 
-        logger.info('Full expiry discount automation requested', { dry_run });
+        logger.info('Full expiry discount automation requested', { dry_run, merchantId });
 
-        const result = await expiryDiscount.runExpiryDiscountAutomation({ dryRun: dry_run });
+        const result = await expiryDiscount.runExpiryDiscountAutomation({ dryRun: dry_run, merchantId });
 
         // Send email notification if enabled and not dry run
         if (!dry_run && result.evaluation) {
@@ -2513,11 +2547,12 @@ app.post('/api/expiry-discounts/run', async (req, res) => {
  * POST /api/expiry-discounts/init-square
  * Initialize Square discount objects for all tiers
  */
-app.post('/api/expiry-discounts/init-square', async (req, res) => {
+app.post('/api/expiry-discounts/init-square', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Square discount initialization requested');
+        const merchantId = req.merchantContext.id;
+        logger.info('Square discount initialization requested', { merchantId });
 
-        const result = await expiryDiscount.initializeSquareDiscounts();
+        const result = await expiryDiscount.initializeSquareDiscounts(merchantId);
 
         res.json({
             success: result.errors.length === 0,
@@ -2534,13 +2569,15 @@ app.post('/api/expiry-discounts/init-square', async (req, res) => {
  * GET /api/expiry-discounts/audit-log
  * Get audit log of discount changes
  */
-app.get('/api/expiry-discounts/audit-log', async (req, res) => {
+app.get('/api/expiry-discounts/audit-log', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { variation_id, limit = 100 } = req.query;
+        const merchantId = req.merchantContext.id;
 
         const logs = await expiryDiscount.getAuditLog({
             variationId: variation_id,
-            limit: parseInt(limit)
+            limit: parseInt(limit),
+            merchantId
         });
 
         res.json({ logs });
@@ -2555,13 +2592,15 @@ app.get('/api/expiry-discounts/audit-log', async (req, res) => {
  * GET /api/expiry-discounts/settings
  * Get expiry discount system settings
  */
-app.get('/api/expiry-discounts/settings', async (req, res) => {
+app.get('/api/expiry-discounts/settings', requireAuth, requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const result = await db.query(`
             SELECT setting_key, setting_value, description
             FROM expiry_discount_settings
+            WHERE merchant_id = $1
             ORDER BY setting_key
-        `);
+        `, [merchantId]);
 
         const settings = {};
         for (const row of result.rows) {
@@ -2583,15 +2622,16 @@ app.get('/api/expiry-discounts/settings', async (req, res) => {
  * PATCH /api/expiry-discounts/settings
  * Update expiry discount system settings
  */
-app.patch('/api/expiry-discounts/settings', async (req, res) => {
+app.patch('/api/expiry-discounts/settings', requireAuth, requireMerchant, async (req, res) => {
     try {
         const updates = req.body;
+        const merchantId = req.merchantContext.id;
 
         for (const [key, value] of Object.entries(updates)) {
-            await expiryDiscount.updateSetting(key, value);
+            await expiryDiscount.updateSetting(key, value, merchantId);
         }
 
-        logger.info('Updated expiry discount settings', { updates });
+        logger.info('Updated expiry discount settings', { updates, merchantId });
 
         res.json({ success: true, message: 'Settings updated' });
 
@@ -2716,8 +2756,9 @@ app.get('/api/inventory', requireMerchant, async (req, res) => {
  * GET /api/low-stock
  * Get items below minimum stock alert threshold
  */
-app.get('/api/low-stock', async (req, res) => {
+app.get('/api/low-stock', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const query = `
             SELECT
                 v.id,
@@ -2734,17 +2775,18 @@ app.get('/api/low-stock', async (req, res) => {
                 v.images,
                 i.images as item_images
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            JOIN inventory_counts ic ON v.id = ic.catalog_object_id
-            JOIN locations l ON ic.location_id = l.id
-            WHERE v.stock_alert_min IS NOT NULL
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $1
+            JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
+            WHERE v.merchant_id = $1
+              AND v.stock_alert_min IS NOT NULL
               AND ic.quantity < v.stock_alert_min
               AND ic.state = 'IN_STOCK'
               AND v.discontinued = FALSE
             ORDER BY (v.stock_alert_min - ic.quantity) DESC, i.name
         `;
 
-        const result = await db.query(query);
+        const result = await db.query(query, [merchantId]);
 
         // Resolve image URLs (with item fallback)
         const items = await Promise.all(result.rows.map(async (row) => {
@@ -3417,9 +3459,10 @@ app.post('/api/google/disconnect', async (req, res) => {
  * POST /api/gmc/sync-sheet
  * Write GMC feed to Google Sheets
  */
-app.post('/api/gmc/sync-sheet', async (req, res) => {
+app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { spreadsheet_id, sheet_name } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!spreadsheet_id) {
             return res.status(400).json({ error: 'spreadsheet_id is required' });
@@ -3435,7 +3478,7 @@ app.post('/api/gmc/sync-sheet', async (req, res) => {
         }
 
         // Generate feed data
-        const { products, stats } = await gmcFeed.generateFeedData();
+        const { products, stats } = await gmcFeed.generateFeedData({ merchantId });
 
         // Write to Google Sheet
         const result = await googleSheets.writeFeedToSheet(spreadsheet_id, products, {
@@ -3484,12 +3527,14 @@ const gmcFeed = require('./utils/gmc-feed');
  * GET /api/gmc/feed
  * Generate and return GMC feed data as JSON
  */
-app.get('/api/gmc/feed', async (req, res) => {
+app.get('/api/gmc/feed', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { location_id, include_products } = req.query;
+        const merchantId = req.merchantContext.id;
         const { products, stats, settings } = await gmcFeed.generateFeedData({
             locationId: location_id,
-            includeProducts: include_products === 'true'
+            includeProducts: include_products === 'true',
+            merchantId
         });
 
         res.json({
@@ -3508,12 +3553,14 @@ app.get('/api/gmc/feed', async (req, res) => {
  * POST /api/gmc/generate
  * Generate GMC feed and save to TSV file
  */
-app.post('/api/gmc/generate', async (req, res) => {
+app.post('/api/gmc/generate', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { location_id, filename } = req.body;
+        const merchantId = req.merchantContext.id;
         const result = await gmcFeed.generateFeed({
             locationId: location_id,
-            filename: filename || 'gmc-feed.tsv'
+            filename: filename || 'gmc-feed.tsv',
+            merchantId
         });
 
         res.json(result);
@@ -4443,9 +4490,10 @@ app.get('/api/vendor-catalog/field-types', (req, res) => {
  * GET /api/vendor-catalog
  * Search and list vendor catalog items
  */
-app.get('/api/vendor-catalog', async (req, res) => {
+app.get('/api/vendor-catalog', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { vendor_id, vendor_name, upc, search, matched_only, limit, offset } = req.query;
+        const merchantId = req.merchantContext.id;
 
         const items = await vendorCatalog.searchVendorCatalog({
             vendorId: vendor_id,
@@ -4454,7 +4502,8 @@ app.get('/api/vendor-catalog', async (req, res) => {
             search,
             matchedOnly: matched_only === 'true',
             limit: parseInt(limit) || 100,
-            offset: parseInt(offset) || 0
+            offset: parseInt(offset) || 0,
+            merchantId
         });
 
         res.json({
@@ -4471,15 +4520,16 @@ app.get('/api/vendor-catalog', async (req, res) => {
  * GET /api/vendor-catalog/lookup/:upc
  * Quick lookup by UPC - returns all vendor items matching UPC
  */
-app.get('/api/vendor-catalog/lookup/:upc', async (req, res) => {
+app.get('/api/vendor-catalog/lookup/:upc', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { upc } = req.params;
+        const merchantId = req.merchantContext.id;
 
         if (!upc) {
             return res.status(400).json({ error: 'UPC is required' });
         }
 
-        const items = await vendorCatalog.lookupByUPC(upc);
+        const items = await vendorCatalog.lookupByUPC(upc, merchantId);
 
         // Also look up our catalog item by UPC
         const ourItem = await db.query(`
@@ -4489,12 +4539,13 @@ app.get('/api/vendor-catalog/lookup/:upc', async (req, res) => {
                 vv.unit_cost_money as current_cost_cents,
                 vv.vendor_id as current_vendor_id
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
             WHERE v.upc = $1
               AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
+              AND v.merchant_id = $2
             LIMIT 1
-        `, [upc]);
+        `, [upc, merchantId]);
 
         res.json({
             upc,
@@ -4512,11 +4563,13 @@ app.get('/api/vendor-catalog/lookup/:upc', async (req, res) => {
  * List import batches with summary stats
  * Query params: include_archived=true to include archived imports
  */
-app.get('/api/vendor-catalog/batches', async (req, res) => {
+app.get('/api/vendor-catalog/batches', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { include_archived } = req.query;
+        const merchantId = req.merchantContext.id;
         const batches = await vendorCatalog.getImportBatches({
-            includeArchived: include_archived === 'true'
+            includeArchived: include_archived === 'true',
+            merchantId
         });
         res.json({
             count: batches.length,
@@ -4694,8 +4747,9 @@ app.get('/api/locations', requireMerchant, async (req, res) => {
  * GET /api/sales-velocity
  * Get sales velocity data
  */
-app.get('/api/sales-velocity', async (req, res) => {
+app.get('/api/sales-velocity', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { variation_id, location_id, period_days } = req.query;
 
         // Input validation for period_days
@@ -4719,13 +4773,14 @@ app.get('/api/sales-velocity', async (req, res) => {
                 i.category_name,
                 l.name as location_name
             FROM sales_velocity sv
-            JOIN variations v ON sv.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            JOIN locations l ON sv.location_id = l.id
-            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+            JOIN variations v ON sv.variation_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            JOIN locations l ON sv.location_id = l.id AND l.merchant_id = $1
+            WHERE sv.merchant_id = $1
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (variation_id) {
             params.push(variation_id);
@@ -4761,8 +4816,9 @@ app.get('/api/sales-velocity', async (req, res) => {
  * GET /api/reorder-suggestions
  * Calculate reorder suggestions based on sales velocity
  */
-app.get('/api/reorder-suggestions', async (req, res) => {
+app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const {
             vendor_id,
             supply_days = 45,
@@ -4826,22 +4882,22 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 -- Get primary vendor (lowest cost, then earliest created)
                 (SELECT vv2.vendor_id
                  FROM variation_vendors vv2
-                 WHERE vv2.variation_id = v.id
+                 WHERE vv2.variation_id = v.id AND vv2.merchant_id = $2
                  ORDER BY vv2.unit_cost_money ASC, vv2.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_id,
                 -- Get primary vendor name for comparison
                 (SELECT ve2.name
                  FROM variation_vendors vv3
-                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id
-                 WHERE vv3.variation_id = v.id
+                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id AND ve2.merchant_id = $2
+                 WHERE vv3.variation_id = v.id AND vv3.merchant_id = $2
                  ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_name,
                 -- Get primary vendor cost for comparison
                 (SELECT vv4.unit_cost_money
                  FROM variation_vendors vv4
-                 WHERE vv4.variation_id = v.id
+                 WHERE vv4.variation_id = v.id AND vv4.merchant_id = $2
                  ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_cost,
@@ -4849,8 +4905,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 COALESCE((
                     SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
                     FROM purchase_order_items poi
-                    JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                    WHERE poi.variation_id = v.id
+                    JOIN purchase_orders po ON poi.purchase_order_id = po.id AND po.merchant_id = $2
+                    WHERE poi.variation_id = v.id AND poi.merchant_id = $2
                       AND po.status NOT IN ('RECEIVED', 'CANCELLED')
                       AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
                 ), 0) as pending_po_quantity,
@@ -4879,22 +4935,23 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     ELSE FALSE
                 END as below_minimum
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            JOIN variation_vendors vv ON v.id = vv.variation_id
-            JOIN vendors ve ON vv.vendor_id = ve.id
-            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
-            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
-            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
+            JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $2
                 AND ic.state = 'IN_STOCK'
-            LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id
+            LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id AND ic_committed.merchant_id = $2
                 AND ic_committed.state = 'RESERVED_FOR_SALE'
                 AND ic_committed.location_id = ic.location_id
-            LEFT JOIN locations l ON ic.location_id = l.id
-            LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
+            LEFT JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $2
+            LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id AND vls.merchant_id = $2
                 AND ic.location_id = vls.location_id
-            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id
-            WHERE v.discontinued = FALSE
+            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id AND vexp.merchant_id = $2
+            WHERE v.merchant_id = $2
+              AND v.discontinued = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND (
@@ -4916,7 +4973,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
               )
         `;
 
-        const params = [supplyDaysNum];
+        const params = [supplyDaysNum, merchantId];
 
         if (vendor_id) {
             params.push(vendor_id);
@@ -5511,16 +5568,17 @@ async function sendCycleCountReport() {
  * Get pending items for cycle counting from daily batch queue
  * Returns accumulated uncounted items (priority + daily batch)
  */
-app.get('/api/cycle-counts/pending', async (req, res) => {
+app.get('/api/cycle-counts/pending', requireAuth, requireMerchant, async (req, res) => {
     try {
         const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+        const merchantId = req.merchantContext.id;
 
         // Get today's session or create it
         await db.query(
-            `INSERT INTO count_sessions (session_date, items_expected)
-             VALUES (CURRENT_DATE, $1)
-             ON CONFLICT (session_date) DO NOTHING`,
-            [dailyTarget]
+            `INSERT INTO count_sessions (session_date, items_expected, merchant_id)
+             VALUES (CURRENT_DATE, $1, $2)
+             ON CONFLICT (session_date, merchant_id) DO NOTHING`,
+            [dailyTarget, merchantId]
         );
 
         // First, get priority queue items (Send Now items)
@@ -5540,11 +5598,11 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
                 cqp.added_date as priority_added_date,
                 cqp.notes as priority_notes
             FROM count_queue_priority cqp
-            JOIN variations v ON cqp.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
-            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
-            WHERE cqp.completed = FALSE
+            JOIN variations v ON cqp.catalog_object_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE') AND ic.merchant_id = $1
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id AND ch.merchant_id = $1
+            WHERE cqp.completed = FALSE AND cqp.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
@@ -5553,7 +5611,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             ORDER BY cqp.added_date ASC
         `;
 
-        const priorityItems = await db.query(priorityQuery);
+        const priorityItems = await db.query(priorityQuery, [merchantId]);
         const priorityCount = priorityItems.rows.length;
 
         // Get items from daily batch queue that haven't been completed
@@ -5573,12 +5631,12 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
                 cqd.batch_date,
                 cqd.added_date as batch_added_date
             FROM count_queue_daily cqd
-            JOIN variations v ON cqd.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
-            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
-            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
-            WHERE cqd.completed = FALSE
+            JOIN variations v ON cqd.catalog_object_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE') AND ic.merchant_id = $1
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id AND ch.merchant_id = $1
+            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE AND cqp.merchant_id = $1
+            WHERE cqd.completed = FALSE AND cqd.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
@@ -5588,7 +5646,7 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
             ORDER BY cqd.batch_date ASC, cqd.added_date ASC
         `;
 
-        const dailyBatchItems = await db.query(dailyBatchQuery);
+        const dailyBatchItems = await db.query(dailyBatchQuery, [merchantId]);
 
         // Combine priority and daily batch items
         const allItems = [...priorityItems.rows, ...dailyBatchItems.rows];
@@ -5643,10 +5701,11 @@ app.get('/api/cycle-counts/pending', async (req, res) => {
  * POST /api/cycle-counts/:id/complete
  * Mark an item as counted with accuracy tracking
  */
-app.post('/api/cycle-counts/:id/complete', async (req, res) => {
+app.post('/api/cycle-counts/:id/complete', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
+        const merchantId = req.merchantContext.id;
 
         // Validate catalog_object_id
         if (!id || id === 'null' || id === 'undefined') {
@@ -5654,6 +5713,15 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
             return res.status(400).json({
                 error: 'Invalid item ID. Please refresh the page and try again.'
             });
+        }
+
+        // Verify variation belongs to this merchant
+        const varCheck = await db.query(
+            'SELECT id FROM variations WHERE id = $1 AND merchant_id = $2',
+            [id, merchantId]
+        );
+        if (varCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found' });
         }
 
         // Calculate variance if quantities provided
@@ -5667,10 +5735,10 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
         await db.query(
             `INSERT INTO count_history (
                 catalog_object_id, last_counted_date, counted_by,
-                is_accurate, actual_quantity, expected_quantity, variance, notes
+                is_accurate, actual_quantity, expected_quantity, variance, notes, merchant_id
              )
-             VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (catalog_object_id)
+             VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (catalog_object_id, merchant_id)
              DO UPDATE SET
                 last_counted_date = CURRENT_TIMESTAMP,
                 counted_by = EXCLUDED.counted_by,
@@ -5679,23 +5747,23 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
                 expected_quantity = EXCLUDED.expected_quantity,
                 variance = EXCLUDED.variance,
                 notes = EXCLUDED.notes`,
-            [id, counted_by || 'System', is_accurate, actual_quantity, expected_quantity, variance, notes]
+            [id, counted_by || 'System', is_accurate, actual_quantity, expected_quantity, variance, notes, merchantId]
         );
 
         // Mark priority item as completed if it exists
         await db.query(
             `UPDATE count_queue_priority
              SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
-             WHERE catalog_object_id = $1 AND completed = FALSE`,
-            [id]
+             WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`,
+            [id, merchantId]
         );
 
         // Mark daily batch item as completed if it exists
         await db.query(
             `UPDATE count_queue_daily
              SET completed = TRUE, completed_date = CURRENT_TIMESTAMP
-             WHERE catalog_object_id = $1 AND completed = FALSE`,
-            [id]
+             WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`,
+            [id, merchantId]
         );
 
         // Update session completed count
@@ -5703,7 +5771,8 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
             `UPDATE count_sessions
              SET items_completed = items_completed + 1,
                  completion_rate = (items_completed + 1)::DECIMAL / items_expected * 100
-             WHERE session_date = CURRENT_DATE`
+             WHERE session_date = CURRENT_DATE AND merchant_id = $1`,
+            [merchantId]
         );
 
         // Check if we've reached 100% completion for today
@@ -5712,11 +5781,11 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
                 COUNT(*) FILTER (WHERE completed = FALSE) as pending_count,
                 COUNT(*) as total_count
             FROM (
-                SELECT catalog_object_id, completed FROM count_queue_daily WHERE batch_date <= CURRENT_DATE
+                SELECT catalog_object_id, completed FROM count_queue_daily WHERE batch_date <= CURRENT_DATE AND merchant_id = $1
                 UNION
-                SELECT catalog_object_id, completed FROM count_queue_priority
+                SELECT catalog_object_id, completed FROM count_queue_priority WHERE merchant_id = $1
             ) combined
-        `);
+        `, [merchantId]);
 
         const pendingCount = parseInt(completionCheck.rows[0]?.pending_count || 0);
         const isFullyComplete = pendingCount === 0 && completionCheck.rows[0]?.total_count > 0;
@@ -5749,10 +5818,11 @@ app.post('/api/cycle-counts/:id/complete', async (req, res) => {
  * Push the cycle count adjustment to Square
  * Verifies Square's current inventory matches our DB before updating
  */
-app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
+app.post('/api/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const { actual_quantity, location_id } = req.body;
+        const merchantId = req.merchantContext.id;
 
         // Validate catalog_object_id
         if (!id || id === 'null' || id === 'undefined') {
@@ -5775,9 +5845,9 @@ app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
         const variationResult = await db.query(
             `SELECT v.id, v.sku, v.name, v.item_id, i.name as item_name, v.track_inventory
              FROM variations v
-             JOIN items i ON v.item_id = i.id
-             WHERE v.id = $1`,
-            [id]
+             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+             WHERE v.id = $1 AND v.merchant_id = $2`,
+            [id, merchantId]
         );
 
         if (variationResult.rows.length === 0) {
@@ -5799,7 +5869,8 @@ app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
         if (!targetLocationId) {
             // Get the primary/first active location
             const locationResult = await db.query(
-                'SELECT id FROM locations WHERE active = TRUE ORDER BY name LIMIT 1'
+                'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1 ORDER BY name LIMIT 1',
+                [merchantId]
             );
 
             if (locationResult.rows.length === 0) {
@@ -5817,8 +5888,9 @@ app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
              FROM inventory_counts
              WHERE catalog_object_id = $1
                AND location_id = $2
-               AND state = 'IN_STOCK'`,
-            [id, targetLocationId]
+               AND state = 'IN_STOCK'
+               AND merchant_id = $3`,
+            [id, targetLocationId, merchantId]
         );
 
         const dbQuantity = dbInventoryResult.rows.length > 0
@@ -5877,19 +5949,19 @@ app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
 
         // Update our local database with the new quantity
         await db.query(
-            `INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, updated_at)
-             VALUES ($1, $2, 'IN_STOCK', $3, CURRENT_TIMESTAMP)
-             ON CONFLICT (catalog_object_id, location_id, state)
+            `INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, updated_at, merchant_id)
+             VALUES ($1, $2, 'IN_STOCK', $3, CURRENT_TIMESTAMP, $4)
+             ON CONFLICT (catalog_object_id, location_id, state, merchant_id)
              DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP`,
-            [id, targetLocationId, actualQty]
+            [id, targetLocationId, actualQty, merchantId]
         );
 
         // Update the count_history to mark it as synced
         await db.query(
             `UPDATE count_history
              SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']'
-             WHERE catalog_object_id = $1`,
-            [id]
+             WHERE catalog_object_id = $1 AND merchant_id = $2`,
+            [id, merchantId]
         );
 
         logger.info('Square inventory sync complete', {
@@ -5923,9 +5995,10 @@ app.post('/api/cycle-counts/:id/sync-to-square', async (req, res) => {
  * POST /api/cycle-counts/send-now
  * Add item(s) to priority queue
  */
-app.post('/api/cycle-counts/send-now', async (req, res) => {
+app.post('/api/cycle-counts/send-now', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { skus, added_by, notes } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!skus || !Array.isArray(skus) || skus.length === 0) {
             return res.status(400).json({ error: 'SKUs array is required' });
@@ -5935,8 +6008,9 @@ app.post('/api/cycle-counts/send-now', async (req, res) => {
         const variations = await db.query(
             `SELECT id, sku FROM variations
              WHERE sku = ANY($1::text[])
-             AND COALESCE(is_deleted, FALSE) = FALSE`,
-            [skus]
+             AND COALESCE(is_deleted, FALSE) = FALSE
+             AND merchant_id = $2`,
+            [skus, merchantId]
         );
 
         if (variations.rows.length === 0) {
@@ -5946,13 +6020,13 @@ app.post('/api/cycle-counts/send-now', async (req, res) => {
         // Insert into priority queue (only if not already in queue)
         const insertPromises = variations.rows.map(row =>
             db.query(
-                `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes)
-                 SELECT $1, $2, $3
+                `INSERT INTO count_queue_priority (catalog_object_id, added_by, notes, merchant_id)
+                 SELECT $1, $2, $3, $4
                  WHERE NOT EXISTS (
                      SELECT 1 FROM count_queue_priority
-                     WHERE catalog_object_id = $1 AND completed = FALSE
+                     WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $4
                  )`,
-                [row.id, added_by || 'System', notes || null]
+                [row.id, added_by || 'System', notes || null, merchantId]
             )
         );
 
@@ -5974,10 +6048,11 @@ app.post('/api/cycle-counts/send-now', async (req, res) => {
  * GET /api/cycle-counts/stats
  * Get cycle count statistics and history
  */
-app.get('/api/cycle-counts/stats', async (req, res) => {
+app.get('/api/cycle-counts/stats', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { days } = req.query;
         const lookbackDays = parseInt(days || '30');
+        const merchantId = req.merchantContext.id;
 
         // Get session stats for the last N days
         const sessionsQuery = `
@@ -5990,10 +6065,11 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
                 completed_at
             FROM count_sessions
             WHERE session_date >= CURRENT_DATE - INTERVAL '${lookbackDays} days'
+              AND merchant_id = $1
             ORDER BY session_date DESC
         `;
 
-        const sessions = await db.query(sessionsQuery);
+        const sessions = await db.query(sessionsQuery, [merchantId]);
 
         // Get overall stats
         const overallQuery = `
@@ -6005,9 +6081,10 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
                     WHERE last_counted_date >= CURRENT_DATE - INTERVAL '30 days'
                 ) as counted_last_30_days
             FROM count_history
+            WHERE merchant_id = $1
         `;
 
-        const overall = await db.query(overallQuery);
+        const overall = await db.query(overallQuery, [merchantId]);
 
         // Get total variations that need counting
         const totalQuery = `
@@ -6015,9 +6092,10 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
             FROM variations
             WHERE COALESCE(is_deleted, FALSE) = FALSE
               AND track_inventory = TRUE
+              AND merchant_id = $1
         `;
 
-        const total = await db.query(totalQuery);
+        const total = await db.query(totalQuery, [merchantId]);
 
         // Calculate coverage percentage
         const totalVariations = parseInt(total.rows[0].total_variations);
@@ -6046,12 +6124,13 @@ app.get('/api/cycle-counts/stats', async (req, res) => {
  * Get historical cycle count data with variance details
  * Query params: date (YYYY-MM-DD) or start_date + end_date
  */
-app.get('/api/cycle-counts/history', async (req, res) => {
+app.get('/api/cycle-counts/history', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { date, start_date, end_date } = req.query;
+        const merchantId = req.merchantContext.id;
 
         let dateFilter = '';
-        const params = [];
+        const params = [merchantId];
 
         if (date) {
             // Single date query
@@ -6094,9 +6173,9 @@ app.get('/api/cycle-counts/history', async (req, res) => {
                     ELSE 0
                 END as variance_value
             FROM count_history ch
-            JOIN variations v ON ch.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            WHERE 1=1
+            JOIN variations v ON ch.catalog_object_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE ch.merchant_id = $1
                 ${dateFilter}
             ORDER BY ch.last_counted_date DESC, ABS(COALESCE(ch.variance, 0)) DESC
         `;
@@ -6139,9 +6218,10 @@ app.get('/api/cycle-counts/history', async (req, res) => {
  * POST /api/cycle-counts/email-report
  * Send completion report email (uses shared sendCycleCountReport function)
  */
-app.post('/api/cycle-counts/email-report', async (req, res) => {
+app.post('/api/cycle-counts/email-report', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const result = await sendCycleCountReport();
+        const merchantId = req.merchantContext.id;
+        const result = await sendCycleCountReport(merchantId);
 
         if (!result.sent) {
             return res.status(400).json({
@@ -6165,10 +6245,11 @@ app.post('/api/cycle-counts/email-report', async (req, res) => {
  * POST /api/cycle-counts/generate-batch
  * Manually trigger daily batch generation
  */
-app.post('/api/cycle-counts/generate-batch', async (req, res) => {
+app.post('/api/cycle-counts/generate-batch', requireAuth, requireMerchant, async (req, res) => {
     try {
-        logger.info('Manual batch generation requested');
-        const result = await generateDailyBatch();
+        const merchantId = req.merchantContext.id;
+        logger.info('Manual batch generation requested', { merchantId });
+        const result = await generateDailyBatch(merchantId);
 
         res.json({
             success: true,
@@ -6186,40 +6267,43 @@ app.post('/api/cycle-counts/generate-batch', async (req, res) => {
  * POST /api/cycle-counts/reset
  * Admin function to rebuild count history from current catalog
  */
-app.post('/api/cycle-counts/reset', async (req, res) => {
+app.post('/api/cycle-counts/reset', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { preserve_history } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (preserve_history !== false) {
             // Add all variations that don't have count history yet
             await db.query(`
-                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
-                SELECT v.id, '1970-01-01'::timestamp, 'System Reset'
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, merchant_id)
+                SELECT v.id, '1970-01-01'::timestamp, 'System Reset', $1
                 FROM variations v
                 WHERE COALESCE(v.is_deleted, FALSE) = FALSE
                   AND v.track_inventory = TRUE
+                  AND v.merchant_id = $1
                   AND NOT EXISTS (
                     SELECT 1 FROM count_history ch
-                    WHERE ch.catalog_object_id = v.id
+                    WHERE ch.catalog_object_id = v.id AND ch.merchant_id = $1
                   )
-            `);
+            `, [merchantId]);
         } else {
-            // Complete reset - clear all history
-            await db.query('DELETE FROM count_history');
-            await db.query('DELETE FROM count_queue_priority');
-            await db.query('DELETE FROM count_sessions');
+            // Complete reset - clear all history for this merchant
+            await db.query('DELETE FROM count_history WHERE merchant_id = $1', [merchantId]);
+            await db.query('DELETE FROM count_queue_priority WHERE merchant_id = $1', [merchantId]);
+            await db.query('DELETE FROM count_sessions WHERE merchant_id = $1', [merchantId]);
 
             // Re-initialize with all current variations
             await db.query(`
-                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by)
-                SELECT id, '1970-01-01'::timestamp, 'System Reset'
+                INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, merchant_id)
+                SELECT id, '1970-01-01'::timestamp, 'System Reset', $1
                 FROM variations
                 WHERE COALESCE(is_deleted, FALSE) = FALSE
                   AND track_inventory = TRUE
-            `);
+                  AND merchant_id = $1
+            `, [merchantId]);
         }
 
-        const countResult = await db.query('SELECT COUNT(*) as count FROM count_history');
+        const countResult = await db.query('SELECT COUNT(*) as count FROM count_history WHERE merchant_id = $1', [merchantId]);
 
         res.json({
             success: true,
@@ -6239,8 +6323,9 @@ app.post('/api/cycle-counts/reset', async (req, res) => {
  * POST /api/purchase-orders
  * Create a new purchase order
  */
-app.post('/api/purchase-orders', async (req, res) => {
+app.post('/api/purchase-orders', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { vendor_id, location_id, supply_days_override, items, notes, created_by } = req.body;
 
         if (!vendor_id || !location_id || !items || items.length === 0) {
@@ -6261,8 +6346,8 @@ app.post('/api/purchase-orders', async (req, res) => {
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
         const countResult = await db.query(
-            "SELECT COUNT(*) as count FROM purchase_orders WHERE po_number LIKE $1",
-            [`PO-${dateStr}-%`]
+            "SELECT COUNT(*) as count FROM purchase_orders WHERE po_number LIKE $1 AND merchant_id = $2",
+            [`PO-${dateStr}-%`, merchantId]
         );
         const sequence = parseInt(countResult.rows[0].count) + 1;
         const poNumber = `PO-${dateStr}-${sequence.toString().padStart(3, '0')}`;
@@ -6277,11 +6362,11 @@ app.post('/api/purchase-orders', async (req, res) => {
         const poResult = await db.query(`
             INSERT INTO purchase_orders (
                 po_number, vendor_id, location_id, status, supply_days_override,
-                subtotal_cents, total_cents, notes, created_by
+                subtotal_cents, total_cents, notes, created_by, merchant_id
             )
-            VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7)
+            VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7, $8)
             RETURNING *
-        `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by]);
+        `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by, merchantId]);
 
         const po = poResult.rows[0];
 
@@ -6291,9 +6376,9 @@ app.post('/api/purchase-orders', async (req, res) => {
             await db.query(`
                 INSERT INTO purchase_order_items (
                     purchase_order_id, variation_id, quantity_override,
-                    quantity_ordered, unit_cost_cents, total_cost_cents, notes
+                    quantity_ordered, unit_cost_cents, total_cost_cents, notes, merchant_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             `, [
                 po.id,
                 item.variation_id,
@@ -6301,7 +6386,8 @@ app.post('/api/purchase-orders', async (req, res) => {
                 item.quantity_ordered,
                 item.unit_cost_cents,
                 totalCost,
-                item.notes || null
+                item.notes || null,
+                merchantId
             ]);
         }
 
@@ -6319,21 +6405,22 @@ app.post('/api/purchase-orders', async (req, res) => {
  * GET /api/purchase-orders
  * List purchase orders with filtering
  */
-app.get('/api/purchase-orders', async (req, res) => {
+app.get('/api/purchase-orders', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { status, vendor_id } = req.query;
         let query = `
             SELECT
                 po.*,
                 v.name as vendor_name,
                 l.name as location_name,
-                (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id) as item_count
+                (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id AND merchant_id = $1) as item_count
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE 1=1
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $1
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $1
+            WHERE po.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (status) {
             params.push(status);
@@ -6362,8 +6449,9 @@ app.get('/api/purchase-orders', async (req, res) => {
  * GET /api/purchase-orders/:id
  * Get single purchase order with all items
  */
-app.get('/api/purchase-orders/:id', async (req, res) => {
+app.get('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { id } = req.params;
 
         // Get PO header
@@ -6374,10 +6462,10 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
                 v.lead_time_days,
                 l.name as location_name
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE po.id = $1
-        `, [id]);
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $2
+            WHERE po.id = $1 AND po.merchant_id = $2
+        `, [id, merchantId]);
 
         if (poResult.rows.length === 0) {
             return res.status(404).json({ error: 'Purchase order not found' });
@@ -6393,11 +6481,11 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
                 i.name as item_name,
                 v.name as variation_name
             FROM purchase_order_items poi
-            JOIN variations v ON poi.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            WHERE poi.purchase_order_id = $1
+            JOIN variations v ON poi.variation_id = v.id AND v.merchant_id = $2
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            WHERE poi.purchase_order_id = $1 AND poi.merchant_id = $2
             ORDER BY i.name, v.name
-        `, [id]);
+        `, [id, merchantId]);
 
         po.items = itemsResult.rows;
 
@@ -6412,15 +6500,16 @@ app.get('/api/purchase-orders/:id', async (req, res) => {
  * PATCH /api/purchase-orders/:id
  * Update a draft purchase order
  */
-app.patch('/api/purchase-orders/:id', async (req, res) => {
+app.patch('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { id } = req.params;
         const { supply_days_override, items, notes } = req.body;
 
-        // Check if PO is in DRAFT status
+        // Check if PO is in DRAFT status and belongs to this merchant
         const statusCheck = await db.query(
-            'SELECT status FROM purchase_orders WHERE id = $1',
-            [id]
+            'SELECT status FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
+            [id, merchantId]
         );
 
         if (statusCheck.rows.length === 0) {
@@ -6454,17 +6543,18 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
             if (updates.length > 0) {
                 updates.push('updated_at = CURRENT_TIMESTAMP');
                 values.push(id);
+                values.push(merchantId);
                 await client.query(`
                     UPDATE purchase_orders
                     SET ${updates.join(', ')}
-                    WHERE id = $${paramCount}
+                    WHERE id = $${paramCount} AND merchant_id = $${paramCount + 1}
                 `, values);
             }
 
             // Update items if provided
             if (items) {
                 // Delete existing items
-                await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [id]);
+                await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1 AND merchant_id = $2', [id, merchantId]);
 
                 // Insert new items and calculate totals
                 let subtotalCents = 0;
@@ -6475,23 +6565,23 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
                     await client.query(`
                         INSERT INTO purchase_order_items (
                             purchase_order_id, variation_id, quantity_ordered,
-                            unit_cost_cents, total_cost_cents, notes
+                            unit_cost_cents, total_cost_cents, notes, merchant_id
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                    `, [id, item.variation_id, item.quantity_ordered, item.unit_cost_cents, totalCost, item.notes]);
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    `, [id, item.variation_id, item.quantity_ordered, item.unit_cost_cents, totalCost, item.notes, merchantId]);
                 }
 
                 // Update totals
                 await client.query(`
                     UPDATE purchase_orders
                     SET subtotal_cents = $1, total_cents = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $2
-                `, [subtotalCents, id]);
+                    WHERE id = $2 AND merchant_id = $3
+                `, [subtotalCents, id, merchantId]);
             }
         });
 
         // Return updated PO
-        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1', [id]);
+        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
         res.json({
             status: 'success',
             purchase_order: result.rows[0]
@@ -6506,9 +6596,10 @@ app.patch('/api/purchase-orders/:id', async (req, res) => {
  * POST /api/purchase-orders/:id/submit
  * Submit a purchase order (change from DRAFT to SUBMITTED)
  */
-app.post('/api/purchase-orders/:id/submit', async (req, res) => {
+app.post('/api/purchase-orders/:id/submit', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
+        const merchantId = req.merchantContext.id;
 
         const result = await db.query(`
             UPDATE purchase_orders po
@@ -6516,12 +6607,12 @@ app.post('/api/purchase-orders/:id/submit', async (req, res) => {
                 status = 'SUBMITTED',
                 order_date = COALESCE(order_date, CURRENT_DATE),
                 expected_delivery_date = CURRENT_DATE + (
-                    SELECT COALESCE(lead_time_days, 7) FROM vendors WHERE id = po.vendor_id
+                    SELECT COALESCE(lead_time_days, 7) FROM vendors WHERE id = po.vendor_id AND merchant_id = $2
                 ),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1 AND status = 'DRAFT'
+            WHERE id = $1 AND status = 'DRAFT' AND merchant_id = $2
             RETURNING *
-        `, [id]);
+        `, [id, merchantId]);
 
         if (result.rows.length === 0) {
             return res.status(400).json({
@@ -6543,13 +6634,23 @@ app.post('/api/purchase-orders/:id/submit', async (req, res) => {
  * POST /api/purchase-orders/:id/receive
  * Record received quantities for PO items
  */
-app.post('/api/purchase-orders/:id/receive', async (req, res) => {
+app.post('/api/purchase-orders/:id/receive', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
         const { items } = req.body;
+        const merchantId = req.merchantContext.id;
 
         if (!items || items.length === 0) {
             return res.status(400).json({ error: 'items array is required' });
+        }
+
+        // Verify PO belongs to this merchant
+        const poCheck = await db.query(
+            'SELECT id FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
+            [id, merchantId]
+        );
+        if (poCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Purchase order not found' });
         }
 
         await db.transaction(async (client) => {
@@ -6558,8 +6659,8 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
                 await client.query(`
                     UPDATE purchase_order_items
                     SET received_quantity = $1
-                    WHERE id = $2 AND purchase_order_id = $3
-                `, [item.received_quantity, item.id, id]);
+                    WHERE id = $2 AND purchase_order_id = $3 AND merchant_id = $4
+                `, [item.received_quantity, item.id, id, merchantId]);
 
                 // TODO: Update inventory_counts when items are received
                 // This would require Square API write access
@@ -6571,8 +6672,8 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
                     COUNT(*) as total,
                     COUNT(CASE WHEN received_quantity >= quantity_ordered THEN 1 END) as received
                 FROM purchase_order_items
-                WHERE purchase_order_id = $1
-            `, [id]);
+                WHERE purchase_order_id = $1 AND merchant_id = $2
+            `, [id, merchantId]);
 
             const { total, received } = checkResult.rows[0];
 
@@ -6581,19 +6682,19 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
                 await client.query(`
                     UPDATE purchase_orders
                     SET status = 'RECEIVED', actual_delivery_date = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $1
-                `, [id]);
+                    WHERE id = $1 AND merchant_id = $2
+                `, [id, merchantId]);
             } else {
                 await client.query(`
                     UPDATE purchase_orders
                     SET status = 'PARTIAL', updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $1
-                `, [id]);
+                    WHERE id = $1 AND merchant_id = $2
+                `, [id, merchantId]);
             }
         });
 
         // Return updated PO
-        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1', [id]);
+        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
         res.json({
             status: 'success',
             purchase_order: result.rows[0]
@@ -6608,14 +6709,15 @@ app.post('/api/purchase-orders/:id/receive', async (req, res) => {
  * DELETE /api/purchase-orders/:id
  * Delete a purchase order (only DRAFT orders can be deleted)
  */
-app.delete('/api/purchase-orders/:id', async (req, res) => {
+app.delete('/api/purchase-orders/:id', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { id } = req.params;
+        const merchantId = req.merchantContext.id;
 
         // Check if PO exists and is in DRAFT status
         const poCheck = await db.query(
-            'SELECT id, po_number, status FROM purchase_orders WHERE id = $1',
-            [id]
+            'SELECT id, po_number, status FROM purchase_orders WHERE id = $1 AND merchant_id = $2',
+            [id, merchantId]
         );
 
         if (poCheck.rows.length === 0) {
@@ -6632,7 +6734,7 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
         }
 
         // Delete PO (items will be cascade deleted)
-        await db.query('DELETE FROM purchase_orders WHERE id = $1', [id]);
+        await db.query('DELETE FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
 
         res.json({
             status: 'success',
@@ -6678,9 +6780,10 @@ app.delete('/api/purchase-orders/:id', async (req, res) => {
  * - Line endings: \r\n (CRLF)
  * - UTF-8 encoding with BOM
  */
-app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
+app.get('/api/purchase-orders/:po_number/export-csv', requireAuth, requireMerchant, async (req, res) => {
     try {
         const { po_number } = req.params;
+        const merchantId = req.merchantContext.id;
 
         // Get PO header with vendor and location info
         const poResult = await db.query(`
@@ -6691,10 +6794,10 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
                 l.name as location_name,
                 l.address as location_address
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE po.po_number = $1
-        `, [po_number]);
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $2
+            WHERE po.po_number = $1 AND po.merchant_id = $2
+        `, [po_number, merchantId]);
 
         if (poResult.rows.length === 0) {
             return res.status(404).json({ error: 'Purchase order not found' });
@@ -6712,12 +6815,12 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
                 v.name as variation_name,
                 vv.vendor_code
             FROM purchase_order_items poi
-            JOIN variations v ON poi.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2
-            WHERE poi.purchase_order_id = $1
+            JOIN variations v ON poi.variation_id = v.id AND v.merchant_id = $3
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $3
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2 AND vv.merchant_id = $3
+            WHERE poi.purchase_order_id = $1 AND poi.merchant_id = $3
             ORDER BY i.name, v.name
-        `, [po.id, po.vendor_id]);
+        `, [po.id, po.vendor_id, merchantId]);
 
         // Build CSV content
         const lines = [];
@@ -6837,10 +6940,11 @@ app.get('/api/purchase-orders/:po_number/export-csv', async (req, res) => {
  * - Data starts row 10
  * - Columns A-H only
  */
-app.get('/api/purchase-orders/:po_number/export-xlsx', async (req, res) => {
+app.get('/api/purchase-orders/:po_number/export-xlsx', requireAuth, requireMerchant, async (req, res) => {
     try {
         const ExcelJS = require('exceljs');
         const { po_number } = req.params;
+        const merchantId = req.merchantContext.id;
 
         // Get PO header with vendor and location info
         const poResult = await db.query(`
@@ -6850,10 +6954,10 @@ app.get('/api/purchase-orders/:po_number/export-xlsx', async (req, res) => {
                 v.lead_time_days,
                 l.name as location_name
             FROM purchase_orders po
-            JOIN vendors v ON po.vendor_id = v.id
-            JOIN locations l ON po.location_id = l.id
-            WHERE po.po_number = $1
-        `, [po_number]);
+            JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $2
+            JOIN locations l ON po.location_id = l.id AND l.merchant_id = $2
+            WHERE po.po_number = $1 AND po.merchant_id = $2
+        `, [po_number, merchantId]);
 
         if (poResult.rows.length === 0) {
             return res.status(404).json({ error: 'Purchase order not found' });
@@ -6871,12 +6975,12 @@ app.get('/api/purchase-orders/:po_number/export-xlsx', async (req, res) => {
                 v.name as variation_name,
                 vv.vendor_code
             FROM purchase_order_items poi
-            JOIN variations v ON poi.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2
-            WHERE poi.purchase_order_id = $1
+            JOIN variations v ON poi.variation_id = v.id AND v.merchant_id = $3
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $3
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $2 AND vv.merchant_id = $3
+            WHERE poi.purchase_order_id = $1 AND poi.merchant_id = $3
             ORDER BY i.name, v.name
-        `, [po.id, po.vendor_id]);
+        `, [po.id, po.vendor_id, merchantId]);
 
         // Calculate expected delivery date
         let expectedDeliveryDate = po.expected_delivery_date;
