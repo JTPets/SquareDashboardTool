@@ -27,6 +27,11 @@ const { configureHelmet, configureRateLimit, configureCors, corsErrorHandler } =
 const { requireAuth, requireAuthApi, requireAdmin, requireWriteAccess } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
+// Multi-tenant middleware and routes
+const { loadMerchantContext, requireMerchant, requireValidSubscription, getSquareClientForMerchant } = require('./middleware/merchant');
+const squareOAuthRoutes = require('./routes/square-oauth');
+const MerchantDB = require('./utils/merchant-db');
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 
@@ -173,6 +178,15 @@ app.use((req, res, next) => {
 // These routes are public (login, logout, etc.)
 app.use('/api/auth', authRoutes);
 
+// ==================== SQUARE OAUTH ROUTES ====================
+// OAuth connect/callback routes (partial auth - callback needs special handling)
+app.use('/api/square/oauth', squareOAuthRoutes);
+
+// ==================== MERCHANT CONTEXT MIDDLEWARE ====================
+// Load merchant context for all authenticated requests
+// Must be AFTER auth middleware so req.session.user is available
+app.use(loadMerchantContext);
+
 // ==================== API AUTHENTICATION MIDDLEWARE ====================
 // Protect all API routes (authEnabled already set above)
 if (authEnabled) {
@@ -222,6 +236,88 @@ app.get('/api/health', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
+});
+
+// ==================== MERCHANT MANAGEMENT API ====================
+
+/**
+ * GET /api/merchants
+ * List all merchants the current user has access to
+ */
+app.get('/api/merchants', requireAuth, async (req, res) => {
+    try {
+        const { getUserMerchants } = require('./middleware/merchant');
+        const merchants = await getUserMerchants(req.session.user.id);
+
+        res.json({
+            success: true,
+            merchants,
+            activeMerchantId: req.session.activeMerchantId || null,
+            activeMerchant: req.merchantContext || null
+        });
+    } catch (error) {
+        logger.error('Error listing merchants:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to list merchants'
+        });
+    }
+});
+
+/**
+ * POST /api/merchants/switch
+ * Switch the active merchant for the current session
+ */
+app.post('/api/merchants/switch', requireAuth, async (req, res) => {
+    const { merchantId } = req.body;
+
+    if (!merchantId) {
+        return res.status(400).json({
+            success: false,
+            error: 'merchantId is required'
+        });
+    }
+
+    try {
+        const { switchActiveMerchant } = require('./middleware/merchant');
+        const switched = await switchActiveMerchant(
+            req.session,
+            req.session.user.id,
+            parseInt(merchantId)
+        );
+
+        if (!switched) {
+            return res.status(403).json({
+                success: false,
+                error: 'You do not have access to this merchant'
+            });
+        }
+
+        res.json({
+            success: true,
+            activeMerchantId: req.session.activeMerchantId,
+            message: 'Merchant switched successfully'
+        });
+    } catch (error) {
+        logger.error('Error switching merchant:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to switch merchant'
+        });
+    }
+});
+
+/**
+ * GET /api/merchants/context
+ * Get current merchant context for the session
+ */
+app.get('/api/merchants/context', requireAuth, async (req, res) => {
+    res.json({
+        success: true,
+        hasMerchant: !!req.merchantContext,
+        merchant: req.merchantContext || null,
+        connectUrl: '/api/square/oauth/connect'
+    });
 });
 
 /**
