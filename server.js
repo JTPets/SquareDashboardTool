@@ -3249,8 +3249,7 @@ app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, re
 
         // Check all merchants
         const allMerchants = await db.query(`
-            SELECT id, business_name, square_merchant_id, is_active,
-                   created_at, is_legacy
+            SELECT id, business_name, square_merchant_id, is_active, created_at
             FROM merchants
             ORDER BY id
         `);
@@ -8763,16 +8762,16 @@ async function startServer() {
 
         // Backfill NULL merchant_id values for legacy data
         try {
-            // Find legacy merchant (created by migration or first merchant)
+            // Find legacy merchant (created by migration) or first active merchant
             const legacyMerchant = await db.query(
-                "SELECT id FROM merchants WHERE square_merchant_id = 'legacy_single_tenant' OR is_legacy = TRUE ORDER BY id LIMIT 1"
+                "SELECT id FROM merchants WHERE square_merchant_id = 'legacy_single_tenant' ORDER BY id LIMIT 1"
             );
 
             // If no legacy merchant found, try to find first active merchant
             let legacyId = legacyMerchant.rows.length > 0 ? legacyMerchant.rows[0].id : null;
             if (!legacyId) {
                 const firstMerchant = await db.query(
-                    "SELECT id FROM merchants WHERE is_active = TRUE ORDER BY created_at LIMIT 1"
+                    "SELECT id FROM merchants WHERE is_active = TRUE ORDER BY id LIMIT 1"
                 );
                 legacyId = firstMerchant.rows.length > 0 ? firstMerchant.rows[0].id : null;
             }
