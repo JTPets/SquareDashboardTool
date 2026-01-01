@@ -266,11 +266,8 @@ router.get('/callback', async (req, res) => {
             errorDetail = squareError.detail || squareError.code || errorDetail;
         }
 
-        // In development, show more details
-        const isDev = process.env.NODE_ENV !== 'production';
-        const fullError = isDev ? ` (${errorDetail})` : ' Please try again.';
-
-        res.redirect('/dashboard.html?error=' + encodeURIComponent(errorMessage + fullError));
+        // Always show error details for OAuth errors (not sensitive)
+        res.redirect('/dashboard.html?error=' + encodeURIComponent(errorMessage + ' (' + errorDetail + ')'));
     }
 });
 
