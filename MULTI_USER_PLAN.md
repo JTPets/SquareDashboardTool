@@ -4,7 +4,7 @@
 **Document Version:** 2.1
 **Created:** December 28, 2025
 **Last Updated:** January 1, 2026
-**Status:** Phase 1-3 COMPLETE - API Layer Updates In Progress
+**Status:** Phase 1-3 COMPLETE - API Layer Updates ~50% Complete
 
 ---
 
@@ -27,7 +27,7 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | MerchantDB Wrapper | ✅ COMPLETE | utils/merchant-db.js |
 | Startup Schema Validation | ✅ COMPLETE | utils/database.js auto-creates tables |
 | Merchant Management API | ✅ COMPLETE | /api/merchants endpoints in server.js |
-| API Layer Updates | ⏳ IN PROGRESS | 111 data endpoints need merchant filtering |
+| API Layer Updates | ⏳ IN PROGRESS | ~50+ endpoints updated, ~60 remaining |
 | Merchant Management UI | ⏳ NOT STARTED | Frontend work - Phase 4 |
 
 ### Files Created/Modified (Phase 1-3)
