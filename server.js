@@ -2716,8 +2716,9 @@ app.get('/api/inventory', requireMerchant, async (req, res) => {
  * GET /api/low-stock
  * Get items below minimum stock alert threshold
  */
-app.get('/api/low-stock', async (req, res) => {
+app.get('/api/low-stock', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const query = `
             SELECT
                 v.id,
@@ -2734,17 +2735,18 @@ app.get('/api/low-stock', async (req, res) => {
                 v.images,
                 i.images as item_images
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            JOIN inventory_counts ic ON v.id = ic.catalog_object_id
-            JOIN locations l ON ic.location_id = l.id
-            WHERE v.stock_alert_min IS NOT NULL
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $1
+            JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
+            WHERE v.merchant_id = $1
+              AND v.stock_alert_min IS NOT NULL
               AND ic.quantity < v.stock_alert_min
               AND ic.state = 'IN_STOCK'
               AND v.discontinued = FALSE
             ORDER BY (v.stock_alert_min - ic.quantity) DESC, i.name
         `;
 
-        const result = await db.query(query);
+        const result = await db.query(query, [merchantId]);
 
         // Resolve image URLs (with item fallback)
         const items = await Promise.all(result.rows.map(async (row) => {
@@ -4694,8 +4696,9 @@ app.get('/api/locations', requireMerchant, async (req, res) => {
  * GET /api/sales-velocity
  * Get sales velocity data
  */
-app.get('/api/sales-velocity', async (req, res) => {
+app.get('/api/sales-velocity', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { variation_id, location_id, period_days } = req.query;
 
         // Input validation for period_days
@@ -4719,13 +4722,14 @@ app.get('/api/sales-velocity', async (req, res) => {
                 i.category_name,
                 l.name as location_name
             FROM sales_velocity sv
-            JOIN variations v ON sv.variation_id = v.id
-            JOIN items i ON v.item_id = i.id
-            JOIN locations l ON sv.location_id = l.id
-            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+            JOIN variations v ON sv.variation_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            JOIN locations l ON sv.location_id = l.id AND l.merchant_id = $1
+            WHERE sv.merchant_id = $1
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (variation_id) {
             params.push(variation_id);
@@ -4761,8 +4765,9 @@ app.get('/api/sales-velocity', async (req, res) => {
  * GET /api/reorder-suggestions
  * Calculate reorder suggestions based on sales velocity
  */
-app.get('/api/reorder-suggestions', async (req, res) => {
+app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const {
             vendor_id,
             supply_days = 45,
@@ -4826,22 +4831,22 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 -- Get primary vendor (lowest cost, then earliest created)
                 (SELECT vv2.vendor_id
                  FROM variation_vendors vv2
-                 WHERE vv2.variation_id = v.id
+                 WHERE vv2.variation_id = v.id AND vv2.merchant_id = $2
                  ORDER BY vv2.unit_cost_money ASC, vv2.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_id,
                 -- Get primary vendor name for comparison
                 (SELECT ve2.name
                  FROM variation_vendors vv3
-                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id
-                 WHERE vv3.variation_id = v.id
+                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id AND ve2.merchant_id = $2
+                 WHERE vv3.variation_id = v.id AND vv3.merchant_id = $2
                  ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_name,
                 -- Get primary vendor cost for comparison
                 (SELECT vv4.unit_cost_money
                  FROM variation_vendors vv4
-                 WHERE vv4.variation_id = v.id
+                 WHERE vv4.variation_id = v.id AND vv4.merchant_id = $2
                  ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
                  LIMIT 1
                 ) as primary_vendor_cost,
@@ -4849,8 +4854,8 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                 COALESCE((
                     SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
                     FROM purchase_order_items poi
-                    JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                    WHERE poi.variation_id = v.id
+                    JOIN purchase_orders po ON poi.purchase_order_id = po.id AND po.merchant_id = $2
+                    WHERE poi.variation_id = v.id AND poi.merchant_id = $2
                       AND po.status NOT IN ('RECEIVED', 'CANCELLED')
                       AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
                 ), 0) as pending_po_quantity,
@@ -4879,22 +4884,23 @@ app.get('/api/reorder-suggestions', async (req, res) => {
                     ELSE FALSE
                 END as below_minimum
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            JOIN variation_vendors vv ON v.id = vv.variation_id
-            JOIN vendors ve ON vv.vendor_id = ve.id
-            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
-            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
-            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
-            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
+            JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
+            LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $2
                 AND ic.state = 'IN_STOCK'
-            LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id
+            LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id AND ic_committed.merchant_id = $2
                 AND ic_committed.state = 'RESERVED_FOR_SALE'
                 AND ic_committed.location_id = ic.location_id
-            LEFT JOIN locations l ON ic.location_id = l.id
-            LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
+            LEFT JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $2
+            LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id AND vls.merchant_id = $2
                 AND ic.location_id = vls.location_id
-            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id
-            WHERE v.discontinued = FALSE
+            LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id AND vexp.merchant_id = $2
+            WHERE v.merchant_id = $2
+              AND v.discontinued = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND (
@@ -4916,7 +4922,7 @@ app.get('/api/reorder-suggestions', async (req, res) => {
               )
         `;
 
-        const params = [supplyDaysNum];
+        const params = [supplyDaysNum, merchantId];
 
         if (vendor_id) {
             params.push(vendor_id);
