@@ -1235,8 +1235,9 @@ app.post('/api/sync-smart', async (req, res) => {
  * GET /api/sync-history
  * Get recent sync history
  */
-app.get('/api/sync-history', async (req, res) => {
+app.get('/api/sync-history', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const limit = parseInt(req.query.limit) || 20;
 
         const result = await db.query(`
@@ -1250,9 +1251,10 @@ app.get('/api/sync-history', async (req, res) => {
                 error_message,
                 duration_seconds
             FROM sync_history
+            WHERE merchant_id = $1
             ORDER BY started_at DESC
-            LIMIT $1
-        `, [limit]);
+            LIMIT $2
+        `, [merchantId, limit]);
 
         res.json({
             count: result.rows.length,
@@ -1323,17 +1325,19 @@ app.get('/api/sync-status', async (req, res) => {
  * GET /api/categories
  * Get list of all distinct categories from items
  */
-app.get('/api/categories', async (req, res) => {
+app.get('/api/categories', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const result = await db.query(`
             SELECT DISTINCT i.category_name
             FROM items i
             WHERE i.category_name IS NOT NULL
               AND i.category_name != ''
               AND COALESCE(i.is_deleted, FALSE) = FALSE
+              AND i.merchant_id = $1
             ORDER BY i.category_name
-        `);
-        logger.info('API /api/categories returning', { count: result.rows.length });
+        `, [merchantId]);
+        logger.info('API /api/categories returning', { count: result.rows.length, merchantId });
         res.json(result.rows.map(row => row.category_name));
     } catch (error) {
         logger.error('Get categories error', { error: error.message, stack: error.stack });
@@ -1345,16 +1349,17 @@ app.get('/api/categories', async (req, res) => {
  * GET /api/items
  * List all items with optional filtering
  */
-app.get('/api/items', async (req, res) => {
+app.get('/api/items', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { name, category } = req.query;
         let query = `
             SELECT i.*, c.name as category_name
             FROM items i
-            LEFT JOIN categories c ON i.category_id = c.id
-            WHERE 1=1
+            LEFT JOIN categories c ON i.category_id = c.id AND c.merchant_id = $1
+            WHERE i.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (name) {
             params.push(`%${name}%`);
@@ -1369,7 +1374,7 @@ app.get('/api/items', async (req, res) => {
         query += ' ORDER BY i.name';
 
         const result = await db.query(query, params);
-        logger.info('API /api/items returning', { count: result.rows.length });
+        logger.info('API /api/items returning', { count: result.rows.length, merchantId });
         res.json({
             count: result.rows.length,
             items: result.rows || []
@@ -1384,16 +1389,17 @@ app.get('/api/items', async (req, res) => {
  * GET /api/variations
  * List all variations with optional filtering
  */
-app.get('/api/variations', async (req, res) => {
+app.get('/api/variations', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { item_id, sku, has_cost } = req.query;
         let query = `
             SELECT v.*, i.name as item_name, i.category_name, i.images as item_images
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            WHERE 1=1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE v.merchant_id = $1
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (item_id) {
             params.push(item_id);
@@ -1406,7 +1412,7 @@ app.get('/api/variations', async (req, res) => {
         }
 
         if (has_cost === 'true') {
-            query += ' AND EXISTS (SELECT 1 FROM variation_vendors vv WHERE vv.variation_id = v.id)';
+            query += ` AND EXISTS (SELECT 1 FROM variation_vendors vv WHERE vv.variation_id = v.id AND vv.merchant_id = $1)`;
         }
 
         query += ' ORDER BY i.name, v.name';
@@ -2601,8 +2607,9 @@ app.patch('/api/expiry-discounts/settings', async (req, res) => {
  * GET /api/inventory
  * Get current inventory levels
  */
-app.get('/api/inventory', async (req, res) => {
+app.get('/api/inventory', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { location_id, low_stock } = req.query;
         let query = `
             SELECT
@@ -2640,35 +2647,36 @@ app.get('/api/inventory', async (req, res) => {
                 -- Get primary vendor info
                 (SELECT ve.name
                  FROM variation_vendors vv
-                 JOIN vendors ve ON vv.vendor_id = ve.id
-                 WHERE vv.variation_id = v.id
+                 JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $1
+                 WHERE vv.variation_id = v.id AND vv.merchant_id = $1
                  ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
                  LIMIT 1
                 ) as vendor_name,
                 (SELECT vv.vendor_code
                  FROM variation_vendors vv
-                 WHERE vv.variation_id = v.id
+                 WHERE vv.variation_id = v.id AND vv.merchant_id = $1
                  ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
                  LIMIT 1
                 ) as vendor_code,
                 (SELECT vv.unit_cost_money
                  FROM variation_vendors vv
-                 WHERE vv.variation_id = v.id
+                 WHERE vv.variation_id = v.id AND vv.merchant_id = $1
                  ORDER BY vv.unit_cost_money ASC, vv.created_at ASC
                  LIMIT 1
                 ) as unit_cost_cents
             FROM inventory_counts ic
-            JOIN variations v ON ic.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            JOIN locations l ON ic.location_id = l.id
-            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
-            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182
-            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365
+            JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $1
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $1
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $1
             WHERE ic.state = 'IN_STOCK'
+              AND ic.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND COALESCE(i.is_deleted, FALSE) = FALSE
         `;
-        const params = [];
+        const params = [merchantId];
 
         if (location_id) {
             params.push(location_id);
@@ -4184,11 +4192,12 @@ app.get('/api/gmc/history', async (req, res) => {
  * GET /api/vendors
  * List all vendors
  */
-app.get('/api/vendors', async (req, res) => {
+app.get('/api/vendors', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const { status } = req.query;
-        let query = 'SELECT * FROM vendors WHERE 1=1';
-        const params = [];
+        let query = 'SELECT * FROM vendors WHERE merchant_id = $1';
+        const params = [merchantId];
 
         if (status) {
             params.push(status);
@@ -4659,13 +4668,15 @@ app.post('/api/vendor-catalog/push-price-changes', async (req, res) => {
  * GET /api/locations
  * List all locations
  */
-app.get('/api/locations', async (req, res) => {
+app.get('/api/locations', requireMerchant, async (req, res) => {
     try {
+        const merchantId = req.merchantContext.id;
         const result = await db.query(`
             SELECT id, name, active, address, timezone
             FROM locations
+            WHERE merchant_id = $1
             ORDER BY name
-        `);
+        `, [merchantId]);
 
         res.json({
             count: result.rows.length,
