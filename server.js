@@ -201,7 +201,8 @@ if (authEnabled) {
             '/square/payment-config',
             '/subscriptions/plans',
             '/subscriptions/create',
-            '/subscriptions/status'
+            '/subscriptions/status',
+            '/subscriptions/promo/validate'
         ];
 
         // Allow public routes without auth
@@ -7487,12 +7488,86 @@ app.get('/api/subscriptions/plans', async (req, res) => {
 });
 
 /**
+ * POST /api/subscriptions/promo/validate
+ * Validate a promo code and return discount info
+ */
+app.post('/api/subscriptions/promo/validate', async (req, res) => {
+    try {
+        const { code, plan, priceCents } = req.body;
+
+        if (!code) {
+            return res.status(400).json({ valid: false, error: 'Promo code is required' });
+        }
+
+        // Look up the promo code
+        const result = await db.query(`
+            SELECT * FROM promo_codes
+            WHERE UPPER(code) = UPPER($1)
+              AND is_active = TRUE
+              AND (valid_from IS NULL OR valid_from <= NOW())
+              AND (valid_until IS NULL OR valid_until >= NOW())
+              AND (max_uses IS NULL OR times_used < max_uses)
+        `, [code.trim()]);
+
+        if (result.rows.length === 0) {
+            return res.json({ valid: false, error: 'Invalid or expired promo code' });
+        }
+
+        const promo = result.rows[0];
+
+        // Check plan restriction
+        if (promo.applies_to_plans && promo.applies_to_plans.length > 0 && plan) {
+            if (!promo.applies_to_plans.includes(plan)) {
+                return res.json({ valid: false, error: 'This code does not apply to the selected plan' });
+            }
+        }
+
+        // Check minimum purchase
+        if (promo.min_purchase_cents && priceCents && priceCents < promo.min_purchase_cents) {
+            return res.json({
+                valid: false,
+                error: `Minimum purchase of $${(promo.min_purchase_cents / 100).toFixed(2)} required`
+            });
+        }
+
+        // Calculate discount
+        let discountCents = 0;
+        if (promo.discount_type === 'percent') {
+            discountCents = Math.floor((priceCents || 0) * promo.discount_value / 100);
+        } else {
+            discountCents = promo.discount_value;
+        }
+
+        // Don't let discount exceed price
+        if (priceCents && discountCents > priceCents) {
+            discountCents = priceCents;
+        }
+
+        res.json({
+            valid: true,
+            code: promo.code,
+            description: promo.description,
+            discountType: promo.discount_type,
+            discountValue: promo.discount_value,
+            discountCents,
+            discountDisplay: promo.discount_type === 'percent'
+                ? `${promo.discount_value}% off`
+                : `$${(promo.discount_value / 100).toFixed(2)} off`
+        });
+
+    } catch (error) {
+        logger.error('Promo code validation error', { error: error.message });
+        res.status(500).json({ valid: false, error: 'Failed to validate promo code' });
+    }
+});
+
+/**
  * POST /api/subscriptions/create
  * Create a new subscription with payment
  */
 app.post('/api/subscriptions/create', async (req, res) => {
     try {
-        const { email, businessName, plan, sourceId } = req.body;
+        const { email, businessName, plan, sourceId, promoCode } = req.body;
 
         if (!email || !plan || !sourceId) {
             return res.status(400).json({ error: 'Email, plan, and payment source are required' });
@@ -7509,6 +7584,52 @@ app.post('/api/subscriptions/create', async (req, res) => {
         const selectedPlan = plans.find(p => p.plan_key === plan);
         if (!selectedPlan) {
             return res.status(400).json({ error: 'Invalid plan selected' });
+        }
+
+        // Validate and apply promo code if provided
+        let promoCodeId = null;
+        let discountCents = 0;
+        let finalPriceCents = selectedPlan.price_cents;
+
+        if (promoCode) {
+            const promoResult = await db.query(`
+                SELECT * FROM promo_codes
+                WHERE UPPER(code) = UPPER($1)
+                  AND is_active = TRUE
+                  AND (valid_from IS NULL OR valid_from <= NOW())
+                  AND (valid_until IS NULL OR valid_until >= NOW())
+                  AND (max_uses IS NULL OR times_used < max_uses)
+            `, [promoCode.trim()]);
+
+            if (promoResult.rows.length > 0) {
+                const promo = promoResult.rows[0];
+
+                // Check plan restriction
+                if (!promo.applies_to_plans || promo.applies_to_plans.length === 0 || promo.applies_to_plans.includes(plan)) {
+                    promoCodeId = promo.id;
+
+                    // Calculate discount
+                    if (promo.discount_type === 'percent') {
+                        discountCents = Math.floor(selectedPlan.price_cents * promo.discount_value / 100);
+                    } else {
+                        discountCents = promo.discount_value;
+                    }
+
+                    // Don't let discount exceed price
+                    if (discountCents > selectedPlan.price_cents) {
+                        discountCents = selectedPlan.price_cents;
+                    }
+
+                    finalPriceCents = selectedPlan.price_cents - discountCents;
+
+                    logger.info('Promo code applied', {
+                        code: promo.code,
+                        discountCents,
+                        originalPrice: selectedPlan.price_cents,
+                        finalPrice: finalPriceCents
+                    });
+                }
+            }
         }
 
         // Create customer in Square
@@ -7565,21 +7686,25 @@ app.post('/api/subscriptions/create', async (req, res) => {
             cardId
         });
 
-        // Process initial payment
+        // Process initial payment (skip if 100% discount)
         let paymentResult = null;
-        if (squareCustomerId && cardId) {
+        if (squareCustomerId && cardId && finalPriceCents > 0) {
             try {
+                const paymentNote = discountCents > 0
+                    ? `Square Dashboard Addon - ${selectedPlan.name} (Promo: -$${(discountCents/100).toFixed(2)})`
+                    : `Square Dashboard Addon - ${selectedPlan.name} (30-day trial, fully refundable)`;
+
                 const paymentResponse = await squareApi.makeSquareRequest('/v2/payments', {
                     method: 'POST',
                     body: JSON.stringify({
                         source_id: cardId,
                         idempotency_key: `payment-${subscriber.id}-${Date.now()}`,
                         amount_money: {
-                            amount: selectedPlan.price_cents,
+                            amount: finalPriceCents,
                             currency: 'CAD'
                         },
                         customer_id: squareCustomerId,
-                        note: `Square Dashboard Addon - ${selectedPlan.name} (30-day trial, fully refundable)`
+                        note: paymentNote
                     })
                 });
 
@@ -7590,7 +7715,7 @@ app.post('/api/subscriptions/create', async (req, res) => {
                     await subscriptionHandler.recordPayment({
                         subscriberId: subscriber.id,
                         squarePaymentId: paymentResult.id,
-                        amountCents: selectedPlan.price_cents,
+                        amountCents: finalPriceCents,
                         currency: 'CAD',
                         status: paymentResult.status === 'COMPLETED' ? 'completed' : 'pending',
                         paymentType: 'subscription',
@@ -7601,12 +7726,63 @@ app.post('/api/subscriptions/create', async (req, res) => {
                     await subscriptionHandler.logEvent({
                         subscriberId: subscriber.id,
                         eventType: 'subscription.created',
-                        eventData: { plan, amount: selectedPlan.price_cents, payment_id: paymentResult.id }
+                        eventData: {
+                            plan,
+                            originalAmount: selectedPlan.price_cents,
+                            discountCents,
+                            finalAmount: finalPriceCents,
+                            promoCode: promoCode || null,
+                            payment_id: paymentResult.id
+                        }
                     });
                 }
             } catch (paymentError) {
                 logger.error('Payment processing failed', { error: paymentError.message });
                 // Don't fail the subscription - it's in trial anyway
+            }
+        } else if (finalPriceCents === 0) {
+            // 100% discount - no payment needed
+            logger.info('Subscription created with 100% promo discount - no payment processed', {
+                subscriberId: subscriber.id,
+                promoCode
+            });
+
+            await subscriptionHandler.logEvent({
+                subscriberId: subscriber.id,
+                eventType: 'subscription.created',
+                eventData: {
+                    plan,
+                    originalAmount: selectedPlan.price_cents,
+                    discountCents,
+                    finalAmount: 0,
+                    promoCode,
+                    payment_id: null
+                }
+            });
+        }
+
+        // Record promo code usage
+        if (promoCodeId) {
+            try {
+                await db.query(`
+                    INSERT INTO promo_code_uses (promo_code_id, subscriber_id, discount_applied_cents)
+                    VALUES ($1, $2, $3)
+                `, [promoCodeId, subscriber.id, discountCents]);
+
+                // Update promo code usage count
+                await db.query(`
+                    UPDATE promo_codes SET times_used = times_used + 1, updated_at = NOW()
+                    WHERE id = $1
+                `, [promoCodeId]);
+
+                // Update subscriber with promo info
+                await db.query(`
+                    UPDATE subscribers SET promo_code_id = $1, discount_applied_cents = $2
+                    WHERE id = $3
+                `, [promoCodeId, discountCents, subscriber.id]);
+            } catch (promoError) {
+                logger.error('Failed to record promo code usage', { error: promoError.message });
+                // Don't fail the subscription
             }
         }
 

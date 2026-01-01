@@ -235,6 +235,50 @@
       margin-bottom: 20px;
     }
 
+    /* Promo Code Section */
+    .promo-section {
+      margin: 20px 0;
+    }
+
+    .apply-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    .apply-btn:hover {
+      background: #2563eb;
+    }
+
+    .apply-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .promo-message {
+      margin-top: 8px;
+      font-size: 14px;
+      padding: 8px 12px;
+      border-radius: 4px;
+    }
+
+    .promo-message.success {
+      background: #ecfdf5;
+      color: #059669;
+      border: 1px solid #10b981;
+    }
+
+    .promo-message.error {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #f87171;
+    }
+
     .order-summary {
       background: #f9fafb;
       border-radius: 8px;
@@ -486,11 +530,24 @@
           <p><strong>100% refundable</strong> if you cancel within 30 days - no questions asked!</p>
         </div>
 
+        <div class="form-group promo-section">
+          <label for="promo-code">Promo Code (Optional)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="promo-code" name="promoCode" placeholder="Enter code" style="flex: 1;">
+            <button type="button" class="apply-btn" onclick="applyPromoCode()">Apply</button>
+          </div>
+          <div id="promo-message" class="promo-message"></div>
+        </div>
+
         <div class="order-summary">
           <h3>Order Summary</h3>
           <div class="summary-row">
             <span id="plan-name">Monthly Plan (Intro)</span>
             <span id="plan-price">$9.99</span>
+          </div>
+          <div class="summary-row" id="discount-row" style="display: none; color: #10b981;">
+            <span id="discount-label">Discount</span>
+            <span id="discount-amount">-$0.00</span>
           </div>
           <div class="summary-row">
             <span>30-Day Trial</span>
@@ -555,6 +612,100 @@
       }
     };
 
+    // Promo code state
+    let appliedPromo = null;
+
+    // Apply promo code
+    async function applyPromoCode() {
+      const codeInput = document.getElementById('promo-code');
+      const messageEl = document.getElementById('promo-message');
+      const code = codeInput.value.trim();
+
+      if (!code) {
+        messageEl.className = 'promo-message error';
+        messageEl.textContent = 'Please enter a promo code';
+        messageEl.style.display = 'block';
+        return;
+      }
+
+      if (!selectedPlan) {
+        messageEl.className = 'promo-message error';
+        messageEl.textContent = 'Please select a plan first';
+        messageEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/subscriptions/promo/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code,
+            plan: selectedPlan,
+            priceCents: plans[selectedPlan].price
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.valid) {
+          appliedPromo = result;
+          messageEl.className = 'promo-message success';
+          messageEl.textContent = `✓ ${result.discountDisplay} applied!`;
+          messageEl.style.display = 'block';
+          codeInput.disabled = true;
+
+          // Update order summary with discount
+          updateOrderSummary();
+        } else {
+          appliedPromo = null;
+          messageEl.className = 'promo-message error';
+          messageEl.textContent = result.error || 'Invalid promo code';
+          messageEl.style.display = 'block';
+          updateOrderSummary();
+        }
+      } catch (error) {
+        console.error('Promo validation error:', error);
+        messageEl.className = 'promo-message error';
+        messageEl.textContent = 'Failed to validate code. Please try again.';
+        messageEl.style.display = 'block';
+      }
+    }
+
+    // Update order summary with discount
+    function updateOrderSummary() {
+      if (!selectedPlan) return;
+
+      const plan = plans[selectedPlan];
+      const discountRow = document.getElementById('discount-row');
+      const discountLabel = document.getElementById('discount-label');
+      const discountAmount = document.getElementById('discount-amount');
+      const totalPrice = document.getElementById('total-price');
+
+      if (appliedPromo && appliedPromo.discountCents > 0) {
+        discountRow.style.display = 'flex';
+        discountLabel.textContent = `Discount (${appliedPromo.code})`;
+        discountAmount.textContent = `-$${(appliedPromo.discountCents / 100).toFixed(2)}`;
+
+        const finalPrice = (plan.price - appliedPromo.discountCents) / 100;
+        totalPrice.textContent = finalPrice > 0 ? `$${finalPrice.toFixed(2)} CAD` : 'FREE';
+      } else {
+        discountRow.style.display = 'none';
+        totalPrice.textContent = plan.displayPrice + ' CAD';
+      }
+    }
+
+    // Clear promo when changing plans
+    function clearPromo() {
+      appliedPromo = null;
+      const codeInput = document.getElementById('promo-code');
+      const messageEl = document.getElementById('promo-message');
+      codeInput.value = '';
+      codeInput.disabled = false;
+      messageEl.style.display = 'none';
+      document.getElementById('discount-row').style.display = 'none';
+    }
+
     // Load Square SDK dynamically based on environment
     function loadSquareSDK(environment) {
       return new Promise((resolve, reject) => {
@@ -600,6 +751,9 @@
     function selectPlan(planKey) {
       selectedPlan = planKey;
       const plan = plans[planKey];
+
+      // Clear any applied promo when changing plans
+      clearPromo();
 
       // Update button states
       document.querySelectorAll('.select-btn').forEach(btn => {
@@ -684,7 +838,8 @@
             email,
             businessName: business,
             plan: selectedPlan,
-            sourceId: result.token
+            sourceId: result.token,
+            promoCode: appliedPromo?.code || null
           })
         });
 
