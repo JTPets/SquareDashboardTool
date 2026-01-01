@@ -3217,6 +3217,61 @@ app.get('/api/square/custom-attributes', requireAuth, requireMerchant, async (re
 });
 
 /**
+ * GET /api/debug/merchant-data
+ * Debug endpoint to check merchant data state for troubleshooting
+ */
+app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Check data counts for this merchant
+        const counts = await db.query(`
+            SELECT
+                (SELECT COUNT(*) FROM items WHERE merchant_id = $1) as items,
+                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1) as variations,
+                (SELECT COUNT(*) FROM vendors WHERE merchant_id = $1) as vendors,
+                (SELECT COUNT(*) FROM variation_vendors WHERE merchant_id = $1) as variation_vendors,
+                (SELECT COUNT(*) FROM locations WHERE merchant_id = $1) as locations,
+                (SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1) as inventory_counts,
+                (SELECT COUNT(*) FROM sales_velocity WHERE merchant_id = $1) as sales_velocity,
+                (SELECT COUNT(*) FROM items WHERE merchant_id IS NULL) as items_null_merchant,
+                (SELECT COUNT(*) FROM variations WHERE merchant_id IS NULL) as variations_null_merchant,
+                (SELECT COUNT(*) FROM variation_vendors WHERE merchant_id IS NULL) as variation_vendors_null_merchant
+        `, [merchantId]);
+
+        // Check user_merchants for this user
+        const userMerchants = await db.query(`
+            SELECT um.merchant_id, um.role, um.is_primary, m.business_name
+            FROM user_merchants um
+            JOIN merchants m ON m.id = um.merchant_id
+            WHERE um.user_id = $1
+        `, [req.session.user.id]);
+
+        // Check all merchants
+        const allMerchants = await db.query(`
+            SELECT id, business_name, square_merchant_id, is_active,
+                   created_at, is_legacy
+            FROM merchants
+            ORDER BY id
+        `);
+
+        res.json({
+            currentMerchant: {
+                id: merchantId,
+                businessName: req.merchantContext.businessName,
+                squareMerchantId: req.merchantContext.squareMerchantId
+            },
+            dataCounts: counts.rows[0],
+            userMerchants: userMerchants.rows,
+            allMerchants: allMerchants.rows
+        });
+    } catch (error) {
+        logger.error('Debug merchant-data error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/debug/expiry-status
  * Debug endpoint to check expiration sync status
  */
@@ -5091,6 +5146,15 @@ app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
             min_cost
         } = req.query;
 
+        // Debug logging for reorder issues
+        logger.info('Reorder suggestions request', {
+            merchantId,
+            merchantName: req.merchantContext.businessName,
+            vendor_id,
+            supply_days,
+            location_id
+        });
+
         // Input validation
         const supplyDaysNum = parseInt(supply_days);
         if (isNaN(supplyDaysNum) || supplyDaysNum < 1 || supplyDaysNum > 365) {
@@ -5252,6 +5316,13 @@ app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
         }
 
         const result = await db.query(query, params);
+
+        // Debug: log query results
+        logger.info('Reorder query results', {
+            merchantId,
+            rowCount: result.rows.length,
+            params: params.slice(0, 3) // First 3 params for debugging
+        });
 
         // Get priority thresholds from environment
         const urgentDays = parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0');
