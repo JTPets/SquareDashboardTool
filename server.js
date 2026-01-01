@@ -5649,6 +5649,14 @@ app.get('/api/cycle-counts/pending', requireAuth, requireMerchant, async (req, r
         const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
         const merchantId = req.merchantContext.id;
 
+        // DEBUG: Log merchant context
+        logger.info('DEBUG cycle-counts/pending', {
+            merchantId,
+            userId: req.session?.user?.id,
+            sessionActiveMerchantId: req.session?.activeMerchantId,
+            merchantContext: req.merchantContext ? { id: req.merchantContext.id, businessName: req.merchantContext.businessName } : null
+        });
+
         // Get today's session or create it
         await db.query(
             `INSERT INTO count_sessions (session_date, items_expected, merchant_id)
