@@ -12,7 +12,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { Client, Environment } = require('square');
+const { SquareClient, SquareEnvironment } = require('square');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
@@ -135,12 +135,12 @@ router.get('/callback', async (req, res) => {
 
         // Exchange authorization code for tokens
         const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
-            ? Environment.Sandbox
-            : Environment.Production;
+            ? SquareEnvironment.Sandbox
+            : SquareEnvironment.Production;
 
-        const client = new Client({ environment: squareEnv });
+        const client = new SquareClient({ environment: squareEnv });
 
-        const tokenResponse = await client.oAuthApi.obtainToken({
+        const tokenResponse = await client.oAuth.obtainToken({
             clientId: SQUARE_APPLICATION_ID,
             clientSecret: SQUARE_APPLICATION_SECRET,
             grantType: 'authorization_code',
@@ -153,7 +153,7 @@ router.get('/callback', async (req, res) => {
             expiresAt,
             merchantId,
             tokenType
-        } = tokenResponse.result;
+        } = tokenResponse;
 
         logger.info('OAuth tokens obtained', {
             merchantId,
@@ -162,13 +162,13 @@ router.get('/callback', async (req, res) => {
         });
 
         // Get merchant info from Square
-        const merchantClient = new Client({
+        const merchantClient = new SquareClient({
             environment: squareEnv,
-            accessToken: accessToken
+            token: accessToken
         });
 
-        const merchantResponse = await merchantClient.merchantsApi.retrieveMerchant(merchantId);
-        const merchantInfo = merchantResponse.result.merchant;
+        const merchantResponse = await merchantClient.merchants.get({ merchantId });
+        const merchantInfo = merchantResponse.merchant;
 
         // Encrypt tokens before storage
         const encryptedAccessToken = encryptToken(accessToken);
@@ -259,9 +259,9 @@ router.get('/callback', async (req, res) => {
         let errorMessage = 'Failed to connect Square account.';
         let errorDetail = error.message || 'Unknown error';
 
-        // Handle specific Square API errors
-        if (error.result && error.result.errors) {
-            const squareError = error.result.errors[0];
+        // Handle specific Square API errors (SDK v43+ uses error.errors directly)
+        if (error.errors && error.errors.length > 0) {
+            const squareError = error.errors[0];
             logger.error('Square API error:', squareError);
             errorDetail = squareError.detail || squareError.code || errorDetail;
         }
@@ -314,11 +314,11 @@ router.post('/revoke', requireAuth, async (req, res) => {
         try {
             const accessToken = decryptToken(accessCheck.rows[0].square_access_token);
             const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
-                ? Environment.Sandbox
-                : Environment.Production;
+                ? SquareEnvironment.Sandbox
+                : SquareEnvironment.Production;
 
-            const client = new Client({ environment: squareEnv });
-            await client.oAuthApi.revokeToken({
+            const client = new SquareClient({ environment: squareEnv });
+            await client.oAuth.revokeToken({
                 clientId: SQUARE_APPLICATION_ID,
                 clientSecret: SQUARE_APPLICATION_SECRET,
                 accessToken: accessToken
@@ -423,12 +423,12 @@ async function refreshMerchantToken(merchantId) {
     }
 
     const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
-        ? Environment.Sandbox
-        : Environment.Production;
+        ? SquareEnvironment.Sandbox
+        : SquareEnvironment.Production;
 
-    const client = new Client({ environment: squareEnv });
+    const client = new SquareClient({ environment: squareEnv });
 
-    const response = await client.oAuthApi.obtainToken({
+    const response = await client.oAuth.obtainToken({
         clientId: SQUARE_APPLICATION_ID,
         clientSecret: SQUARE_APPLICATION_SECRET,
         grantType: 'refresh_token',
@@ -439,7 +439,7 @@ async function refreshMerchantToken(merchantId) {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
         expiresAt
-    } = response.result;
+    } = response;
 
     // Encrypt and store new tokens
     await db.query(`
