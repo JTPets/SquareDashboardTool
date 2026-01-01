@@ -76,6 +76,91 @@
       text-transform: uppercase;
     }
 
+    .merchant-info {
+      text-align: right;
+      font-size: 13px;
+      padding-right: 15px;
+      border-right: 1px solid rgba(255,255,255,0.3);
+      margin-right: 15px;
+    }
+
+    .merchant-info .merchant-name {
+      font-weight: 600;
+      color: white;
+    }
+
+    .merchant-info .merchant-link {
+      font-size: 11px;
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+    }
+
+    .merchant-info .merchant-link:hover {
+      color: white;
+      text-decoration: underline;
+    }
+
+    /* NO MERCHANT OVERLAY */
+    .no-merchant-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .no-merchant-overlay.show {
+      display: flex;
+    }
+
+    .no-merchant-card {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 500px;
+      text-align: center;
+    }
+
+    .no-merchant-card .icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    .no-merchant-card h2 {
+      font-size: 24px;
+      color: #111827;
+      margin-bottom: 12px;
+    }
+
+    .no-merchant-card p {
+      color: #6b7280;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .no-merchant-card .btn-connect {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .no-merchant-card .btn-connect:hover {
+      background: #1d4ed8;
+    }
+
     .btn-logout {
       background: rgba(255,255,255,0.15);
       color: white;
@@ -394,6 +479,10 @@
         <p>Manage store operations, inventory, and automations</p>
       </div>
       <div class="header-actions">
+        <div class="merchant-info" id="merchant-info" style="display: none;">
+          <div class="merchant-name" id="merchant-name"></div>
+          <a href="merchants.html" class="merchant-link">Manage Accounts</a>
+        </div>
         <div class="user-info">
           <div class="user-email" id="user-email">Loading...</div>
           <div class="user-role" id="user-role"></div>
@@ -748,9 +837,28 @@
       <a href="/api/reorder-suggestions?supply_days=45">Alerts</a>
       <a href="/api/health">Health</a>
       |
+      <a href="merchants.html">Manage Accounts</a>
+      |
       <a href="/support.html">Support</a>
       |
       Created by <a href="https://jtpets.ca" target="_blank" rel="noopener">JTPets.ca</a>
+      |
+      <a href="https://squareup.com/i/JTPETS0000" target="_blank" rel="noopener" title="Get $1,000 free processing or $20 off hardware!">Refer a Friend to Square</a>
+    </div>
+  </div>
+
+  <!-- NO MERCHANT OVERLAY -->
+  <div class="no-merchant-overlay" id="no-merchant-overlay">
+    <div class="no-merchant-card">
+      <div class="icon">🏪</div>
+      <h2>Connect Your Square Account</h2>
+      <p>To use the dashboard tools, you need to connect your Square merchant account. This allows us to securely access your catalog, inventory, and sales data.</p>
+      <button class="btn-connect" onclick="connectSquare()">
+        Connect Square Account
+      </button>
+      <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">
+        Not a Square customer yet? <a href="https://squareup.com/i/JTPETS0000" target="_blank" style="color: #2563eb;">Sign up and get $1,000 free processing!</a>
+      </p>
     </div>
   </div>
 
@@ -989,6 +1097,48 @@
       }
     }
 
+    // Load merchant info
+    async function loadMerchantInfo() {
+      try {
+        const response = await fetch('/api/merchants');
+        if (!response.ok) {
+          if (response.status === 401) {
+            window.location.href = '/login.html';
+            return;
+          }
+          throw new Error('Failed to load merchants');
+        }
+
+        const data = await response.json();
+        const merchants = data.merchants || [];
+        const activeMerchantId = data.activeMerchantId;
+
+        if (merchants.length === 0) {
+          // Show no-merchant overlay
+          document.getElementById('no-merchant-overlay').classList.add('show');
+          return false;
+        }
+
+        // Find active merchant
+        const activeMerchant = merchants.find(m => m.id === activeMerchantId) || merchants[0];
+
+        if (activeMerchant) {
+          document.getElementById('merchant-name').textContent = activeMerchant.business_name;
+          document.getElementById('merchant-info').style.display = 'block';
+        }
+
+        return true;
+      } catch (error) {
+        console.error('Failed to load merchant info:', error);
+        return true; // Don't block on error, let dashboard load
+      }
+    }
+
+    // Connect Square account
+    function connectSquare() {
+      window.location.href = '/api/square/oauth/connect?redirect=' + encodeURIComponent(window.location.pathname);
+    }
+
     // Logout function
     async function logout() {
       try {
@@ -1001,16 +1151,22 @@
     }
 
     // Initialize dashboard
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
       loadUserInfo();
-      loadStats();
-      updateSyncStatus();
 
-      // Auto-refresh every 5 minutes
-      setInterval(() => {
+      // Load merchant info first - if no merchant, show overlay
+      const hasMerchant = await loadMerchantInfo();
+
+      if (hasMerchant) {
         loadStats();
         updateSyncStatus();
-      }, 300000);
+
+        // Auto-refresh every 5 minutes
+        setInterval(() => {
+          loadStats();
+          updateSyncStatus();
+        }, 300000);
+      }
     });
   </script>
 </body>
