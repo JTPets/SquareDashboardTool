@@ -858,6 +858,161 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // ==================== MULTI-TENANT TABLES ====================
+    // These tables support the multi-merchant OAuth system
+
+    const merchantsTableExists = await query(`
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'merchants'
+        )
+    `);
+
+    if (!merchantsTableExists.rows[0].exists) {
+        logger.info('Creating multi-tenant tables...');
+
+        // 1. Merchants table - Core tenant table storing Square OAuth credentials
+        await query(`
+            CREATE TABLE IF NOT EXISTS merchants (
+                id SERIAL PRIMARY KEY,
+                square_merchant_id TEXT UNIQUE NOT NULL,
+                business_name TEXT NOT NULL,
+                business_email TEXT,
+                square_access_token TEXT NOT NULL,
+                square_refresh_token TEXT,
+                square_token_expires_at TIMESTAMPTZ,
+                square_token_scopes TEXT[],
+                subscription_status TEXT DEFAULT 'trial',
+                subscription_plan_id INTEGER,
+                trial_ends_at TIMESTAMPTZ,
+                subscription_ends_at TIMESTAMPTZ,
+                timezone TEXT DEFAULT 'America/New_York',
+                currency TEXT DEFAULT 'USD',
+                settings JSONB DEFAULT '{}',
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                last_sync_at TIMESTAMPTZ,
+                CONSTRAINT valid_subscription_status CHECK (
+                    subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
+                )
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_square_id ON merchants(square_merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_subscription ON merchants(subscription_status, is_active)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE');
+
+        // 2. User-Merchant relationships
+        await query(`
+            CREATE TABLE IF NOT EXISTS user_merchants (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                role TEXT NOT NULL DEFAULT 'user',
+                is_primary BOOLEAN DEFAULT FALSE,
+                invited_by INTEGER REFERENCES users(id),
+                invited_at TIMESTAMPTZ DEFAULT NOW(),
+                accepted_at TIMESTAMPTZ,
+                UNIQUE(user_id, merchant_id),
+                CONSTRAINT valid_role CHECK (role IN ('owner', 'admin', 'user', 'readonly'))
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_user ON user_merchants(user_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_merchant ON user_merchants(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_primary ON user_merchants(user_id, is_primary) WHERE is_primary = TRUE');
+
+        // 3. Merchant invitations
+        await query(`
+            CREATE TABLE IF NOT EXISTS merchant_invitations (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                token TEXT UNIQUE NOT NULL,
+                invited_by INTEGER REFERENCES users(id),
+                expires_at TIMESTAMPTZ NOT NULL,
+                accepted_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_token ON merchant_invitations(token)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_email ON merchant_invitations(email)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_merchant ON merchant_invitations(merchant_id)');
+
+        // 4. OAuth states for CSRF protection
+        await query(`
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                id SERIAL PRIMARY KEY,
+                state TEXT UNIQUE NOT NULL,
+                user_id INTEGER REFERENCES users(id),
+                redirect_uri TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state)');
+        await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)');
+
+        logger.info('Created multi-tenant tables with indexes');
+        appliedCount++;
+    }
+
+    // ==================== MULTI-TENANT COLUMN MIGRATIONS ====================
+    // Add merchant_id to existing tables if not present
+
+    const tablesToAddMerchantId = [
+        'locations', 'categories', 'items', 'variations', 'images', 'inventory_counts',
+        'vendors', 'variation_vendors', 'vendor_catalog_items',
+        'purchase_orders', 'purchase_order_items',
+        'sales_velocity', 'variation_location_settings',
+        'count_history', 'count_queue_priority', 'count_queue_daily', 'count_sessions',
+        'variation_expiration', 'expiry_discount_tiers', 'variation_discount_status',
+        'expiry_discount_audit_log', 'expiry_discount_settings',
+        'brands', 'category_taxonomy_mapping', 'item_brands', 'gmc_settings', 'gmc_feed_history',
+        'sync_history'
+    ];
+
+    for (const tableName of tablesToAddMerchantId) {
+        try {
+            const columnCheck = await query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = $1 AND column_name = 'merchant_id'
+            `, [tableName]);
+
+            if (columnCheck.rows.length === 0) {
+                // Check if table exists first
+                const tableCheck = await query(`
+                    SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)
+                `, [tableName]);
+
+                if (tableCheck.rows[0].exists) {
+                    await query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id)`);
+                    await query(`CREATE INDEX IF NOT EXISTS idx_${tableName}_merchant ON ${tableName}(merchant_id)`);
+                    logger.info(`Added merchant_id column to ${tableName}`);
+                    appliedCount++;
+                }
+            }
+        } catch (error) {
+            logger.error(`Failed to add merchant_id to ${tableName}:`, error.message);
+        }
+    }
+
+    // Add merchant_id to auth_audit_log (no foreign key - for flexibility)
+    try {
+        const auditMerchantCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'auth_audit_log' AND column_name = 'merchant_id'
+        `);
+        if (auditMerchantCheck.rows.length === 0) {
+            await query('ALTER TABLE auth_audit_log ADD COLUMN IF NOT EXISTS merchant_id INTEGER');
+            logger.info('Added merchant_id column to auth_audit_log');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to add merchant_id to auth_audit_log:', error.message);
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
