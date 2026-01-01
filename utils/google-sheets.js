@@ -1,6 +1,8 @@
 /**
- * Google Sheets Integration Module
- * Handles OAuth 2.0 authentication and writing GMC feed data to Google Sheets
+ * Google Sheets Integration Module (Multi-Tenant)
+ * Handles per-merchant OAuth 2.0 authentication and writing GMC feed data to Google Sheets
+ *
+ * Each merchant connects their own Google account - no shared credentials
  */
 
 const { google } = require('googleapis');
@@ -8,12 +10,10 @@ const db = require('./database');
 const logger = require('./logger');
 
 // OAuth2 client configuration
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'];
 
 // Private IP regex pattern - matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x
 const PRIVATE_IP_PATTERN = /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
-
-let oauth2Client = null;
 
 /**
  * Validate that a redirect URI is safe for Google OAuth
@@ -66,14 +66,10 @@ function getRedirectUri() {
 }
 
 /**
- * Initialize OAuth2 client with credentials from environment
- * Uses GOOGLE_REDIRECT_URI as the single source of truth for redirect URI
+ * Create a new OAuth2 client instance
+ * Each merchant gets their own client instance (not cached globally)
  */
-function getOAuth2Client() {
-    if (oauth2Client) {
-        return oauth2Client;
-    }
-
+function createOAuth2Client() {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -83,30 +79,36 @@ function getOAuth2Client() {
     }
 
     const redirectUri = getRedirectUri();
-    logger.info('Initializing Google OAuth2 client', { redirectUri });
-
-    oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-    return oauth2Client;
+    return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
 /**
- * Generate OAuth authorization URL
- * Uses GOOGLE_REDIRECT_URI from environment as the redirect target
- * @returns {string} Authorization URL
+ * Generate OAuth authorization URL for a specific merchant
+ * @param {number} merchantId - The merchant ID to associate with this auth
+ * @returns {string} Authorization URL with merchant state
  */
-function getAuthUrl() {
-    const client = getOAuth2Client();
+function getAuthUrl(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for Google OAuth');
+    }
+
+    const client = createOAuth2Client();
     if (!client) {
         throw new Error('Google OAuth not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in your environment.');
     }
 
+    // Encode merchant ID in state parameter for callback
+    const state = Buffer.from(JSON.stringify({ merchantId })).toString('base64');
+
     const authUrl = client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
-        prompt: 'consent' // Force consent to get refresh token
+        prompt: 'consent', // Force consent to get refresh token
+        state: state
     });
 
-    logger.info('Generated Google OAuth URL', {
+    logger.info('Generated Google OAuth URL for merchant', {
+        merchantId,
         redirectUri: process.env.GOOGLE_REDIRECT_URI,
         authUrlPrefix: authUrl.substring(0, 80) + '...'
     });
@@ -115,12 +117,32 @@ function getAuthUrl() {
 }
 
 /**
- * Exchange authorization code for tokens
+ * Parse state parameter from OAuth callback
+ * @param {string} state - Base64 encoded state from callback
+ * @returns {Object} Parsed state object with merchantId
+ */
+function parseAuthState(state) {
+    try {
+        const decoded = Buffer.from(state, 'base64').toString('utf8');
+        return JSON.parse(decoded);
+    } catch (error) {
+        logger.error('Failed to parse Google OAuth state', { error: error.message });
+        throw new Error('Invalid OAuth state parameter');
+    }
+}
+
+/**
+ * Exchange authorization code for tokens and save for merchant
  * @param {string} code - Authorization code from callback
+ * @param {number} merchantId - Merchant ID to save tokens for
  * @returns {Promise<Object>} Token object
  */
-async function exchangeCodeForTokens(code) {
-    const client = getOAuth2Client();
+async function exchangeCodeForTokens(code, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    const client = createOAuth2Client();
     if (!client) {
         throw new Error('Google OAuth not configured');
     }
@@ -128,22 +150,23 @@ async function exchangeCodeForTokens(code) {
     const { tokens } = await client.getToken(code);
     client.setCredentials(tokens);
 
-    // Store tokens in database
-    await saveTokens(tokens);
-    logger.info('Google OAuth tokens obtained and saved');
+    // Store tokens in database for this merchant
+    await saveTokens(merchantId, tokens);
+    logger.info('Google OAuth tokens obtained and saved for merchant', { merchantId });
 
     return tokens;
 }
 
 /**
- * Save tokens to database
+ * Save tokens to database for a specific merchant
+ * @param {number} merchantId - Merchant ID
  * @param {Object} tokens - OAuth tokens
  */
-async function saveTokens(tokens) {
+async function saveTokens(merchantId, tokens) {
     await db.query(`
-        INSERT INTO google_oauth_tokens (user_id, access_token, refresh_token, token_type, expiry_date, scope)
-        VALUES ('default', $1, $2, $3, $4, $5)
-        ON CONFLICT (user_id) DO UPDATE SET
+        INSERT INTO google_oauth_tokens (merchant_id, access_token, refresh_token, token_type, expiry_date, scope)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (merchant_id) DO UPDATE SET
             access_token = EXCLUDED.access_token,
             refresh_token = COALESCE(EXCLUDED.refresh_token, google_oauth_tokens.refresh_token),
             token_type = EXCLUDED.token_type,
@@ -151,6 +174,7 @@ async function saveTokens(tokens) {
             scope = EXCLUDED.scope,
             updated_at = CURRENT_TIMESTAMP
     `, [
+        merchantId,
         tokens.access_token,
         tokens.refresh_token,
         tokens.token_type,
@@ -160,13 +184,18 @@ async function saveTokens(tokens) {
 }
 
 /**
- * Load tokens from database
+ * Load tokens from database for a specific merchant
+ * @param {number} merchantId - Merchant ID
  * @returns {Promise<Object|null>} Token object or null
  */
-async function loadTokens() {
+async function loadTokens(merchantId) {
+    if (!merchantId) {
+        return null;
+    }
+
     const result = await db.query(
-        'SELECT access_token, refresh_token, token_type, expiry_date, scope FROM google_oauth_tokens WHERE user_id = $1',
-        ['default']
+        'SELECT access_token, refresh_token, token_type, expiry_date, scope FROM google_oauth_tokens WHERE merchant_id = $1',
+        [merchantId]
     );
 
     if (result.rows.length === 0) {
@@ -184,25 +213,31 @@ async function loadTokens() {
 }
 
 /**
- * Check if we have valid authentication
+ * Check if a merchant has valid authentication
+ * @param {number} merchantId - Merchant ID
  * @returns {Promise<boolean>} True if authenticated
  */
-async function isAuthenticated() {
-    const tokens = await loadTokens();
+async function isAuthenticated(merchantId) {
+    const tokens = await loadTokens(merchantId);
     return tokens !== null && tokens.refresh_token !== null;
 }
 
 /**
- * Get authenticated OAuth client
+ * Get authenticated OAuth client for a specific merchant
+ * @param {number} merchantId - Merchant ID
  * @returns {Promise<Object>} Authenticated OAuth2 client
  */
-async function getAuthenticatedClient() {
-    const client = getOAuth2Client();
+async function getAuthenticatedClient(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    const client = createOAuth2Client();
     if (!client) {
         throw new Error('Google OAuth not configured');
     }
 
-    const tokens = await loadTokens();
+    const tokens = await loadTokens(merchantId);
     if (!tokens) {
         throw new Error('Not authenticated with Google. Please authorize first.');
     }
@@ -211,8 +246,8 @@ async function getAuthenticatedClient() {
 
     // Handle token refresh
     client.on('tokens', async (newTokens) => {
-        logger.info('Google OAuth tokens refreshed');
-        await saveTokens({
+        logger.info('Google OAuth tokens refreshed for merchant', { merchantId });
+        await saveTokens(merchantId, {
             ...tokens,
             ...newTokens
         });
@@ -222,32 +257,45 @@ async function getAuthenticatedClient() {
 }
 
 /**
- * Get Google Sheets API instance
+ * Get Google Sheets API instance for a merchant
+ * @param {number} merchantId - Merchant ID
  * @returns {Promise<Object>} Sheets API instance
  */
-async function getSheetsApi() {
-    const auth = await getAuthenticatedClient();
+async function getSheetsApi(merchantId) {
+    const auth = await getAuthenticatedClient(merchantId);
     return google.sheets({ version: 'v4', auth });
 }
 
 /**
+ * Get Google Drive API instance for a merchant
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<Object>} Drive API instance
+ */
+async function getDriveApi(merchantId) {
+    const auth = await getAuthenticatedClient(merchantId);
+    return google.drive({ version: 'v3', auth });
+}
+
+/**
  * Write GMC feed data to Google Sheet
+ * @param {number} merchantId - Merchant ID
  * @param {string} spreadsheetId - Google Sheets spreadsheet ID
  * @param {Array} products - Array of product objects
  * @param {Object} options - Options (sheetName, clearFirst)
  * @returns {Promise<Object>} Update result
  */
-async function writeFeedToSheet(spreadsheetId, products, options = {}) {
+async function writeFeedToSheet(merchantId, spreadsheetId, products, options = {}) {
     const sheetName = options.sheetName || 'GMC Feed';
     const clearFirst = options.clearFirst !== false;
 
     logger.info('Writing GMC feed to Google Sheet', {
+        merchantId,
         spreadsheetId,
         productCount: products.length,
         sheetName
     });
 
-    const sheets = await getSheetsApi();
+    const sheets = await getSheetsApi(merchantId);
 
     // Header row matching GMC format
     const headers = [
@@ -320,6 +368,7 @@ async function writeFeedToSheet(spreadsheetId, products, options = {}) {
         });
 
         logger.info('GMC feed written to Google Sheet', {
+            merchantId,
             updatedCells: result.data.updatedCells,
             updatedRows: result.data.updatedRows
         });
@@ -332,6 +381,7 @@ async function writeFeedToSheet(spreadsheetId, products, options = {}) {
         };
     } catch (error) {
         logger.error('Failed to write to Google Sheet', {
+            merchantId,
             error: error.message,
             spreadsheetId
         });
@@ -376,12 +426,13 @@ async function ensureSheetExists(sheets, spreadsheetId, sheetName) {
 
 /**
  * Read data from a Google Sheet
+ * @param {number} merchantId - Merchant ID
  * @param {string} spreadsheetId - Spreadsheet ID
  * @param {string} range - Range to read (e.g., 'Sheet1!A1:Z1000')
  * @returns {Promise<Array>} Array of row arrays
  */
-async function readFromSheet(spreadsheetId, range) {
-    const sheets = await getSheetsApi();
+async function readFromSheet(merchantId, spreadsheetId, range) {
+    const sheets = await getSheetsApi(merchantId);
 
     const result = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -393,11 +444,12 @@ async function readFromSheet(spreadsheetId, range) {
 
 /**
  * Get spreadsheet metadata
+ * @param {number} merchantId - Merchant ID
  * @param {string} spreadsheetId - Spreadsheet ID
  * @returns {Promise<Object>} Spreadsheet metadata
  */
-async function getSpreadsheetInfo(spreadsheetId) {
-    const sheets = await getSheetsApi();
+async function getSpreadsheetInfo(merchantId, spreadsheetId) {
+    const sheets = await getSheetsApi(merchantId);
 
     const result = await sheets.spreadsheets.get({
         spreadsheetId,
@@ -415,19 +467,24 @@ async function getSpreadsheetInfo(spreadsheetId) {
 }
 
 /**
- * Disconnect Google OAuth (remove tokens)
+ * Disconnect Google OAuth for a merchant (remove tokens)
+ * @param {number} merchantId - Merchant ID
  */
-async function disconnect() {
-    await db.query('DELETE FROM google_oauth_tokens WHERE user_id = $1', ['default']);
-    oauth2Client = null;
-    logger.info('Google OAuth disconnected');
+async function disconnect(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    await db.query('DELETE FROM google_oauth_tokens WHERE merchant_id = $1', [merchantId]);
+    logger.info('Google OAuth disconnected for merchant', { merchantId });
 }
 
 /**
- * Get authentication status
+ * Get authentication status for a merchant
+ * @param {number} merchantId - Merchant ID (optional - returns config status if not provided)
  */
-async function getAuthStatus() {
-    const tokens = await loadTokens();
+async function getAuthStatus(merchantId) {
+    const tokens = merchantId ? await loadTokens(merchantId) : null;
     const hasClientCredentials = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
     const redirectValidation = validateRedirectUri(redirectUri);
@@ -444,8 +501,44 @@ async function getAuthStatus() {
     };
 }
 
+/**
+ * Create a new Google Spreadsheet in the merchant's Drive
+ * @param {number} merchantId - Merchant ID
+ * @param {string} title - Spreadsheet title
+ * @returns {Promise<Object>} Created spreadsheet info
+ */
+async function createSpreadsheet(merchantId, title) {
+    const sheets = await getSheetsApi(merchantId);
+
+    const result = await sheets.spreadsheets.create({
+        requestBody: {
+            properties: {
+                title: title || 'GMC Product Feed'
+            },
+            sheets: [{
+                properties: {
+                    title: 'GMC Feed'
+                }
+            }]
+        }
+    });
+
+    logger.info('Created new spreadsheet for merchant', {
+        merchantId,
+        spreadsheetId: result.data.spreadsheetId,
+        title: result.data.properties.title
+    });
+
+    return {
+        spreadsheetId: result.data.spreadsheetId,
+        spreadsheetUrl: result.data.spreadsheetUrl,
+        title: result.data.properties.title
+    };
+}
+
 module.exports = {
     getAuthUrl,
+    parseAuthState,
     exchangeCodeForTokens,
     isAuthenticated,
     getAuthStatus,
@@ -453,5 +546,7 @@ module.exports = {
     readFromSheet,
     getSpreadsheetInfo,
     disconnect,
-    getSheetsApi
+    getSheetsApi,
+    getDriveApi,
+    createSpreadsheet
 };

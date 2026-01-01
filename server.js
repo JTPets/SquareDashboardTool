@@ -3436,11 +3436,12 @@ const googleSheets = require('./utils/google-sheets');
 
 /**
  * GET /api/google/status
- * Check Google OAuth authentication status
+ * Check Google OAuth authentication status for current merchant
  */
-app.get('/api/google/status', requireAuth, async (req, res) => {
+app.get('/api/google/status', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const status = await googleSheets.getAuthStatus();
+        const merchantId = req.merchantContext.id;
+        const status = await googleSheets.getAuthStatus(merchantId);
         res.json(status);
     } catch (error) {
         logger.error('Google status error', { error: error.message });
@@ -3450,13 +3451,17 @@ app.get('/api/google/status', requireAuth, async (req, res) => {
 
 /**
  * GET /api/google/auth
- * Start Google OAuth flow - redirects to Google consent screen
+ * Start Google OAuth flow for current merchant - redirects to Google consent screen
  * Uses GOOGLE_REDIRECT_URI from environment (not request hostname) to prevent private IP issues
  */
-app.get('/api/google/auth', async (req, res) => {
+app.get('/api/google/auth', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const authUrl = googleSheets.getAuthUrl();
-        logger.info('Redirecting to Google OAuth', { redirectUri: process.env.GOOGLE_REDIRECT_URI });
+        const merchantId = req.merchantContext.id;
+        const authUrl = googleSheets.getAuthUrl(merchantId);
+        logger.info('Redirecting to Google OAuth', {
+            merchantId,
+            redirectUri: process.env.GOOGLE_REDIRECT_URI
+        });
         res.redirect(authUrl);
     } catch (error) {
         logger.error('Google auth error', { error: error.message });
@@ -3467,6 +3472,7 @@ app.get('/api/google/auth', async (req, res) => {
 /**
  * GET /api/google/callback
  * Google OAuth callback - exchanges code for tokens
+ * Merchant ID is encoded in the state parameter
  *
  * IMPORTANT: After OAuth, we redirect to PUBLIC_APP_URL (not relative path).
  * This ensures the browser goes to the correct host (e.g., LAN IP) instead of
@@ -3478,33 +3484,40 @@ app.get('/api/google/callback', async (req, res) => {
     const publicUrl = getPublicAppUrl(req);
 
     try {
-        const { code, error: oauthError } = req.query;
+        const { code, state, error: oauthError } = req.query;
 
         if (oauthError) {
             logger.error('Google OAuth error', { error: oauthError });
-            return res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(oauthError)}`);
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(oauthError)}`);
         }
 
-        if (!code) {
-            return res.redirect(`${publicUrl}/settings.html?google_error=no_code`);
+        if (!code || !state) {
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=missing_code_or_state`);
         }
 
-        await googleSheets.exchangeCodeForTokens(code);
-        logger.info('Google OAuth successful, redirecting to public URL', { publicUrl });
-        res.redirect(`${publicUrl}/settings.html?google_connected=true`);
+        // Parse merchant ID from state
+        const { merchantId } = googleSheets.parseAuthState(state);
+        if (!merchantId) {
+            return res.redirect(`${publicUrl}/gmc-feed.html?google_error=invalid_state`);
+        }
+
+        await googleSheets.exchangeCodeForTokens(code, merchantId);
+        logger.info('Google OAuth successful for merchant', { merchantId, publicUrl });
+        res.redirect(`${publicUrl}/gmc-feed.html?google_connected=true`);
     } catch (error) {
         logger.error('Google callback error', { error: error.message });
-        res.redirect(`${publicUrl}/settings.html?google_error=${encodeURIComponent(error.message)}`);
+        res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(error.message)}`);
     }
 });
 
 /**
  * POST /api/google/disconnect
- * Disconnect Google OAuth (remove tokens)
+ * Disconnect Google OAuth for current merchant (remove tokens)
  */
-app.post('/api/google/disconnect', requireAuth, async (req, res) => {
+app.post('/api/google/disconnect', requireAuth, requireMerchant, async (req, res) => {
     try {
-        await googleSheets.disconnect();
+        const merchantId = req.merchantContext.id;
+        await googleSheets.disconnect(merchantId);
         res.json({ success: true, message: 'Google account disconnected' });
     } catch (error) {
         logger.error('Google disconnect error', { error: error.message });
@@ -3514,7 +3527,7 @@ app.post('/api/google/disconnect', requireAuth, async (req, res) => {
 
 /**
  * POST /api/gmc/sync-sheet
- * Write GMC feed to Google Sheets
+ * Write GMC feed to merchant's Google Sheets
  */
 app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) => {
     try {
@@ -3525,8 +3538,8 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
             return res.status(400).json({ error: 'spreadsheet_id is required' });
         }
 
-        // Check if authenticated
-        const authenticated = await googleSheets.isAuthenticated();
+        // Check if merchant is authenticated with Google
+        const authenticated = await googleSheets.isAuthenticated(merchantId);
         if (!authenticated) {
             return res.status(401).json({
                 error: 'Not authenticated with Google',
@@ -3534,21 +3547,21 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
             });
         }
 
-        // Generate feed data
+        // Generate feed data for this merchant
         const { products, stats } = await gmcFeed.generateFeedData({ merchantId });
 
-        // Write to Google Sheet
-        const result = await googleSheets.writeFeedToSheet(spreadsheet_id, products, {
+        // Write to merchant's Google Sheet
+        const result = await googleSheets.writeFeedToSheet(merchantId, spreadsheet_id, products, {
             sheetName: sheet_name || 'GMC Feed',
             clearFirst: true
         });
 
-        // Update gmc_settings with spreadsheet ID
+        // Update gmc_settings with spreadsheet ID for this merchant
         await db.query(`
-            INSERT INTO gmc_settings (setting_key, setting_value, description)
-            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed')
-            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
-        `, [spreadsheet_id]);
+            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
+            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [spreadsheet_id, merchantId]);
 
         res.json({
             success: true,
@@ -3563,15 +3576,78 @@ app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) =
 });
 
 /**
- * GET /api/google/spreadsheet/:id
- * Get spreadsheet info
+ * POST /api/google/create-spreadsheet
+ * Create a new spreadsheet in merchant's Google Drive
  */
-app.get('/api/google/spreadsheet/:id', requireAuth, async (req, res) => {
+app.post('/api/google/create-spreadsheet', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const info = await googleSheets.getSpreadsheetInfo(req.params.id);
+        const merchantId = req.merchantContext.id;
+        const { title } = req.body;
+
+        // Check if merchant is authenticated with Google
+        const authenticated = await googleSheets.isAuthenticated(merchantId);
+        if (!authenticated) {
+            return res.status(401).json({
+                error: 'Not authenticated with Google',
+                authRequired: true
+            });
+        }
+
+        const result = await googleSheets.createSpreadsheet(merchantId, title || 'GMC Product Feed');
+
+        // Save the spreadsheet ID to merchant's settings
+        await db.query(`
+            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
+            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
+            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+        `, [result.spreadsheetId, merchantId]);
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        logger.error('Create spreadsheet error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/spreadsheet/:id
+ * Get spreadsheet info (uses merchant's Google credentials)
+ */
+app.get('/api/google/spreadsheet/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const info = await googleSheets.getSpreadsheetInfo(merchantId, req.params.id);
         res.json(info);
     } catch (error) {
         logger.error('Get spreadsheet error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/google/sheet-config
+ * Get merchant's saved Google Sheet configuration
+ */
+app.get('/api/google/sheet-config', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(
+            "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id' AND merchant_id = $1",
+            [merchantId]
+        );
+
+        const spreadsheetId = result.rows.length > 0 ? result.rows[0].setting_value : null;
+
+        res.json({
+            spreadsheetId,
+            spreadsheetUrl: spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : null
+        });
+    } catch (error) {
+        logger.error('Get sheet config error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3630,11 +3706,37 @@ app.post('/api/gmc/generate', requireAuth, requireMerchant, async (req, res) => 
 /**
  * GET /api/gmc/feed.tsv
  * Download the current GMC feed as TSV
+ * Requires either: authenticated session OR valid feed token in query param
+ * Token URL format: /api/gmc/feed.tsv?token=<merchant_feed_token>
  */
 app.get('/api/gmc/feed.tsv', async (req, res) => {
     try {
-        const { location_id } = req.query;
-        const { products } = await gmcFeed.generateFeedData({ locationId: location_id });
+        const { location_id, token } = req.query;
+        let merchantId = null;
+
+        // Check for feed token (for Google Merchant Center access)
+        if (token) {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
+                [token]
+            );
+            if (merchantResult.rows.length === 0) {
+                return res.status(401).json({ error: 'Invalid or expired feed token' });
+            }
+            merchantId = merchantResult.rows[0].id;
+        }
+        // Check for authenticated session
+        else if (req.session?.user && req.merchantContext?.id) {
+            merchantId = req.merchantContext.id;
+        }
+        // No auth provided
+        else {
+            return res.status(401).json({
+                error: 'Authentication required. Use ?token=<feed_token> or login to access.'
+            });
+        }
+
+        const { products } = await gmcFeed.generateFeedData({ locationId: location_id, merchantId });
         const tsvContent = gmcFeed.generateTsvContent(products);
 
         res.setHeader('Content-Type', 'text/tab-separated-values');
@@ -3687,6 +3789,71 @@ app.put('/api/gmc/settings', requireAuth, requireMerchant, async (req, res) => {
         res.json({ success: true, settings: updatedSettings });
     } catch (error) {
         logger.error('GMC settings update error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/feed-url
+ * Get the merchant's GMC feed URL with token for Google Merchant Center
+ */
+app.get('/api/gmc/feed-url', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(
+            'SELECT gmc_feed_token FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+
+        if (result.rows.length === 0 || !result.rows[0].gmc_feed_token) {
+            return res.status(404).json({ error: 'Feed token not found. Please contact support.' });
+        }
+
+        const token = result.rows[0].gmc_feed_token;
+        const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+        const feedUrl = `${baseUrl}/api/gmc/feed.tsv?token=${token}`;
+
+        res.json({
+            success: true,
+            feedUrl,
+            token,
+            instructions: 'Use this URL in Google Merchant Center as your product feed URL. Keep the token secret.'
+        });
+    } catch (error) {
+        logger.error('GMC feed URL error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/regenerate-token
+ * Regenerate the GMC feed token (invalidates old feed URLs)
+ */
+app.post('/api/gmc/regenerate-token', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const crypto = require('crypto');
+        const newToken = crypto.randomBytes(32).toString('hex');
+
+        await db.query(
+            'UPDATE merchants SET gmc_feed_token = $1, updated_at = NOW() WHERE id = $2',
+            [newToken, merchantId]
+        );
+
+        const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+        const feedUrl = `${baseUrl}/api/gmc/feed.tsv?token=${newToken}`;
+
+        logger.info('GMC feed token regenerated', { merchantId });
+
+        res.json({
+            success: true,
+            feedUrl,
+            token: newToken,
+            warning: 'Your previous feed URL is now invalid. Update Google Merchant Center with the new URL.'
+        });
+    } catch (error) {
+        logger.error('GMC token regeneration error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });

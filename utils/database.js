@@ -460,11 +460,11 @@ async function ensureSchema() {
             )
         `);
 
-        // 7. Google OAuth tokens storage
+        // 7. Google OAuth tokens storage (per-merchant)
         await query(`
             CREATE TABLE IF NOT EXISTS google_oauth_tokens (
                 id SERIAL PRIMARY KEY,
-                user_id TEXT DEFAULT 'default',
+                merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
                 access_token TEXT,
                 refresh_token TEXT,
                 token_type TEXT,
@@ -472,12 +472,42 @@ async function ensureSchema() {
                 scope TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id)
+                UNIQUE(merchant_id)
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_google_oauth_merchant ON google_oauth_tokens(merchant_id)');
 
         logger.info('Created GMC tables with indexes');
         appliedCount++;
+    }
+
+    // ==================== GOOGLE OAUTH MIGRATION ====================
+    // Migrate google_oauth_tokens from user_id to merchant_id
+    try {
+        const userIdColumnCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'google_oauth_tokens' AND column_name = 'user_id'
+        `);
+
+        if (userIdColumnCheck.rows.length > 0) {
+            logger.info('Migrating google_oauth_tokens from user_id to merchant_id...');
+
+            // Add merchant_id column if not exists
+            await query(`ALTER TABLE google_oauth_tokens ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE`);
+
+            // Drop old user_id column and constraint
+            await query(`ALTER TABLE google_oauth_tokens DROP CONSTRAINT IF EXISTS google_oauth_tokens_user_id_key`);
+            await query(`ALTER TABLE google_oauth_tokens DROP COLUMN IF EXISTS user_id`);
+
+            // Add unique constraint on merchant_id
+            await query(`ALTER TABLE google_oauth_tokens ADD CONSTRAINT google_oauth_tokens_merchant_id_key UNIQUE (merchant_id)`);
+            await query('CREATE INDEX IF NOT EXISTS idx_google_oauth_merchant ON google_oauth_tokens(merchant_id)');
+
+            logger.info('Migrated google_oauth_tokens to use merchant_id');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to migrate google_oauth_tokens:', error.message);
     }
 
     // ==================== SUBSCRIPTION TABLES ====================
@@ -1161,6 +1191,27 @@ async function ensureSchema() {
         }
     } catch (error) {
         logger.error('Failed to add email to auth_audit_log:', error.message);
+    }
+
+    // Add gmc_feed_token column to merchants table for secure GMC feed access
+    try {
+        const feedTokenCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'merchants' AND column_name = 'gmc_feed_token'
+        `);
+        if (feedTokenCheck.rows.length === 0) {
+            await query(`ALTER TABLE merchants ADD COLUMN IF NOT EXISTS gmc_feed_token TEXT UNIQUE`);
+            // Generate tokens for existing merchants
+            const merchants = await query('SELECT id FROM merchants WHERE gmc_feed_token IS NULL');
+            for (const merchant of merchants.rows) {
+                const token = require('crypto').randomBytes(32).toString('hex');
+                await query('UPDATE merchants SET gmc_feed_token = $1 WHERE id = $2', [token, merchant.id]);
+            }
+            logger.info('Added gmc_feed_token column to merchants and generated tokens');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to add gmc_feed_token to merchants:', error.message);
     }
 
     // ==================== MULTI-TENANT CONSTRAINT MIGRATIONS ====================

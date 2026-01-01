@@ -174,6 +174,9 @@ router.get('/callback', async (req, res) => {
         const encryptedAccessToken = encryptToken(accessToken);
         const encryptedRefreshToken = refreshToken ? encryptToken(refreshToken) : null;
 
+        // Generate GMC feed token for new merchants
+        const gmcFeedToken = crypto.randomBytes(32).toString('hex');
+
         // Create or update merchant record
         const merchantResult = await db.query(`
             INSERT INTO merchants (
@@ -186,8 +189,9 @@ router.get('/callback', async (req, res) => {
                 square_token_scopes,
                 timezone,
                 currency,
-                last_sync_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+                last_sync_at,
+                gmc_feed_token
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10)
             ON CONFLICT (square_merchant_id) DO UPDATE SET
                 business_name = EXCLUDED.business_name,
                 square_access_token = EXCLUDED.square_access_token,
@@ -195,7 +199,8 @@ router.get('/callback', async (req, res) => {
                 square_token_expires_at = EXCLUDED.square_token_expires_at,
                 square_token_scopes = EXCLUDED.square_token_scopes,
                 is_active = TRUE,
-                updated_at = NOW()
+                updated_at = NOW(),
+                gmc_feed_token = COALESCE(merchants.gmc_feed_token, EXCLUDED.gmc_feed_token)
             RETURNING id, business_name
         `, [
             merchantId,
@@ -206,7 +211,8 @@ router.get('/callback', async (req, res) => {
             expiresAt,
             REQUIRED_SCOPES,
             merchantInfo.languageCode || 'en',
-            merchantInfo.currency || 'USD'
+            merchantInfo.currency || 'USD',
+            gmcFeedToken
         ]);
 
         const newMerchantId = merchantResult.rows[0].id;
