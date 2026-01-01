@@ -3383,6 +3383,79 @@ app.post('/api/debug/restore-deleted-items', requireAuth, requireMerchant, async
 });
 
 /**
+ * POST /api/debug/backfill-merchant-id
+ * Backfill NULL merchant_id records to the legacy merchant (id=1)
+ * This fixes data from before multi-tenant migration
+ */
+app.post('/api/debug/backfill-merchant-id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const legacyMerchantId = 1; // The original single-tenant merchant
+
+        // Backfill items
+        const itemsResult = await db.query(`
+            UPDATE items SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill variations
+        const variationsResult = await db.query(`
+            UPDATE variations SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill locations
+        const locationsResult = await db.query(`
+            UPDATE locations SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill inventory_counts
+        const inventoryResult = await db.query(`
+            UPDATE inventory_counts SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill vendors
+        const vendorsResult = await db.query(`
+            UPDATE vendors SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill variation_vendors
+        const variationVendorsResult = await db.query(`
+            UPDATE variation_vendors SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill sales_velocity
+        const salesResult = await db.query(`
+            UPDATE sales_velocity SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        // Backfill categories
+        const categoriesResult = await db.query(`
+            UPDATE categories SET merchant_id = $1 WHERE merchant_id IS NULL
+        `, [legacyMerchantId]);
+
+        const results = {
+            items: itemsResult.rowCount,
+            variations: variationsResult.rowCount,
+            locations: locationsResult.rowCount,
+            inventory_counts: inventoryResult.rowCount,
+            vendors: vendorsResult.rowCount,
+            variation_vendors: variationVendorsResult.rowCount,
+            sales_velocity: salesResult.rowCount,
+            categories: categoriesResult.rowCount
+        };
+
+        logger.info('Backfilled NULL merchant_id records', results);
+
+        res.json({
+            success: true,
+            backfilled: results,
+            message: 'Backfilled NULL merchant_id records to legacy merchant'
+        });
+    } catch (error) {
+        logger.error('Backfill merchant_id error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/debug/expiry-status
  * Debug endpoint to check expiration sync status
  */
