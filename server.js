@@ -1014,17 +1014,27 @@ async function runSmartSync({ merchantId } = {}) {
     }
 
     // Check and sync catalog
+    // Force sync if merchant has 0 items (like we do for locations)
+    const itemCountResult = await db.query('SELECT COUNT(*) FROM items WHERE merchant_id = $1', [merchantId]);
+    const itemCount = parseInt(itemCountResult.rows[0].count);
     const catalogCheck = await isSyncNeeded('catalog', intervals.catalog, merchantId);
-    if (catalogCheck.needed) {
+
+    if (itemCount === 0 || catalogCheck.needed) {
         try {
-            logger.info('Syncing catalog');
+            if (itemCount === 0) {
+                logger.info('No items found for merchant - forcing catalog sync', { merchantId });
+            } else {
+                logger.info('Syncing catalog', { merchantId });
+            }
             const result = await loggedSync('catalog', async () => {
                 const stats = await squareApi.syncCatalog(merchantId);
+                logger.info('Catalog sync result', { merchantId, stats });
                 return stats.items + stats.variations;
             }, merchantId);
             synced.push('catalog');
             summary.catalog = result;
         } catch (error) {
+            logger.error('Catalog sync error', { merchantId, error: error.message, stack: error.stack });
             errors.push({ type: 'catalog', error: error.message });
         }
     } else {
@@ -1033,14 +1043,23 @@ async function runSmartSync({ merchantId } = {}) {
     }
 
     // Check and sync inventory
+    // Force sync if merchant has 0 inventory counts (like we do for locations/catalog)
+    const invCountResult = await db.query('SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1', [merchantId]);
+    const invCount = parseInt(invCountResult.rows[0].count);
     const inventoryCheck = await isSyncNeeded('inventory', intervals.inventory, merchantId);
-    if (inventoryCheck.needed) {
+
+    if (invCount === 0 || inventoryCheck.needed) {
         try {
-            logger.info('Syncing inventory');
+            if (invCount === 0) {
+                logger.info('No inventory counts found for merchant - forcing inventory sync', { merchantId });
+            } else {
+                logger.info('Syncing inventory', { merchantId });
+            }
             const result = await loggedSync('inventory', () => squareApi.syncInventory(merchantId), merchantId);
             synced.push('inventory');
             summary.inventory = result;
         } catch (error) {
+            logger.error('Inventory sync error', { merchantId, error: error.message });
             errors.push({ type: 'inventory', error: error.message });
         }
     } else {
@@ -3254,13 +3273,34 @@ app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, re
             ORDER BY id
         `);
 
+        // Check sync history for this merchant
+        const syncHistory = await db.query(`
+            SELECT sync_type, status, records_synced, completed_at, error_message
+            FROM sync_history
+            WHERE merchant_id = $1
+            ORDER BY completed_at DESC
+            LIMIT 20
+        `, [merchantId]);
+
+        // Check if merchant has a valid token
+        const tokenCheck = await db.query(`
+            SELECT
+                square_access_token IS NOT NULL as has_token,
+                square_token_expires_at,
+                square_token_expires_at > NOW() as token_valid
+            FROM merchants
+            WHERE id = $1
+        `, [merchantId]);
+
         res.json({
             currentMerchant: {
                 id: merchantId,
                 businessName: req.merchantContext.businessName,
                 squareMerchantId: req.merchantContext.squareMerchantId
             },
+            tokenStatus: tokenCheck.rows[0],
             dataCounts: counts.rows[0],
+            syncHistory: syncHistory.rows,
             userMerchants: userMerchants.rows,
             allMerchants: allMerchants.rows
         });
