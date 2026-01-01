@@ -23,6 +23,8 @@ const emailNotifier = require('./utils/email-notifier');
 const subscriptionHandler = require('./utils/subscription-handler');
 const { subscriptionCheck } = require('./middleware/subscription-check');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('./utils/csv-helpers');
+const { hashPassword, generateRandomPassword } = require('./utils/password');
+const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
 
 // Security middleware
@@ -143,7 +145,7 @@ if (!process.env.SESSION_SECRET) {
 const authEnabled = process.env.AUTH_DISABLED !== 'true';
 
 // Public pages that don't require authentication
-const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html'];
+const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html', '/set-password.html', '/subscription-expired.html'];
 
 if (authEnabled) {
     app.use((req, res, next) => {
@@ -202,7 +204,12 @@ if (authEnabled) {
             '/subscriptions/plans',
             '/subscriptions/create',
             '/subscriptions/status',
-            '/subscriptions/promo/validate'
+            '/subscriptions/promo/validate',
+            // Auth routes (login, password reset)
+            '/auth/login',
+            '/auth/forgot-password',
+            '/auth/reset-password',
+            '/auth/verify-reset-token'
         ];
 
         // Allow public routes without auth
@@ -7786,6 +7793,65 @@ app.post('/api/subscriptions/create', async (req, res) => {
             }
         }
 
+        // ==================== CREATE USER ACCOUNT ====================
+        // Create a user account so the subscriber can log in
+        let passwordSetupToken = null;
+        let userId = null;
+
+        try {
+            const normalizedEmail = email.toLowerCase().trim();
+
+            // Check if user already exists
+            const existingUser = await db.query(
+                'SELECT id FROM users WHERE email = $1',
+                [normalizedEmail]
+            );
+
+            if (existingUser.rows.length === 0) {
+                // Generate a random temporary password (user will reset via token)
+                const tempPassword = generateRandomPassword();
+                const passwordHash = await hashPassword(tempPassword);
+
+                // Create user account
+                const userResult = await db.query(`
+                    INSERT INTO users (email, password_hash, name, role)
+                    VALUES ($1, $2, $3, 'user')
+                    RETURNING id
+                `, [normalizedEmail, passwordHash, businessName || null]);
+
+                userId = userResult.rows[0].id;
+
+                // Generate password setup token
+                passwordSetupToken = crypto.randomBytes(32).toString('hex');
+                const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+                await db.query(`
+                    INSERT INTO password_reset_tokens (user_id, token, expires_at)
+                    VALUES ($1, $2, $3)
+                `, [userId, passwordSetupToken, tokenExpiry]);
+
+                // Link subscriber to user
+                await db.query(`
+                    UPDATE subscribers SET user_id = $1 WHERE id = $2
+                `, [userId, subscriber.id]);
+
+                logger.info('User account created for subscriber', {
+                    userId,
+                    subscriberId: subscriber.id,
+                    email: normalizedEmail
+                });
+            } else {
+                userId = existingUser.rows[0].id;
+                logger.info('User account already exists for subscriber', {
+                    userId,
+                    subscriberId: subscriber.id
+                });
+            }
+        } catch (userError) {
+            logger.error('Failed to create user account', { error: userError.message });
+            // Don't fail the subscription - they can use forgot password later
+        }
+
         logger.info('Subscription created', {
             subscriberId: subscriber.id,
             email: subscriber.email,
@@ -7805,7 +7871,10 @@ app.post('/api/subscriptions/create', async (req, res) => {
             payment: paymentResult ? {
                 status: paymentResult.status,
                 receiptUrl: paymentResult.receipt_url
-            } : null
+            } : null,
+            // Include password setup token for new users
+            passwordSetupToken: passwordSetupToken,
+            passwordSetupUrl: passwordSetupToken ? `/set-password.html?token=${passwordSetupToken}` : null
         });
 
     } catch (error) {

@@ -595,6 +595,18 @@ async function ensureSchema() {
             logger.info('Added promo code columns to subscribers');
             appliedCount++;
         }
+
+        // Add user_id column to subscribers if missing (links subscription to user account)
+        const userIdColCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'subscribers' AND column_name = 'user_id'
+        `);
+        if (userIdColCheck.rows.length === 0) {
+            await query('ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_subscribers_user ON subscribers(user_id)');
+            logger.info('Added user_id column to subscribers');
+            appliedCount++;
+        }
     }
 
     // ==================== PROMO CODES TABLES ====================
@@ -904,8 +916,47 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_event ON auth_audit_log(event_type)');
         await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON auth_audit_log(created_at DESC)');
 
+        // 4. Password reset tokens table
+        await query(`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token TEXT NOT NULL UNIQUE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token)');
+        await query('CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at)');
+
         logger.info('Created user authentication tables with indexes');
         appliedCount++;
+    } else {
+        // Check if password_reset_tokens table exists (may need to add to existing installs)
+        const resetTokensCheck = await query(`
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'password_reset_tokens'
+        `);
+
+        if (resetTokensCheck.rows.length === 0) {
+            await query(`
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token TEXT NOT NULL UNIQUE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token)');
+            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at)');
+            logger.info('Created password_reset_tokens table');
+            appliedCount++;
+        }
     }
 
     // ==================== WEBHOOK EVENTS TABLE ====================

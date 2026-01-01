@@ -669,4 +669,229 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, async (req, res) => 
     }
 });
 
+// ==================== PASSWORD RESET (PUBLIC) ====================
+
+/**
+ * POST /api/auth/forgot-password
+ * Request a password reset email/token
+ */
+router.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    const ipAddress = getClientIp(req);
+
+    try {
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                error: 'Email is required'
+            });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Find user by email
+        const userResult = await db.query(
+            'SELECT id, email FROM users WHERE email = $1',
+            [normalizedEmail]
+        );
+
+        // Always return success to prevent email enumeration
+        if (userResult.rows.length === 0) {
+            logger.info('Password reset requested for non-existent email', { email: normalizedEmail, ipAddress });
+            return res.json({
+                success: true,
+                message: 'If an account exists with this email, you will receive a password reset link.'
+            });
+        }
+
+        const user = userResult.rows[0];
+
+        // Generate reset token
+        const crypto = require('crypto');
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        // Delete any existing tokens for this user
+        await db.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.id]);
+
+        // Insert new token
+        await db.query(`
+            INSERT INTO password_reset_tokens (user_id, token, expires_at)
+            VALUES ($1, $2, $3)
+        `, [user.id, resetToken, tokenExpiry]);
+
+        // Log the event
+        await logAuthEvent(db, {
+            userId: user.id,
+            email: user.email,
+            eventType: 'password_reset_requested',
+            ipAddress,
+            details: { token_expires: tokenExpiry.toISOString() }
+        });
+
+        logger.info('Password reset token generated', {
+            userId: user.id,
+            email: user.email,
+            expiresAt: tokenExpiry.toISOString()
+        });
+
+        // In production, you'd send an email here
+        // For now, we'll return the token in the response (development mode)
+        const isDev = process.env.NODE_ENV !== 'production';
+
+        res.json({
+            success: true,
+            message: 'If an account exists with this email, you will receive a password reset link.',
+            // Only include token in development for testing
+            ...(isDev && { resetToken, resetUrl: `/set-password.html?token=${resetToken}` })
+        });
+
+    } catch (error) {
+        logger.error('Forgot password error', { error: error.message });
+        res.status(500).json({
+            success: false,
+            error: 'Failed to process password reset request'
+        });
+    }
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Reset password using a valid token
+ */
+router.post('/reset-password', async (req, res) => {
+    const { token, newPassword } = req.body;
+    const ipAddress = getClientIp(req);
+    const userAgent = req.headers['user-agent'];
+
+    try {
+        if (!token || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: 'Token and new password are required'
+            });
+        }
+
+        // Validate password
+        const validation = validatePassword(newPassword);
+        if (!validation.valid) {
+            return res.status(400).json({
+                success: false,
+                error: validation.errors.join('. ')
+            });
+        }
+
+        // Find valid token
+        const tokenResult = await db.query(`
+            SELECT prt.*, u.email
+            FROM password_reset_tokens prt
+            JOIN users u ON u.id = prt.user_id
+            WHERE prt.token = $1
+              AND prt.expires_at > NOW()
+              AND prt.used_at IS NULL
+        `, [token]);
+
+        if (tokenResult.rows.length === 0) {
+            logger.warn('Invalid or expired password reset token', { token: token.substring(0, 10) + '...', ipAddress });
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid or expired reset token. Please request a new password reset.'
+            });
+        }
+
+        const resetRecord = tokenResult.rows[0];
+        const userId = resetRecord.user_id;
+
+        // Hash new password and update user
+        const passwordHash = await hashPassword(newPassword);
+        await db.query(`
+            UPDATE users SET
+                password_hash = $1,
+                failed_login_attempts = 0,
+                locked_until = NULL,
+                password_changed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $2
+        `, [passwordHash, userId]);
+
+        // Mark token as used
+        await db.query(`
+            UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1
+        `, [resetRecord.id]);
+
+        // Log the event
+        await logAuthEvent(db, {
+            userId,
+            email: resetRecord.email,
+            eventType: 'password_reset_completed',
+            ipAddress,
+            userAgent
+        });
+
+        logger.info('Password reset completed', { userId, email: resetRecord.email });
+
+        res.json({
+            success: true,
+            message: 'Password has been reset successfully. You can now log in with your new password.'
+        });
+
+    } catch (error) {
+        logger.error('Reset password error', { error: error.message });
+        res.status(500).json({
+            success: false,
+            error: 'Failed to reset password'
+        });
+    }
+});
+
+/**
+ * GET /api/auth/verify-reset-token
+ * Check if a reset token is valid
+ */
+router.get('/verify-reset-token', async (req, res) => {
+    const { token } = req.query;
+
+    try {
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                valid: false,
+                error: 'Token is required'
+            });
+        }
+
+        const tokenResult = await db.query(`
+            SELECT prt.id, prt.expires_at, u.email
+            FROM password_reset_tokens prt
+            JOIN users u ON u.id = prt.user_id
+            WHERE prt.token = $1
+              AND prt.expires_at > NOW()
+              AND prt.used_at IS NULL
+        `, [token]);
+
+        if (tokenResult.rows.length === 0) {
+            return res.json({
+                success: true,
+                valid: false,
+                message: 'Invalid or expired token'
+            });
+        }
+
+        res.json({
+            success: true,
+            valid: true,
+            email: tokenResult.rows[0].email,
+            expiresAt: tokenResult.rows[0].expires_at
+        });
+
+    } catch (error) {
+        logger.error('Verify reset token error', { error: error.message });
+        res.status(500).json({
+            success: false,
+            valid: false,
+            error: 'Failed to verify token'
+        });
+    }
+});
+
 module.exports = router;
