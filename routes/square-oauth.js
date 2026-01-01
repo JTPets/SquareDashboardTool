@@ -255,13 +255,22 @@ router.get('/callback', async (req, res) => {
     } catch (error) {
         logger.error('OAuth callback error:', error);
 
+        // Build detailed error message
+        let errorMessage = 'Failed to connect Square account.';
+        let errorDetail = error.message || 'Unknown error';
+
         // Handle specific Square API errors
         if (error.result && error.result.errors) {
             const squareError = error.result.errors[0];
             logger.error('Square API error:', squareError);
+            errorDetail = squareError.detail || squareError.code || errorDetail;
         }
 
-        res.redirect('/dashboard.html?error=' + encodeURIComponent('Failed to connect Square account. Please try again.'));
+        // In development, show more details
+        const isDev = process.env.NODE_ENV !== 'production';
+        const fullError = isDev ? ` (${errorDetail})` : ' Please try again.';
+
+        res.redirect('/dashboard.html?error=' + encodeURIComponent(errorMessage + fullError));
     }
 });
 
