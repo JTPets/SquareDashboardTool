@@ -26,6 +26,7 @@ const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM }
 const { hashPassword, generateRandomPassword } = require('./utils/password');
 const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
+const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
@@ -3451,6 +3452,62 @@ app.post('/api/debug/backfill-merchant-id', requireAuth, requireMerchant, async 
         });
     } catch (error) {
         logger.error('Backfill merchant_id error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/debug/migrate-legacy-token
+ * Migrate legacy unencrypted token to encrypted format
+ * This fixes the "Invalid encrypted token format" error for legacy merchants
+ */
+app.post('/api/debug/migrate-legacy-token', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Get current token
+        const result = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Merchant not found' });
+        }
+
+        const currentToken = result.rows[0].square_access_token;
+
+        if (!currentToken) {
+            return res.status(400).json({ error: 'No token found for this merchant' });
+        }
+
+        // Check if already encrypted
+        if (isEncryptedToken(currentToken)) {
+            return res.json({
+                success: true,
+                message: 'Token is already encrypted',
+                migrated: false
+            });
+        }
+
+        // Encrypt the token
+        const encryptedToken = encryptToken(currentToken);
+
+        // Update the database
+        await db.query(
+            'UPDATE merchants SET square_access_token = $1 WHERE id = $2',
+            [encryptedToken, merchantId]
+        );
+
+        logger.info('Migrated legacy token to encrypted format', { merchantId });
+
+        res.json({
+            success: true,
+            message: 'Token migrated to encrypted format successfully',
+            migrated: true
+        });
+    } catch (error) {
+        logger.error('Migrate legacy token error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
