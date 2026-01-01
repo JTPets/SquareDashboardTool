@@ -1,15 +1,29 @@
 # Multi-User Account Isolation Plan
 ## Square App Marketplace Readiness
 
-**Document Version:** 1.0
+**Document Version:** 2.0
 **Created:** December 28, 2025
-**Status:** Planning Phase
+**Last Updated:** January 1, 2026
+**Status:** Implementation Ready - Trial Launch Target: January 2026
 
 ---
 
 ## Executive Summary
 
 This document outlines the comprehensive plan to transform the Square Dashboard Tool from a single-tenant application into a multi-tenant SaaS solution ready for the Square App Marketplace. The current architecture uses a single Square access token for all users, meaning all data is shared. The goal is to enable complete account isolation where each Square merchant has their own isolated data environment.
+
+### Progress Summary
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| User Authentication | ✅ COMPLETE | Login, logout, roles, audit logging |
+| Session Management | ✅ COMPLETE | PostgreSQL-backed sessions |
+| Landing Page | ✅ COMPLETE | Public marketing page separated from dashboard |
+| Dashboard Restructure | ✅ COMPLETE | User homepage at /dashboard.html |
+| Database Multi-Tenant Schema | ⏳ NOT STARTED | Critical path - Phase 1 |
+| Square OAuth | ⏳ NOT STARTED | Critical path - Phase 2 |
+| API Layer Updates | ⏳ NOT STARTED | 111 endpoints need merchant filtering |
+| Merchant Management UI | ⏳ NOT STARTED | Frontend work - Phase 4 |
 
 ---
 
@@ -26,6 +40,9 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 9. [Migration Strategy](#9-migration-strategy)
 10. [Testing Strategy](#10-testing-strategy)
 11. [Implementation Checklist](#11-implementation-checklist)
+12. [Error-Prone Areas & Safeguards](#12-error-prone-areas--safeguards)
+13. [Pre-Flight Checklists](#13-pre-flight-checklists)
+14. [Trial Launch Readiness](#14-trial-launch-readiness)
 
 ---
 
@@ -33,15 +50,41 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 
 ### 1.1 Architecture Overview
 
-| Component | Current State | Issue |
-|-----------|--------------|-------|
-| Square Auth | Single `SQUARE_ACCESS_TOKEN` in .env | All users share one merchant account |
-| Database | 25+ tables with no tenant isolation | All data accessible by all users |
-| API Layer | 124 endpoints with no merchant filtering | No data segregation |
-| User Model | Users exist but aren't linked to merchants | No ownership concept |
-| Sessions | Works correctly | No changes needed |
+| Component | Current State | Status | Action Required |
+|-----------|--------------|--------|-----------------|
+| User Authentication | Full auth system with login, roles, audit | ✅ DONE | None |
+| Session Management | PostgreSQL-backed with connect-pg-simple | ✅ DONE | None |
+| Landing Page | Public marketing page at / | ✅ DONE | None |
+| Dashboard | User homepage at /dashboard.html | ✅ DONE | Add merchant context |
+| Square Auth | Single `SQUARE_ACCESS_TOKEN` in .env | ⏳ TODO | OAuth per merchant |
+| Database | 25+ tables with no tenant isolation | ⏳ TODO | Add merchant_id everywhere |
+| API Layer | 111 endpoints with no merchant filtering | ⏳ TODO | Add merchant filtering |
+| User-Merchant Link | Users exist but aren't linked to merchants | ⏳ TODO | Create user_merchants table |
 
-### 1.2 Critical Files
+### 1.2 What's Already Working
+
+These components are **production-ready** and require no changes:
+
+#### Authentication System (`middleware/auth.js`, `routes/auth.js`)
+- ✅ Session-based authentication with PostgreSQL storage
+- ✅ Role-based access control (admin, user, readonly)
+- ✅ Account lockout after 5 failed attempts (30 min)
+- ✅ Audit logging to `auth_audit_log` table
+- ✅ Password strength validation
+- ✅ Secure session cookies (httpOnly, sameSite)
+
+#### User Management
+- ✅ Admin can create/update/delete users
+- ✅ Password reset functionality
+- ✅ Account unlock capability
+
+#### Frontend Structure
+- ✅ Public landing page (`/index.html`) - marketing content
+- ✅ Login page (`/login.html`) - redirects to dashboard after auth
+- ✅ Dashboard (`/dashboard.html`) - authenticated user homepage
+- ✅ All 18 tool pages updated with navigation to dashboard
+
+### 1.3 Critical Files
 
 | File | Lines | Purpose | Impact Level |
 |------|-------|---------|--------------|
@@ -52,7 +95,7 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | `routes/auth.js` | ~300 | Auth endpoints | **HIGH** - User-merchant linking |
 | All 21 HTML files | ~15,000 | Frontend pages | **MEDIUM** - Merchant context |
 
-### 1.3 Data Tables Requiring Isolation
+### 1.4 Data Tables Requiring Isolation
 
 All 25+ tables need `merchant_id` column:
 
@@ -1328,69 +1371,270 @@ const testMerchants = [
 
 ## 11. Implementation Checklist
 
-### Phase 1: Database (Week 1-2)
-- [ ] Create database migration file
-- [ ] Add merchants table
-- [ ] Add user_merchants table
-- [ ] Add merchant_id to all existing tables
-- [ ] Create indexes
-- [ ] Write migration script
-- [ ] Test migration in staging
+### Phase 1: Database Schema (BLOCKING - Do First)
 
-### Phase 2: OAuth (Week 2-3)
-- [ ] Register app with Square Developer
-- [ ] Implement OAuth connect route
-- [ ] Implement OAuth callback
-- [ ] Implement token encryption
-- [ ] Implement token refresh
-- [ ] Store tokens in database
-- [ ] Test OAuth flow
+**Prerequisites:**
+- [ ] Production database backup created and verified
+- [ ] Staging environment has recent data copy
+- [ ] Maintenance window communicated
 
-### Phase 3: API Layer (Week 3-5)
-- [ ] Create merchant middleware
-- [ ] Create MerchantDB wrapper
-- [ ] Update auth middleware
-- [ ] Update all 124 API endpoints
-- [ ] Update Square API utils
-- [ ] Update webhook handler
-- [ ] Update sync operations
+**Migration File Creation:**
+- [ ] Create `database/migrations/005_multi_tenant.sql`
+- [ ] Create `database/migrations/005_multi_tenant_rollback.sql`
 
-### Phase 4: Frontend (Week 5-6)
-- [ ] Create merchant selector component
-- [ ] Create merchant management page
-- [ ] Update all pages with merchant context
-- [ ] Add "Connect Square" flow
-- [ ] Add merchant switching
+**New Tables:**
+- [ ] `merchants` table with all columns (see Section 3.1)
+- [ ] `user_merchants` table for user-merchant relationships
+- [ ] `merchant_invitations` table for team invites
+- [ ] `oauth_states` table for OAuth security
 
-### Phase 5: Security (Week 6-7)
-- [ ] Implement token encryption
-- [ ] Add audit logging
-- [ ] Write isolation tests
-- [ ] Security review
-- [ ] Penetration testing
+**Schema Modifications (each table):**
+- [ ] `locations` - add merchant_id + index
+- [ ] `categories` - add merchant_id + index
+- [ ] `items` - add merchant_id + index + composite index
+- [ ] `variations` - add merchant_id + index + composite index
+- [ ] `images` - add merchant_id + index
+- [ ] `inventory_counts` - add merchant_id + index + composite index
+- [ ] `vendors` - add merchant_id + index
+- [ ] `variation_vendors` - add merchant_id + index
+- [ ] `vendor_catalog_items` - add merchant_id + index
+- [ ] `purchase_orders` - add merchant_id + index + composite index
+- [ ] `purchase_order_items` - add merchant_id + index
+- [ ] `sales_velocity` - add merchant_id + index + composite index
+- [ ] `variation_location_settings` - add merchant_id + index
+- [ ] `count_history` - add merchant_id + index
+- [ ] `count_queue_priority` - add merchant_id + index
+- [ ] `count_queue_daily` - add merchant_id + index
+- [ ] `count_sessions` - add merchant_id + index
+- [ ] `variation_expiration` - add merchant_id + index
+- [ ] `expiry_discount_tiers` - add merchant_id + index
+- [ ] `variation_discount_status` - add merchant_id + index
+- [ ] `expiry_discount_audit_log` - add merchant_id + index
+- [ ] `expiry_discount_settings` - add merchant_id + index
+- [ ] `brands` - add merchant_id + index
+- [ ] `category_taxonomy_mapping` - add merchant_id + index
+- [ ] `item_brands` - add merchant_id + index
+- [ ] `gmc_settings` - add merchant_id + index
+- [ ] `gmc_feed_history` - add merchant_id + index
+- [ ] `sync_history` - add merchant_id + index
 
-### Phase 6: Marketplace (Week 7-8)
-- [ ] Complete Square app registration
-- [ ] Submit for review
-- [ ] Address review feedback
-- [ ] Prepare launch materials
+**Data Migration:**
+- [ ] Create legacy merchant record for existing data
+- [ ] Backfill merchant_id on ALL tables (verify 0 NULLs)
+- [ ] Add NOT NULL constraints AFTER backfill
+- [ ] Link existing users to legacy merchant
+
+**Validation:**
+- [ ] Run validation query (all merchant_id NOT NULL)
+- [ ] Test rollback script works
+- [ ] Verify foreign key constraints
+
+### Phase 2: Token Security & OAuth
+
+**Environment Setup:**
+- [ ] Generate TOKEN_ENCRYPTION_KEY: `openssl rand -hex 32`
+- [ ] Store key in password manager
+- [ ] Add key to production .env
+- [ ] Add SQUARE_APPLICATION_SECRET to .env
+
+**Token Encryption (`utils/token-encryption.js`):**
+- [ ] Create file with encryptToken() function
+- [ ] Create file with decryptToken() function
+- [ ] Test encryption roundtrip
+- [ ] Test with actual Square token format
+
+**Square Developer Dashboard:**
+- [ ] OAuth application created
+- [ ] Redirect URI configured
+- [ ] Scopes selected (MERCHANT_PROFILE_READ, ITEMS_READ/WRITE, INVENTORY_READ/WRITE, ORDERS_READ)
+- [ ] Sandbox credentials noted for testing
+
+**OAuth Routes (`routes/square-oauth.js`):**
+- [ ] GET /connect - Initiate OAuth, generate state
+- [ ] GET /callback - Handle callback, exchange code for tokens
+- [ ] POST /revoke - Disconnect merchant account
+- [ ] Token refresh helper function
+- [ ] Error handling for all failure scenarios
+
+**Integration:**
+- [ ] Register routes in server.js
+- [ ] Test OAuth flow in sandbox
+- [ ] Test with production Square account
+- [ ] Verify tokens stored encrypted
+
+### Phase 3: Merchant Context Middleware
+
+**Middleware (`middleware/merchant.js`):**
+- [ ] loadMerchantContext() - Load from session
+- [ ] requireMerchant() - Enforce merchant exists
+- [ ] getSquareClientForMerchant() - Get authenticated client
+- [ ] Handle token refresh automatically
+- [ ] Handle revoked tokens gracefully
+
+**Database Wrapper (`utils/merchant-db.js`):**
+- [ ] MerchantDB class constructor with merchantId
+- [ ] query() method with $merchant_id placeholder
+- [ ] insert() method with automatic merchant_id
+- [ ] update() method with merchant_id filter
+- [ ] delete() method with merchant_id filter
+- [ ] Unit tests for all methods
+
+**Registration:**
+- [ ] Add middleware to server.js (after auth, before routes)
+- [ ] Test with mock requests
+- [ ] Verify session contains merchant context
+
+### Phase 4: API Endpoint Updates (111 endpoints)
+
+**Priority Group 1 - Dashboard Critical:**
+- [ ] GET /api/sync/status
+- [ ] GET /api/locations
+- [ ] POST /api/sync/full
+- [ ] GET /api/settings
+
+**Priority Group 2 - Catalog:**
+- [ ] GET /api/catalog
+- [ ] GET /api/items
+- [ ] GET /api/items/:id
+- [ ] GET /api/variations
+- [ ] GET /api/categories
+
+**Priority Group 3 - Inventory:**
+- [ ] GET /api/inventory
+- [ ] POST /api/inventory/update
+- [ ] GET /api/inventory/counts
+
+**Priority Group 4 - Features:**
+- [ ] All vendor endpoints (11)
+- [ ] All purchase order endpoints (9)
+- [ ] All expiry endpoints (14)
+- [ ] All GMC endpoints (20)
+- [ ] All cycle count endpoints (8)
+
+**For EACH endpoint:**
+- [ ] Add requireMerchant middleware
+- [ ] Use MerchantDB or add merchant_id to queries
+- [ ] Test with Merchant A context
+- [ ] Test with Merchant B context
+- [ ] Verify cross-merchant access blocked
+
+### Phase 5: Frontend Updates
+
+**Dashboard Updates (`dashboard.html`):**
+- [ ] Add merchant name to header
+- [ ] Add "Connect Square" button (if no merchant)
+- [ ] Show "Connected to: [Business Name]"
+- [ ] Handle no-merchant state gracefully
+
+**New Page (`merchants.html`):**
+- [ ] List connected Square accounts
+- [ ] Show connection status for each
+- [ ] Allow disconnect
+- [ ] Link to connect new account
+
+**All Authenticated Pages:**
+- [ ] Add shared merchant header component
+- [ ] Show active merchant name
+- [ ] Handle API 403 (no merchant) errors
+
+### Phase 6: Testing & Security
+
+**Data Isolation Tests:**
+- [ ] Create test: User A can't see User B's items
+- [ ] Create test: User A can't update User B's data
+- [ ] Create test: URL manipulation blocked
+- [ ] Create test: Bulk operations validate ownership
+
+**OAuth Flow Tests:**
+- [ ] Test: Fresh OAuth connection
+- [ ] Test: Token refresh before expiry
+- [ ] Test: Token refresh after expiry
+- [ ] Test: Revoked token handling
+- [ ] Test: OAuth cancellation by user
+
+**Security Review:**
+- [ ] No tokens in logs
+- [ ] No tokens in error messages
+- [ ] All queries use merchant_id
+- [ ] HTTPS enforced
+- [ ] Session security verified
+
+### Phase 7: Trial Launch Prep
+
+**Final Checklist:**
+- [ ] All Phase 1-6 items complete
+- [ ] Production environment variables set
+- [ ] Database migration run in production
+- [ ] OAuth works in production
+- [ ] Test users can complete onboarding
+
+**Monitoring:**
+- [ ] Error tracking active
+- [ ] Database performance baseline established
+- [ ] Alerts configured for critical errors
+
+**Documentation:**
+- [ ] User onboarding guide created
+- [ ] Support email ready
+- [ ] Known limitations documented
 
 ---
 
-## Appendix A: Affected Files Summary
+## Appendix A: File Creation & Modification Summary
 
-| File | Changes Required | Effort |
-|------|-----------------|--------|
-| `server.js` | Add merchant filtering to 100+ endpoints | High |
-| `utils/square-api.js` | Accept merchant context, per-merchant tokens | High |
-| `utils/database.js` | Add MerchantDB class | Medium |
-| `middleware/auth.js` | Load merchant context | Medium |
-| `middleware/merchant.js` | New file | Medium |
-| `routes/auth.js` | User-merchant linking | Medium |
-| `routes/square-oauth.js` | New file | High |
-| `utils/token-encryption.js` | New file | Low |
-| `database/migrations/005_multi_tenant.sql` | New file | High |
-| All 21 HTML files | Merchant selector, context | Medium |
+### New Files to Create (in order)
+
+| # | File | Purpose | Lines Est. | Blocking |
+|---|------|---------|------------|----------|
+| 1 | `database/migrations/005_multi_tenant.sql` | Schema migration | ~300 | Phase 1 |
+| 2 | `database/migrations/005_multi_tenant_rollback.sql` | Rollback script | ~50 | Phase 1 |
+| 3 | `utils/token-encryption.js` | Token encrypt/decrypt | ~50 | Phase 2 |
+| 4 | `routes/square-oauth.js` | OAuth endpoints | ~200 | Phase 2 |
+| 5 | `middleware/merchant.js` | Merchant context | ~150 | Phase 3 |
+| 6 | `utils/merchant-db.js` | DB wrapper | ~200 | Phase 3 |
+| 7 | `public/merchants.html` | Merchant management | ~400 | Phase 5 |
+
+### Existing Files to Modify
+
+| File | Changes | Impact | Phase |
+|------|---------|--------|-------|
+| `server.js` | Add 111 merchant_id filters | Critical | 3-4 |
+| `server.js` | Register OAuth routes | Medium | 2 |
+| `server.js` | Register merchant middleware | Medium | 3 |
+| `middleware/auth.js` | Call loadMerchantContext | Low | 3 |
+| `routes/auth.js` | Link user to merchant on login | Medium | 3 |
+| `public/dashboard.html` | Merchant name, connect button | Low | 5 |
+| `public/*.html` (18 files) | Handle no-merchant state | Low | 5 |
+| `.env.example` | Add new env vars | Low | 2 |
+
+### SQL Tables to Create
+
+| Table | Purpose | Foreign Keys |
+|-------|---------|--------------|
+| `merchants` | Tenant storage, tokens | None |
+| `user_merchants` | User-tenant link | users, merchants |
+| `merchant_invitations` | Team invites | merchants, users |
+| `oauth_states` | OAuth security | users |
+
+### Columns to Add (27 tables)
+
+All tables below need: `merchant_id INTEGER REFERENCES merchants(id)` + index
+
+**Catalog (6):** locations, categories, items, variations, images, inventory_counts
+
+**Vendors (3):** vendors, variation_vendors, vendor_catalog_items
+
+**Purchase Orders (2):** purchase_orders, purchase_order_items
+
+**Sales (2):** sales_velocity, variation_location_settings
+
+**Cycle Count (4):** count_history, count_queue_priority, count_queue_daily, count_sessions
+
+**Expiry (5):** variation_expiration, expiry_discount_tiers, variation_discount_status, expiry_discount_audit_log, expiry_discount_settings
+
+**GMC (5):** brands, category_taxonomy_mapping, item_brands, gmc_settings, gmc_feed_history
+
+**System (1):** sync_history
 
 ---
 
@@ -1430,6 +1674,599 @@ LEGACY_SINGLE_TENANT_MODE=false
 - All endpoints now require merchant context
 - All queries filter by merchant_id
 - All creates/updates set merchant_id
+
+---
+
+## 12. Error-Prone Areas & Safeguards
+
+### 12.1 Critical Failure Points
+
+#### ⚠️ DATABASE MIGRATION FAILURES
+
+**Risk:** Migration fails midway, leaving database in inconsistent state.
+
+**Safeguards:**
+1. **ALWAYS run in a transaction** - The entire migration wrapped in `BEGIN;` / `COMMIT;`
+2. **Test on a copy first** - Create database backup before running on production
+3. **Run migration during low-traffic hours**
+4. **Have rollback script ready and tested**
+
+**Pre-migration checklist:**
+```bash
+# Create backup BEFORE migration
+pg_dump -U $DB_USER -h $DB_HOST $DB_NAME > backup_pre_migration_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup is valid
+psql -U $DB_USER -h $DB_HOST -d template1 -c "SELECT pg_size_pretty(pg_database_size('$DB_NAME'));"
+```
+
+#### ⚠️ MERCHANT_ID NOT NULL CONSTRAINT FAILURE
+
+**Risk:** Adding `NOT NULL` constraint before backfilling merchant_id causes immediate failure.
+
+**Correct Order:**
+1. Add column **WITHOUT** NOT NULL
+2. Backfill ALL existing data with default merchant_id
+3. VERIFY count matches: `SELECT COUNT(*) FROM table WHERE merchant_id IS NULL` should = 0
+4. THEN add NOT NULL constraint
+
+**Safeguard Query:**
+```sql
+-- Run BEFORE adding NOT NULL - must return 0 for all tables
+SELECT 'items' as table_name, COUNT(*) as null_count FROM items WHERE merchant_id IS NULL
+UNION ALL
+SELECT 'variations', COUNT(*) FROM variations WHERE merchant_id IS NULL
+UNION ALL
+SELECT 'categories', COUNT(*) FROM categories WHERE merchant_id IS NULL
+-- ... repeat for all 25+ tables
+;
+```
+
+#### ⚠️ FOREIGN KEY CONSTRAINT FAILURES
+
+**Risk:** Creating merchant_id foreign key on existing data fails if merchants table doesn't have the referenced ID.
+
+**Correct Order:**
+1. Create merchants table FIRST
+2. Insert the "legacy" merchant record and note its ID
+3. THEN add merchant_id columns to other tables
+4. Backfill using the correct legacy merchant ID
+5. THEN add foreign key constraints
+
+**Safeguard:** Always use the RETURNING clause to capture the merchant ID:
+```sql
+INSERT INTO merchants (...) VALUES (...) RETURNING id;
+-- Use that exact ID in all UPDATE statements
+```
+
+#### ⚠️ TOKEN ENCRYPTION KEY ISSUES
+
+**Risk:** Losing or changing encryption key makes all stored tokens unreadable.
+
+**Safeguards:**
+1. **Generate key properly:**
+   ```bash
+   # Generate 32-byte (256-bit) key as hex
+   openssl rand -hex 32
+   ```
+2. **Store key in MULTIPLE secure locations:**
+   - Production .env file
+   - Password manager (1Password, LastPass, etc.)
+   - Secure offline backup
+3. **NEVER commit key to git**
+4. **NEVER change key after tokens are encrypted** - requires re-encryption of all tokens
+
+#### ⚠️ OAUTH STATE PARAMETER ISSUES
+
+**Risk:** State validation fails, leaving users unable to complete OAuth flow.
+
+**Common Causes:**
+1. State expires before user completes Square authorization (10 min default)
+2. User opens multiple OAuth tabs, invalidating earlier states
+3. State stored in session that expires before callback
+
+**Safeguards:**
+1. Set reasonable expiry (10-15 minutes)
+2. Clear error messaging: "Your connection request expired. Please try again."
+3. Log state validation failures for debugging
+4. Allow state re-use within expiry window (don't mark used until success)
+
+#### ⚠️ MISSING MERCHANT CONTEXT ON API CALLS
+
+**Risk:** API returns 403 "No merchant connected" when user expects data.
+
+**Safeguards:**
+1. Dashboard should check merchant connection on load
+2. Show clear CTA: "Connect your Square account to get started"
+3. After OAuth success, redirect to meaningful page (not blank dashboard)
+4. Include merchant name in UI header so users know which account is active
+
+### 12.2 Data Isolation Failure Scenarios
+
+#### SCENARIO: Cross-Merchant Data Leak via Direct URL
+
+**Attack:** User A copies URL with item_id from their dashboard, shares with User B. User B accesses the URL.
+
+**Defense:** ALL endpoints must verify `merchant_id` matches before returning data:
+```javascript
+// WRONG - only checks if item exists
+const item = await db.query('SELECT * FROM items WHERE id = $1', [itemId]);
+
+// RIGHT - checks item belongs to merchant
+const item = await db.query(
+    'SELECT * FROM items WHERE id = $1 AND merchant_id = $2',
+    [itemId, req.merchantContext.id]
+);
+```
+
+#### SCENARIO: Bulk Update Hits Wrong Merchant's Data
+
+**Attack:** Malformed request body contains IDs from different merchant.
+
+**Defense:** All bulk operations must validate each ID belongs to current merchant:
+```javascript
+// Validate ALL IDs before any updates
+const validIds = await db.query(
+    'SELECT id FROM items WHERE id = ANY($1) AND merchant_id = $2',
+    [requestedIds, merchantId]
+);
+
+if (validIds.rows.length !== requestedIds.length) {
+    return res.status(403).json({ error: 'Access denied to one or more items' });
+}
+```
+
+#### SCENARIO: Webhook Processes Data for Wrong Merchant
+
+**Attack:** Malicious webhook payload contains different merchant_id.
+
+**Defense:** ALWAYS look up merchant by Square's merchant_id from webhook, never trust request body:
+```javascript
+// Extract merchant from webhook payload's merchant_id field
+const squareMerchantId = req.body.merchant_id;
+const merchant = await db.query(
+    'SELECT id FROM merchants WHERE square_merchant_id = $1',
+    [squareMerchantId]
+);
+// Use merchant.id for all operations
+```
+
+### 12.3 Token Security Failure Scenarios
+
+#### SCENARIO: Token Refresh Race Condition
+
+**Risk:** Two requests try to refresh token simultaneously, one fails with invalid refresh token.
+
+**Defense:** Implement token refresh locking:
+```javascript
+// Use database advisory lock or Redis lock
+const lockKey = `token_refresh_${merchantId}`;
+if (await acquireLock(lockKey, 30000)) {
+    try {
+        // Check if token was already refreshed by another request
+        const merchant = await getMerchant(merchantId);
+        if (new Date(merchant.token_expires_at) > new Date(Date.now() + 60000)) {
+            // Token was refreshed by another request, use it
+            return decryptToken(merchant.square_access_token);
+        }
+        // Proceed with refresh
+        await refreshToken(merchantId);
+    } finally {
+        await releaseLock(lockKey);
+    }
+}
+```
+
+#### SCENARIO: Revoked Token Not Detected
+
+**Risk:** Square revokes access but app continues trying to use token.
+
+**Defense:**
+1. Handle 401 responses from Square API gracefully
+2. Mark merchant as needing re-authorization
+3. Show user-friendly message: "Please reconnect your Square account"
+4. Process `oauth.authorization.revoked` webhooks
+
+---
+
+## 13. Pre-Flight Checklists
+
+### 13.1 Before Starting Phase 1 (Database)
+
+```markdown
+## Database Migration Pre-Flight
+
+### Environment
+- [ ] Database backup completed and verified
+- [ ] Backup file size matches expected (~X MB)
+- [ ] Test restore of backup works on staging
+- [ ] Database connection pooling configured (max connections)
+- [ ] Maintenance window scheduled with team
+
+### Code Ready
+- [ ] Migration file created: `database/migrations/005_multi_tenant.sql`
+- [ ] Rollback file created: `database/migrations/005_multi_tenant_rollback.sql`
+- [ ] Tested migration on local database copy
+- [ ] Tested rollback on local database copy
+
+### Validation Queries Ready
+- [ ] Query to verify all tables have merchant_id
+- [ ] Query to verify no NULL merchant_ids remain
+- [ ] Query to verify foreign key constraints are valid
+- [ ] Query to count records per table before/after
+
+### Go/No-Go
+- [ ] Team notified of maintenance window
+- [ ] Rollback trigger defined (what failure = rollback?)
+- [ ] On-call person identified for issues
+```
+
+### 13.2 Before Starting Phase 2 (OAuth)
+
+```markdown
+## OAuth Implementation Pre-Flight
+
+### Square Developer Setup
+- [ ] Square Developer account active
+- [ ] OAuth application created at https://developer.squareup.com/apps
+- [ ] Application ID saved to .env
+- [ ] Application Secret saved to .env (NEVER commit)
+- [ ] OAuth Redirect URI configured in Square dashboard
+- [ ] OAuth Redirect URI matches .env exactly
+- [ ] Required scopes selected:
+    - [ ] MERCHANT_PROFILE_READ
+    - [ ] ITEMS_READ
+    - [ ] ITEMS_WRITE
+    - [ ] INVENTORY_READ
+    - [ ] INVENTORY_WRITE
+    - [ ] ORDERS_READ
+
+### Token Security
+- [ ] TOKEN_ENCRYPTION_KEY generated: `openssl rand -hex 32`
+- [ ] Key backed up in secure location (not git)
+- [ ] Key added to production .env
+- [ ] Encryption/decryption tested locally
+
+### Code Ready
+- [ ] `routes/square-oauth.js` created
+- [ ] `utils/token-encryption.js` created
+- [ ] OAuth routes registered in server.js
+- [ ] Error handling for OAuth failures implemented
+
+### Testing Plan
+- [ ] Square Sandbox account ready for testing
+- [ ] Test OAuth flow end-to-end in sandbox
+- [ ] Test token refresh mechanism
+- [ ] Test token revocation handling
+```
+
+### 13.3 Before Starting Phase 3 (API Layer)
+
+```markdown
+## API Layer Update Pre-Flight
+
+### Middleware Ready
+- [ ] `middleware/merchant.js` created with:
+    - [ ] loadMerchantContext()
+    - [ ] requireMerchant()
+    - [ ] getSquareClientForMerchant()
+- [ ] Middleware registered in correct order in server.js
+- [ ] Tested middleware with mock requests
+
+### Database Wrapper Ready
+- [ ] `utils/merchant-db.js` created
+- [ ] MerchantDB class implements:
+    - [ ] query() with $merchant_id placeholder
+    - [ ] insert() with automatic merchant_id
+    - [ ] update() with merchant_id filter
+    - [ ] delete() with merchant_id filter
+- [ ] Unit tests pass for MerchantDB
+
+### Endpoint Update Strategy
+- [ ] Endpoints grouped by priority (critical first)
+- [ ] Each endpoint update follows pattern:
+    1. Add requireMerchant middleware
+    2. Replace db.query with merchantDb.query
+    3. Verify WHERE clauses include merchant_id
+    4. Test with multiple merchant contexts
+
+### Testing Ready
+- [ ] Two test merchants created in database
+- [ ] Test data seeded for both merchants
+- [ ] Integration tests written for isolation
+- [ ] Cross-merchant access tests defined
+```
+
+### 13.4 Before Each Deployment
+
+```markdown
+## Deployment Checklist
+
+### Code Review
+- [ ] All changes reviewed by second person
+- [ ] No console.log statements with sensitive data
+- [ ] No hardcoded credentials or tokens
+- [ ] Error handling covers edge cases
+
+### Environment
+- [ ] All required env variables set in production
+- [ ] Database migrations run successfully
+- [ ] No breaking schema changes without migration
+
+### Testing
+- [ ] All unit tests pass
+- [ ] Integration tests pass
+- [ ] Manual testing completed for changed features
+- [ ] Cross-browser testing (if frontend changes)
+
+### Rollback Plan
+- [ ] Previous working version identified
+- [ ] Rollback command documented
+- [ ] Database rollback script ready (if schema changes)
+
+### Monitoring
+- [ ] Error tracking active (Sentry, etc.)
+- [ ] Log aggregation working
+- [ ] Alerts configured for critical failures
+```
+
+---
+
+## 14. Trial Launch Readiness
+
+### 14.1 Minimum Viable Multi-Tenant (MVMT)
+
+For trial launch with test users, these features are **REQUIRED**:
+
+| Feature | Required | Nice-to-Have |
+|---------|----------|--------------|
+| User can create account | ✅ DONE | - |
+| User can login/logout | ✅ DONE | - |
+| User can connect Square account (OAuth) | **REQUIRED** | - |
+| User sees only their data | **REQUIRED** | - |
+| Token encryption at rest | **REQUIRED** | - |
+| Token auto-refresh | **REQUIRED** | - |
+| Merchant switching (multi-account) | - | ✅ Phase 2 |
+| Team member invitations | - | ✅ Future |
+| Subscription billing | ✅ EXISTS | Needs merchant link |
+
+### 14.2 Trial User Onboarding Flow
+
+```
+1. User visits landing page (/)
+   └── Clicks "Get Started" or "Start Free Trial"
+
+2. User creates account (/subscribe.html or /signup.html)
+   └── Email, password, basic info
+   └── Trial period starts (14 days?)
+
+3. User logs in → Dashboard (/dashboard.html)
+   └── Dashboard shows "Connect Square Account" CTA
+   └── No data visible until connected
+
+4. User clicks "Connect Square Account"
+   └── Redirects to Square OAuth
+   └── User authorizes on Square.com
+   └── Callback creates merchant record
+   └── User returned to dashboard
+
+5. Dashboard now shows tools
+   └── Initial sync runs automatically
+   └── User sees their Square data
+   └── Full feature access during trial
+
+6. Trial expiration handling
+   └── Warning at 3 days remaining
+   └── Read-only mode after expiration
+   └── Convert to paid via /subscribe.html
+```
+
+### 14.3 Trial Launch Validation Tests
+
+Run these tests with real test users before wider launch:
+
+```markdown
+## Test 1: Fresh User Onboarding
+- [ ] Create new account
+- [ ] Login works
+- [ ] Dashboard shows connection prompt
+- [ ] OAuth flow completes successfully
+- [ ] Data syncs within 5 minutes
+- [ ] All dashboard tools work
+
+## Test 2: Data Isolation (CRITICAL)
+- [ ] Create two test accounts
+- [ ] Connect different Square sandbox accounts
+- [ ] Verify User A cannot see User B's items
+- [ ] Verify User A cannot see User B's vendors
+- [ ] Verify User A cannot see User B's POs
+- [ ] Try URL manipulation attacks
+
+## Test 3: Session & Token Management
+- [ ] Session persists across browser close
+- [ ] Session expires after inactivity (configurable)
+- [ ] Token refresh works (wait for expiry)
+- [ ] Logout clears session completely
+- [ ] Login on new device works
+
+## Test 4: Error Handling
+- [ ] Invalid credentials show clear error
+- [ ] OAuth cancellation handled gracefully
+- [ ] Square API errors don't crash app
+- [ ] Network failures show retry option
+
+## Test 5: Trial Period
+- [ ] Trial end date calculated correctly
+- [ ] Trial expiration warning displays
+- [ ] Post-trial restrictions work
+- [ ] Subscription upgrade works
+```
+
+### 14.4 Launch Day Checklist
+
+```markdown
+## 48 Hours Before
+- [ ] Final code freeze
+- [ ] All tests passing in staging
+- [ ] Database backup verified
+- [ ] Team availability confirmed
+
+## 24 Hours Before
+- [ ] Production environment variables verified
+- [ ] SSL certificates valid
+- [ ] DNS propagated (if new domain)
+- [ ] Monitoring dashboards ready
+
+## Launch Day
+- [ ] Deploy to production
+- [ ] Run smoke tests
+- [ ] Verify OAuth flow works in production
+- [ ] Send invites to first test users
+- [ ] Monitor error logs closely
+
+## Post-Launch (First 24 Hours)
+- [ ] Respond to user issues within 1 hour
+- [ ] Monitor database performance
+- [ ] Check error rate < 1%
+- [ ] Gather initial user feedback
+```
+
+### 14.5 Known Limitations for Trial
+
+Be transparent with trial users about these limitations:
+
+1. **Single Square Account:** Each user can connect one Square account initially
+2. **Manual Sync:** Auto-sync may require manual trigger during trial
+3. **Limited Support:** Email support only, 24-48 hour response time
+4. **Data Retention:** Trial data may be deleted after 30 days of inactivity
+5. **Feature Parity:** Some advanced features may be added post-trial
+
+### 14.6 Success Metrics for Trial
+
+Track these KPIs to determine trial success:
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Signup → OAuth Complete | > 70% | Users who connect Square account |
+| OAuth → Data Sync | > 95% | Sync completes without errors |
+| Day 1 → Day 7 Retention | > 50% | Users returning after first week |
+| Trial → Paid Conversion | > 10% | Trial users becoming paying customers |
+| Error Rate | < 1% | Server errors / total requests |
+| Support Tickets | < 5 per user | Issues reported during trial |
+
+---
+
+## 15. Execution Sequence (Detailed)
+
+### Step-by-Step Implementation Order
+
+This section provides the EXACT sequence to execute for a successful transition:
+
+### STEP 1: Database Migration (DO FIRST)
+
+**Files to create:**
+1. `database/migrations/005_multi_tenant.sql`
+
+**Execution:**
+```bash
+# 1. Backup production database
+pg_dump -Fc -U $PGUSER -h $PGHOST $PGDATABASE > backup_$(date +%Y%m%d).dump
+
+# 2. Apply migration
+psql -U $PGUSER -h $PGHOST -d $PGDATABASE -f database/migrations/005_multi_tenant.sql
+
+# 3. Verify migration
+psql -U $PGUSER -h $PGHOST -d $PGDATABASE -c "SELECT COUNT(*) FROM merchants;"
+# Should return 1 (legacy merchant)
+
+psql -U $PGUSER -h $PGHOST -d $PGDATABASE -c "SELECT COUNT(*) FROM items WHERE merchant_id IS NULL;"
+# Should return 0
+```
+
+### STEP 2: Token Encryption Utility
+
+**File to create:** `utils/token-encryption.js`
+
+**Validation:**
+```javascript
+// Test encryption/decryption
+const { encryptToken, decryptToken } = require('./utils/token-encryption');
+const testToken = 'EAAAtest123';
+const encrypted = encryptToken(testToken);
+const decrypted = decryptToken(encrypted);
+console.assert(decrypted === testToken, 'Encryption roundtrip failed');
+```
+
+### STEP 3: Square OAuth Routes
+
+**File to create:** `routes/square-oauth.js`
+
+**Register in server.js:**
+```javascript
+const squareOAuth = require('./routes/square-oauth');
+app.use('/api/square/oauth', squareOAuth);
+```
+
+**Validation:**
+1. Visit `/api/square/oauth/connect`
+2. Should redirect to Square authorization page
+3. Complete authorization
+4. Should redirect back to dashboard
+5. Check `merchants` table for new record
+
+### STEP 4: Merchant Context Middleware
+
+**File to create:** `middleware/merchant.js`
+
+**Register in server.js (order matters!):**
+```javascript
+// AFTER auth middleware, BEFORE routes
+app.use(loadMerchantContext);
+```
+
+### STEP 5: MerchantDB Wrapper
+
+**File to create:** `utils/merchant-db.js`
+
+### STEP 6: Update API Endpoints (Incremental)
+
+**Priority order:**
+1. Dashboard endpoints (`/api/sync/status`, `/api/locations`)
+2. Catalog endpoints (`/api/catalog`, `/api/items`, `/api/variations`)
+3. Inventory endpoints (`/api/inventory`)
+4. Feature endpoints (vendors, POs, expiry, etc.)
+
+**For each endpoint:**
+1. Add `requireMerchant` middleware
+2. Create `MerchantDB` instance
+3. Update queries to use merchant filtering
+4. Test with multiple merchant contexts
+
+### STEP 7: Frontend Updates
+
+**Add to all authenticated pages:**
+1. Merchant selector (if supporting multiple)
+2. Business name in header
+3. "Connected to: [Business Name]" indicator
+
+**Create new page:**
+- `public/merchants.html` - Manage connected accounts
+
+### STEP 8: Testing & Validation
+
+1. Create 2 test merchant accounts
+2. Seed different data for each
+3. Run isolation tests
+4. Run integration tests
+5. Manual testing of all features
+
+### STEP 9: Deploy to Production
+
+1. Deploy code changes
+2. Run database migration
+3. Create legacy merchant for existing data
+4. Verify existing users can still access data
+5. Enable OAuth for new connections
 
 ---
 
