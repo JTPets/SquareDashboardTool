@@ -4,7 +4,7 @@
 **Document Version:** 2.1
 **Created:** December 28, 2025
 **Last Updated:** January 1, 2026
-**Status:** Phase 1-3 COMPLETE - API Layer Updates COMPLETE
+**Status:** Phase 1-4 IN PROGRESS - Frontend Updates Started
 
 ---
 
@@ -28,9 +28,11 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | Startup Schema Validation | ✅ COMPLETE | utils/database.js auto-creates tables |
 | Merchant Management API | ✅ COMPLETE | /api/merchants endpoints in server.js |
 | API Layer Updates | ✅ COMPLETE | All ~100+ endpoints updated with merchant filtering |
-| Merchant Management UI | ⏳ NOT STARTED | Frontend work - Phase 4 |
+| Merchant Management UI | ✅ COMPLETE | merchants.html page created |
+| Dashboard Merchant Context | ✅ COMPLETE | Header shows business name, no-merchant overlay |
+| Square Referral Integration | ✅ COMPLETE | Referral links on dashboard, login, support pages |
 
-### Files Created/Modified (Phase 1-3)
+### Files Created/Modified (Phase 1-4)
 
 | File | Type | Purpose |
 |------|------|---------|
@@ -44,6 +46,10 @@ This document outlines the comprehensive plan to transform the Square Dashboard 
 | `server.js` | Modified | Registered routes & middleware |
 | `.env.example` | Modified | Added OAuth env vars |
 | `package.json` | Modified | Added `square` SDK dependency |
+| `public/merchants.html` | New | Merchant management UI |
+| `public/dashboard.html` | Modified | Added merchant context header, no-merchant overlay |
+| `public/login.html` | Modified | Added Square referral link |
+| `public/support.html` | Modified | Added Square referral section |
 
 ---
 

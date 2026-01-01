@@ -14,6 +14,9 @@ const path = require('path');
 const fs = require('fs').promises;
 const cron = require('node-cron');
 const db = require('./utils/database');
+
+// Store cron task references for graceful shutdown
+const cronTasks = [];
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
@@ -8401,7 +8404,7 @@ async function startServer() {
         // Initialize cycle count daily batch generation cron job
         // Runs every day at 1:00 AM
         const cronSchedule = process.env.CYCLE_COUNT_CRON || '0 1 * * *';
-        cron.schedule(cronSchedule, async () => {
+        cronTasks.push(cron.schedule(cronSchedule, async () => {
             logger.info('Running scheduled daily batch generation');
             try {
                 const result = await generateDailyBatch();
@@ -8413,14 +8416,14 @@ async function startServer() {
                     `Failed to generate daily cycle count batch:\n\n${error.message}\n\nStack: ${error.stack}`
                 );
             }
-        });
+        }));
 
         logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
 
         // Initialize automated database sync cron job
         // Runs hourly by default (configurable via SYNC_CRON_SCHEDULE)
         const syncCronSchedule = process.env.SYNC_CRON_SCHEDULE || '0 * * * *';
-        cron.schedule(syncCronSchedule, async () => {
+        cronTasks.push(cron.schedule(syncCronSchedule, async () => {
             logger.info('Running scheduled smart sync');
             try {
                 const result = await runSmartSync();
@@ -8444,14 +8447,14 @@ async function startServer() {
                     `Failed to run scheduled database sync:\n\n${error.message}\n\nStack: ${error.stack}`
                 );
             }
-        });
+        }));
 
         logger.info('Database sync cron job scheduled', { schedule: syncCronSchedule });
 
         // Initialize automated weekly database backup cron job
         // Runs every Sunday at 2:00 AM by default (configurable via BACKUP_CRON_SCHEDULE)
         const backupCronSchedule = process.env.BACKUP_CRON_SCHEDULE || '0 2 * * 0';
-        cron.schedule(backupCronSchedule, async () => {
+        cronTasks.push(cron.schedule(backupCronSchedule, async () => {
             logger.info('Running scheduled database backup');
             try {
                 await runAutomatedBackup();
@@ -8463,14 +8466,14 @@ async function startServer() {
                     `Failed to run scheduled database backup:\n\n${error.message}\n\nStack: ${error.stack}`
                 );
             }
-        });
+        }));
 
         logger.info('Database backup cron job scheduled', { schedule: backupCronSchedule });
 
         // Initialize expiry discount automation cron job
         // Runs daily at 6:00 AM EST by default (configurable via database setting)
         const expiryCronSchedule = process.env.EXPIRY_DISCOUNT_CRON || '0 6 * * *';
-        cron.schedule(expiryCronSchedule, async () => {
+        cronTasks.push(cron.schedule(expiryCronSchedule, async () => {
             logger.info('Running scheduled expiry discount automation');
             try {
                 // Check if automation is enabled
@@ -8542,7 +8545,7 @@ async function startServer() {
             }
         }, {
             timezone: 'America/Toronto'  // EST timezone
-        });
+        }));
 
         logger.info('Expiry discount cron job scheduled', { schedule: expiryCronSchedule, timezone: 'America/Toronto' });
 
@@ -8647,17 +8650,42 @@ async function startServer() {
 }
 
 // Handle graceful shutdown
-process.on('SIGTERM', async () => {
-    logger.info('SIGTERM received, closing server');
-    await db.close();
-    process.exit(0);
-});
+async function gracefulShutdown(signal) {
+    logger.info(`${signal} received, starting graceful shutdown`);
 
-process.on('SIGINT', async () => {
-    logger.info('SIGINT received, closing server');
-    await db.close();
-    process.exit(0);
-});
+    // Set a force-exit timeout (10 seconds)
+    const forceExitTimeout = setTimeout(() => {
+        logger.error('Graceful shutdown timed out, forcing exit');
+        process.exit(1);
+    }, 10000);
+
+    try {
+        // Stop all cron jobs
+        logger.info(`Stopping ${cronTasks.length} cron tasks`);
+        cronTasks.forEach(task => {
+            try {
+                task.stop();
+            } catch (e) {
+                // Ignore errors stopping individual tasks
+            }
+        });
+
+        // Close database connections
+        logger.info('Closing database connections');
+        await db.close();
+
+        logger.info('Graceful shutdown complete');
+        clearTimeout(forceExitTimeout);
+        process.exit(0);
+    } catch (error) {
+        logger.error('Error during shutdown', { error: error.message });
+        clearTimeout(forceExitTimeout);
+        process.exit(1);
+    }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
 startServer();

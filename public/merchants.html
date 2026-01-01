@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Square Accounts - Square Dashboard Tool</title>
+  <style>
+    /* BASE STYLES */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+
+    /* CONTAINER */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    /* HEADER */
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-content h1 {
+      font-size: 24px;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .header-content p {
+      font-size: 14px;
+      color: #e5e7eb;
+      opacity: 0.9;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      border: none;
+    }
+
+    .btn-primary {
+      background: #059669;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #047857;
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #d1d5db;
+      color: #374151;
+    }
+
+    .btn-outline:hover {
+      background: #f3f4f6;
+    }
+
+    /* CONTENT */
+    .content {
+      padding: 30px;
+    }
+
+    /* MERCHANT CARDS */
+    .merchants-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .merchant-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      background: #f9fafb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .merchant-card.active {
+      border-color: #10b981;
+      border-width: 2px;
+      background: #f0fdf4;
+    }
+
+    .merchant-card.active::before {
+      content: 'ACTIVE';
+      position: absolute;
+      top: -1px;
+      left: 16px;
+      background: #10b981;
+      color: white;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 0 0 4px 4px;
+    }
+
+    .merchant-card {
+      position: relative;
+    }
+
+    .merchant-info {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .merchant-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+
+    .merchant-id {
+      font-size: 12px;
+      color: #6b7280;
+      font-family: monospace;
+    }
+
+    .merchant-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .status-badge.trial {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .status-badge.active {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status-badge.expired {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .role-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .merchant-meta {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 8px;
+    }
+
+    .merchant-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* EMPTY STATE */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+    }
+
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+
+    .empty-state h2 {
+      font-size: 20px;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      color: #6b7280;
+      margin-bottom: 24px;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* REFERRAL SECTION */
+    .referral-section {
+      margin-top: 40px;
+      padding: 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 12px;
+      color: white;
+    }
+
+    .referral-section h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .referral-section p {
+      font-size: 14px;
+      opacity: 0.9;
+      margin-bottom: 16px;
+    }
+
+    .referral-rewards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .reward-option {
+      background: rgba(255,255,255,0.15);
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .reward-option strong {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+
+    .reward-option span {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .referral-link {
+      background: white;
+      color: #374151;
+      padding: 12px 16px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    .referral-link input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+      outline: none;
+    }
+
+    .referral-link button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 13px;
+    }
+
+    .referral-link button:hover {
+      background: #1d4ed8;
+    }
+
+    /* LOADING */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    .loading::after {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #e5e7eb;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* MODAL */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.show {
+      display: flex;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal h3 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      color: #111827;
+    }
+
+    .modal p {
+      color: #6b7280;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    /* FOOTER */
+    .footer {
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .footer a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 600px) {
+      body {
+        padding: 10px;
+      }
+
+      .header {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .merchant-card {
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .merchant-actions {
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HEADER -->
+    <div class="header">
+      <div class="header-content">
+        <h1>Square Accounts</h1>
+        <p>Manage your connected Square merchant accounts</p>
+      </div>
+      <div class="header-actions">
+        <a href="dashboard.html" class="btn btn-secondary">Back to Dashboard</a>
+        <button class="btn btn-primary" onclick="connectSquare()">
+          + Connect Square Account
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+      <div id="merchants-container" class="loading">
+        Loading your accounts...
+      </div>
+
+      <!-- REFERRAL SECTION -->
+      <div class="referral-section">
+        <h3>Earn Rewards with Square Referrals</h3>
+        <p>Not using Square yet? Sign up and get rewards! Already a Square merchant? Refer friends and earn together.</p>
+
+        <div class="referral-rewards">
+          <div class="reward-option">
+            <strong>Process $1,000 Free</strong>
+            <span>Save on processing fees for up to $1,000 in sales within 180 days</span>
+          </div>
+          <div class="reward-option">
+            <strong>$20 Off Hardware</strong>
+            <span>Get a discount code for Square Hardware at checkout</span>
+          </div>
+        </div>
+
+        <div class="referral-link">
+          <input type="text" value="https://squareup.com/i/JTPETS0000" readonly id="referral-url">
+          <button onclick="copyReferralLink()">Copy Link</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <a href="dashboard.html">Dashboard</a> |
+      <a href="settings.html">Settings</a> |
+      <a href="support.html">Support</a>
+    </div>
+  </div>
+
+  <!-- DISCONNECT MODAL -->
+  <div class="modal-overlay" id="disconnect-modal">
+    <div class="modal">
+      <h3>Disconnect Square Account?</h3>
+      <p>This will remove access to <strong id="disconnect-merchant-name"></strong>. You can reconnect at any time, but any pending operations will be cancelled.</p>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeDisconnectModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmDisconnect()">Disconnect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let merchants = [];
+    let activeMerchantId = null;
+    let disconnectMerchantId = null;
+
+    // Load merchants on page load
+    async function loadMerchants() {
+      try {
+        const response = await fetch('/api/merchants');
+        if (!response.ok) {
+          if (response.status === 401) {
+            window.location.href = '/login.html';
+            return;
+          }
+          throw new Error('Failed to load merchants');
+        }
+
+        const data = await response.json();
+        merchants = data.merchants || [];
+        activeMerchantId = data.activeMerchantId;
+
+        renderMerchants();
+      } catch (error) {
+        console.error('Error loading merchants:', error);
+        document.getElementById('merchants-container').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">Error loading accounts. Please refresh.</div>
+          </div>
+        `;
+      }
+    }
+
+    // Render merchant cards
+    function renderMerchants() {
+      const container = document.getElementById('merchants-container');
+
+      if (merchants.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🏪</div>
+            <h2>No Square Accounts Connected</h2>
+            <p>Connect your Square account to start managing your inventory, tracking sales, and more.</p>
+            <button class="btn btn-primary" onclick="connectSquare()">
+              Connect Square Account
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = '<div class="merchants-list">' + merchants.map(merchant => `
+        <div class="merchant-card ${merchant.id === activeMerchantId ? 'active' : ''}">
+          <div class="merchant-info">
+            <div class="merchant-name">${escapeHtml(merchant.business_name)}</div>
+            <div class="merchant-id">ID: ${escapeHtml(merchant.square_merchant_id)}</div>
+            <div class="merchant-status">
+              <span class="status-badge ${merchant.subscription_status}">${merchant.subscription_status}</span>
+              <span class="role-badge">${merchant.role}</span>
+            </div>
+            <div class="merchant-meta">
+              Last synced: ${merchant.last_sync_at ? formatDate(merchant.last_sync_at) : 'Never'}
+            </div>
+          </div>
+          <div class="merchant-actions">
+            ${merchant.id !== activeMerchantId ? `
+              <button class="btn btn-primary" onclick="switchMerchant(${merchant.id})">
+                Switch to This Account
+              </button>
+            ` : `
+              <span class="btn btn-outline" style="cursor: default;">Currently Active</span>
+            `}
+            <button class="btn btn-outline" onclick="showDisconnectModal(${merchant.id}, '${escapeHtml(merchant.business_name)}')">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      `).join('') + '</div>';
+    }
+
+    // Connect new Square account
+    function connectSquare() {
+      // Redirect to OAuth flow
+      window.location.href = '/api/square/oauth/connect?redirect=' + encodeURIComponent(window.location.pathname);
+    }
+
+    // Switch active merchant
+    async function switchMerchant(merchantId) {
+      try {
+        const response = await fetch('/api/merchants/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchantId })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to switch merchant');
+        }
+
+        // Reload to apply new context
+        window.location.reload();
+      } catch (error) {
+        console.error('Error switching merchant:', error);
+        alert('Failed to switch account. Please try again.');
+      }
+    }
+
+    // Show disconnect confirmation
+    function showDisconnectModal(merchantId, merchantName) {
+      disconnectMerchantId = merchantId;
+      document.getElementById('disconnect-merchant-name').textContent = merchantName;
+      document.getElementById('disconnect-modal').classList.add('show');
+    }
+
+    // Close disconnect modal
+    function closeDisconnectModal() {
+      disconnectMerchantId = null;
+      document.getElementById('disconnect-modal').classList.remove('show');
+    }
+
+    // Confirm disconnect
+    async function confirmDisconnect() {
+      if (!disconnectMerchantId) return;
+
+      try {
+        const response = await fetch(`/api/merchants/${disconnectMerchantId}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to disconnect');
+        }
+
+        closeDisconnectModal();
+        loadMerchants();
+      } catch (error) {
+        console.error('Error disconnecting:', error);
+        alert('Failed to disconnect. Please try again.');
+      }
+    }
+
+    // Copy referral link
+    function copyReferralLink() {
+      const input = document.getElementById('referral-url');
+      input.select();
+      document.execCommand('copy');
+
+      const btn = input.nextElementSibling;
+      const originalText = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = originalText, 2000);
+    }
+
+    // Helper: escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Helper: format date
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return `${diffHours}h ago`;
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return date.toLocaleDateString();
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', loadMerchants);
+
+    // Close modal on outside click
+    document.getElementById('disconnect-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeDisconnectModal();
+    });
+  </script>
+</body>
+</html>
