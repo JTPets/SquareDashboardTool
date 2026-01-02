@@ -731,29 +731,17 @@ CREATE TABLE IF NOT EXISTS expiry_discount_audit_log (
 -- 4. Settings for the expiry discount system
 CREATE TABLE IF NOT EXISTS expiry_discount_settings (
     id SERIAL PRIMARY KEY,
-    setting_key TEXT NOT NULL UNIQUE,
+    setting_key TEXT NOT NULL,
     setting_value TEXT,
     description TEXT,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    merchant_id INTEGER REFERENCES merchants(id),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(setting_key, merchant_id)
 );
 
--- Insert default tier configurations
-INSERT INTO expiry_discount_tiers (tier_code, tier_name, min_days_to_expiry, max_days_to_expiry, discount_percent, is_auto_apply, requires_review, color_code, priority) VALUES
-    ('EXPIRED', 'Expired - Pull from Shelf', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
-    ('AUTO50', '50% Off - Critical Expiry', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
-    ('AUTO25', '25% Off - Approaching Expiry', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
-    ('REVIEW', 'Review - Monitor Expiry', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
-    ('OK', 'OK - No Action Needed', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
-ON CONFLICT (tier_code) DO NOTHING;
-
--- Insert default settings
-INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
-    ('cron_schedule', '0 6 * * *', 'Cron schedule for daily expiry evaluation (default: 6:00 AM)'),
-    ('timezone', 'America/Toronto', 'Timezone for expiry calculations (EST)'),
-    ('auto_apply_enabled', 'true', 'Whether to automatically apply discounts'),
-    ('email_notifications', 'true', 'Send email alerts for tier changes'),
-    ('last_run_at', NULL, 'Timestamp of last automated run')
-ON CONFLICT (setting_key) DO NOTHING;
+-- Note: Default tier configurations and settings are now created per-merchant
+-- by ensureMerchantTiers() in utils/expiry-discount.js when a merchant first
+-- accesses the expiry discounts page. This ensures proper multi-tenant isolation.
 
 -- Create indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_variation_discount_status_tier ON variation_discount_status(current_tier_id);

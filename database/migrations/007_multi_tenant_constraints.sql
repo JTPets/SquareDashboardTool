@@ -159,6 +159,24 @@ ALTER TABLE expiry_discount_tiers ADD CONSTRAINT expiry_discount_tiers_code_merc
     UNIQUE(tier_code, merchant_id);
 
 -- ----------------------------------------
+-- 10. expiry_discount_settings - change from UNIQUE(setting_key) to UNIQUE(setting_key, merchant_id)
+-- ----------------------------------------
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'expiry_discount_settings_setting_key_key'
+    ) THEN
+        ALTER TABLE expiry_discount_settings DROP CONSTRAINT expiry_discount_settings_setting_key_key;
+        RAISE NOTICE 'Dropped old expiry_discount_settings unique constraint';
+    END IF;
+END $$;
+
+ALTER TABLE expiry_discount_settings DROP CONSTRAINT IF EXISTS expiry_discount_settings_key_merchant_unique;
+ALTER TABLE expiry_discount_settings ADD CONSTRAINT expiry_discount_settings_key_merchant_unique
+    UNIQUE(setting_key, merchant_id);
+
+-- ----------------------------------------
 -- Success message
 -- ----------------------------------------
 DO $$
@@ -166,5 +184,5 @@ BEGIN
     RAISE NOTICE 'Multi-tenant constraint migration completed successfully!';
     RAISE NOTICE 'Updated unique constraints on: count_history, count_sessions, count_queue_daily,';
     RAISE NOTICE 'inventory_counts, brands, category_taxonomy_mapping, item_brands, gmc_settings,';
-    RAISE NOTICE 'expiry_discount_tiers';
+    RAISE NOTICE 'expiry_discount_tiers, expiry_discount_settings';
 END $$;
