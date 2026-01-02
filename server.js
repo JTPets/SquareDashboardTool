@@ -2467,7 +2467,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE') AND ic.merchant_id = $1
-            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
+            WHERE v.is_deleted = FALSE
         `;
 
         const params = [merchantId];
@@ -2505,7 +2505,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
             FROM variation_discount_status vds
             JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
-            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
+            WHERE v.is_deleted = FALSE
         `;
         const countParams = [merchantId];
 
