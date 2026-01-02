@@ -650,28 +650,6 @@
         <a href="settings.html">Open Settings</a>
       </div>
 
-      <!-- SYSTEM HEALTH -->
-      <div class="tool-card api">
-        <h2>💚 System Health Check</h2>
-        <p>Monitor database connection, sync status, and system performance.</p>
-        <a href="/api/health" target="_blank">Check Health</a>
-      </div>
-
-      <!-- DATABASE BACKUP -->
-      <div class="tool-card operations">
-        <div class="tag new">NEW</div>
-        <h2>💾 Database Backup & Restore</h2>
-        <p>Export and import complete database backups. Restore to empty or existing databases.</p>
-        <a href="database-backup.html">Manage Backups</a>
-      </div>
-
-      <!-- API REFERENCE -->
-      <div class="tool-card api">
-        <h2>🔌 API Reference</h2>
-        <p>View available endpoints for integrations.</p>
-        <a href="#" onclick="toggleApiList(); return false;">View Endpoints</a>
-      </div>
-
     </div>
 
     <!-- API DOCUMENTATION (collapsible) -->
@@ -794,9 +772,26 @@
       |
       <a href="/support.html">Support</a>
       |
+      <a href="#" onclick="toggleApiList(); return false;">API Reference</a>
+      |
+      <a href="#" onclick="showHealthModal(); return false;">System Health</a>
+      |
       Created by <a href="https://jtpets.ca" target="_blank" rel="noopener">JTPets.ca</a>
       |
       <a href="https://squareup.com/i/JTPETS0000" target="_blank" rel="noopener" title="Get $1,000 free processing or $20 off hardware!">Refer a Friend to Square</a>
+    </div>
+  </div>
+
+  <!-- HEALTH CHECK MODAL -->
+  <div id="health-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="margin: 0;">💚 System Health</h3>
+        <button onclick="hideHealthModal()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+      </div>
+      <div id="health-content" style="font-size: 14px;">
+        <p style="color: #6b7280;">Loading...</p>
+      </div>
     </div>
   </div>
 
@@ -827,6 +822,68 @@
       const section = document.getElementById('api-section');
       section.style.display = section.style.display === 'none' ? 'block' : 'none';
     }
+
+    // Health check modal
+    function showHealthModal() {
+      const modal = document.getElementById('health-modal');
+      modal.style.display = 'flex';
+      loadHealthStatus();
+    }
+
+    function hideHealthModal() {
+      document.getElementById('health-modal').style.display = 'none';
+    }
+
+    async function loadHealthStatus() {
+      const content = document.getElementById('health-content');
+      content.innerHTML = '<p style="color: #6b7280;">Loading...</p>';
+
+      try {
+        const response = await fetch('/api/health');
+        const data = await response.json();
+
+        const statusIcon = (status) => status === 'connected' || status === 'ok' ? '✅' : '❌';
+        const statusColor = (status) => status === 'connected' || status === 'ok' ? '#10b981' : '#ef4444';
+
+        let html = `
+          <div style="display: grid; gap: 15px;">
+            <div style="display: flex; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid ${statusColor(data.database)};">
+              <span><strong>🗄️ Database</strong></span>
+              <span>${statusIcon(data.database)} ${data.database || 'Unknown'}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid ${statusColor(data.square)};">
+              <span><strong>🟦 Square API</strong></span>
+              <span>${statusIcon(data.square)} ${data.square || 'Unknown'}</span>
+            </div>
+            <div style="padding: 12px; background: #f9fafb; border-radius: 8px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span><strong>⏱️ Uptime</strong></span>
+                <span>${data.uptime || 'N/A'}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span><strong>💾 Memory</strong></span>
+                <span>${data.memory?.heapUsed ? Math.round(data.memory.heapUsed / 1024 / 1024) + ' MB' : 'N/A'}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span><strong>🔧 Node Version</strong></span>
+                <span>${data.nodeVersion || 'N/A'}</span>
+              </div>
+            </div>
+            <div style="text-align: center; color: #9ca3af; font-size: 12px;">
+              Last checked: ${new Date().toLocaleTimeString()}
+            </div>
+          </div>
+        `;
+        content.innerHTML = html;
+      } catch (e) {
+        content.innerHTML = `<p style="color: #ef4444;">❌ Failed to load health status: ${e.message}</p>`;
+      }
+    }
+
+    // Close modal on background click
+    document.getElementById('health-modal').addEventListener('click', function(e) {
+      if (e.target === this) hideHealthModal();
+    });
 
     // Format timestamp as "2h ago"
     function formatTimestamp(timestamp) {
