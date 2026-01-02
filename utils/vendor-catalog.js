@@ -406,13 +406,18 @@ function validateAndTransform(rows, headers, defaultVendorName = null) {
 /**
  * Look up or create vendor by name
  * @param {string} vendorName - Vendor name
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @returns {Promise<string|null>} Vendor ID or null
  */
-async function findOrCreateVendor(vendorName) {
-    // First try to find existing vendor (case-insensitive)
+async function findOrCreateVendor(vendorName, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for findOrCreateVendor');
+    }
+
+    // First try to find existing vendor (case-insensitive, within merchant)
     const existing = await db.query(
-        'SELECT id FROM vendors WHERE LOWER(name) = LOWER($1) LIMIT 1',
-        [vendorName]
+        'SELECT id FROM vendors WHERE LOWER(name) = LOWER($1) AND merchant_id = $2 LIMIT 1',
+        [vendorName, merchantId]
     );
 
     if (existing.rows.length > 0) {
@@ -422,12 +427,12 @@ async function findOrCreateVendor(vendorName) {
     // Create new vendor with generated ID
     const vendorId = `VENDOR-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     await db.query(
-        `INSERT INTO vendors (id, name, status, created_at, updated_at)
-         VALUES ($1, $2, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [vendorId, vendorName]
+        `INSERT INTO vendors (id, name, merchant_id, status, created_at, updated_at)
+         VALUES ($1, $2, $3, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [vendorId, vendorName, merchantId]
     );
 
-    logger.info('Created new vendor from import', { vendorId, vendorName });
+    logger.info('Created new vendor from import', { vendorId, vendorName, merchantId });
     return vendorId;
 }
 
@@ -435,9 +440,14 @@ async function findOrCreateVendor(vendorName) {
  * Try to match vendor catalog item to our catalog
  * Checks across entire catalog - items can have multiple vendors
  * @param {Object} item - Vendor catalog item
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Match result with variation_id, method, and all matches
  */
-async function matchToOurCatalog(item) {
+async function matchToOurCatalog(item, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for matchToOurCatalog');
+    }
+
     const allMatches = [];
 
     // Try UPC match first (most reliable) - find ALL matching variations
@@ -446,9 +456,9 @@ async function matchToOurCatalog(item) {
             SELECT v.id, v.sku, v.name as variation_name, v.price_money,
                    i.name as item_name, i.id as item_id
             FROM variations v
-            LEFT JOIN items i ON v.item_id = i.id
-            WHERE v.upc = $1 AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
-        `, [item.upc]);
+            LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE v.upc = $2 AND v.merchant_id = $1 AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
+        `, [merchantId, item.upc]);
 
         for (const match of upcMatches.rows) {
             allMatches.push({
@@ -468,11 +478,12 @@ async function matchToOurCatalog(item) {
             SELECT v.id, v.sku, v.name as variation_name, v.price_money,
                    i.name as item_name, i.id as item_id
             FROM variations v
-            LEFT JOIN items i ON v.item_id = i.id
-            WHERE (v.supplier_item_number = $1 OR v.sku = $1)
+            LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE (v.supplier_item_number = $2 OR v.sku = $2)
+                  AND v.merchant_id = $1
                   AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
-                  AND v.id NOT IN (SELECT unnest($2::text[]))
-        `, [item.vendor_item_number, allMatches.map(m => m.variation_id)]);
+                  AND v.id NOT IN (SELECT unnest($3::text[]))
+        `, [merchantId, item.vendor_item_number, allMatches.map(m => m.variation_id)]);
 
         for (const match of vendorSkuMatches.rows) {
             allMatches.push({
@@ -503,13 +514,18 @@ async function matchToOurCatalog(item) {
  * @param {Array<Object>} items - Validated items to import
  * @param {string} batchId - Import batch ID
  * @param {Object} options - Import options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @param {string} options.vendorId - Selected vendor ID
  * @param {string} options.vendorName - Selected vendor name
  * @param {string} options.importName - User-defined import name
  * @returns {Promise<Object>} Import statistics with price update report
  */
 async function importItems(items, batchId, options = {}) {
-    const { vendorId, vendorName, importName } = options;
+    const { merchantId, vendorId, vendorName, importName } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for importItems');
+    }
 
     const stats = {
         total: items.length,
@@ -523,8 +539,8 @@ async function importItems(items, batchId, options = {}) {
 
     for (const item of items) {
         try {
-            // Try to match to our catalog
-            const match = await matchToOurCatalog(item);
+            // Try to match to our catalog (with merchant filtering)
+            const match = await matchToOurCatalog(item, merchantId);
             if (match.variation_id) {
                 stats.matched++;
 
@@ -556,13 +572,13 @@ async function importItems(items, batchId, options = {}) {
                 }
             }
 
-            // Insert catalog item with brand stored separately
+            // Insert catalog item with brand stored separately (including merchant_id)
             await db.query(`
                 INSERT INTO vendor_catalog_items (
-                    vendor_id, vendor_name, brand, vendor_item_number, product_name,
+                    merchant_id, vendor_id, vendor_name, brand, vendor_item_number, product_name,
                     upc, cost_cents, price_cents, margin_percent,
                     matched_variation_id, match_method, import_batch_id, import_name, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP)
                 ON CONFLICT (vendor_id, vendor_item_number, import_batch_id)
                 DO UPDATE SET
                     brand = EXCLUDED.brand,
@@ -576,6 +592,7 @@ async function importItems(items, batchId, options = {}) {
                     import_name = EXCLUDED.import_name,
                     updated_at = CURRENT_TIMESTAMP
             `, [
+                merchantId,
                 vendorId,
                 vendorName,
                 item.brand || null,
@@ -619,15 +636,23 @@ async function importItems(items, batchId, options = {}) {
  * @param {string|Buffer} data - File content (string for CSV, Buffer for XLSX)
  * @param {string} fileType - 'csv' or 'xlsx'
  * @param {Object} options - Import options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @param {string} options.defaultVendorName - Default vendor name for files without vendor column
  * @returns {Promise<Object>} Import result
  */
 async function importVendorCatalog(data, fileType, options = {}) {
     const startTime = Date.now();
     const batchId = generateBatchId();
-    const { defaultVendorName } = options;
+    const { merchantId, defaultVendorName } = options;
 
-    logger.info('Starting vendor catalog import', { fileType, batchId, defaultVendorName });
+    if (!merchantId) {
+        return {
+            success: false,
+            error: 'merchantId is required for importVendorCatalog'
+        };
+    }
+
+    logger.info('Starting vendor catalog import', { fileType, batchId, merchantId, defaultVendorName });
 
     try {
         // Parse file
@@ -656,8 +681,8 @@ async function importVendorCatalog(data, fileType, options = {}) {
             };
         }
 
-        // Import valid items
-        const stats = await importItems(validation.items, batchId);
+        // Import valid items (with merchantId)
+        const stats = await importItems(validation.items, batchId, { merchantId });
 
         const duration = Date.now() - startTime;
         logger.info('Vendor catalog import complete', {
@@ -693,10 +718,15 @@ async function importVendorCatalog(data, fileType, options = {}) {
 /**
  * Search vendor catalog items
  * @param {Object} options - Search options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Array>} Matching items
  */
 async function searchVendorCatalog(options = {}) {
-    const { vendorId, vendorName, upc, search, matchedOnly, limit = 100, offset = 0 } = options;
+    const { merchantId, vendorId, vendorName, upc, search, matchedOnly, limit = 100, offset = 0 } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for searchVendorCatalog');
+    }
 
     let sql = `
         SELECT
@@ -707,13 +737,13 @@ async function searchVendorCatalog(options = {}) {
             var.price_money as our_price_cents,
             i.name as our_item_name
         FROM vendor_catalog_items vci
-        LEFT JOIN vendors v ON vci.vendor_id = v.id
-        LEFT JOIN variations var ON vci.matched_variation_id = var.id
-        LEFT JOIN items i ON var.item_id = i.id
-        WHERE 1=1
+        LEFT JOIN vendors v ON vci.vendor_id = v.id AND v.merchant_id = $1
+        LEFT JOIN variations var ON vci.matched_variation_id = var.id AND var.merchant_id = $1
+        LEFT JOIN items i ON var.item_id = i.id AND i.merchant_id = $1
+        WHERE vci.merchant_id = $1
     `;
-    const params = [];
-    let paramCount = 0;
+    const params = [merchantId];
+    let paramCount = 1;
 
     if (vendorId) {
         paramCount++;
@@ -764,11 +794,16 @@ async function searchVendorCatalog(options = {}) {
 /**
  * Get import batches summary
  * @param {Object} options - Filter options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {boolean} options.includeArchived - Include archived imports
  * @returns {Promise<Array>} List of import batches with stats
  */
 async function getImportBatches(options = {}) {
-    const { includeArchived = false } = options;
+    const { merchantId, includeArchived = false } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for getImportBatches');
+    }
 
     const result = await db.query(`
         SELECT
@@ -782,23 +817,28 @@ async function getImportBatches(options = {}) {
             MIN(imported_at) as imported_at,
             AVG(margin_percent) as avg_margin
         FROM vendor_catalog_items
-        ${includeArchived ? '' : 'WHERE (is_archived = FALSE OR is_archived IS NULL)'}
+        WHERE merchant_id = $1
+        ${includeArchived ? '' : 'AND (is_archived = FALSE OR is_archived IS NULL)'}
         GROUP BY import_batch_id, vendor_id, vendor_name, import_name, is_archived
         ORDER BY imported_at DESC
         LIMIT 100
-    `);
+    `, [merchantId]);
     return result.rows;
 }
 
 /**
  * Archive an import batch (soft delete - keeps for searches)
  * @param {string} batchId - Batch ID to archive
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @returns {Promise<number>} Number of items archived
  */
-async function archiveImportBatch(batchId) {
+async function archiveImportBatch(batchId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for archiveImportBatch');
+    }
     const result = await db.query(
-        'UPDATE vendor_catalog_items SET is_archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1',
-        [batchId]
+        'UPDATE vendor_catalog_items SET is_archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1 AND merchant_id = $2',
+        [batchId, merchantId]
     );
     return result.rowCount;
 }
@@ -806,12 +846,16 @@ async function archiveImportBatch(batchId) {
 /**
  * Unarchive an import batch
  * @param {string} batchId - Batch ID to unarchive
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @returns {Promise<number>} Number of items unarchived
  */
-async function unarchiveImportBatch(batchId) {
+async function unarchiveImportBatch(batchId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for unarchiveImportBatch');
+    }
     const result = await db.query(
-        'UPDATE vendor_catalog_items SET is_archived = FALSE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1',
-        [batchId]
+        'UPDATE vendor_catalog_items SET is_archived = FALSE, updated_at = CURRENT_TIMESTAMP WHERE import_batch_id = $1 AND merchant_id = $2',
+        [batchId, merchantId]
     );
     return result.rowCount;
 }
@@ -819,12 +863,16 @@ async function unarchiveImportBatch(batchId) {
 /**
  * Delete an import batch
  * @param {string} batchId - Batch ID to delete
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @returns {Promise<number>} Number of items deleted
  */
-async function deleteImportBatch(batchId) {
+async function deleteImportBatch(batchId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for deleteImportBatch');
+    }
     const result = await db.query(
-        'DELETE FROM vendor_catalog_items WHERE import_batch_id = $1',
-        [batchId]
+        'DELETE FROM vendor_catalog_items WHERE import_batch_id = $1 AND merchant_id = $2',
+        [batchId, merchantId]
     );
     return result.rowCount;
 }
@@ -832,9 +880,14 @@ async function deleteImportBatch(batchId) {
 /**
  * Quick lookup by UPC
  * @param {string} upc - UPC to lookup
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Array>} All vendor catalog items with this UPC
  */
-async function lookupByUPC(upc) {
+async function lookupByUPC(upc, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for lookupByUPC');
+    }
+
     const cleanedUPC = cleanUPC(upc);
     if (!cleanedUPC) return [];
 
@@ -843,19 +896,24 @@ async function lookupByUPC(upc) {
             vci.*,
             v.name as vendor_display_name
         FROM vendor_catalog_items vci
-        LEFT JOIN vendors v ON vci.vendor_id = v.id
-        WHERE vci.upc = $1
+        LEFT JOIN vendors v ON vci.vendor_id = v.id AND v.merchant_id = $1
+        WHERE vci.upc = $2 AND vci.merchant_id = $1
         ORDER BY vci.cost_cents ASC
-    `, [cleanedUPC]);
+    `, [merchantId, cleanedUPC]);
 
     return result.rows;
 }
 
 /**
  * Get catalog statistics
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Statistics
  */
-async function getStats() {
+async function getStats(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getStats');
+    }
+
     const result = await db.query(`
         SELECT
             COUNT(*) as total_items,
@@ -866,7 +924,8 @@ async function getStats() {
             MIN(imported_at) as earliest_import,
             MAX(imported_at) as latest_import
         FROM vendor_catalog_items
-    `);
+        WHERE merchant_id = $1
+    `, [merchantId]);
 
     return result.rows[0];
 }
@@ -936,6 +995,7 @@ async function previewFile(data, fileType) {
  * @param {string|Buffer} data - File content
  * @param {string} fileType - 'csv' or 'xlsx'
  * @param {Object} options - Import options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @param {Object} options.columnMappings - Map of column index/header to field type
  * @param {string} options.vendorId - Selected vendor ID (required)
  * @param {string} options.vendorName - Selected vendor name
@@ -945,7 +1005,15 @@ async function previewFile(data, fileType) {
 async function importWithMappings(data, fileType, options = {}) {
     const startTime = Date.now();
     const batchId = generateBatchId();
-    const { columnMappings, vendorId, vendorName, importName } = options;
+    const { merchantId, columnMappings, vendorId, vendorName, importName } = options;
+
+    // Validate merchantId is provided
+    if (!merchantId) {
+        return {
+            success: false,
+            error: 'merchantId is required for importWithMappings'
+        };
+    }
 
     // Validate vendor is selected
     if (!vendorId) {
@@ -958,6 +1026,7 @@ async function importWithMappings(data, fileType, options = {}) {
     logger.info('Starting vendor catalog import with explicit mappings', {
         fileType,
         batchId,
+        merchantId,
         vendorId,
         vendorName,
         importName,
@@ -1098,8 +1167,9 @@ async function importWithMappings(data, fileType, options = {}) {
             };
         }
 
-        // Import valid items with vendor info
+        // Import valid items with vendor info (including merchantId)
         const stats = await importItems(items, batchId, {
+            merchantId,
             vendorId,
             vendorName,
             importName
