@@ -3513,6 +3513,54 @@ app.post('/api/debug/migrate-legacy-token', requireAuth, requireMerchant, async 
 });
 
 /**
+ * GET /api/debug/all-locations
+ * Debug endpoint to check locations across all merchants
+ */
+app.get('/api/debug/all-locations', requireAuth, async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT l.id, l.name, l.merchant_id, m.business_name
+            FROM locations l
+            LEFT JOIN merchants m ON l.merchant_id = m.id
+            ORDER BY l.merchant_id, l.name
+        `);
+        res.json({ locations: result.rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/debug/copy-locations-to-legacy
+ * Copy locations from another merchant to legacy merchant (id=1)
+ */
+app.post('/api/debug/copy-locations-to-legacy', requireAuth, async (req, res) => {
+    try {
+        const { source_merchant_id } = req.body;
+        if (!source_merchant_id) {
+            return res.status(400).json({ error: 'source_merchant_id required' });
+        }
+
+        // Copy locations from source merchant to legacy (merchant_id = 1)
+        const result = await db.query(`
+            INSERT INTO locations (id, name, address, business_name, active, merchant_id)
+            SELECT id, name, address, business_name, active, 1
+            FROM locations
+            WHERE merchant_id = $1
+            ON CONFLICT (id) DO UPDATE SET merchant_id = 1
+        `, [source_merchant_id]);
+
+        res.json({
+            success: true,
+            message: `Copied locations from merchant ${source_merchant_id} to legacy merchant`,
+            rowCount: result.rowCount
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/debug/expiry-status
  * Debug endpoint to check expiration sync status
  */
