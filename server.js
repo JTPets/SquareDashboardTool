@@ -5117,7 +5117,7 @@ app.post('/api/vendor-catalog/import-mapped', requireAuth, requireMerchant, asyn
  * GET /api/vendor-catalog/field-types
  * Get supported field types for column mapping
  */
-app.get('/api/vendor-catalog/field-types', (req, res) => {
+app.get('/api/vendor-catalog/field-types', requireAuth, (req, res) => {
     res.json({ fieldTypes: vendorCatalog.FIELD_TYPES });
 });
 
