@@ -385,7 +385,7 @@ async function syncCatalog(merchantId) {
         // 1. Insert categories first
         for (const [id, cat] of categoriesMap) {
             try {
-                await syncCategory({ id, category_data: cat });
+                await syncCategory({ id, category_data: cat }, merchantId);
                 stats.categories++;
             } catch (error) {
                 logger.error('Failed to sync category', { id, error: error.message });
@@ -396,7 +396,7 @@ async function syncCatalog(merchantId) {
         // 2. Insert images
         for (const [id, img] of imagesMap) {
             try {
-                await syncImage({ id, image_data: img });
+                await syncImage({ id, image_data: img }, merchantId);
                 stats.images++;
             } catch (error) {
                 logger.error('Failed to sync image', { id, error: error.message });
@@ -434,7 +434,7 @@ async function syncCatalog(merchantId) {
                 // Update the itemObj with resolved category info for syncItem
                 itemObj.item_data.category_id = categoryId;
 
-                await syncItem(itemObj, categoryName);
+                await syncItem(itemObj, categoryName, merchantId);
                 stats.items++;
                 syncedItemIds.add(id);
             } catch (error) {
@@ -455,7 +455,7 @@ async function syncCatalog(merchantId) {
                     continue;
                 }
                 // Pass full object to preserve custom_attribute_values
-                const vendorCount = await syncVariation(varObj);
+                const vendorCount = await syncVariation(varObj, merchantId);
                 stats.variations++;
                 stats.variationVendors += vendorCount;
                 syncedVariationIds.add(id);
@@ -571,8 +571,10 @@ async function syncCatalog(merchantId) {
 
 /**
  * Sync a category object
+ * @param {Object} obj - Category object from Square API
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  */
-async function syncCategory(obj) {
+async function syncCategory(obj, merchantId) {
     await db.query(`
         INSERT INTO categories (id, name, merchant_id)
         VALUES ($1, $2, $3)
@@ -588,8 +590,10 @@ async function syncCategory(obj) {
 
 /**
  * Sync an image object
+ * @param {Object} obj - Image object from Square API
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  */
-async function syncImage(obj) {
+async function syncImage(obj, merchantId) {
     await db.query(`
         INSERT INTO images (id, name, url, caption, merchant_id)
         VALUES ($1, $2, $3, $4, $5)
@@ -611,8 +615,9 @@ async function syncImage(obj) {
  * Sync an item object
  * @param {Object} obj - Item object from Square API
  * @param {string} category_name - Category name (already looked up from categoriesMap)
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  */
-async function syncItem(obj, category_name) {
+async function syncItem(obj, category_name, merchantId) {
     const data = obj.item_data;
 
     // Square uses ecom_visibility in item_data for e-commerce visibility
@@ -727,9 +732,11 @@ async function syncItem(obj, category_name) {
 
 /**
  * Sync a variation object and its vendor information
+ * @param {Object} obj - Variation object from Square API
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  * @returns {number} Number of vendor relationships created
  */
-async function syncVariation(obj) {
+async function syncVariation(obj, merchantId) {
     const data = obj.item_variation_data;
     let vendorCount = 0;
 
@@ -851,7 +858,7 @@ async function syncVariation(obj) {
 
     // Sync vendor information - clear existing and replace with fresh data from Square
     // First, delete all existing vendor relationships for this variation
-    await db.query('DELETE FROM variation_vendors WHERE variation_id = $1', [obj.id]);
+    await db.query('DELETE FROM variation_vendors WHERE variation_id = $1 AND merchant_id = $2', [obj.id, merchantId]);
 
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {
@@ -1164,11 +1171,11 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
             return 0;
         }
 
-        // Query to check which variation IDs exist
+        // Query to check which variation IDs exist FOR THIS MERCHANT
         const placeholders = uniqueVariationIds.map((_, i) => `$${i + 1}`).join(',');
         const existingVariationsResult = await db.query(
-            `SELECT id FROM variations WHERE id IN (${placeholders})`,
-            uniqueVariationIds
+            `SELECT id FROM variations WHERE id IN (${placeholders}) AND merchant_id = $${uniqueVariationIds.length + 1}`,
+            [...uniqueVariationIds, merchantId]
         );
 
         const existingVariationIds = new Set(existingVariationsResult.rows.map(row => row.id));
