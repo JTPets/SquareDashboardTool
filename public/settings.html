@@ -607,6 +607,31 @@
           <strong>Account lockout:</strong> After 5 failed logins, accounts are locked for 15 minutes
         </div>
       </div>
+
+      <!-- Database Backup Section (Admin Only) -->
+      <div class="section" id="database-backup-section" style="display: none;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">💾 Database Backup & Restore</div>
+            <div class="section-desc">Export and import complete database backups (Admin only)</div>
+          </div>
+        </div>
+
+        <div class="connection-card">
+          <div class="connection-header">
+            <span class="connection-icon">🗄️</span>
+            <span class="connection-name">Database Management</span>
+          </div>
+          <div class="connection-status">Export your database or restore from a backup file.</div>
+          <div style="margin-top: 15px;">
+            <a href="/database-backup.html" class="btn-primary" style="text-decoration: none; display: inline-block;">Open Backup Manager</a>
+          </div>
+        </div>
+
+        <div class="alert warning" style="margin-top: 15px;">
+          <strong>Caution:</strong> Database operations can affect all data. Always create a backup before importing or restoring.
+        </div>
+      </div>
     </div>
 
     <!-- Change Password Modal -->
@@ -1146,9 +1171,10 @@
         document.getElementById('current-user-email').textContent = currentUser.email;
         document.getElementById('current-user-role').textContent = `Role: ${currentUser.role}`;
 
-        // Show user management section for admins
+        // Show admin-only sections
         if (currentUser.role === 'admin') {
           document.getElementById('user-management-section').style.display = 'block';
+          document.getElementById('database-backup-section').style.display = 'block';
           loadUsersList();
         }
       } catch (e) {
