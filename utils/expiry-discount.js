@@ -17,38 +17,50 @@ function getSquareApi() {
 
 /**
  * Get all active discount tiers from database, ordered by priority
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Array>} Array of tier objects
  */
-async function getActiveTiers() {
+async function getActiveTiers(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getActiveTiers');
+    }
     const result = await db.query(`
         SELECT * FROM expiry_discount_tiers
-        WHERE is_active = TRUE
+        WHERE is_active = TRUE AND merchant_id = $1
         ORDER BY priority DESC
-    `);
+    `, [merchantId]);
     return result.rows;
 }
 
 /**
  * Get a specific tier by code
  * @param {string} tierCode - Tier code (e.g., 'AUTO50')
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object|null>} Tier object or null
  */
-async function getTierByCode(tierCode) {
+async function getTierByCode(tierCode, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getTierByCode');
+    }
     const result = await db.query(`
-        SELECT * FROM expiry_discount_tiers WHERE tier_code = $1
-    `, [tierCode]);
+        SELECT * FROM expiry_discount_tiers WHERE tier_code = $1 AND merchant_id = $2
+    `, [tierCode, merchantId]);
     return result.rows[0] || null;
 }
 
 /**
  * Get a setting value from expiry_discount_settings
  * @param {string} key - Setting key
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<string|null>} Setting value
  */
-async function getSetting(key) {
+async function getSetting(key, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getSetting');
+    }
     const result = await db.query(`
-        SELECT setting_value FROM expiry_discount_settings WHERE setting_key = $1
-    `, [key]);
+        SELECT setting_value FROM expiry_discount_settings WHERE setting_key = $1 AND merchant_id = $2
+    `, [key, merchantId]);
     return result.rows[0]?.setting_value || null;
 }
 
@@ -56,14 +68,18 @@ async function getSetting(key) {
  * Update a setting value
  * @param {string} key - Setting key
  * @param {string} value - New value
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  */
-async function updateSetting(key, value) {
+async function updateSetting(key, value, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for updateSetting');
+    }
     await db.query(`
-        INSERT INTO expiry_discount_settings (setting_key, setting_value, updated_at)
-        VALUES ($2, $1, NOW())
-        ON CONFLICT (setting_key) DO UPDATE
-        SET setting_value = $1, updated_at = NOW()
-    `, [value, key]);
+        INSERT INTO expiry_discount_settings (setting_key, setting_value, merchant_id, updated_at)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (setting_key, merchant_id) DO UPDATE
+        SET setting_value = $2, updated_at = NOW()
+    `, [key, value, merchantId]);
 }
 
 /**
@@ -119,14 +135,19 @@ function determineTier(daysUntilExpiry, tiers) {
 /**
  * Evaluate all variations with expiration dates and assign tiers
  * @param {Object} options - Options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {boolean} options.dryRun - If true, don't make any changes
  * @param {string} options.triggeredBy - 'SYSTEM', 'MANUAL', or 'CRON'
  * @returns {Promise<Object>} Evaluation results
  */
 async function evaluateAllVariations(options = {}) {
-    const { dryRun = false, triggeredBy = 'SYSTEM' } = options;
+    const { merchantId, dryRun = false, triggeredBy = 'SYSTEM' } = options;
 
-    logger.info('Starting expiry tier evaluation', { dryRun, triggeredBy });
+    if (!merchantId) {
+        throw new Error('merchantId is required for evaluateAllVariations');
+    }
+
+    logger.info('Starting expiry tier evaluation', { merchantId, dryRun, triggeredBy });
 
     const results = {
         totalEvaluated: 0,
@@ -138,8 +159,8 @@ async function evaluateAllVariations(options = {}) {
     };
 
     try {
-        // Get active tiers
-        const tiers = await getActiveTiers();
+        // Get active tiers for this merchant
+        const tiers = await getActiveTiers(merchantId);
 
         // Initialize tier counts
         for (const tier of tiers) {
@@ -147,7 +168,7 @@ async function evaluateAllVariations(options = {}) {
         }
         results.byTier['NO_EXPIRY'] = 0;
 
-        // Get all variations with expiration data
+        // Get all variations with expiration data for this merchant
         const variationsResult = await db.query(`
             SELECT
                 v.id as variation_id,
@@ -162,14 +183,15 @@ async function evaluateAllVariations(options = {}) {
                 vds.original_price_cents,
                 vds.discounted_price_cents
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
             LEFT JOIN variation_discount_status vds ON v.id = vds.variation_id
             WHERE v.is_deleted = FALSE
               AND i.is_deleted = FALSE
-        `);
+              AND v.merchant_id = $1
+        `, [merchantId]);
 
-        const timezone = await getSetting('timezone') || 'America/Toronto';
+        const timezone = await getSetting('timezone', merchantId) || 'America/Toronto';
 
         for (const row of variationsResult.rows) {
             results.totalEvaluated++;
@@ -252,6 +274,7 @@ async function evaluateAllVariations(options = {}) {
 
                         // Log to audit
                         await logAuditEvent({
+                            merchantId,
                             variationId: row.variation_id,
                             action: oldTierId ? 'TIER_CHANGED' : 'TIER_ASSIGNED',
                             oldTierId,
@@ -305,16 +328,21 @@ async function evaluateAllVariations(options = {}) {
 /**
  * Log an audit event
  * @param {Object} event - Audit event data
+ * @param {number} event.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  */
 async function logAuditEvent(event) {
+    if (!event.merchantId) {
+        throw new Error('merchantId is required for logAuditEvent');
+    }
     await db.query(`
         INSERT INTO expiry_discount_audit_log (
-            variation_id, action, old_tier_id, new_tier_id,
+            merchant_id, variation_id, action, old_tier_id, new_tier_id,
             old_price_cents, new_price_cents, days_until_expiry,
             square_sync_status, square_error_message, triggered_by
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     `, [
+        event.merchantId,
         event.variationId,
         event.action,
         event.oldTierId || null,
@@ -445,10 +473,15 @@ async function upsertSquareDiscount(tier) {
 
 /**
  * Initialize Square discount objects for all auto-apply tiers
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Initialization results
  */
-async function initializeSquareDiscounts() {
-    logger.info('Initializing Square discount objects');
+async function initializeSquareDiscounts(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for initializeSquareDiscounts');
+    }
+
+    logger.info('Initializing Square discount objects', { merchantId });
 
     const results = {
         created: [],
@@ -457,12 +490,12 @@ async function initializeSquareDiscounts() {
     };
 
     try {
-        // Get all tiers that need Square discounts (auto-apply only)
+        // Get all tiers that need Square discounts (auto-apply only) for this merchant
         const tiersResult = await db.query(`
             SELECT * FROM expiry_discount_tiers
-            WHERE is_active = TRUE AND is_auto_apply = TRUE
+            WHERE is_active = TRUE AND is_auto_apply = TRUE AND merchant_id = $1
             ORDER BY priority DESC
-        `);
+        `, [merchantId]);
 
         for (const tier of tiersResult.rows) {
             try {
@@ -504,9 +537,13 @@ async function initializeSquareDiscounts() {
 
 /**
  * Get items that need discount application (tier changed to an auto-apply tier)
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Array>} Array of variations needing discount updates
  */
-async function getVariationsNeedingDiscountUpdate() {
+async function getVariationsNeedingDiscountUpdate(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getVariationsNeedingDiscountUpdate');
+    }
     const result = await db.query(`
         SELECT
             vds.variation_id,
@@ -520,12 +557,12 @@ async function getVariationsNeedingDiscountUpdate() {
             edt.is_auto_apply,
             edt.square_discount_id
         FROM variation_discount_status vds
-        JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
-        JOIN variations v ON vds.variation_id = v.id
+        JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
+        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
         WHERE edt.is_auto_apply = TRUE
           AND edt.square_discount_id IS NOT NULL
           AND v.is_deleted = FALSE
-    `);
+    `, [merchantId]);
 
     return result.rows;
 }
@@ -534,19 +571,25 @@ async function getVariationsNeedingDiscountUpdate() {
  * Update Square discount object with list of item IDs to apply to
  * @param {string} tierCode - Tier code (e.g., 'AUTO50')
  * @param {Array<string>} variationIds - Array of variation IDs
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Update result
  */
-async function updateDiscountAppliesTo(tierCode, variationIds) {
+async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for updateDiscountAppliesTo');
+    }
+
     const squareApiModule = getSquareApi();
 
     logger.info('Updating discount applies_to list', {
         tierCode,
-        variationCount: variationIds.length
+        variationCount: variationIds.length,
+        merchantId
     });
 
     try {
         // Get the tier and its Square discount ID
-        const tier = await getTierByCode(tierCode);
+        const tier = await getTierByCode(tierCode, merchantId);
 
         if (!tier || !tier.square_discount_id) {
             throw new Error(`No Square discount found for tier: ${tierCode}`);
@@ -612,14 +655,20 @@ async function updateDiscountAppliesTo(tierCode, variationIds) {
  * Apply discounts to variations based on their current tier
  * Uses Square Pricing Rules to apply item-level discounts
  * @param {Object} options - Options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {boolean} options.dryRun - If true, don't make any changes
  * @returns {Promise<Object>} Application results
  */
 async function applyDiscounts(options = {}) {
-    const { dryRun = false } = options;
+    const { merchantId, dryRun = false } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for applyDiscounts');
+    }
+
     const squareApiModule = getSquareApi();
 
-    logger.info('Applying discounts to variations', { dryRun });
+    logger.info('Applying discounts to variations', { merchantId, dryRun });
 
     const results = {
         applied: [],
@@ -629,15 +678,15 @@ async function applyDiscounts(options = {}) {
     };
 
     try {
-        // Get all tiers with auto-apply
+        // Get all tiers with auto-apply for this merchant
         const tiersResult = await db.query(`
             SELECT * FROM expiry_discount_tiers
-            WHERE is_active = TRUE AND is_auto_apply = TRUE
+            WHERE is_active = TRUE AND is_auto_apply = TRUE AND merchant_id = $1
             ORDER BY priority DESC
-        `);
+        `, [merchantId]);
 
         for (const tier of tiersResult.rows) {
-            // Get variations currently in this tier
+            // Get variations currently in this tier for this merchant
             const variationsResult = await db.query(`
                 SELECT
                     vds.variation_id,
@@ -646,11 +695,11 @@ async function applyDiscounts(options = {}) {
                     v.sku,
                     i.name as item_name
                 FROM variation_discount_status vds
-                JOIN variations v ON vds.variation_id = v.id
-                JOIN items i ON v.item_id = i.id
-                WHERE vds.current_tier_id = $1
+                JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+                JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                WHERE vds.current_tier_id = $2
                   AND v.is_deleted = FALSE
-            `, [tier.id]);
+            `, [merchantId, tier.id]);
 
             const variationIds = variationsResult.rows.map(r => r.variation_id);
 
@@ -694,6 +743,7 @@ async function applyDiscounts(options = {}) {
                         });
 
                         await logAuditEvent({
+                            merchantId,
                             variationId: row.variation_id,
                             action: 'DISCOUNT_APPLIED',
                             newTierId: tier.id,
@@ -727,10 +777,10 @@ async function applyDiscounts(options = {}) {
                 edt.tier_code,
                 edt.is_auto_apply
             FROM variation_discount_status vds
-            JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+            JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
             WHERE vds.discount_applied_at IS NOT NULL
               AND edt.is_auto_apply = FALSE
-        `);
+        `, [merchantId]);
 
         if (removedResult.rows.length > 0 && !dryRun) {
             logger.info('Removing discounts from items no longer in auto-apply tiers', {
@@ -753,6 +803,7 @@ async function applyDiscounts(options = {}) {
                 });
 
                 await logAuditEvent({
+                    merchantId,
                     variationId: row.variation_id,
                     action: 'DISCOUNT_REMOVED',
                     oldPriceCents: row.discounted_price_cents,
@@ -896,13 +947,18 @@ async function upsertPricingRule(tier, variationIds) {
  * Run the full expiry discount automation
  * This is called by the cron job
  * @param {Object} options - Options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {boolean} options.dryRun - If true, don't make any changes
  * @returns {Promise<Object>} Full automation results
  */
 async function runExpiryDiscountAutomation(options = {}) {
-    const { dryRun = false } = options;
+    const { merchantId, dryRun = false } = options;
 
-    logger.info('Starting expiry discount automation', { dryRun });
+    if (!merchantId) {
+        throw new Error('merchantId is required for runExpiryDiscountAutomation');
+    }
+
+    logger.info('Starting expiry discount automation', { merchantId, dryRun });
 
     const startTime = Date.now();
     const results = {
@@ -919,7 +975,7 @@ async function runExpiryDiscountAutomation(options = {}) {
         // Step 1: Initialize/verify Square discount objects
         if (!dryRun) {
             try {
-                results.discountInit = await initializeSquareDiscounts();
+                results.discountInit = await initializeSquareDiscounts(merchantId);
             } catch (error) {
                 results.errors.push({ step: 'discountInit', error: error.message });
                 logger.error('Discount initialization failed', { error: error.message });
@@ -928,6 +984,7 @@ async function runExpiryDiscountAutomation(options = {}) {
 
         // Step 2: Evaluate all variations and assign tiers
         results.evaluation = await evaluateAllVariations({
+            merchantId,
             dryRun,
             triggeredBy: 'CRON'
         });
@@ -942,7 +999,7 @@ async function runExpiryDiscountAutomation(options = {}) {
         // Step 3: Apply discounts based on tier assignments
         if (!dryRun) {
             try {
-                results.discountApplication = await applyDiscounts({ dryRun });
+                results.discountApplication = await applyDiscounts({ merchantId, dryRun });
             } catch (error) {
                 results.errors.push({ step: 'discountApplication', error: error.message });
                 logger.error('Discount application failed', { error: error.message });
@@ -951,13 +1008,14 @@ async function runExpiryDiscountAutomation(options = {}) {
 
         // Update last run timestamp
         if (!dryRun) {
-            await updateSetting('last_run_at', new Date().toISOString());
+            await updateSetting('last_run_at', new Date().toISOString(), merchantId);
         }
 
         results.duration = Date.now() - startTime;
         results.success = results.errors.length === 0;
 
         logger.info('Expiry discount automation complete', {
+            merchantId,
             success: results.success,
             duration: results.duration,
             tierChanges: results.evaluation?.tierChanges?.length || 0,
@@ -984,9 +1042,14 @@ async function runExpiryDiscountAutomation(options = {}) {
 
 /**
  * Get summary of current discount status
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Status summary
  */
-async function getDiscountStatusSummary() {
+async function getDiscountStatusSummary(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getDiscountStatusSummary');
+    }
+
     const summaryResult = await db.query(`
         SELECT
             edt.tier_code,
@@ -1000,22 +1063,22 @@ async function getDiscountStatusSummary() {
             SUM(CASE WHEN vds.discount_applied_at IS NOT NULL THEN 1 ELSE 0 END) as discount_applied_count
         FROM expiry_discount_tiers edt
         LEFT JOIN variation_discount_status vds ON edt.id = vds.current_tier_id
-        LEFT JOIN variations v ON vds.variation_id = v.id
+        LEFT JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
         LEFT JOIN (
             SELECT catalog_object_id, SUM(quantity) as total_stock
             FROM inventory_counts
             WHERE state = 'IN_STOCK'
             GROUP BY catalog_object_id
         ) ic ON vds.variation_id = ic.catalog_object_id
-        WHERE edt.is_active = TRUE
+        WHERE edt.is_active = TRUE AND edt.merchant_id = $1
           AND (vds.variation_id IS NULL OR COALESCE(v.is_deleted, FALSE) = FALSE)
           AND (vds.variation_id IS NULL OR COALESCE(ic.total_stock, 0) > 0)
         GROUP BY edt.id, edt.tier_code, edt.tier_name, edt.discount_percent,
                  edt.color_code, edt.is_auto_apply, edt.requires_review, edt.priority
         ORDER BY edt.priority DESC
-    `);
+    `, [merchantId]);
 
-    const lastRunAt = await getSetting('last_run_at');
+    const lastRunAt = await getSetting('last_run_at', merchantId);
 
     return {
         tiers: summaryResult.rows,
@@ -1032,10 +1095,15 @@ async function getDiscountStatusSummary() {
 /**
  * Get variations in a specific tier with details
  * @param {string} tierCode - Tier code
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {Object} options - Query options
  * @returns {Promise<Array>} Variations in tier
  */
-async function getVariationsInTier(tierCode, options = {}) {
+async function getVariationsInTier(tierCode, merchantId, options = {}) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getVariationsInTier');
+    }
+
     const { limit = 100, offset = 0 } = options;
 
     const result = await db.query(`
@@ -1057,25 +1125,30 @@ async function getVariationsInTier(tierCode, options = {}) {
             edt.discount_percent,
             edt.color_code
         FROM variation_discount_status vds
-        JOIN variations v ON vds.variation_id = v.id
-        JOIN items i ON v.item_id = i.id
-        JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
-        LEFT JOIN variation_expiration ve ON v.id = ve.variation_id
-        WHERE edt.tier_code = $1
+        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+        JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+        JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
+        LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
+        WHERE edt.tier_code = $2
           AND v.is_deleted = FALSE
         ORDER BY vds.days_until_expiry ASC
-        LIMIT $2 OFFSET $3
-    `, [tierCode, limit, offset]);
+        LIMIT $3 OFFSET $4
+    `, [merchantId, tierCode, limit, offset]);
 
     return result.rows;
 }
 
 /**
  * Get recent audit log entries
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @param {Object} options - Query options
  * @returns {Promise<Array>} Audit log entries
  */
-async function getAuditLog(options = {}) {
+async function getAuditLog(merchantId, options = {}) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getAuditLog');
+    }
+
     const { limit = 100, variationId = null } = options;
 
     let query = `
@@ -1087,16 +1160,17 @@ async function getAuditLog(options = {}) {
             old_tier.tier_code as old_tier_code,
             new_tier.tier_code as new_tier_code
         FROM expiry_discount_audit_log al
-        LEFT JOIN variations v ON al.variation_id = v.id
-        LEFT JOIN items i ON v.item_id = i.id
+        LEFT JOIN variations v ON al.variation_id = v.id AND v.merchant_id = $1
+        LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
         LEFT JOIN expiry_discount_tiers old_tier ON al.old_tier_id = old_tier.id
         LEFT JOIN expiry_discount_tiers new_tier ON al.new_tier_id = new_tier.id
+        WHERE al.merchant_id = $1
     `;
 
-    const params = [];
+    const params = [merchantId];
 
     if (variationId) {
-        query += ` WHERE al.variation_id = $1`;
+        query += ` AND al.variation_id = $2`;
         params.push(variationId);
     }
 
@@ -1107,9 +1181,93 @@ async function getAuditLog(options = {}) {
     return result.rows;
 }
 
+/**
+ * Initialize default discount tiers for a new merchant
+ * Creates the standard tier configuration if merchant has no tiers
+ * @param {number} merchantId - REQUIRED: Merchant ID
+ * @returns {Promise<Object>} Result with created tiers
+ */
+async function initializeDefaultTiers(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for initializeDefaultTiers');
+    }
+
+    // Check if merchant already has tiers
+    const existingTiers = await db.query(
+        'SELECT COUNT(*) as count FROM expiry_discount_tiers WHERE merchant_id = $1',
+        [merchantId]
+    );
+
+    if (parseInt(existingTiers.rows[0].count) > 0) {
+        logger.info('Merchant already has discount tiers configured', { merchantId });
+        return { created: false, message: 'Tiers already exist' };
+    }
+
+    logger.info('Creating default discount tiers for merchant', { merchantId });
+
+    // Insert default tiers for this merchant
+    const defaultTiers = [
+        { tier_code: 'EXPIRED', tier_name: 'Expired - Pull from Shelf', min_days: null, max_days: 0, discount: 0, auto_apply: false, requires_review: false, color: '#991b1b', priority: 100 },
+        { tier_code: 'AUTO50', tier_name: '50% Off - Critical Expiry', min_days: 1, max_days: 30, discount: 50, auto_apply: true, requires_review: false, color: '#dc2626', priority: 90 },
+        { tier_code: 'AUTO25', tier_name: '25% Off - Approaching Expiry', min_days: 31, max_days: 89, discount: 25, auto_apply: true, requires_review: false, color: '#f59e0b', priority: 80 },
+        { tier_code: 'REVIEW', tier_name: 'Review - Monitor Expiry', min_days: 90, max_days: 120, discount: 0, auto_apply: false, requires_review: true, color: '#3b82f6', priority: 70 },
+        { tier_code: 'OK', tier_name: 'OK - No Action Needed', min_days: 121, max_days: null, discount: 0, auto_apply: false, requires_review: false, color: '#059669', priority: 10 }
+    ];
+
+    for (const tier of defaultTiers) {
+        await db.query(`
+            INSERT INTO expiry_discount_tiers (
+                merchant_id, tier_code, tier_name, min_days_to_expiry, max_days_to_expiry,
+                discount_percent, is_auto_apply, requires_review, color_code, priority, is_active
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+        `, [merchantId, tier.tier_code, tier.tier_name, tier.min_days, tier.max_days,
+            tier.discount, tier.auto_apply, tier.requires_review, tier.color, tier.priority]);
+    }
+
+    // Also insert default settings for this merchant
+    const defaultSettings = [
+        { key: 'cron_schedule', value: '0 6 * * *', desc: 'Cron schedule for daily expiry evaluation (default: 6:00 AM)' },
+        { key: 'timezone', value: 'America/Toronto', desc: 'Timezone for expiry calculations (EST)' },
+        { key: 'auto_apply_enabled', value: 'true', desc: 'Whether to automatically apply discounts' },
+        { key: 'email_notifications', value: 'true', desc: 'Send email alerts for tier changes' }
+    ];
+
+    for (const setting of defaultSettings) {
+        await db.query(`
+            INSERT INTO expiry_discount_settings (merchant_id, setting_key, setting_value, description)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (setting_key, merchant_id) DO NOTHING
+        `, [merchantId, setting.key, setting.value, setting.desc]);
+    }
+
+    logger.info('Default discount tiers created for merchant', { merchantId, tierCount: defaultTiers.length });
+
+    return { created: true, tierCount: defaultTiers.length };
+}
+
+/**
+ * Ensure merchant has discount tiers, creating defaults if needed
+ * Call this on first access to expiry-discounts page
+ * @param {number} merchantId - REQUIRED: Merchant ID
+ * @returns {Promise<Object>} Result
+ */
+async function ensureMerchantTiers(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for ensureMerchantTiers');
+    }
+
+    const tiers = await getActiveTiers(merchantId);
+    if (tiers.length === 0) {
+        return await initializeDefaultTiers(merchantId);
+    }
+    return { created: false, tierCount: tiers.length };
+}
+
 module.exports = {
     // Tier management
     getActiveTiers,
+    initializeDefaultTiers,
+    ensureMerchantTiers,
     getTierByCode,
     determineTier,
     calculateDaysUntilExpiry,

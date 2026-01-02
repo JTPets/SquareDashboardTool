@@ -2348,10 +2348,15 @@ app.get('/api/expiry-discounts/status', requireAuth, requireMerchant, async (req
 /**
  * GET /api/expiry-discounts/tiers
  * Get all discount tier configurations
+ * Creates default tiers for new merchants if none exist
  */
 app.get('/api/expiry-discounts/tiers', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
+
+        // Ensure merchant has default tiers configured
+        await expiryDiscount.ensureMerchantTiers(merchantId);
+
         const result = await db.query(`
             SELECT * FROM expiry_discount_tiers
             WHERE merchant_id = $1
@@ -2462,7 +2467,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state IN ('IN_STOCK', 'RESERVED_FOR_SALE') AND ic.merchant_id = $1
-            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
+            WHERE v.is_deleted = FALSE
         `;
 
         const params = [merchantId];
@@ -2500,7 +2505,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
             FROM variation_discount_status vds
             JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
-            WHERE v.is_deleted = FALSE AND vds.merchant_id = $1
+            WHERE v.is_deleted = FALSE
         `;
         const countParams = [merchantId];
 
@@ -2607,7 +2612,7 @@ app.post('/api/expiry-discounts/run', requireAuth, requireMerchant, async (req, 
             const newAssignments = result.evaluation.newAssignments?.length || 0;
 
             if (tierChanges > 0 || newAssignments > 0) {
-                const emailEnabled = await expiryDiscount.getSetting('email_notifications');
+                const emailEnabled = await expiryDiscount.getSetting('email_notifications', merchantId);
                 if (emailEnabled === 'true') {
                     try {
                         await emailNotifier.sendAlert(
@@ -2668,10 +2673,9 @@ app.get('/api/expiry-discounts/audit-log', requireAuth, requireMerchant, async (
         const { variation_id, limit = 100 } = req.query;
         const merchantId = req.merchantContext.id;
 
-        const logs = await expiryDiscount.getAuditLog({
+        const logs = await expiryDiscount.getAuditLog(merchantId, {
             variationId: variation_id,
-            limit: parseInt(limit),
-            merchantId
+            limit: parseInt(limit)
         });
 
         res.json({ logs });
