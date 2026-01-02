@@ -681,7 +681,7 @@ END $$;
 -- 1. Configurable discount tier rules
 CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
     id SERIAL PRIMARY KEY,
-    tier_code TEXT NOT NULL UNIQUE,           -- e.g., 'AUTO50', 'AUTO25', 'REVIEW', 'EXPIRED'
+    tier_code TEXT NOT NULL,                   -- e.g., 'AUTO50', 'AUTO25', 'REVIEW', 'EXPIRED'
     tier_name TEXT NOT NULL,                   -- Human-readable name
     min_days_to_expiry INTEGER,                -- Minimum days (inclusive), NULL = no minimum
     max_days_to_expiry INTEGER,                -- Maximum days (inclusive), NULL = no maximum
@@ -692,8 +692,10 @@ CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
     color_code TEXT DEFAULT '#6b7280',         -- Color for UI display (hex)
     priority INTEGER DEFAULT 0,                -- Higher = evaluated first (for overlapping ranges)
     is_active BOOLEAN DEFAULT TRUE,
+    merchant_id INTEGER REFERENCES merchants(id), -- Multi-tenant support
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(tier_code, merchant_id)             -- Same tier codes allowed per merchant
 );
 
 -- 2. Track which variations are currently in which tier
