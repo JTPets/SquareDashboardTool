@@ -665,53 +665,27 @@
         <a href="database-backup.html">Manage Backups</a>
       </div>
 
-      <!-- RAW API ACCESS -->
+      <!-- API REFERENCE -->
       <div class="tool-card api">
-        <h2>🔌 Raw API Access</h2>
-        <p>Direct JSON access to all database endpoints for development and integration.</p>
-        <a href="#" onclick="toggleApiList(); return false;">View All APIs</a>
+        <h2>🔌 API Reference</h2>
+        <p>View available endpoints for integrations.</p>
+        <a href="#" onclick="toggleApiList(); return false;">View Endpoints</a>
       </div>
 
     </div>
 
     <!-- API DOCUMENTATION (collapsible) -->
     <div class="api-section" id="api-section">
-      <h3>📚 Raw API Endpoints (68 Total)</h3>
+      <h3>📚 API Endpoints</h3>
       <div class="api-grid">
 
         <div class="api-category">
           <h4>💚 Health & Status</h4>
           <a href="/api/health" target="_blank">GET /api/health</a>
-          <a href="/api/config" target="_blank">GET /api/config</a>
-        </div>
-
-        <div class="api-category">
-          <h4>💾 Database Backup</h4>
-          <a href="/api/database/info" target="_blank">GET /api/database/info</a>
-          <a href="/api/database/export" target="_blank">GET /api/database/export</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/database/import</a>
-        </div>
-
-        <div class="api-category">
-          <h4>📋 Logging</h4>
-          <a href="/api/logs" target="_blank">GET /api/logs</a>
-          <a href="/api/logs/errors" target="_blank">GET /api/logs/errors</a>
-          <a href="/api/logs/stats" target="_blank">GET /api/logs/stats</a>
-          <a href="/api/logs/download" target="_blank">GET /api/logs/download</a>
-        </div>
-
-        <div class="api-category">
-          <h4>🧪 Testing</h4>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-email</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-error</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/test-backup-email</a>
         </div>
 
         <div class="api-category">
           <h4>🔄 Sync Operations</h4>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-smart</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/sync-sales</a>
           <a href="/api/sync-status" target="_blank">GET /api/sync-status</a>
           <a href="/api/sync-history" target="_blank">GET /api/sync-history</a>
         </div>
@@ -805,27 +779,9 @@
 
         <div class="api-category">
           <h4>🛒 Google Merchant Center</h4>
-          <a href="/api/gmc/feed" target="_blank">GET /api/gmc/feed</a>
-          <a href="/api/gmc/feed.tsv" target="_blank">GET /api/gmc/feed.tsv</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/generate</a>
           <a href="/api/gmc/settings" target="_blank">GET /api/gmc/settings</a>
           <a href="/api/gmc/brands" target="_blank">GET /api/gmc/brands</a>
-          <a href="/api/gmc/taxonomy" target="_blank">GET /api/gmc/taxonomy</a>
           <a href="/api/gmc/history" target="_blank">GET /api/gmc/history</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/gmc/sync-sheet</a>
-        </div>
-
-        <div class="api-category">
-          <h4>📊 Google OAuth</h4>
-          <a href="/api/google/status" target="_blank">GET /api/google/status</a>
-          <a href="/api/google/auth" target="_blank">GET /api/google/auth</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/google/disconnect</a>
-        </div>
-
-        <div class="api-category">
-          <h4>⚙️ Settings</h4>
-          <a href="/api/settings/env" target="_blank">GET /api/settings/env</a>
-          <a href="#" onclick="alert('Use PUT request')" target="_blank">PUT /api/settings/env</a>
         </div>
 
       </div>
@@ -834,12 +790,6 @@
     <!-- FOOTER -->
     <div class="footer">
       &copy; <span id="year"></span> Square Dashboard Addon Tool |
-      <strong>Quick Access:</strong>
-      <a href="/api/items">Items</a>
-      <a href="/api/inventory">Inventory</a>
-      <a href="/api/reorder-suggestions?supply_days=45">Alerts</a>
-      <a href="/api/health">Health</a>
-      |
       <a href="merchants.html">Manage Accounts</a>
       |
       <a href="/support.html">Support</a>

@@ -343,7 +343,7 @@ app.get('/api/merchants/context', requireAuth, async (req, res) => {
  * GET /api/config
  * Get frontend configuration from environment variables
  */
-app.get('/api/config', async (req, res) => {
+app.get('/api/config', requireAuth, async (req, res) => {
     try {
         // Check Square connection
         let squareConnected = false;
@@ -3518,7 +3518,7 @@ app.post('/api/debug/migrate-legacy-token', requireAuth, requireMerchant, async 
  * GET /api/debug/all-locations
  * Debug endpoint to check locations across all merchants
  */
-app.get('/api/debug/all-locations', requireAuth, async (req, res) => {
+app.get('/api/debug/all-locations', requireAdmin, async (req, res) => {
     try {
         const result = await db.query(`
             SELECT l.id, l.name, l.merchant_id, m.business_name
@@ -3537,7 +3537,7 @@ app.get('/api/debug/all-locations', requireAuth, async (req, res) => {
  * Merge all legacy merchant (id=1) data into target merchant
  * This consolidates orphaned legacy data with the proper Square-connected merchant
  */
-app.post('/api/debug/merge-legacy-to-merchant', requireAuth, async (req, res) => {
+app.post('/api/debug/merge-legacy-to-merchant', requireAdmin, async (req, res) => {
     try {
         const { target_merchant_id } = req.body;
         if (!target_merchant_id) {
