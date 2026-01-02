@@ -1155,9 +1155,10 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
                 const isAuthenticated = await googleSheetsModule.isAuthenticated();
 
                 if (isAuthenticated) {
-                    // Get configured spreadsheet ID from settings
+                    // Get configured spreadsheet ID from settings FOR THIS MERCHANT
                     const sheetIdResult = await db.query(
-                        "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id'"
+                        "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id' AND merchant_id = $1",
+                        [merchantId]
                     );
 
                     if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
@@ -1590,11 +1591,12 @@ app.patch('/api/variations/:id/extended', requireAuth, requireMerchant, async (r
 
         updates.push('updated_at = CURRENT_TIMESTAMP');
         values.push(id);
+        values.push(merchantId);
 
         const query = `
             UPDATE variations
             SET ${updates.join(', ')}
-            WHERE id = $${paramCount}
+            WHERE id = $${paramCount} AND merchant_id = $${paramCount + 1}
             RETURNING *
         `;
 
@@ -5321,7 +5323,7 @@ app.post('/api/vendor-catalog/push-price-changes', requireAuth, requireMerchant,
             });
         }
 
-        // Validate each price change and verify variations belong to merchant
+        // Validate each price change
         for (const change of priceChanges) {
             if (!change.variationId) {
                 return res.status(400).json({
@@ -5337,10 +5339,25 @@ app.post('/api/vendor-catalog/push-price-changes', requireAuth, requireMerchant,
             }
         }
 
+        // Verify all variations belong to this merchant
+        const variationIds = priceChanges.map(c => c.variationId);
+        const placeholders = variationIds.map((_, i) => `$${i + 1}`).join(',');
+        const verifyResult = await db.query(
+            `SELECT id FROM variations WHERE id IN (${placeholders}) AND merchant_id = $${variationIds.length + 1}`,
+            [...variationIds, merchantId]
+        );
+
+        if (verifyResult.rows.length !== variationIds.length) {
+            return res.status(403).json({
+                success: false,
+                error: 'One or more variations do not belong to this merchant'
+            });
+        }
+
         logger.info('Pushing price changes to Square', { count: priceChanges.length, merchantId });
 
         const squareApi = require('./utils/square-api');
-        const result = await squareApi.batchUpdateVariationPrices(priceChanges);
+        const result = await squareApi.batchUpdateVariationPrices(priceChanges, merchantId);
 
         res.json({
             success: result.success,
