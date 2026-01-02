@@ -5791,18 +5791,22 @@ app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
  * 1. Adds 30 NEW items every day (or DAILY_COUNT_TARGET)
  * 2. Uncompleted items from previous batches remain in queue
  * 3. Ensures backlog grows if days are skipped to stay on 30/day target
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
  */
-async function generateDailyBatch() {
+async function generateDailyBatch(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for generateDailyBatch');
+    }
     try {
-        logger.info('Starting daily cycle count batch generation');
+        logger.info('Starting daily cycle count batch generation', { merchantId });
         const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
 
         // Create today's session
         await db.query(
-            `INSERT INTO count_sessions (session_date, items_expected)
-             VALUES (CURRENT_DATE, $1)
-             ON CONFLICT (session_date) DO NOTHING`,
-            [dailyTarget]
+            `INSERT INTO count_sessions (session_date, items_expected, merchant_id)
+             VALUES (CURRENT_DATE, $1, $2)
+             ON CONFLICT (session_date, merchant_id) DO NOTHING`,
+            [dailyTarget, merchantId]
         );
 
         // STEP 1: Auto-add recent inaccurate counts to priority queue for verification
@@ -5812,10 +5816,12 @@ async function generateDailyBatch() {
             SELECT DISTINCT ch.catalog_object_id, v.sku, i.name as item_name,
                    DATE(ch.last_counted_date) as count_date
             FROM count_history ch
-            JOIN variations v ON ch.catalog_object_id = v.id
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN count_queue_priority cqp ON ch.catalog_object_id = cqp.catalog_object_id AND cqp.completed = FALSE
-            WHERE ch.is_accurate = FALSE
+            JOIN variations v ON ch.catalog_object_id = v.id AND v.merchant_id = $1
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN count_queue_priority cqp ON ch.catalog_object_id = cqp.catalog_object_id
+                AND cqp.completed = FALSE AND cqp.merchant_id = $1
+            WHERE ch.merchant_id = $1
+              AND ch.is_accurate = FALSE
               AND ch.last_counted_date >= CURRENT_DATE - INTERVAL '7 days'
               AND ch.last_counted_date < CURRENT_DATE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
@@ -5826,46 +5832,47 @@ async function generateDailyBatch() {
                 -- Only add if there's no more recent count after the inaccurate one
                 SELECT 1 FROM count_history ch2
                 WHERE ch2.catalog_object_id = ch.catalog_object_id
+                  AND ch2.merchant_id = $1
                   AND ch2.last_counted_date > ch.last_counted_date
               )
         `;
 
-        const recentInaccurate = await db.query(recentInaccurateQuery);
+        const recentInaccurate = await db.query(recentInaccurateQuery, [merchantId]);
         const recentInaccurateCount = recentInaccurate.rows.length;
 
         if (recentInaccurateCount > 0) {
-            logger.info(`Found ${recentInaccurateCount} inaccurate counts from the past 7 days to recount`);
+            logger.info(`Found ${recentInaccurateCount} inaccurate counts from the past 7 days to recount`, { merchantId });
 
             // Add to priority queue for today (only if not already in queue)
             const priorityInserts = recentInaccurate.rows.map(item => {
                 const daysAgo = item.count_date ? Math.floor((Date.now() - new Date(item.count_date)) / (1000 * 60 * 60 * 24)) : 1;
                 const timeRef = daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`;
                 return db.query(
-                    `INSERT INTO count_queue_priority (catalog_object_id, notes, added_by, added_date)
-                     SELECT $1, $2, 'System', CURRENT_TIMESTAMP
+                    `INSERT INTO count_queue_priority (catalog_object_id, notes, added_by, added_date, merchant_id)
+                     SELECT $1, $2, 'System', CURRENT_TIMESTAMP, $3
                      WHERE NOT EXISTS (
                          SELECT 1 FROM count_queue_priority
-                         WHERE catalog_object_id = $1 AND completed = FALSE
+                         WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $3
                      )`,
-                    [item.catalog_object_id, `Recount - Inaccurate ${timeRef} (${item.sku})`]
+                    [item.catalog_object_id, `Recount - Inaccurate ${timeRef} (${item.sku})`, merchantId]
                 );
             });
 
             await Promise.all(priorityInserts);
-            logger.info(`Added ${recentInaccurateCount} items from recent inaccurate counts to priority queue`);
+            logger.info(`Added ${recentInaccurateCount} items from recent inaccurate counts to priority queue`, { merchantId });
         } else {
-            logger.info('No recent inaccurate counts to recount');
+            logger.info('No recent inaccurate counts to recount', { merchantId });
         }
 
         // Count uncompleted items from previous batches (for reporting)
         const uncompletedResult = await db.query(`
             SELECT COUNT(DISTINCT catalog_object_id) as count
             FROM count_queue_daily
-            WHERE completed = FALSE
-        `);
+            WHERE completed = FALSE AND merchant_id = $1
+        `, [merchantId]);
         const uncompletedCount = parseInt(uncompletedResult.rows[0]?.count || 0);
 
-        logger.info(`Found ${uncompletedCount} uncompleted items from previous batches`);
+        logger.info(`Found ${uncompletedCount} uncompleted items from previous batches`, { merchantId });
 
         // ALWAYS add the full daily target (30 items) regardless of backlog
         // This ensures we add 30 new items every day, and backlog accumulates
@@ -5876,11 +5883,12 @@ async function generateDailyBatch() {
         const newItemsQuery = `
             SELECT v.id
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id
-            LEFT JOIN count_queue_daily cqd ON v.id = cqd.catalog_object_id AND cqd.completed = FALSE
-            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE
-            WHERE COALESCE(v.is_deleted, FALSE) = FALSE
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            LEFT JOIN count_history ch ON v.id = ch.catalog_object_id AND ch.merchant_id = $2
+            LEFT JOIN count_queue_daily cqd ON v.id = cqd.catalog_object_id AND cqd.completed = FALSE AND cqd.merchant_id = $2
+            LEFT JOIN count_queue_priority cqp ON v.id = cqp.catalog_object_id AND cqp.completed = FALSE AND cqp.merchant_id = $2
+            WHERE v.merchant_id = $2
+              AND COALESCE(v.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
               AND cqd.id IS NULL
               AND cqp.id IS NULL
@@ -5888,10 +5896,10 @@ async function generateDailyBatch() {
             LIMIT $1
         `;
 
-        const newItems = await db.query(newItemsQuery, [itemsToAdd]);
+        const newItems = await db.query(newItemsQuery, [itemsToAdd, merchantId]);
 
         if (newItems.rows.length === 0) {
-            logger.info('No new items available to add to batch');
+            logger.info('No new items available to add to batch', { merchantId });
             return {
                 success: true,
                 uncompleted: uncompletedCount,
@@ -5904,16 +5912,16 @@ async function generateDailyBatch() {
         // Insert new items into daily batch queue
         const insertPromises = newItems.rows.map(item =>
             db.query(
-                `INSERT INTO count_queue_daily (catalog_object_id, batch_date, notes)
-                 VALUES ($1, CURRENT_DATE, 'Auto-generated daily batch')
-                 ON CONFLICT (catalog_object_id, batch_date) DO NOTHING`,
-                [item.id]
+                `INSERT INTO count_queue_daily (catalog_object_id, batch_date, notes, merchant_id)
+                 VALUES ($1, CURRENT_DATE, 'Auto-generated daily batch', $2)
+                 ON CONFLICT (catalog_object_id, batch_date, merchant_id) DO NOTHING`,
+                [item.id, merchantId]
             )
         );
 
         await Promise.all(insertPromises);
 
-        logger.info(`Successfully added ${newItems.rows.length} new items to daily batch`);
+        logger.info(`Successfully added ${newItems.rows.length} new items to daily batch`, { merchantId });
 
         return {
             success: true,
@@ -5924,7 +5932,7 @@ async function generateDailyBatch() {
         };
 
     } catch (error) {
-        logger.error('Daily batch generation failed', { error: error.message });
+        logger.error('Daily batch generation failed', { merchantId, error: error.message });
         throw error;
     }
 }
@@ -9180,10 +9188,30 @@ async function startServer() {
         // Runs every day at 1:00 AM
         const cronSchedule = process.env.CYCLE_COUNT_CRON || '0 1 * * *';
         cronTasks.push(cron.schedule(cronSchedule, async () => {
-            logger.info('Running scheduled daily batch generation');
+            logger.info('Running scheduled daily batch generation for all merchants');
             try {
-                const result = await generateDailyBatch();
-                logger.info('Scheduled batch generation completed', result);
+                // Get all active merchants
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchants = merchantsResult.rows;
+
+                if (merchants.length === 0) {
+                    logger.info('No merchants for batch generation');
+                    return;
+                }
+
+                const results = [];
+                for (const merchant of merchants) {
+                    try {
+                        const result = await generateDailyBatch(merchant.id);
+                        results.push({ merchantId: merchant.id, businessName: merchant.business_name, ...result });
+                        logger.info('Batch generation completed for merchant', { merchantId: merchant.id, businessName: merchant.business_name, ...result });
+                    } catch (merchantError) {
+                        logger.error('Batch generation failed for merchant', { merchantId: merchant.id, businessName: merchant.business_name, error: merchantError.message });
+                        results.push({ merchantId: merchant.id, businessName: merchant.business_name, error: merchantError.message });
+                    }
+                }
+
+                logger.info('Scheduled batch generation completed for all merchants', { merchantCount: merchants.length, results });
             } catch (error) {
                 logger.error('Scheduled batch generation failed', { error: error.message });
                 await emailNotifier.sendAlert(
@@ -9351,25 +9379,40 @@ async function startServer() {
 
         logger.info('Expiry discount cron job scheduled', { schedule: expiryCronSchedule, timezone: 'America/Toronto' });
 
-        // Startup check: Generate today's batch if it doesn't exist yet
+        // Startup check: Generate today's batch if it doesn't exist yet for each merchant
         // This handles cases where server was offline during scheduled cron time
         (async () => {
             try {
-                // Check if any items have been added to today's batch
-                const batchCheck = await db.query(`
-                    SELECT COUNT(*) as count
-                    FROM count_queue_daily
-                    WHERE batch_date = CURRENT_DATE
-                `);
+                // Get all active merchants
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchants = merchantsResult.rows;
 
-                const todaysBatchCount = parseInt(batchCheck.rows[0]?.count || 0);
+                if (merchants.length === 0) {
+                    logger.info('No merchants for startup batch check');
+                    return;
+                }
 
-                if (todaysBatchCount === 0) {
-                    logger.info('No batch found for today - generating startup batch');
-                    const result = await generateDailyBatch();
-                    logger.info('Startup batch generation completed', result);
-                } else {
-                    logger.info('Today\'s batch already exists', { items_count: todaysBatchCount });
+                for (const merchant of merchants) {
+                    try {
+                        // Check if any items have been added to today's batch for this merchant
+                        const batchCheck = await db.query(`
+                            SELECT COUNT(*) as count
+                            FROM count_queue_daily
+                            WHERE batch_date = CURRENT_DATE AND merchant_id = $1
+                        `, [merchant.id]);
+
+                        const todaysBatchCount = parseInt(batchCheck.rows[0]?.count || 0);
+
+                        if (todaysBatchCount === 0) {
+                            logger.info('No batch found for today - generating startup batch', { merchantId: merchant.id, businessName: merchant.business_name });
+                            const result = await generateDailyBatch(merchant.id);
+                            logger.info('Startup batch generation completed', { merchantId: merchant.id, businessName: merchant.business_name, ...result });
+                        } else {
+                            logger.info('Today\'s batch already exists', { merchantId: merchant.id, businessName: merchant.business_name, items_count: todaysBatchCount });
+                        }
+                    } catch (merchantError) {
+                        logger.error('Startup batch check failed for merchant', { merchantId: merchant.id, businessName: merchant.business_name, error: merchantError.message });
+                    }
                 }
             } catch (error) {
                 logger.error('Startup batch check failed', { error: error.message });
