@@ -3531,31 +3531,60 @@ app.get('/api/debug/all-locations', requireAuth, async (req, res) => {
 });
 
 /**
- * POST /api/debug/copy-locations-to-legacy
- * Copy locations from another merchant to legacy merchant (id=1)
+ * POST /api/debug/merge-legacy-to-merchant
+ * Merge all legacy merchant (id=1) data into target merchant
+ * This consolidates orphaned legacy data with the proper Square-connected merchant
  */
-app.post('/api/debug/copy-locations-to-legacy', requireAuth, async (req, res) => {
+app.post('/api/debug/merge-legacy-to-merchant', requireAuth, async (req, res) => {
     try {
-        const { source_merchant_id } = req.body;
-        if (!source_merchant_id) {
-            return res.status(400).json({ error: 'source_merchant_id required' });
+        const { target_merchant_id } = req.body;
+        if (!target_merchant_id) {
+            return res.status(400).json({ error: 'target_merchant_id required' });
         }
 
-        // Copy locations from source merchant to legacy (merchant_id = 1)
-        const result = await db.query(`
-            INSERT INTO locations (id, name, address, business_name, active, merchant_id)
-            SELECT id, name, address, business_name, active, 1
-            FROM locations
-            WHERE merchant_id = $1
-            ON CONFLICT (id) DO UPDATE SET merchant_id = 1
-        `, [source_merchant_id]);
+        const legacyId = 1;
+        const results = {};
+
+        // Delete orphaned legacy data (inventory syncs fresh from Square anyway)
+        const invResult = await db.query('DELETE FROM inventory_counts WHERE merchant_id = $1', [legacyId]);
+        results.inventory_deleted = invResult.rowCount;
+
+        const salesResult = await db.query('DELETE FROM sales_velocity WHERE merchant_id = $1', [legacyId]);
+        results.sales_deleted = salesResult.rowCount;
+
+        // Merge count history (valuable audit data) - skip duplicates
+        const countHistResult = await db.query(`
+            UPDATE count_history SET merchant_id = $1
+            WHERE merchant_id = $2
+            AND catalog_object_id NOT IN (SELECT catalog_object_id FROM count_history WHERE merchant_id = $1)
+        `, [target_merchant_id, legacyId]);
+        results.count_history_merged = countHistResult.rowCount;
+
+        // Delete remaining legacy count history (duplicates)
+        await db.query('DELETE FROM count_history WHERE merchant_id = $1', [legacyId]);
+
+        // Delete orphaned items/variations (will re-sync from Square)
+        await db.query('DELETE FROM variations WHERE merchant_id = $1', [legacyId]);
+        await db.query('DELETE FROM items WHERE merchant_id = $1', [legacyId]);
+
+        // Remove user association with legacy merchant
+        const userResult = await db.query('DELETE FROM user_merchants WHERE merchant_id = $1', [legacyId]);
+        results.user_associations_removed = userResult.rowCount;
+
+        // Deactivate legacy merchant
+        await db.query('UPDATE merchants SET is_active = FALSE WHERE id = $1', [legacyId]);
+        results.legacy_deactivated = true;
+
+        logger.info('Merged legacy merchant data', { target_merchant_id, results });
 
         res.json({
             success: true,
-            message: `Copied locations from merchant ${source_merchant_id} to legacy merchant`,
-            rowCount: result.rowCount
+            message: `Merged legacy data into merchant ${target_merchant_id}. Legacy merchant deactivated.`,
+            results,
+            next_steps: 'Log out and back in. Only JT Pets will appear.'
         });
     } catch (error) {
+        logger.error('Merge legacy error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
