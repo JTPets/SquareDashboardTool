@@ -902,8 +902,8 @@ async function syncVariation(obj, merchantId) {
                     await db.query(`
                         UPDATE variations
                         SET case_pack_quantity = $1, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = $2
-                    `, [casePackQty, obj.id]);
+                        WHERE id = $2 AND merchant_id = $3
+                    `, [casePackQty, obj.id, merchantId]);
                 }
             } catch (error) {
                 logger.error('Error syncing case_pack_quantity from Square', {
@@ -2529,10 +2529,11 @@ async function deleteCustomAttributeDefinition(definitionIdOrKey) {
  * @param {string} variationId - The variation ID
  * @param {number} newPriceCents - The new price in cents
  * @param {string} currency - Currency code (default: CAD)
+ * @param {number} merchantId - The merchant ID for database updates
  * @returns {Promise<Object>} Result of the catalog update
  */
-async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD') {
-    logger.info('Updating variation price in Square', { variationId, newPriceCents, currency });
+async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD', merchantId = null) {
+    logger.info('Updating variation price in Square', { variationId, newPriceCents, currency, merchantId });
 
     try {
         // First, retrieve the current catalog object to get its version and existing data
@@ -2585,11 +2586,20 @@ async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD'
         });
 
         // Update local database to reflect the change
-        await db.query(`
-            UPDATE variations
-            SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $3
-        `, [newPriceCents, currency, variationId]);
+        if (merchantId) {
+            await db.query(`
+                UPDATE variations
+                SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $3 AND merchant_id = $4
+            `, [newPriceCents, currency, variationId, merchantId]);
+        } else {
+            // Fallback for backwards compatibility (should be avoided)
+            await db.query(`
+                UPDATE variations
+                SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $3
+            `, [newPriceCents, currency, variationId]);
+        }
 
         return {
             success: true,
@@ -2612,10 +2622,11 @@ async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD'
 /**
  * Batch update variation prices in Square
  * @param {Array<Object>} priceUpdates - Array of {variationId, newPriceCents, currency}
+ * @param {number} merchantId - The merchant ID for database updates
  * @returns {Promise<Object>} Batch update result
  */
-async function batchUpdateVariationPrices(priceUpdates) {
-    logger.info('Batch updating variation prices in Square', { count: priceUpdates.length });
+async function batchUpdateVariationPrices(priceUpdates, merchantId) {
+    logger.info('Batch updating variation prices in Square', { count: priceUpdates.length, merchantId });
 
     const results = {
         success: true,
@@ -2724,8 +2735,8 @@ async function batchUpdateVariationPrices(priceUpdates) {
                     await db.query(`
                         UPDATE variations
                         SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = $3
-                    `, [update.newPriceCents, update.currency || 'CAD', obj.id]);
+                        WHERE id = $3 AND merchant_id = $4
+                    `, [update.newPriceCents, update.currency || 'CAD', obj.id, merchantId]);
 
                     // Update the detail entry
                     const detailEntry = results.details.find(d => d.variationId === obj.id);
