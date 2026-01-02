@@ -726,7 +726,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
                 id SERIAL PRIMARY KEY,
-                tier_code TEXT NOT NULL UNIQUE,
+                tier_code TEXT NOT NULL,
                 tier_name TEXT NOT NULL,
                 min_days_to_expiry INTEGER,
                 max_days_to_expiry INTEGER,
@@ -737,24 +737,18 @@ async function ensureSchema() {
                 color_code TEXT DEFAULT '#6b7280',
                 priority INTEGER DEFAULT 0,
                 is_active BOOLEAN DEFAULT TRUE,
+                merchant_id INTEGER REFERENCES merchants(id),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(tier_code, merchant_id)
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_code ON expiry_discount_tiers(tier_code)');
         await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_active ON expiry_discount_tiers(is_active)');
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_tiers_merchant ON expiry_discount_tiers(merchant_id)');
 
-        // Insert default tier configurations
-        // tier_name is customer-facing (shown in Square POS/receipts), tier_code is internal
-        await query(`
-            INSERT INTO expiry_discount_tiers (tier_code, tier_name, min_days_to_expiry, max_days_to_expiry, discount_percent, is_auto_apply, requires_review, color_code, priority) VALUES
-                ('EXPIRED', 'Staff Only - Remove', NULL, 0, 0, FALSE, FALSE, '#991b1b', 100),
-                ('AUTO50', 'Clearance Sale', 1, 30, 50, TRUE, FALSE, '#dc2626', 90),
-                ('AUTO25', 'Special Savings', 31, 89, 25, TRUE, FALSE, '#f59e0b', 80),
-                ('REVIEW', 'Staff Review', 90, 120, 0, FALSE, TRUE, '#3b82f6', 70),
-                ('OK', 'Regular Stock', 121, NULL, 0, FALSE, FALSE, '#059669', 10)
-            ON CONFLICT (tier_code) DO NOTHING
-        `);
+        // Note: Default tier configurations are now created per-merchant by ensureMerchantTiers()
+        // in utils/expiry-discount.js when a merchant first accesses the expiry discounts page
 
         // 2. Variation Discount Status - tracks current discount state per variation
         await query(`
@@ -800,26 +794,18 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS expiry_discount_settings (
                 id SERIAL PRIMARY KEY,
-                setting_key TEXT NOT NULL UNIQUE,
+                setting_key TEXT NOT NULL,
                 setting_value TEXT,
                 description TEXT,
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                merchant_id INTEGER REFERENCES merchants(id),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(setting_key, merchant_id)
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_expiry_settings_merchant ON expiry_discount_settings(merchant_id)');
 
-        // Insert default settings
-        await query(`
-            INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
-                ('auto_apply_enabled', 'true', 'Enable/disable automatic discount application'),
-                ('email_notifications', 'true', 'Send email notifications for tier changes'),
-                ('notification_email', '', 'Email address for notifications'),
-                ('dry_run_mode', 'false', 'Run in dry-run mode (no actual changes)'),
-                ('last_run_at', NULL, 'Timestamp of last automation run'),
-                ('last_run_status', NULL, 'Status of last automation run'),
-                ('cron_schedule', '0 6 * * *', 'Cron schedule for automation'),
-                ('timezone', 'America/Toronto', 'Timezone for cron schedule')
-            ON CONFLICT (setting_key) DO NOTHING
-        `);
+        // Note: Default settings are now created per-merchant by initializeDefaultTiers()
+        // in utils/expiry-discount.js when a merchant first accesses the expiry discounts page
 
         logger.info('Created expiry discount tables with indexes');
         appliedCount++;
@@ -1490,6 +1476,80 @@ async function ensureSchema() {
         }
     } catch (error) {
         logger.error('Failed to update gmc_settings constraint:', error.message);
+    }
+
+    // expiry_discount_tiers: Update unique constraint from (tier_code) to (tier_code, merchant_id)
+    try {
+        const tiersTableExists = await query(`
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'expiry_discount_tiers'
+        `);
+
+        if (tiersTableExists.rows.length > 0) {
+            // Check if old constraint exists
+            const oldTiersConstraint = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'expiry_discount_tiers' AND constraint_name = 'expiry_discount_tiers_tier_code_key'
+            `);
+
+            if (oldTiersConstraint.rows.length > 0) {
+                // Drop old constraint and create new one with merchant_id
+                await query('ALTER TABLE expiry_discount_tiers DROP CONSTRAINT expiry_discount_tiers_tier_code_key');
+                await query('ALTER TABLE expiry_discount_tiers ADD CONSTRAINT expiry_discount_tiers_code_merchant_unique UNIQUE (tier_code, merchant_id)');
+                logger.info('Updated expiry_discount_tiers unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                // Check if new constraint exists, if not create it
+                const newTiersConstraint = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'expiry_discount_tiers' AND constraint_name = 'expiry_discount_tiers_code_merchant_unique'
+                `);
+                if (newTiersConstraint.rows.length === 0) {
+                    await query('ALTER TABLE expiry_discount_tiers ADD CONSTRAINT expiry_discount_tiers_code_merchant_unique UNIQUE (tier_code, merchant_id)');
+                    logger.info('Added expiry_discount_tiers unique constraint on (tier_code, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update expiry_discount_tiers constraint:', error.message);
+    }
+
+    // expiry_discount_settings: Update unique constraint from (setting_key) to (setting_key, merchant_id)
+    try {
+        const settingsTableExists = await query(`
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'expiry_discount_settings'
+        `);
+
+        if (settingsTableExists.rows.length > 0) {
+            // Check if old constraint exists
+            const oldSettingsConstraint = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'expiry_discount_settings' AND constraint_name = 'expiry_discount_settings_setting_key_key'
+            `);
+
+            if (oldSettingsConstraint.rows.length > 0) {
+                // Drop old constraint and create new one with merchant_id
+                await query('ALTER TABLE expiry_discount_settings DROP CONSTRAINT expiry_discount_settings_setting_key_key');
+                await query('ALTER TABLE expiry_discount_settings ADD CONSTRAINT expiry_discount_settings_key_merchant_unique UNIQUE (setting_key, merchant_id)');
+                logger.info('Updated expiry_discount_settings unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                // Check if new constraint exists, if not create it
+                const newSettingsConstraint = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'expiry_discount_settings' AND constraint_name = 'expiry_discount_settings_key_merchant_unique'
+                `);
+                if (newSettingsConstraint.rows.length === 0) {
+                    await query('ALTER TABLE expiry_discount_settings ADD CONSTRAINT expiry_discount_settings_key_merchant_unique UNIQUE (setting_key, merchant_id)');
+                    logger.info('Added expiry_discount_settings unique constraint on (setting_key, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update expiry_discount_settings constraint:', error.message);
     }
 
     for (const migration of migrations) {
