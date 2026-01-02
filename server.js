@@ -241,9 +241,37 @@ if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
 app.get('/api/health', async (req, res) => {
     try {
         const dbConnected = await db.testConnection();
+
+        // Check Square connection (quick test using any active merchant)
+        let squareStatus = 'not_configured';
+        try {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE LIMIT 1'
+            );
+            if (merchantResult.rows.length > 0) {
+                const locations = await squareApi.getLocations({ merchantId: merchantResult.rows[0].id });
+                squareStatus = locations && locations.length > 0 ? 'connected' : 'no_locations';
+            }
+        } catch (e) {
+            squareStatus = 'error';
+        }
+
+        // Format uptime
+        const uptimeSeconds = process.uptime();
+        const hours = Math.floor(uptimeSeconds / 3600);
+        const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+        const uptime = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
         res.json({
             status: 'ok',
             database: dbConnected ? 'connected' : 'disconnected',
+            square: squareStatus,
+            uptime: uptime,
+            memory: {
+                heapUsed: process.memoryUsage().heapUsed,
+                heapTotal: process.memoryUsage().heapTotal
+            },
+            nodeVersion: process.version,
             timestamp: new Date().toISOString(),
             version: '1.0.0'
         });
