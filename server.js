@@ -2348,10 +2348,15 @@ app.get('/api/expiry-discounts/status', requireAuth, requireMerchant, async (req
 /**
  * GET /api/expiry-discounts/tiers
  * Get all discount tier configurations
+ * Creates default tiers for new merchants if none exist
  */
 app.get('/api/expiry-discounts/tiers', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
+
+        // Ensure merchant has default tiers configured
+        await expiryDiscount.ensureMerchantTiers(merchantId);
+
         const result = await db.query(`
             SELECT * FROM expiry_discount_tiers
             WHERE merchant_id = $1
@@ -2607,7 +2612,7 @@ app.post('/api/expiry-discounts/run', requireAuth, requireMerchant, async (req, 
             const newAssignments = result.evaluation.newAssignments?.length || 0;
 
             if (tierChanges > 0 || newAssignments > 0) {
-                const emailEnabled = await expiryDiscount.getSetting('email_notifications');
+                const emailEnabled = await expiryDiscount.getSetting('email_notifications', merchantId);
                 if (emailEnabled === 'true') {
                     try {
                         await emailNotifier.sendAlert(
@@ -2668,10 +2673,9 @@ app.get('/api/expiry-discounts/audit-log', requireAuth, requireMerchant, async (
         const { variation_id, limit = 100 } = req.query;
         const merchantId = req.merchantContext.id;
 
-        const logs = await expiryDiscount.getAuditLog({
+        const logs = await expiryDiscount.getAuditLog(merchantId, {
             variationId: variation_id,
-            limit: parseInt(limit),
-            merchantId
+            limit: parseInt(limit)
         });
 
         res.json({ logs });
