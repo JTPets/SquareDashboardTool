@@ -478,6 +478,32 @@ async function syncCatalog(merchantId) {
             SELECT id, name, sku FROM variations WHERE is_deleted = FALSE AND merchant_id = $1
         `, [merchantId]);
 
+        // SAFEGUARD: Skip deletion detection if sync returned suspiciously few items
+        // This prevents API errors or empty responses from causing mass deletion
+        const syncedItemCount = syncedItemIds.size;
+        const dbItemCount = dbItemsResult.rows.length;
+        const deletionThreshold = 0.5; // If more than 50% would be deleted, something is wrong
+
+        if (syncedItemCount === 0 && dbItemCount > 0) {
+            logger.warn('SKIPPING deletion detection: sync returned 0 items but database has items', {
+                merchantId,
+                syncedItems: syncedItemCount,
+                dbItems: dbItemCount
+            });
+            return stats;
+        }
+
+        if (dbItemCount > 10 && syncedItemCount < dbItemCount * deletionThreshold) {
+            logger.warn('SKIPPING deletion detection: too many items would be deleted (likely API error)', {
+                merchantId,
+                syncedItems: syncedItemCount,
+                dbItems: dbItemCount,
+                wouldDelete: dbItemCount - syncedItemCount,
+                threshold: `${deletionThreshold * 100}%`
+            });
+            return stats;
+        }
+
         // Find items in DB but NOT in Square sync (they were deleted)
         let itemsMarkedDeleted = 0;
         let variationsMarkedDeleted = 0;
