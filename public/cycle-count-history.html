@@ -155,15 +155,13 @@
 
     <div class="controls">
       <div class="filter-group">
-        <label>Single Date:</label>
-        <input type="date" id="single-date">
-      </div>
-
-      <div class="filter-group">
-        <label>Date Range:</label>
+        <label>From:</label>
         <input type="date" id="start-date">
-        <span>to</span>
+        <label>To:</label>
         <input type="date" id="end-date">
+        <button onclick="setToday()" style="background: #6b7280; padding: 8px 12px;">Today</button>
+        <button onclick="setLast7Days()" style="background: #6b7280; padding: 8px 12px;">Last 7 Days</button>
+        <button onclick="setLast30Days()" style="background: #6b7280; padding: 8px 12px;">Last 30 Days</button>
       </div>
 
       <div class="filter-group">
@@ -206,14 +204,36 @@
   <script src="/js/error-helper.js"></script>
 
   <script>
-    // Set default date to today
-    document.getElementById('single-date').valueAsDate = new Date();
-
     let allItems = [];
     let filteredItems = [];
 
+    // Date helper functions
+    function setToday() {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('start-date').value = today;
+      document.getElementById('end-date').value = today;
+      loadHistory();
+    }
+
+    function setLast7Days() {
+      const today = new Date();
+      const weekAgo = new Date(today);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      document.getElementById('start-date').value = weekAgo.toISOString().split('T')[0];
+      document.getElementById('end-date').value = today.toISOString().split('T')[0];
+      loadHistory();
+    }
+
+    function setLast30Days() {
+      const today = new Date();
+      const monthAgo = new Date(today);
+      monthAgo.setDate(monthAgo.getDate() - 30);
+      document.getElementById('start-date').value = monthAgo.toISOString().split('T')[0];
+      document.getElementById('end-date').value = today.toISOString().split('T')[0];
+      loadHistory();
+    }
+
     async function loadHistory() {
-      const singleDate = document.getElementById('single-date').value;
       const startDate = document.getElementById('start-date').value;
       const endDate = document.getElementById('end-date').value;
 
@@ -223,9 +243,7 @@
       try {
         let url = '/api/cycle-counts/history?';
 
-        if (singleDate) {
-          url += `date=${singleDate}`;
-        } else if (startDate && endDate) {
+        if (startDate && endDate) {
           url += `start_date=${startDate}&end_date=${endDate}`;
         } else if (startDate) {
           url += `start_date=${startDate}`;
@@ -336,13 +354,12 @@
     }
 
     function clearFilters() {
-      document.getElementById('single-date').value = '';
       document.getElementById('start-date').value = '';
       document.getElementById('end-date').value = '';
       document.getElementById('category-filter').value = '';
       allItems = [];
       filteredItems = [];
-      document.getElementById('history-body').innerHTML = '<tr><td colspan="12" class="loading">Select a date or date range to view cycle count history</td></tr>';
+      document.getElementById('history-body').innerHTML = '<tr><td colspan="12" class="loading">Select a date range to view cycle count history</td></tr>';
       updateStats({
         total_counts: 0,
         accurate_counts: 0,
@@ -353,9 +370,9 @@
       });
     }
 
-    // Load today's data by default
+    // Load last 30 days by default
     window.addEventListener('DOMContentLoaded', () => {
-      loadHistory();
+      setLast30Days();
     });
   </script>
 </body>
