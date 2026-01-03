@@ -200,6 +200,7 @@ async function close() {
  * Runs on server startup to apply any missing columns/tables
  */
 async function ensureSchema() {
+    console.log('ensureSchema() starting...');
     logger.info('Checking database schema...');
 
     const migrations = [
@@ -1481,6 +1482,7 @@ async function ensureSchema() {
     }
 
     // expiry_discount_tiers: Update unique constraint from (tier_code) to (tier_code, merchant_id)
+    console.log('Checking expiry_discount_tiers constraint...');
     try {
         const tiersTableExists = await query(`
             SELECT table_name FROM information_schema.tables
@@ -1578,8 +1580,10 @@ async function ensureSchema() {
     }
 
     if (appliedCount > 0) {
+        console.log(`ensureSchema() complete: ${appliedCount} migrations applied`);
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
+        console.log('ensureSchema() complete: database is up to date');
         logger.info('Schema check complete: database is up to date');
     }
 
