@@ -9146,8 +9146,10 @@ app.use((err, req, res, next) => {
 // ==================== SERVER STARTUP ====================
 
 async function startServer() {
+    console.log('startServer() entered');
     try {
         // Log system initialization
+        console.log('Initializing logging system...');
         logger.info('Logging system initialized', {
             logsDir: path.join(__dirname, 'output', 'logs'),
             maxSize: '20m',
@@ -9753,6 +9755,11 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
-startServer();
+console.log('Calling startServer()...');
+startServer().catch(err => {
+    console.error('FATAL: startServer() failed:', err.message);
+    console.error(err.stack);
+    process.exit(1);
+});
 
 module.exports = app;
