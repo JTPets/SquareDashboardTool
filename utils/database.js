@@ -201,6 +201,7 @@ async function close() {
  */
 async function ensureSchema() {
     console.log('ensureSchema() starting...');
+    try {
     logger.info('Checking database schema...');
 
     const migrations = [
@@ -1597,6 +1598,11 @@ async function ensureSchema() {
     }
 
     return appliedCount;
+    } catch (error) {
+        console.error('FATAL: ensureSchema() failed:', error.message);
+        console.error(error.stack);
+        throw error;
+    }
 }
 
 module.exports = {
