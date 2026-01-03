@@ -200,7 +200,6 @@ async function close() {
  * Runs on server startup to apply any missing columns/tables
  */
 async function ensureSchema() {
-    console.log('ensureSchema() starting...');
     try {
     logger.info('Checking database schema...');
 
@@ -222,11 +221,9 @@ async function ensureSchema() {
     ];
 
     let appliedCount = 0;
-    console.log('Running schema migrations...');
 
     // ==================== VARIATION EXPIRATION TABLE ====================
     // Ensure variation_expiration table exists (needed for review tracking columns)
-    console.log('Checking variation_expiration table...');
     const expirationTableCheck = await query(`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'variation_expiration'
@@ -291,18 +288,14 @@ async function ensureSchema() {
         }
     }
 
-    console.log('variation_expiration table check complete');
 
     // Check if vendor_catalog_items table exists
-    console.log('Checking vendor_catalog_items table...');
     const tableCheck = await query(`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'vendor_catalog_items'
     `);
-    console.log('vendor_catalog_items exists:', tableCheck.rows.length > 0);
 
     if (tableCheck.rows.length === 0) {
-        console.log('Creating vendor_catalog_items table...');
         logger.info('Creating vendor_catalog_items table...');
         await query(`
             CREATE TABLE IF NOT EXISTS vendor_catalog_items (
@@ -367,10 +360,8 @@ async function ensureSchema() {
             // Index may already exist
         }
     }
-    console.log('vendor_catalog_items check complete');
 
     // ==================== GOOGLE MERCHANT CENTER TABLES ====================
-    console.log('Checking Google Merchant Center tables...');
 
     // Check if brands table exists
     const brandsCheck = await query(`
@@ -1468,7 +1459,6 @@ async function ensureSchema() {
     }
 
     // expiry_discount_tiers: Update unique constraint from (tier_code) to (tier_code, merchant_id)
-    console.log('Checking expiry_discount_tiers constraint...');
     try {
         const tiersTableExists = await query(`
             SELECT table_name FROM information_schema.tables
@@ -1566,10 +1556,8 @@ async function ensureSchema() {
     }
 
     if (appliedCount > 0) {
-        console.log(`ensureSchema() complete: ${appliedCount} migrations applied`);
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
-        console.log('ensureSchema() complete: database is up to date');
         logger.info('Schema check complete: database is up to date');
     }
 

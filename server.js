@@ -9146,10 +9146,8 @@ app.use((err, req, res, next) => {
 // ==================== SERVER STARTUP ====================
 
 async function startServer() {
-    console.log('startServer() entered');
     try {
         // Log system initialization
-        console.log('Initializing logging system...');
         logger.info('Logging system initialized', {
             logsDir: path.join(__dirname, 'output', 'logs'),
             maxSize: '20m',
@@ -9157,12 +9155,9 @@ async function startServer() {
             compression: 'enabled',
             emailEnabled: process.env.EMAIL_ENABLED === 'true'
         });
-        console.log('Logger initialized successfully');
 
         // Test database connection
-        console.log('Testing database connection...');
         const dbConnected = await db.testConnection();
-        console.log('Database connection result:', dbConnected);
         if (!dbConnected) {
             const dbError = new Error('Failed to connect to database. Check your .env configuration.');
             logger.error('Database connection failed', {
@@ -9180,15 +9175,12 @@ async function startServer() {
             process.exit(1);
         }
 
-        console.log('Database connected, running schema migrations...');
         logger.info('Database connection successful');
 
         // Ensure database schema is up to date
         await db.ensureSchema();
-        console.log('Schema migrations complete');
 
         // Backfill NULL merchant_id values for legacy data
-        console.log('Checking for legacy data backfill...');
         try {
             // Find legacy merchant (created by migration) or first active merchant
             const legacyMerchant = await db.query(
@@ -9282,9 +9274,7 @@ async function startServer() {
         }
 
         // Start server
-        console.log('Starting HTTP server on port', PORT);
         app.listen(PORT, () => {
-            console.log('HTTP server started successfully');
             // Log OAuth configuration for debugging
             const publicAppUrl = process.env.PUBLIC_APP_URL || '(auto-detect from request)';
             const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || '(not set)';
@@ -9763,9 +9753,8 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
-console.log('Calling startServer()...');
 startServer().catch(err => {
-    console.error('FATAL: startServer() failed:', err.message);
+    console.error('FATAL: Server startup failed:', err.message);
     console.error(err.stack);
     process.exit(1);
 });
