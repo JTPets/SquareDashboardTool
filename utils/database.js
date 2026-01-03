@@ -298,8 +298,10 @@ async function ensureSchema() {
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'vendor_catalog_items'
     `);
+    console.log('vendor_catalog_items exists:', tableCheck.rows.length > 0);
 
     if (tableCheck.rows.length === 0) {
+        console.log('Creating vendor_catalog_items table...');
         logger.info('Creating vendor_catalog_items table...');
         await query(`
             CREATE TABLE IF NOT EXISTS vendor_catalog_items (
@@ -364,8 +366,10 @@ async function ensureSchema() {
             // Index may already exist
         }
     }
+    console.log('vendor_catalog_items check complete');
 
     // ==================== GOOGLE MERCHANT CENTER TABLES ====================
+    console.log('Checking Google Merchant Center tables...');
 
     // Check if brands table exists
     const brandsCheck = await query(`
