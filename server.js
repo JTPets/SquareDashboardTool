@@ -9157,9 +9157,12 @@ async function startServer() {
             compression: 'enabled',
             emailEnabled: process.env.EMAIL_ENABLED === 'true'
         });
+        console.log('Logger initialized successfully');
 
         // Test database connection
+        console.log('Testing database connection...');
         const dbConnected = await db.testConnection();
+        console.log('Database connection result:', dbConnected);
         if (!dbConnected) {
             const dbError = new Error('Failed to connect to database. Check your .env configuration.');
             logger.error('Database connection failed', {
