@@ -20,6 +20,8 @@ const pool = new Pool({
 
 // Handle pool errors
 pool.on('error', (err, client) => {
+    console.error('FATAL: Database pool error on idle client:', err.message);
+    console.error(err.stack);
     logger.error('Unexpected error on idle client', { error: err.message, stack: err.stack });
     process.exit(-1);
 });
