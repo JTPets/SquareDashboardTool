@@ -221,9 +221,11 @@ async function ensureSchema() {
     ];
 
     let appliedCount = 0;
+    console.log('Running schema migrations...');
 
     // ==================== VARIATION EXPIRATION TABLE ====================
     // Ensure variation_expiration table exists (needed for review tracking columns)
+    console.log('Checking variation_expiration table...');
     const expirationTableCheck = await query(`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'variation_expiration'
@@ -288,7 +290,10 @@ async function ensureSchema() {
         }
     }
 
+    console.log('variation_expiration table check complete');
+
     // Check if vendor_catalog_items table exists
+    console.log('Checking vendor_catalog_items table...');
     const tableCheck = await query(`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'vendor_catalog_items'
