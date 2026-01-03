@@ -9180,12 +9180,15 @@ async function startServer() {
             process.exit(1);
         }
 
+        console.log('Database connected, running schema migrations...');
         logger.info('Database connection successful');
 
         // Ensure database schema is up to date
         await db.ensureSchema();
+        console.log('Schema migrations complete');
 
         // Backfill NULL merchant_id values for legacy data
+        console.log('Checking for legacy data backfill...');
         try {
             // Find legacy merchant (created by migration) or first active merchant
             const legacyMerchant = await db.query(
@@ -9279,7 +9282,9 @@ async function startServer() {
         }
 
         // Start server
+        console.log('Starting HTTP server on port', PORT);
         app.listen(PORT, () => {
+            console.log('HTTP server started successfully');
             // Log OAuth configuration for debugging
             const publicAppUrl = process.env.PUBLIC_APP_URL || '(auto-detect from request)';
             const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || '(not set)';
