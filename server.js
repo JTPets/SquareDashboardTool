@@ -8788,6 +8788,26 @@ app.post('/api/webhooks/square', async (req, res) => {
             merchantId: event.merchant_id
         });
 
+        // Look up internal merchant ID from Square's merchant ID for multi-tenant sync
+        let internalMerchantId = null;
+        if (event.merchant_id) {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE square_merchant_id = $1 AND is_active = TRUE',
+                [event.merchant_id]
+            );
+            if (merchantResult.rows.length > 0) {
+                internalMerchantId = merchantResult.rows[0].id;
+                logger.info('Webhook merchant resolved', {
+                    squareMerchantId: event.merchant_id,
+                    internalMerchantId
+                });
+            } else {
+                logger.warn('Webhook received for unknown/inactive merchant', {
+                    squareMerchantId: event.merchant_id
+                });
+            }
+        }
+
         let subscriberId = null;
         let syncResults = {};
         const data = event.data?.object || {};
@@ -8898,9 +8918,14 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'catalog.version.updated':
                 // Catalog changed in Square - sync to local database
                 if (process.env.WEBHOOK_CATALOG_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync catalog - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
                     try {
-                        logger.info('Catalog change detected via webhook, syncing...');
-                        const catalogSyncResult = await squareApi.syncCatalog();
+                        logger.info('Catalog change detected via webhook, syncing...', { merchantId: internalMerchantId });
+                        const catalogSyncResult = await squareApi.syncCatalog(internalMerchantId);
                         syncResults.catalog = {
                             items: catalogSyncResult.items,
                             variations: catalogSyncResult.variations
@@ -8919,14 +8944,20 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'inventory.count.updated':
                 // Inventory changed in Square - sync to local database
                 if (process.env.WEBHOOK_INVENTORY_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync inventory - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
                     try {
                         const inventoryChange = data.inventory_count;
                         logger.info('Inventory change detected via webhook', {
                             catalogObjectId: inventoryChange?.catalog_object_id,
                             quantity: inventoryChange?.quantity,
-                            locationId: inventoryChange?.location_id
+                            locationId: inventoryChange?.location_id,
+                            merchantId: internalMerchantId
                         });
-                        const inventorySyncResult = await squareApi.syncInventory();
+                        const inventorySyncResult = await squareApi.syncInventory(internalMerchantId);
                         syncResults.inventory = {
                             count: inventorySyncResult,
                             catalogObjectId: inventoryChange?.catalog_object_id
@@ -8946,15 +8977,21 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'order.updated':
                 // Order created/updated - sync committed inventory (open orders)
                 if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync committed inventory - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
                     try {
                         const order = data.order;
                         logger.info('Order event detected via webhook', {
                             orderId: order?.id,
                             state: order?.state,
-                            eventType: event.type
+                            eventType: event.type,
+                            merchantId: internalMerchantId
                         });
                         // Sync committed inventory for open orders
-                        const committedResult = await squareApi.syncCommittedInventory();
+                        const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
                         logger.info('Committed inventory sync completed via webhook', { count: committedResult });
                     } catch (syncError) {
@@ -8970,20 +9007,26 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'order.fulfillment.updated':
                 // Fulfillment status changed - update committed inventory and sales velocity
                 if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync fulfillment - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
                     try {
                         const fulfillment = data.fulfillment;
                         logger.info('Order fulfillment updated via webhook', {
                             fulfillmentId: fulfillment?.uid,
                             state: fulfillment?.state,
-                            orderId: data.order_id
+                            orderId: data.order_id,
+                            merchantId: internalMerchantId
                         });
                         // Sync committed inventory (fulfilled orders reduce committed qty)
-                        const committedResult = await squareApi.syncCommittedInventory();
+                        const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
 
                         // If fulfilled/completed, also sync sales velocity
                         if (fulfillment?.state === 'COMPLETED') {
-                            await squareApi.syncSalesVelocity(91);
+                            await squareApi.syncSalesVelocity(91, internalMerchantId);
                             syncResults.salesVelocity = true;
                             logger.info('Sales velocity sync completed via fulfillment webhook');
                         }
