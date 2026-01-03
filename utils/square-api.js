@@ -837,11 +837,10 @@ async function syncVariation(obj, merchantId) {
                         active, merchant_id, updated_at
                     )
                     VALUES ($1, $2, $3, $4, true, $5, CURRENT_TIMESTAMP)
-                    ON CONFLICT (variation_id, location_id) DO UPDATE SET
+                    ON CONFLICT (variation_id, location_id, merchant_id) DO UPDATE SET
                         stock_alert_min = EXCLUDED.stock_alert_min,
                         stock_alert_max = EXCLUDED.stock_alert_max,
                         active = EXCLUDED.active,
-                        merchant_id = EXCLUDED.merchant_id,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     obj.id,
@@ -868,11 +867,10 @@ async function syncVariation(obj, merchantId) {
                         variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-                    ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
+                    ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
                         vendor_code = EXCLUDED.vendor_code,
                         unit_cost_money = EXCLUDED.unit_cost_money,
                         currency = EXCLUDED.currency,
-                        merchant_id = EXCLUDED.merchant_id,
                         updated_at = CURRENT_TIMESTAMP
                 `, [
                     obj.id,
@@ -949,15 +947,15 @@ async function syncVariation(obj, merchantId) {
                 // Update local variation_expiration table
                 // Use COALESCE to preserve local values when Square has null (don't overwrite with null)
                 await db.query(`
-                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, reviewed_by, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-                    ON CONFLICT (variation_id) DO UPDATE SET
+                    INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, reviewed_at, reviewed_by, merchant_id, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                    ON CONFLICT (variation_id, merchant_id) DO UPDATE SET
                         expiration_date = COALESCE(EXCLUDED.expiration_date, variation_expiration.expiration_date),
                         does_not_expire = COALESCE(EXCLUDED.does_not_expire, variation_expiration.does_not_expire),
                         reviewed_at = COALESCE(EXCLUDED.reviewed_at, variation_expiration.reviewed_at),
                         reviewed_by = COALESCE(EXCLUDED.reviewed_by, variation_expiration.reviewed_by),
                         updated_at = CURRENT_TIMESTAMP
-                `, [obj.id, expirationDate, doesNotExpire, reviewedAt, reviewedBy]);
+                `, [obj.id, expirationDate, doesNotExpire, reviewedAt, reviewedBy, merchantId]);
 
             } catch (error) {
                 logger.error('Error syncing expiration data from Square', {
@@ -1215,7 +1213,7 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                     merchant_id, updated_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
-                ON CONFLICT (variation_id, location_id, period_days) DO UPDATE SET
+                ON CONFLICT (variation_id, location_id, period_days, merchant_id) DO UPDATE SET
                     total_quantity_sold = EXCLUDED.total_quantity_sold,
                     total_revenue_cents = EXCLUDED.total_revenue_cents,
                     period_start_date = EXCLUDED.period_start_date,
@@ -1224,7 +1222,6 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                     daily_avg_revenue_cents = EXCLUDED.daily_avg_revenue_cents,
                     weekly_avg_quantity = EXCLUDED.weekly_avg_quantity,
                     monthly_avg_quantity = EXCLUDED.monthly_avg_quantity,
-                    merchant_id = EXCLUDED.merchant_id,
                     updated_at = CURRENT_TIMESTAMP
             `, [
                 data.variation_id,
@@ -2793,10 +2790,13 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
  * @param {string} vendorId - The vendor ID for this cost
  * @param {number} newCostCents - The new cost in cents
  * @param {string} currency - The currency (default CAD)
+ * @param {Object} options - Additional options
+ * @param {number} options.merchantId - The merchant ID for multi-tenant support
  * @returns {Promise<Object>} Result with old/new cost info
  */
-async function updateVariationCost(variationId, vendorId, newCostCents, currency = 'CAD') {
-    logger.info('Updating variation cost in Square', { variationId, vendorId, newCostCents, currency });
+async function updateVariationCost(variationId, vendorId, newCostCents, currency = 'CAD', options = {}) {
+    const { merchantId } = options;
+    logger.info('Updating variation cost in Square', { variationId, vendorId, newCostCents, currency, merchantId });
 
     try {
         // First, retrieve the current catalog object to get its version and existing data
@@ -2878,13 +2878,13 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
 
         // Update local database to reflect the change (upsert)
         await db.query(`
-            INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, updated_at)
-            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-            ON CONFLICT (variation_id, vendor_id) DO UPDATE SET
+            INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+            ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
                 unit_cost_money = EXCLUDED.unit_cost_money,
                 currency = EXCLUDED.currency,
                 updated_at = CURRENT_TIMESTAMP
-        `, [variationId, vendorId, newCostCents, currency]);
+        `, [variationId, vendorId, newCostCents, currency, merchantId]);
 
         return {
             success: true,

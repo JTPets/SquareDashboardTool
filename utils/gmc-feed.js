@@ -9,10 +9,18 @@ const fs = require('fs').promises;
 const path = require('path');
 
 /**
- * Get GMC settings from database
+ * Get GMC settings from database for a specific merchant
+ * @param {number} merchantId - The merchant ID to get settings for
  */
-async function getSettings() {
-    const result = await db.query('SELECT setting_key, setting_value FROM gmc_settings');
+async function getSettings(merchantId) {
+    if (!merchantId) {
+        logger.warn('getSettings called without merchantId - returning empty settings');
+        return {};
+    }
+    const result = await db.query(
+        'SELECT setting_key, setting_value FROM gmc_settings WHERE merchant_id = $1',
+        [merchantId]
+    );
     const settings = {};
     for (const row of result.rows) {
         settings[row.setting_key] = row.setting_value;
@@ -67,14 +75,16 @@ function getAvailability(quantity) {
  * Generate the GMC feed data
  * @param {Object} options - Generation options
  * @param {string} options.locationId - Optional location ID to filter inventory
+ * @param {number} options.merchantId - Merchant ID for multi-tenant support
  * @returns {Promise<Object>} Feed data and statistics
  */
 async function generateFeedData(options = {}) {
+    const { merchantId } = options;
     const startTime = Date.now();
-    logger.info('Starting GMC feed generation');
+    logger.info('Starting GMC feed generation', { merchantId });
 
     try {
-        const settings = await getSettings();
+        const settings = await getSettings(merchantId);
         const baseUrl = settings.website_base_url || 'https://your-store-url.com';
         const urlPattern = settings.product_url_pattern || '/product/{slug}/{variation_id}';
         const currency = settings.currency || 'CAD';

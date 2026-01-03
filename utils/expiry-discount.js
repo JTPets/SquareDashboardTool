@@ -254,10 +254,10 @@ async function evaluateAllVariations(options = {}) {
                         await db.query(`
                             INSERT INTO variation_discount_status (
                                 variation_id, current_tier_id, days_until_expiry,
-                                original_price_cents, needs_pull, last_evaluated_at, updated_at
+                                original_price_cents, needs_pull, merchant_id, last_evaluated_at, updated_at
                             )
-                            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                            ON CONFLICT (variation_id) DO UPDATE SET
+                            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                            ON CONFLICT (variation_id, merchant_id) DO UPDATE SET
                                 current_tier_id = EXCLUDED.current_tier_id,
                                 days_until_expiry = EXCLUDED.days_until_expiry,
                                 original_price_cents = COALESCE(variation_discount_status.original_price_cents, EXCLUDED.original_price_cents),
@@ -269,7 +269,8 @@ async function evaluateAllVariations(options = {}) {
                             newTierId,
                             daysUntilExpiry,
                             row.current_price_cents,
-                            change.needsPull
+                            change.needsPull,
+                            merchantId
                         ]);
 
                         // Log to audit

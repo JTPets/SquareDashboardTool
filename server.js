@@ -1191,7 +1191,7 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
 
                     if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
                         const spreadsheetId = sheetIdResult.rows[0].setting_value;
-                        const { products } = await gmcFeedModule.generateFeedData();
+                        const { products } = await gmcFeedModule.generateFeedData({ merchantId });
 
                         googleSheetResult = await googleSheetsModule.writeFeedToSheet(spreadsheetId, products, {
                             sheetName: 'GMC Feed',
@@ -1775,7 +1775,7 @@ app.patch('/api/variations/:id/min-stock', requireAuth, requireMerchant, async (
         await db.query(
             `INSERT INTO variation_location_settings (variation_id, location_id, stock_alert_min, merchant_id, updated_at)
              VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-             ON CONFLICT (variation_id, location_id)
+             ON CONFLICT (variation_id, location_id, merchant_id)
              DO UPDATE SET stock_alert_min = EXCLUDED.stock_alert_min, updated_at = CURRENT_TIMESTAMP`,
             [id, targetLocationId, min_stock, merchantId]
         );
@@ -2173,7 +2173,7 @@ app.post('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at, merchant_id)
                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
-                ON CONFLICT (variation_id)
+                ON CONFLICT (variation_id, merchant_id)
                 DO UPDATE SET
                     expiration_date = EXCLUDED.expiration_date,
                     does_not_expire = EXCLUDED.does_not_expire,
@@ -2283,7 +2283,7 @@ app.post('/api/expirations/review', requireAuth, requireMerchant, async (req, re
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
                 VALUES ($1, NOW(), $2, NOW(), $3)
-                ON CONFLICT (variation_id)
+                ON CONFLICT (variation_id, merchant_id)
                 DO UPDATE SET
                     reviewed_at = NOW(),
                     reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
@@ -4557,10 +4557,10 @@ app.post('/api/gmc/brands/bulk-assign', requireAuth, requireMerchant, async (req
             try {
                 // Save to local database
                 await db.query(`
-                    INSERT INTO item_brands (item_id, brand_id)
-                    VALUES ($1, $2)
-                    ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-                `, [item_id, brand_id]);
+                    INSERT INTO item_brands (item_id, brand_id, merchant_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+                `, [item_id, brand_id, merchantId]);
 
                 results.assigned++;
 
