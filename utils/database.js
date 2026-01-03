@@ -858,33 +858,9 @@ async function ensureSchema() {
             appliedCount++;
         }
 
-        // Fix setting key mismatch: automation_enabled -> auto_apply_enabled
-        const autoApplyCheck = await query(`
-            SELECT setting_key FROM expiry_discount_settings WHERE setting_key = 'auto_apply_enabled'
-        `);
-        if (autoApplyCheck.rows.length === 0) {
-            // Check if old key exists and get its value
-            const oldSettingCheck = await query(`
-                SELECT setting_value FROM expiry_discount_settings WHERE setting_key = 'automation_enabled'
-            `);
-            const defaultValue = oldSettingCheck.rows.length > 0 ? oldSettingCheck.rows[0].setting_value : 'true';
-
-            await query(`
-                INSERT INTO expiry_discount_settings (setting_key, setting_value, description)
-                VALUES ('auto_apply_enabled', $1, 'Enable/disable automatic discount application')
-                ON CONFLICT (setting_key) DO NOTHING
-            `, [defaultValue]);
-            logger.info('Added auto_apply_enabled setting for cron automation');
-            appliedCount++;
-        }
-
-        // Ensure cron_schedule and timezone settings exist
-        await query(`
-            INSERT INTO expiry_discount_settings (setting_key, setting_value, description) VALUES
-                ('cron_schedule', '0 6 * * *', 'Cron schedule for automation'),
-                ('timezone', 'America/Toronto', 'Timezone for cron schedule')
-            ON CONFLICT (setting_key) DO NOTHING
-        `);
+        // Note: expiry_discount_settings are now created per-merchant by ensureMerchantTiers()
+        // in utils/expiry-discount.js when a merchant first accesses the expiry discounts page.
+        // Legacy global settings migration removed as the table now uses (setting_key, merchant_id) unique constraint.
     }
 
     // ==================== USER AUTHENTICATION TABLES ====================
