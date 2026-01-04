@@ -170,6 +170,14 @@
       background: #9333ea;
       color: white;
     }
+    .filter-tab.tab-EXPIRED {
+      background: #450a0a;
+      color: #fca5a5;
+    }
+    .filter-tab.tab-EXPIRED.active {
+      background: #7f1d1d;
+      color: white;
+    }
 
     .items-container {
       padding: 15px;
@@ -195,6 +203,10 @@
     }
     .item-card.tier-NO_EXPIRY {
       border-left: 4px solid #9333ea;
+    }
+    .item-card.tier-EXPIRED {
+      border-left: 4px solid #7f1d1d;
+      background: #fef2f2;
     }
     .item-card.confirmed {
       display: none;
@@ -356,6 +368,15 @@
     .tier-indicator.tier-NO_EXPIRY {
       background: #f3e8ff;
       color: #6b21a8;
+    }
+    .tier-indicator.tier-EXPIRED {
+      background: #7f1d1d;
+      color: white;
+      animation: pulse-expired 1.5s infinite;
+    }
+    @keyframes pulse-expired {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
     }
 
     .item-meta {
@@ -674,17 +695,21 @@
       <span class="count" id="count-all">0</span>
       <span class="label">All</span>
     </div>
+    <div class="filter-tab tab-EXPIRED" onclick="filterByTier('EXPIRED')">
+      <span class="count" id="count-EXPIRED">0</span>
+      <span class="label" id="label-EXPIRED">Pull from Shelf</span>
+    </div>
     <div class="filter-tab tab-AUTO50" onclick="filterByTier('AUTO50')">
       <span class="count" id="count-AUTO50">0</span>
-      <span class="label">50% Off</span>
+      <span class="label" id="label-AUTO50">50% Off</span>
     </div>
     <div class="filter-tab tab-AUTO25" onclick="filterByTier('AUTO25')">
       <span class="count" id="count-AUTO25">0</span>
-      <span class="label">25% Off</span>
+      <span class="label" id="label-AUTO25">25% Off</span>
     </div>
     <div class="filter-tab tab-REVIEW" onclick="filterByTier('REVIEW')">
       <span class="count" id="count-REVIEW">0</span>
-      <span class="label">Review</span>
+      <span class="label" id="label-REVIEW">Review</span>
     </div>
     <div class="filter-tab tab-NO_EXPIRY" onclick="filterByTier('NO_EXPIRY')">
       <span class="count" id="count-NO_EXPIRY">0</span>
@@ -798,8 +823,23 @@
       return reviewDate >= todayStart;
     }
 
-    // Tier-specific configurations
+    // Tier-specific configurations (names will be updated from settings)
     const tierConfig = {
+      EXPIRED: {
+        title: 'Pull from Shelf - EXPIRED',
+        displayLabel: 'Status',
+        displayClass: 'discount-50',
+        buttonText: 'Pulled from Shelf',
+        successMessage: 'Item confirmed pulled from shelf!',
+        verification: [
+          'Remove ALL units of this product from shelf',
+          'Check for damaged or opened packaging',
+          'Move to disposal or return area',
+          'Update inventory count if needed'
+        ],
+        getDisplayValue: (item) => 'EXPIRED - PULL NOW',
+        showUpdateButton: false
+      },
       REVIEW: {
         title: 'Confirm Expiry Date',
         displayLabel: 'Expiry Date in System',
@@ -815,31 +855,31 @@
         showUpdateButton: true
       },
       AUTO25: {
-        title: 'Confirm 25% Discount Applied',
+        title: 'Confirm Discount Applied',
         displayLabel: 'Required Discount',
         displayClass: 'discount',
         buttonText: 'Sticker Applied',
-        successMessage: '25% discount sticker confirmed!',
+        successMessage: 'Discount sticker confirmed!',
         verification: [
-          'Check product has 25% OFF sticker visible',
+          'Check product has discount sticker visible',
           'Verify discounted price is shown correctly',
           'Ensure product is in clearance section'
         ],
-        getDisplayValue: (item) => '25% OFF',
+        getDisplayValue: (item) => `${item.discount_percent || 25}% OFF`,
         showUpdateButton: false
       },
       AUTO50: {
-        title: 'Confirm 50% Discount Applied',
+        title: 'Confirm Discount Applied',
         displayLabel: 'Required Discount',
         displayClass: 'discount-50',
         buttonText: 'Sticker Applied',
-        successMessage: '50% discount sticker confirmed!',
+        successMessage: 'Discount sticker confirmed!',
         verification: [
-          'Check product has 50% OFF sticker visible',
+          'Check product has discount sticker visible',
           'Verify discounted price is shown correctly',
           'Ensure product is in clearance section'
         ],
-        getDisplayValue: (item) => '50% OFF',
+        getDisplayValue: (item) => `${item.discount_percent || 50}% OFF`,
         showUpdateButton: false
       },
       NO_EXPIRY: {
@@ -861,6 +901,7 @@
 
     // Tier configuration - loaded dynamically from database
     let tierRanges = {};
+    let tierNames = {};  // tier_code -> display name mapping
 
     // Load tier configuration from database (ensures manual tier changes are respected)
     async function loadTierConfig() {
@@ -868,15 +909,21 @@
         const response = await fetch('/api/expiry-discounts/tiers');
         const data = await response.json();
 
-        // Build tierRanges from database config
+        // Build tierRanges and tierNames from database config
         tierRanges = {};
+        tierNames = {};
         for (const tier of data.tiers || data) {
           tierRanges[tier.tier_code] = {
             min: tier.min_days_to_expiry,
             max: tier.max_days_to_expiry
           };
+          // Use tier_name if set, otherwise use tier_code
+          tierNames[tier.tier_code] = tier.tier_name || tier.tier_code;
         }
-        console.log('Loaded tier config from database:', tierRanges);
+        console.log('Loaded tier config from database:', tierRanges, tierNames);
+
+        // Update filter tab labels with dynamic names
+        updateFilterTabLabels();
       } catch (error) {
         console.error('Failed to load tier config, using defaults:', error);
         // Fallback to defaults only if API fails
@@ -887,6 +934,30 @@
           'REVIEW': { min: 90, max: 120 },
           'OK': { min: 121, max: null }
         };
+        tierNames = {
+          'EXPIRED': 'Pull from Shelf',
+          'AUTO50': '50% Off',
+          'AUTO25': '25% Off',
+          'REVIEW': 'Review',
+          'OK': 'OK'
+        };
+      }
+    }
+
+    // Update filter tab labels with names from settings
+    function updateFilterTabLabels() {
+      const labelMappings = {
+        'EXPIRED': 'label-EXPIRED',
+        'AUTO50': 'label-AUTO50',
+        'AUTO25': 'label-AUTO25',
+        'REVIEW': 'label-REVIEW'
+      };
+
+      for (const [tierCode, labelId] of Object.entries(labelMappings)) {
+        const labelEl = document.getElementById(labelId);
+        if (labelEl && tierNames[tierCode]) {
+          labelEl.textContent = tierNames[tierCode];
+        }
       }
     }
 
@@ -956,7 +1027,8 @@
 
       try {
         // Load items from all tiers plus items with no expiry
-        const [auto50, auto25, review, noExpiry] = await Promise.all([
+        const [expired, auto50, auto25, review, noExpiry] = await Promise.all([
+          fetch('/api/expiry-discounts/variations?tier_code=EXPIRED&limit=500').then(r => r.json()),
           fetch('/api/expiry-discounts/variations?tier_code=AUTO50&limit=500').then(r => r.json()),
           fetch('/api/expiry-discounts/variations?tier_code=AUTO25&limit=500').then(r => r.json()),
           fetch('/api/expiry-discounts/variations?tier_code=REVIEW&limit=500').then(r => r.json()),
@@ -976,6 +1048,7 @@
         }));
 
         allItems = [
+          ...(expired.variations || []),
           ...(auto50.variations || []),
           ...(auto25.variations || []),
           ...(review.variations || []),
@@ -985,10 +1058,15 @@
         // Filter out items with 0 stock
         allItems = allItems.filter(item => (item.current_stock || 0) > 0);
 
-        // Sort: NO_EXPIRY items last, then by days until expiry (most urgent first)
+        // Sort: EXPIRED first, NO_EXPIRY items last, then by days until expiry (most urgent first)
         allItems.sort((a, b) => {
+          // EXPIRED items always first (most urgent)
+          if (a.tier_code === 'EXPIRED' && b.tier_code !== 'EXPIRED') return -1;
+          if (a.tier_code !== 'EXPIRED' && b.tier_code === 'EXPIRED') return 1;
+          // NO_EXPIRY items last
           if (a.tier_code === 'NO_EXPIRY' && b.tier_code !== 'NO_EXPIRY') return 1;
           if (a.tier_code !== 'NO_EXPIRY' && b.tier_code === 'NO_EXPIRY') return -1;
+          // Then by days until expiry (most urgent first)
           return (a.days_until_expiry || 999) - (b.days_until_expiry || 999);
         });
 
@@ -1009,7 +1087,7 @@
     }
 
     function updateCounts() {
-      const counts = { all: 0, REVIEW: 0, AUTO25: 0, AUTO50: 0, NO_EXPIRY: 0 };
+      const counts = { all: 0, EXPIRED: 0, REVIEW: 0, AUTO25: 0, AUTO50: 0, NO_EXPIRY: 0 };
 
       allItems.forEach(item => {
         if (!isConfirmed(item.variation_id, item.tier_code)) {
@@ -1021,6 +1099,7 @@
       });
 
       document.getElementById('count-all').textContent = counts.all;
+      document.getElementById('count-EXPIRED').textContent = counts.EXPIRED;
       document.getElementById('count-REVIEW').textContent = counts.REVIEW;
       document.getElementById('count-AUTO25').textContent = counts.AUTO25;
       document.getElementById('count-AUTO50').textContent = counts.AUTO50;
@@ -1083,7 +1162,16 @@
         let tierIndicator = '';
         let priceDisplay = '';
 
-        if (item.tier_code === 'REVIEW') {
+        // Get dynamic tier name or use default
+        const tierDisplayName = tierNames[item.tier_code] || item.tier_code;
+
+        if (item.tier_code === 'EXPIRED') {
+          tierIndicator = `
+            <div class="tier-indicator tier-EXPIRED">
+              EXPIRED - PULL FROM SHELF IMMEDIATELY
+            </div>
+          `;
+        } else if (item.tier_code === 'REVIEW') {
           tierIndicator = `
             <div class="tier-indicator tier-REVIEW">
               ${item.days_until_expiry}d to expiry - verify date
@@ -1136,9 +1224,9 @@
                     <span class="detail-label">SKU</span>
                     <span class="detail-value">${escapeHtml(item.sku || 'N/A')}</span>
                   </div>
-                  <div class="detail-item ${item.tier_code === 'REVIEW' ? 'highlight' : (item.tier_code === 'NO_EXPIRY' ? '' : (item.tier_code === 'AUTO50' ? 'discount-critical' : 'discount-highlight'))}">
-                    <span class="detail-label">${item.tier_code === 'REVIEW' ? 'Expiry Date' : (item.tier_code === 'NO_EXPIRY' ? 'Status' : 'Discount')}</span>
-                    <span class="detail-value">${item.tier_code === 'REVIEW' ? expiryDate : (item.tier_code === 'NO_EXPIRY' ? 'Not Set' : discountPercent + '% OFF')}</span>
+                  <div class="detail-item ${item.tier_code === 'EXPIRED' ? 'discount-critical' : (item.tier_code === 'REVIEW' ? 'highlight' : (item.tier_code === 'NO_EXPIRY' ? '' : (item.tier_code === 'AUTO50' ? 'discount-critical' : 'discount-highlight')))}">
+                    <span class="detail-label">${item.tier_code === 'EXPIRED' ? 'Status' : (item.tier_code === 'REVIEW' ? 'Expiry Date' : (item.tier_code === 'NO_EXPIRY' ? 'Status' : 'Discount'))}</span>
+                    <span class="detail-value">${item.tier_code === 'EXPIRED' ? 'EXPIRED' : (item.tier_code === 'REVIEW' ? expiryDate : (item.tier_code === 'NO_EXPIRY' ? 'Not Set' : discountPercent + '% OFF'))}</span>
                   </div>
                 </div>
 
