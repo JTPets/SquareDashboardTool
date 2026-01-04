@@ -1092,6 +1092,7 @@
       const row = document.querySelector(`tr[data-id="${variationId}"]`);
       if (row) {
         row.classList.toggle('selected', checked);
+        row.classList.toggle('unchecked', !checked);
       }
 
       updateFooter();
