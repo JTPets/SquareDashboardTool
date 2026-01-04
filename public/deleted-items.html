@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deleted Items Management - Square Dashboard Addon</title>
+  <title>Deleted & Archived Items - Square Dashboard Addon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -159,6 +159,23 @@
       color: white;
     }
 
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-deleted {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .status-archived {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
     .stock-warning {
       color: #dc2626;
       font-weight: 600;
@@ -209,26 +226,33 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>🗑️ Deleted Items Management</h1>
+      <h1>🗑️ Deleted & Archived Items</h1>
       <a href="/dashboard.html" class="back-button">← Back to Dashboard</a>
     </div>
 
     <div class="info-banner">
-      <h3>ℹ️ About Soft-Deleted Items</h3>
+      <h3>ℹ️ About Deleted & Archived Items</h3>
       <p>
-        These items have been deleted in Square but remain in your local database.
-        Items deleted for more than 1 year with zero inventory can be safely purged from the database.
-        Items with remaining inventory may need manual reconciliation.
+        <strong>Deleted:</strong> Items removed from Square catalog. They remain in your local database for historical reference.<br>
+        <strong>Archived:</strong> Items hidden in Square Dashboard but still operational. They can be unarchived in Square if needed.<br><br>
+        Items inactive for more than 1 year with zero inventory can be safely purged from the database.
       </p>
     </div>
 
     <div class="controls">
-      <label for="age-filter">Show Items Deleted:</label>
-      <select id="age-filter" onchange="filterItems()">
-        <option value="">All Items</option>
-        <option value="12">Over 1 Year Ago</option>
-        <option value="6">Over 6 Months Ago</option>
-        <option value="3">Over 3 Months Ago</option>
+      <label for="status-filter">Status:</label>
+      <select id="status-filter" onchange="loadDeletedItems()">
+        <option value="all">All (Deleted + Archived)</option>
+        <option value="deleted">Deleted Only</option>
+        <option value="archived">Archived Only</option>
+      </select>
+
+      <label for="age-filter">Inactive For:</label>
+      <select id="age-filter" onchange="loadDeletedItems()">
+        <option value="">Any Time</option>
+        <option value="12">Over 1 Year</option>
+        <option value="6">Over 6 Months</option>
+        <option value="3">Over 3 Months</option>
       </select>
 
       <label for="category-filter">Category:</label>
@@ -246,23 +270,25 @@
             <th>Image</th>
             <th>Product</th>
             <th>SKU</th>
+            <th>Status</th>
             <th>Category</th>
             <th class="text-right">Stock</th>
-            <th>Deleted Date</th>
+            <th>Date</th>
             <th>Age</th>
             <th class="text-right">Price</th>
           </tr>
         </thead>
         <tbody id="items-body">
           <tr>
-            <td colspan="8" class="loading">Loading deleted items...</td>
+            <td colspan="9" class="loading">Loading items...</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <div class="footer">
-      <span id="item-count">0</span> deleted items found
+      <span id="item-count">0</span> items found
+      (<span id="deleted-count">0</span> deleted, <span id="archived-count">0</span> archived)
     </div>
   </div>
 
@@ -272,22 +298,28 @@
   <script>
     let allItems = [];
     let filteredItems = [];
+    let deletedCount = 0;
+    let archivedCount = 0;
 
     async function loadDeletedItems() {
+      const statusFilter = document.getElementById('status-filter').value;
       const ageFilter = document.getElementById('age-filter').value;
       const tbody = document.getElementById('items-body');
-      tbody.innerHTML = '<tr><td colspan="8" class="loading">Loading deleted items...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="loading">Loading items...</td></tr>';
 
       try {
-        let url = '/api/deleted-items';
-        if (ageFilter) {
-          url += `?age_months=${ageFilter}`;
-        }
+        const params = new URLSearchParams();
+        if (statusFilter) params.append('status', statusFilter);
+        if (ageFilter) params.append('age_months', ageFilter);
+
+        const url = '/api/deleted-items' + (params.toString() ? '?' + params.toString() : '');
 
         const response = await fetch(url);
         const data = await response.json();
 
         allItems = data.deleted_items || [];
+        deletedCount = data.deleted_count || 0;
+        archivedCount = data.archived_count || 0;
 
         // Populate category filter
         const categories = [...new Set(allItems.map(item => item.category_name).filter(Boolean))].sort();
@@ -305,8 +337,8 @@
         filterItems();
 
       } catch (error) {
-        console.error('Failed to load deleted items:', error);
-        tbody.innerHTML = `<tr><td colspan="8" class="loading">Error: ${error.message}</td></tr>`;
+        console.error('Failed to load items:', error);
+        tbody.innerHTML = `<tr><td colspan="9" class="loading">Error: ${error.message}</td></tr>`;
       }
     }
 
@@ -322,8 +354,8 @@
       if (filteredItems.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="8" class="empty-state">
-              <h3>No Deleted Items Found</h3>
+            <td colspan="9" class="empty-state">
+              <h3>No Items Found</h3>
               <p>No items match your criteria. Try adjusting the filters.</p>
             </td>
           </tr>
@@ -342,23 +374,29 @@
       tbody.innerHTML = filteredItems.map((item) => {
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+        const statusIcon = item.status === 'archived' ? '📦' : '🗑️';
         const imageHtml = imageUrl
           ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-             <div class="no-image" style="display:none;">🗑️</div>`
-          : `<div class="no-image">🗑️</div>`;
+             <div class="no-image" style="display:none;">${statusIcon}</div>`
+          : `<div class="no-image">${statusIcon}</div>`;
 
-        // Calculate age badge
-        const daysDeleted = Math.floor(item.days_deleted || 0);
+        // Status badge
+        const statusClass = item.status === 'archived' ? 'status-archived' : 'status-deleted';
+        const statusLabel = item.status === 'archived' ? 'Archived' : 'Deleted';
+        const statusBadge = `<span class="status-badge ${statusClass}">${statusLabel}</span>`;
+
+        // Calculate age badge (use days_inactive which handles both deleted and archived)
+        const daysInactive = Math.floor(item.days_inactive || 0);
         let ageBadge = '';
         let ageClass = '';
-        if (daysDeleted < 90) {
-          ageBadge = `${daysDeleted} days`;
+        if (daysInactive < 90) {
+          ageBadge = `${daysInactive} days`;
           ageClass = 'age-recent';
-        } else if (daysDeleted < 365) {
-          ageBadge = `${Math.floor(daysDeleted / 30)} months`;
+        } else if (daysInactive < 365) {
+          ageBadge = `${Math.floor(daysInactive / 30)} months`;
           ageClass = 'age-old';
         } else {
-          ageBadge = `${Math.floor(daysDeleted / 365)} years`;
+          ageBadge = `${Math.floor(daysInactive / 365)} years`;
           ageClass = 'age-ancient';
         }
 
@@ -368,9 +406,10 @@
           ? `${item.current_stock} ⚠️`
           : '0 ✓';
 
-        // Format deleted date
-        const deletedDate = item.deleted_at
-          ? new Date(item.deleted_at).toLocaleDateString()
+        // Format date (use deleted_at or archived_at)
+        const inactiveDate = item.deleted_at || item.archived_at;
+        const formattedDate = inactiveDate
+          ? new Date(inactiveDate).toLocaleDateString()
           : 'Unknown';
 
         // Format price
@@ -386,9 +425,10 @@
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
             </td>
             <td class="sku">${escapeHtml(item.sku || '-')}</td>
+            <td>${statusBadge}</td>
             <td>${escapeHtml(item.category_name || '-')}</td>
             <td class="text-right ${stockClass}">${stockText}</td>
-            <td>${deletedDate}</td>
+            <td>${formattedDate}</td>
             <td><span class="age-badge ${ageClass}">${ageBadge}</span></td>
             <td class="text-right">${price}</td>
           </tr>
@@ -398,6 +438,8 @@
 
     function updateFooter() {
       document.getElementById('item-count').textContent = filteredItems.length;
+      document.getElementById('deleted-count').textContent = filteredItems.filter(i => i.status === 'deleted').length;
+      document.getElementById('archived-count').textContent = filteredItems.filter(i => i.status === 'archived').length;
     }
 
     function escapeHtml(text) {

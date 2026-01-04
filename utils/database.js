@@ -210,6 +210,12 @@ async function ensureSchema() {
         { table: 'variations', column: 'is_deleted', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
         { table: 'variations', column: 'deleted_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
 
+        // Archive status from Square (archived items are hidden in Square but still operational)
+        { table: 'items', column: 'is_archived', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
+        { table: 'items', column: 'archived_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+        { table: 'variations', column: 'is_archived', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
+        { table: 'variations', column: 'archived_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+
         // SEO and tax fields from Square API
         { table: 'items', column: 'tax_ids', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS tax_ids JSONB' },
         { table: 'items', column: 'seo_title', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_title TEXT' },

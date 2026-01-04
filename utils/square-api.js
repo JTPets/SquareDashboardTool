@@ -640,14 +640,19 @@ async function syncItem(obj, category_name, merchantId) {
     // Note: channels array contains channel IDs, not named values like 'SQUARE_ONLINE'
     const availableOnline = data.ecom_visibility === 'VISIBLE';
 
+    // Square uses is_archived in item_data to indicate archived items
+    // Archived items are hidden in Square Dashboard but still operational via API
+    const isArchived = data.is_archived === true;
+
     await db.query(`
         INSERT INTO items (
             id, name, description, category_id, category_name, product_type,
             taxable, tax_ids, visibility, present_at_all_locations, present_at_location_ids,
             absent_at_location_ids, modifier_list_info, item_options, images,
-            available_online, available_for_pickup, seo_title, seo_description, merchant_id, updated_at
+            available_online, available_for_pickup, seo_title, seo_description,
+            is_archived, archived_at, merchant_id, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             description = EXCLUDED.description,
@@ -667,6 +672,12 @@ async function syncItem(obj, category_name, merchantId) {
             available_for_pickup = EXCLUDED.available_for_pickup,
             seo_title = EXCLUDED.seo_title,
             seo_description = EXCLUDED.seo_description,
+            is_archived = EXCLUDED.is_archived,
+            archived_at = CASE
+                WHEN EXCLUDED.is_archived = TRUE AND (items.is_archived = FALSE OR items.is_archived IS NULL) THEN CURRENT_TIMESTAMP
+                WHEN EXCLUDED.is_archived = FALSE THEN NULL
+                ELSE items.archived_at
+            END,
             merchant_id = EXCLUDED.merchant_id,
             updated_at = CURRENT_TIMESTAMP
     `, [
@@ -689,6 +700,8 @@ async function syncItem(obj, category_name, merchantId) {
         false,  // availableForPickup - Square doesn't expose this per-item via API
         seoTitle,
         seoDescription,
+        isArchived,
+        isArchived ? new Date() : null,  // archived_at - set when first archived
         merchantId
     ]);
 
