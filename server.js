@@ -558,15 +558,25 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
         const today = new Date().toISOString().split('T')[0];
         const logFile = path.join(logsDir, `app-${today}.log`);
 
-        const content = await fs.readFile(logFile, 'utf-8');
+        const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
+        if (!content.trim()) {
+            return res.json({ logs: [], count: 0, message: 'No logs for today yet' });
+        }
+
         const lines = content.trim().split('\n').slice(-limit);
-        const logs = lines.map(line => JSON.parse(line));
+        const logs = lines.map(line => {
+            try {
+                return JSON.parse(line);
+            } catch {
+                return { raw: line, level: 'unknown' };
+            }
+        });
 
         res.json({ logs, count: logs.length });
 
     } catch (error) {
         logger.error('Failed to read logs', { error: error.message });
-        res.status(500).json({ error: 'Failed to read logs' });
+        res.json({ logs: [], count: 0, error: error.message });
     }
 });
 
@@ -625,8 +635,12 @@ app.get('/api/logs/stats', requireAdmin, async (req, res) => {
         const logLines = logContent.trim().split('\n').filter(Boolean);
         const errorLines = errorContent.trim().split('\n').filter(Boolean);
 
-        const logs = logLines.map(line => JSON.parse(line));
-        const errors = errorLines.map(line => JSON.parse(line));
+        const logs = logLines.map(line => {
+            try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean);
+        const errors = errorLines.map(line => {
+            try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean);
 
         const warnCount = logs.filter(l => l.level === 'warn').length;
         const infoCount = logs.filter(l => l.level === 'info').length;
