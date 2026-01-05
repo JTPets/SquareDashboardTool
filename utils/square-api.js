@@ -2178,10 +2178,21 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
 /**
  * Batch update custom attribute values on multiple catalog objects
  * @param {Array<Object>} updates - Array of {catalogObjectId, customAttributeValues}
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Batch update result
  */
-async function batchUpdateCustomAttributeValues(updates) {
-    logger.info('Batch updating custom attribute values', { count: updates.length });
+async function batchUpdateCustomAttributeValues(updates, options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for batchUpdateCustomAttributeValues');
+    }
+
+    logger.info('Batch updating custom attribute values', { count: updates.length, merchantId });
+
+    // Get merchant-specific access token
+    const accessToken = await getMerchantToken(merchantId);
 
     const results = {
         success: true,
@@ -2206,7 +2217,8 @@ async function batchUpdateCustomAttributeValues(updates) {
                 body: JSON.stringify({
                     object_ids: objectIds,
                     include_related_objects: false
-                })
+                }),
+                accessToken
             });
 
             const objectMap = new Map();
@@ -2252,7 +2264,8 @@ async function batchUpdateCustomAttributeValues(updates) {
                 body: JSON.stringify({
                     idempotency_key: idempotencyKey,
                     batches: [{ objects: updateObjects }]
-                })
+                }),
+                accessToken
             });
 
             results.updated += upsertData.objects?.length || 0;
@@ -2260,6 +2273,7 @@ async function batchUpdateCustomAttributeValues(updates) {
         } catch (error) {
             logger.error('Batch custom attribute update failed', {
                 batchStart: i,
+                merchantId,
                 error: error.message
             });
             results.failed += batch.length;
@@ -2376,23 +2390,32 @@ async function initializeCustomAttributes() {
 
 /**
  * Push local case_pack_quantity values to Square for all variations
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Push result
  */
-async function pushCasePackToSquare() {
-    logger.info('Pushing case pack quantities to Square');
+async function pushCasePackToSquare(options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for pushCasePackToSquare');
+    }
+
+    logger.info('Pushing case pack quantities to Square', { merchantId });
 
     try {
-        // Get all variations with case_pack_quantity set
+        // Get all variations with case_pack_quantity set for this merchant
         const result = await db.query(`
             SELECT id, case_pack_quantity
             FROM variations
             WHERE case_pack_quantity IS NOT NULL
               AND case_pack_quantity > 0
               AND is_deleted = FALSE
-        `);
+              AND merchant_id = $1
+        `, [merchantId]);
 
         if (result.rows.length === 0) {
-            logger.info('No case pack quantities to push');
+            logger.info('No case pack quantities to push', { merchantId });
             return { success: true, updated: 0, message: 'No case pack quantities found' };
         }
 
@@ -2405,33 +2428,42 @@ async function pushCasePackToSquare() {
             }
         }));
 
-        logger.info('Pushing case pack quantities', { count: updates.length });
-        return await batchUpdateCustomAttributeValues(updates);
+        logger.info('Pushing case pack quantities', { count: updates.length, merchantId });
+        return await batchUpdateCustomAttributeValues(updates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push case pack quantities', { error: error.message });
+        logger.error('Failed to push case pack quantities', { merchantId, error: error.message });
         throw error;
     }
 }
 
 /**
  * Push local brand assignments to Square for all items
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Push result
  */
-async function pushBrandsToSquare() {
-    logger.info('Pushing brands to Square');
+async function pushBrandsToSquare(options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for pushBrandsToSquare');
+    }
+
+    logger.info('Pushing brands to Square', { merchantId });
 
     try {
-        // Get all items with brand assignments
+        // Get all items with brand assignments for this merchant
         const result = await db.query(`
             SELECT i.id, b.name as brand_name
             FROM items i
-            JOIN item_brands ib ON i.id = ib.item_id
-            JOIN brands b ON ib.brand_id = b.id
+            JOIN item_brands ib ON i.id = ib.item_id AND ib.merchant_id = $1
+            JOIN brands b ON ib.brand_id = b.id AND b.merchant_id = $1
             WHERE i.is_deleted = FALSE
-        `);
+              AND i.merchant_id = $1
+        `, [merchantId]);
 
         if (result.rows.length === 0) {
-            logger.info('No brand assignments to push');
+            logger.info('No brand assignments to push', { merchantId });
             return { success: true, updated: 0, message: 'No brand assignments found' };
         }
 
@@ -2444,33 +2476,42 @@ async function pushBrandsToSquare() {
             }
         }));
 
-        logger.info('Pushing brand assignments', { count: updates.length });
-        return await batchUpdateCustomAttributeValues(updates);
+        logger.info('Pushing brand assignments', { count: updates.length, merchantId });
+        return await batchUpdateCustomAttributeValues(updates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push brand assignments', { error: error.message });
+        logger.error('Failed to push brand assignments', { merchantId, error: error.message });
         throw error;
     }
 }
 
 /**
  * Push local expiration dates to Square for all variations
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Push result
  */
-async function pushExpiryDatesToSquare() {
-    logger.info('Pushing expiry dates to Square');
+async function pushExpiryDatesToSquare(options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for pushExpiryDatesToSquare');
+    }
+
+    logger.info('Pushing expiry dates to Square', { merchantId });
 
     try {
-        // Get all variations with expiration data
+        // Get all variations with expiration data for this merchant
         const result = await db.query(`
             SELECT ve.variation_id, ve.expiration_date, ve.does_not_expire
             FROM variation_expiration ve
-            JOIN variations v ON ve.variation_id = v.id
+            JOIN variations v ON ve.variation_id = v.id AND v.merchant_id = $1
             WHERE v.is_deleted = FALSE
+              AND ve.merchant_id = $1
               AND (ve.expiration_date IS NOT NULL OR ve.does_not_expire = TRUE)
-        `);
+        `, [merchantId]);
 
         if (result.rows.length === 0) {
-            logger.info('No expiry dates to push');
+            logger.info('No expiry dates to push', { merchantId });
             return { success: true, updated: 0, message: 'No expiry dates found' };
         }
 
@@ -2508,14 +2549,14 @@ async function pushExpiryDatesToSquare() {
         const validUpdates = updates.filter(u => Object.keys(u.customAttributeValues).length > 0);
 
         if (validUpdates.length === 0) {
-            logger.info('No valid expiry date updates to push');
+            logger.info('No valid expiry date updates to push', { merchantId });
             return { success: true, updated: 0, message: 'No valid expiry dates to push' };
         }
 
-        logger.info('Pushing expiry dates', { count: validUpdates.length });
-        return await batchUpdateCustomAttributeValues(validUpdates);
+        logger.info('Pushing expiry dates', { count: validUpdates.length, merchantId });
+        return await batchUpdateCustomAttributeValues(validUpdates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push expiry dates', { error: error.message });
+        logger.error('Failed to push expiry dates', { merchantId, error: error.message });
         throw error;
     }
 }
