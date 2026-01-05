@@ -298,7 +298,6 @@ WEBHOOK_SALES_SYNC=true
 | gmc-feed.html | Google Merchant |
 | vendor-catalog.html | Vendor imports |
 | settings.html | Configuration |
-| database-backup.html | Backup/restore |
 | logs.html | System logs |
 | subscribe.html | Subscription signup |
 | support.html | Help/FAQ |

@@ -608,30 +608,8 @@
         </div>
       </div>
 
-      <!-- Database Backup Section (Admin Only) -->
-      <div class="section" id="database-backup-section" style="display: none;">
-        <div class="section-header">
-          <div>
-            <div class="section-title">💾 Database Backup & Restore</div>
-            <div class="section-desc">Export and import complete database backups (Admin only)</div>
-          </div>
-        </div>
-
-        <div class="connection-card">
-          <div class="connection-header">
-            <span class="connection-icon">🗄️</span>
-            <span class="connection-name">Database Management</span>
-          </div>
-          <div class="connection-status">Export your database or restore from a backup file.</div>
-          <div style="margin-top: 15px;">
-            <a href="/database-backup.html" class="btn-primary" style="text-decoration: none; display: inline-block;">Open Backup Manager</a>
-          </div>
-        </div>
-
-        <div class="alert warning" style="margin-top: 15px;">
-          <strong>Caution:</strong> Database operations can affect all data. Always create a backup before importing or restoring.
-        </div>
-      </div>
+      <!-- Database Backup Section removed for security (2026-01-05) -->
+      <!-- Database backups should be managed at the infrastructure level -->
     </div>
 
     <!-- Change Password Modal -->
@@ -788,25 +766,6 @@
       } catch (e) {
         card.className = 'connection-card disconnected';
         status.textContent = 'Error checking status';
-      }
-    }
-
-    async function testDatabaseConnection() {
-      const status = document.getElementById('database-status');
-      status.textContent = 'Testing...';
-      try {
-        const response = await fetch('/api/database/info');
-        const data = await response.json();
-        if (data.connected) {
-          status.textContent = `Connected - ${data.tables || 0} tables`;
-          document.getElementById('database-connection').className = 'connection-card connected';
-        } else {
-          status.textContent = 'Not connected';
-          document.getElementById('database-connection').className = 'connection-card disconnected';
-        }
-      } catch (e) {
-        status.textContent = 'Connection failed: ' + e.message;
-        document.getElementById('database-connection').className = 'connection-card disconnected';
       }
     }
 
@@ -1174,7 +1133,6 @@
         // Show admin-only sections
         if (currentUser.role === 'admin') {
           document.getElementById('user-management-section').style.display = 'block';
-          document.getElementById('database-backup-section').style.display = 'block';
           loadUsersList();
         }
       } catch (e) {

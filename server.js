@@ -1823,6 +1823,17 @@ app.patch('/api/variations/:id/cost', requireAuth, requireMerchant, async (req, 
             return res.status(400).json({ error: 'cost_cents must be a non-negative number' });
         }
 
+        // Pre-validate vendor_id if provided (security: ensure vendor belongs to this merchant)
+        if (vendor_id) {
+            const vendorCheck = await db.query(
+                'SELECT id FROM vendors WHERE id = $1 AND merchant_id = $2',
+                [vendor_id, merchantId]
+            );
+            if (vendorCheck.rows.length === 0) {
+                return res.status(403).json({ error: 'Invalid vendor or vendor does not belong to this merchant' });
+            }
+        }
+
         // Get variation details (verify ownership)
         const variationResult = await db.query(`
             SELECT v.id, v.sku, v.name, i.name as item_name,
@@ -6990,6 +7001,24 @@ app.post('/api/purchase-orders', requireAuth, requireMerchant, async (req, res) 
             });
         }
 
+        // Security: Pre-validate vendor_id belongs to this merchant
+        const vendorCheck = await db.query(
+            'SELECT id FROM vendors WHERE id = $1 AND merchant_id = $2',
+            [vendor_id, merchantId]
+        );
+        if (vendorCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'Invalid vendor or vendor does not belong to this merchant' });
+        }
+
+        // Security: Pre-validate location_id belongs to this merchant
+        const locationCheck = await db.query(
+            'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
+            [location_id, merchantId]
+        );
+        if (locationCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'Invalid location or location does not belong to this merchant' });
+        }
+
         // Generate PO number: PO-YYYYMMDD-XXX
         const today = new Date();
         const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
@@ -7734,287 +7763,9 @@ app.get('/api/purchase-orders/:po_number/export-xlsx', requireAuth, requireMerch
 
 // ==================== DATABASE BACKUP & RESTORE ====================
 
-/**
- * Find pg_dump command on Windows in common installation paths
- */
-function findPgDumpOnWindows() {
-    const { execSync } = require('child_process');
-    const fs = require('fs');
-    const path = require('path');
-
-    // Try direct command first
-    try {
-        execSync('pg_dump --version', { stdio: 'ignore' });
-        return 'pg_dump';
-    } catch (e) {
-        // Not in PATH, search common locations
-    }
-
-    // Common PostgreSQL installation paths on Windows
-    const basePaths = [
-        'C:\\Program Files\\PostgreSQL',
-        'C:\\Program Files (x86)\\PostgreSQL'
-    ];
-
-    // Check versions 20 down to 10 (future-proof for newer releases)
-    for (const basePath of basePaths) {
-        for (let version = 20; version >= 10; version--) {
-            const pgDumpPath = path.join(basePath, `${version}`, 'bin', 'pg_dump.exe');
-            if (fs.existsSync(pgDumpPath)) {
-                logger.info('Found pg_dump at', { path: pgDumpPath });
-                return `"${pgDumpPath}"`;
-            }
-        }
-    }
-
-    throw new Error('pg_dump not found. Please add PostgreSQL bin directory to PATH or install PostgreSQL client tools.');
-}
-
-/**
- * GET /api/database/export
- * Export database as SQL dump
- */
-app.get('/api/database/export', requireAdmin, async (req, res) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        const dbHost = process.env.DB_HOST || 'localhost';
-        const dbPort = process.env.DB_PORT || '5432';
-        const dbName = process.env.DB_NAME || 'square_dashboard_addon';
-        const dbUser = process.env.DB_USER || 'postgres';
-        const dbPassword = process.env.DB_PASSWORD || '';
-
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `square_dashboard_addon_backup_${timestamp}.sql`;
-
-        logger.info('Starting database export', { database: dbName });
-
-        // Find pg_dump command (handles Windows paths)
-        const pgDumpCmd = process.platform === 'win32' ? findPgDumpOnWindows() : 'pg_dump';
-
-        // Set PGPASSWORD environment variable for pg_dump
-        const env = { ...process.env, PGPASSWORD: dbPassword };
-
-        // Use pg_dump to create backup
-        const command = `${pgDumpCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
-
-        const { stdout, stderr } = await execAsync(command, {
-            env,
-            maxBuffer: 50 * 1024 * 1024 // 50MB buffer
-        });
-
-        if (stderr && !stderr.includes('NOTICE')) {
-            logger.warn('Database export warnings', { warnings: stderr });
-        }
-
-        // Send SQL dump as downloadable file
-        res.setHeader('Content-Type', 'application/sql');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.send(stdout);
-
-        logger.info('Database export completed', {
-            filename,
-            size_bytes: stdout.length
-        });
-
-    } catch (error) {
-        logger.error('Database export failed', {
-            error: error.message,
-            stack: error.stack
-        });
-
-        res.status(500).json({
-            error: 'Database export failed',
-            message: error.message
-        });
-    }
-});
-
-/**
- * Find psql command on Windows in common installation paths
- */
-function findPsqlOnWindows() {
-    const { execSync } = require('child_process');
-    const fs = require('fs');
-    const path = require('path');
-
-    // Try direct command first
-    try {
-        execSync('psql --version', { stdio: 'ignore' });
-        return 'psql';
-    } catch (e) {
-        // Not in PATH, search common locations
-    }
-
-    // Common PostgreSQL installation paths on Windows
-    const basePaths = [
-        'C:\\Program Files\\PostgreSQL',
-        'C:\\Program Files (x86)\\PostgreSQL'
-    ];
-
-    // Check versions 20 down to 10 (future-proof for newer releases)
-    for (const basePath of basePaths) {
-        for (let version = 20; version >= 10; version--) {
-            const psqlPath = path.join(basePath, `${version}`, 'bin', 'psql.exe');
-            if (fs.existsSync(psqlPath)) {
-                logger.info('Found psql at', { path: psqlPath });
-                return `"${psqlPath}"`;
-            }
-        }
-    }
-
-    throw new Error('psql not found. Please add PostgreSQL bin directory to PATH or install PostgreSQL client tools.');
-}
-
-/**
- * POST /api/database/import
- * Import database from SQL dump
- * Body: { sql: "SQL dump content" }
- */
-app.post('/api/database/import', requireAdmin, async (req, res) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        const tmpFs = require('fs').promises;
-        const tmpPath = require('path');
-
-        const { sql } = req.body;
-
-        if (!sql || typeof sql !== 'string') {
-            return res.status(400).json({
-                error: 'Invalid request',
-                message: 'SQL content is required'
-            });
-        }
-
-        const dbHost = process.env.DB_HOST || 'localhost';
-        const dbPort = process.env.DB_PORT || '5432';
-        const dbName = process.env.DB_NAME || 'square_dashboard_addon';
-        const dbUser = process.env.DB_USER || 'postgres';
-        const dbPassword = process.env.DB_PASSWORD || '';
-
-        logger.info('Starting database import', {
-            database: dbName,
-            sql_size_bytes: sql.length
-        });
-
-        // Write SQL to temporary file
-        const tmpDir = tmpPath.join(__dirname, 'output', 'temp');
-        await tmpFs.mkdir(tmpDir, { recursive: true });
-
-        const tmpFile = tmpPath.join(tmpDir, `import_${Date.now()}.sql`);
-        await tmpFs.writeFile(tmpFile, sql, 'utf-8');
-
-        try {
-            // Find psql command (handles Windows paths)
-            const psqlCmd = process.platform === 'win32' ? findPsqlOnWindows() : 'psql';
-
-            // Set PGPASSWORD environment variable for psql
-            const env = { ...process.env, PGPASSWORD: dbPassword };
-
-            // Use psql to restore backup
-            const command = `${psqlCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${tmpFile}" -v ON_ERROR_STOP=1`;
-
-            logger.info('Executing psql command', { command: command.replace(dbPassword, '***') });
-
-            const { stdout, stderr } = await execAsync(command, {
-                env,
-                maxBuffer: 50 * 1024 * 1024 // 50MB buffer
-            });
-
-            // Clean up temp file
-            await tmpFs.unlink(tmpFile);
-
-            if (stderr && !stderr.includes('NOTICE') && !stderr.includes('WARNING')) {
-                logger.warn('Database import warnings', { warnings: stderr });
-            }
-
-            logger.info('Database import completed successfully');
-
-            res.json({
-                success: true,
-                message: 'Database imported successfully',
-                output: stdout
-            });
-
-        } catch (execError) {
-            // Clean up temp file on error
-            try {
-                await tmpFs.unlink(tmpFile);
-            } catch (unlinkError) {
-                // Ignore unlink errors
-            }
-            throw execError;
-        }
-
-    } catch (error) {
-        logger.error('Database import failed', {
-            error: error.message,
-            stack: error.stack
-        });
-        res.status(500).json({
-            error: 'Database import failed',
-            message: error.message,
-            details: error.stderr || error.message
-        });
-    }
-});
-
-/**
- * GET /api/database/info
- * Get database information
- */
-app.get('/api/database/info', requireAdmin, async (req, res) => {
-    try {
-        // Get database size
-        const sizeResult = await db.query(`
-            SELECT
-                pg_database.datname as name,
-                pg_size_pretty(pg_database_size(pg_database.datname)) as size,
-                pg_database_size(pg_database.datname) as size_bytes
-            FROM pg_database
-            WHERE datname = $1
-        `, [process.env.DB_NAME || 'square_dashboard_addon']);
-
-        // Get table counts
-        const tablesResult = await db.query(`
-            SELECT
-                schemaname,
-                relname as tablename,
-                n_live_tup as row_count
-            FROM pg_stat_user_tables
-            ORDER BY n_live_tup DESC
-        `);
-
-        // Get database version
-        const versionResult = await db.query('SELECT version()');
-
-        res.json({
-            database: sizeResult.rows[0] || {},
-            tables: tablesResult.rows,
-            version: versionResult.rows[0].version,
-            connection: {
-                host: process.env.DB_HOST || 'localhost',
-                port: process.env.DB_PORT || '5432',
-                database: process.env.DB_NAME || 'square_dashboard_addon',
-                user: process.env.DB_USER || 'postgres'
-            }
-        });
-
-    } catch (error) {
-        logger.error('Failed to get database info', {
-            error: error.message
-        });
-        res.status(500).json({
-            error: 'Failed to get database info',
-            message: error.message
-        });
-    }
-});
+// NOTE: Database export/import endpoints removed for security (2026-01-05)
+// These endpoints exposed all merchant data without tenant filtering.
+// Database backups should be managed at the infrastructure level (pg_dump with proper access controls).
 
 // ==================== SUBSCRIPTIONS & PAYMENTS ====================
 
@@ -8594,10 +8345,23 @@ app.get('/api/subscriptions/admin/list', requireAdmin, async (req, res) => {
 
 /**
  * GET /api/webhooks/events
- * View recent webhook events (admin only)
+ * View recent webhook events (SUPER ADMIN ONLY - cross-tenant debugging)
+ * Requires user email to be in SUPER_ADMIN_EMAILS environment variable
  */
 app.get('/api/webhooks/events', requireAuth, requireAdmin, async (req, res) => {
     try {
+        // Super-admin check: only users in SUPER_ADMIN_EMAILS can access cross-tenant data
+        const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+        const userEmail = req.session?.user?.email?.toLowerCase();
+
+        if (!superAdminEmails.includes(userEmail)) {
+            logger.warn('Unauthorized access attempt to webhook events', { email: userEmail });
+            return res.status(403).json({
+                error: 'Super admin access required',
+                message: 'This endpoint requires super-admin privileges. Contact system administrator.'
+            });
+        }
+
         const { limit = 50, status, event_type } = req.query;
 
         let query = `
@@ -8933,7 +8697,11 @@ app.post('/api/webhooks/square', async (req, res) => {
                         // Sync committed inventory for open orders
                         const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
-                        logger.info('Committed inventory sync completed via webhook', { count: committedResult });
+                        if (committedResult?.skipped) {
+                            logger.info('Committed inventory sync skipped via webhook', { reason: committedResult.reason });
+                        } else {
+                            logger.info('Committed inventory sync completed via webhook', { count: committedResult });
+                        }
                     } catch (syncError) {
                         logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
@@ -8963,6 +8731,9 @@ app.post('/api/webhooks/square', async (req, res) => {
                         // Sync committed inventory (fulfilled orders reduce committed qty)
                         const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
+                        if (committedResult?.skipped) {
+                            logger.info('Committed inventory sync skipped via fulfillment webhook', { reason: committedResult.reason });
+                        }
 
                         // If fulfilled/completed, also sync sales velocity
                         if (fulfillment?.state === 'COMPLETED') {
