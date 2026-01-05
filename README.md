@@ -1399,7 +1399,6 @@ SquareDashboardTool/
 │   ├── cycle-count-history.html # Count history viewer
 │   ├── purchase-orders.html # PO management
 │   ├── deleted-items.html  # Deleted items management
-│   ├── database-backup.html # Database backup/restore
 │   └── logs.html           # Log viewer
 ├── output/                 # Generated files (excluded from pm2 watch)
 │   ├── logs/               # Winston application logs

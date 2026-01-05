@@ -6,6 +6,21 @@
 
 ---
 
+## Remediation Status (Updated 2026-01-05)
+
+| # | Finding | Risk | Status |
+|---|---------|------|--------|
+| 1 | Database Export All Merchants | HIGH | **FIXED** - Endpoints removed |
+| 2 | Webhook Events No Tenant Filter | MEDIUM | Open (see plan below) |
+| 3 | Images Table No merchant_id | LOW | Accepted Risk |
+| 4 | Vendor ID Not Pre-Validated | MEDIUM | **FIXED** - Pre-validation added |
+| 5 | PO Creation IDs Not Pre-Validated | MEDIUM | **FIXED** - Pre-validation added |
+| 6 | Location Filter Via JOINs Only | LOW | Accepted Risk |
+| 7 | Google Taxonomy Global Access | INFO | By Design |
+| 8 | AUTH_DISABLED Removed | RESOLVED | Closed |
+
+---
+
 ## Executive Summary
 
 This audit analyzed the codebase for data leakage risks including tenant-less records, vendor isolation issues, "god mode" bypasses, and location/variation scoping vulnerabilities. While the codebase demonstrates strong tenant isolation in most areas with consistent `merchant_id` filtering, several issues were identified that could allow cross-tenant data access.
