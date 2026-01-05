@@ -1410,8 +1410,11 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
     logger.info('Updating Square inventory alert threshold', { catalogObjectId, locationId, threshold, merchantId });
 
     try {
+        // Get merchant-specific access token
+        const accessToken = await getMerchantToken(merchantId);
+
         // First, retrieve the current catalog object to get its version and existing overrides
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { merchantId });
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { accessToken });
 
         if (!retrieveData.object) {
             throw new Error(`Catalog object not found: ${catalogObjectId}`);
@@ -1471,7 +1474,7 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
         const data = await makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
             body: JSON.stringify(updateBody),
-            merchantId
+            accessToken
         });
 
         logger.info('Square inventory alert threshold updated (location-specific)', {
