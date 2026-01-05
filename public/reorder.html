@@ -1639,13 +1639,16 @@
             pendingMinStockSaves.set(variationId, true);
 
             try {
+              // Include location_id for location-specific min stock
+              const locationId = document.getElementById('location-select').value;
               response = await fetch(`/api/variations/${variationId}/min-stock`, {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                  min_stock: newValue
+                  min_stock: newValue,
+                  location_id: locationId || null
                 })
               });
             } finally {
@@ -1679,6 +1682,8 @@
           // Show success toast for min stock (Square sync)
           if (field === 'stock_alert_min') {
             showToast('Min stock updated and synced to Square!', 'success');
+            // Refresh suggestions to recalculate reorder quantities with new min stock
+            await getSuggestions();
           }
 
         } catch (error) {
