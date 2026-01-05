@@ -1396,14 +1396,22 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
  * @param {string} catalogObjectId - The variation ID
  * @param {string} locationId - The location ID for the alert
  * @param {number|null} threshold - The new threshold value (null to disable alerts)
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Result of the catalog update
  */
-async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, threshold) {
-    logger.info('Updating Square inventory alert threshold', { catalogObjectId, locationId, threshold });
+async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, threshold, options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for setSquareInventoryAlertThreshold');
+    }
+
+    logger.info('Updating Square inventory alert threshold', { catalogObjectId, locationId, threshold, merchantId });
 
     try {
         // First, retrieve the current catalog object to get its version and existing overrides
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`);
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { merchantId });
 
         if (!retrieveData.object) {
             throw new Error(`Catalog object not found: ${catalogObjectId}`);
@@ -1462,7 +1470,8 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 
         const data = await makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
-            body: JSON.stringify(updateBody)
+            body: JSON.stringify(updateBody),
+            merchantId
         });
 
         logger.info('Square inventory alert threshold updated (location-specific)', {
