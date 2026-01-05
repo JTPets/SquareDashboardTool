@@ -197,37 +197,33 @@ app.use('/api/square/oauth', squareOAuthRoutes);
 app.use(loadMerchantContext);
 
 // ==================== API AUTHENTICATION MIDDLEWARE ====================
-// Protect all API routes (authEnabled already set above)
-if (authEnabled) {
-    app.use('/api', (req, res, next) => {
-        // Public routes that don't require authentication
-        const publicPaths = [
-            '/health',
-            '/webhooks/square',
-            '/square/payment-config',
-            '/subscriptions/plans',
-            '/subscriptions/create',
-            '/subscriptions/status',
-            '/subscriptions/promo/validate',
-            // Auth routes (login, password reset)
-            '/auth/login',
-            '/auth/forgot-password',
-            '/auth/reset-password',
-            '/auth/verify-reset-token'
-        ];
+// Protect all API routes - auth is always enabled (AUTH_DISABLED bypass removed 2026-01-05)
+app.use('/api', (req, res, next) => {
+    // Public routes that don't require authentication
+    const publicPaths = [
+        '/health',
+        '/webhooks/square',
+        '/square/payment-config',
+        '/subscriptions/plans',
+        '/subscriptions/create',
+        '/subscriptions/status',
+        '/subscriptions/promo/validate',
+        // Auth routes (login, password reset)
+        '/auth/login',
+        '/auth/forgot-password',
+        '/auth/reset-password',
+        '/auth/verify-reset-token'
+    ];
 
-        // Allow public routes without auth
-        if (publicPaths.includes(req.path)) {
-            return next();
-        }
+    // Allow public routes without auth
+    if (publicPaths.includes(req.path)) {
+        return next();
+    }
 
-        // Require authentication for all other API routes
-        return requireAuthApi(req, res, next);
-    });
-    logger.info('Authentication middleware enabled');
-} else {
-    logger.warn('⚠️  Authentication is DISABLED! Set AUTH_DISABLED=false for production.');
-}
+    // Require authentication for all other API routes
+    return requireAuthApi(req, res, next);
+});
+logger.info('Authentication middleware enabled');
 
 // Subscription check middleware (optional, in addition to auth)
 if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
