@@ -1545,11 +1545,22 @@ async function syncCommittedInventory(merchantId) {
                 requestBody.cursor = cursor;
             }
 
-            const data = await makeSquareRequest('/v2/invoices/search', {
-                method: 'POST',
-                body: JSON.stringify(requestBody),
-                accessToken
-            });
+            let data;
+            try {
+                data = await makeSquareRequest('/v2/invoices/search', {
+                    method: 'POST',
+                    body: JSON.stringify(requestBody),
+                    accessToken
+                });
+            } catch (apiError) {
+                // Gracefully handle missing INVOICES_READ scope
+                if (apiError.message && apiError.message.includes('INSUFFICIENT_SCOPES')) {
+                    logger.info('Skipping committed inventory sync - merchant does not have INVOICES_READ scope', { merchantId });
+                    return { skipped: true, reason: 'INVOICES_READ scope not authorized', count: 0 };
+                }
+                // Re-throw other errors
+                throw apiError;
+            }
 
             const invoices = data.invoices || [];
             cursor = data.cursor;

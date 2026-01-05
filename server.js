@@ -8345,10 +8345,23 @@ app.get('/api/subscriptions/admin/list', requireAdmin, async (req, res) => {
 
 /**
  * GET /api/webhooks/events
- * View recent webhook events (admin only)
+ * View recent webhook events (SUPER ADMIN ONLY - cross-tenant debugging)
+ * Requires user email to be in SUPER_ADMIN_EMAILS environment variable
  */
 app.get('/api/webhooks/events', requireAuth, requireAdmin, async (req, res) => {
     try {
+        // Super-admin check: only users in SUPER_ADMIN_EMAILS can access cross-tenant data
+        const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+        const userEmail = req.session?.user?.email?.toLowerCase();
+
+        if (!superAdminEmails.includes(userEmail)) {
+            logger.warn('Unauthorized access attempt to webhook events', { email: userEmail });
+            return res.status(403).json({
+                error: 'Super admin access required',
+                message: 'This endpoint requires super-admin privileges. Contact system administrator.'
+            });
+        }
+
         const { limit = 50, status, event_type } = req.query;
 
         let query = `
@@ -8684,7 +8697,11 @@ app.post('/api/webhooks/square', async (req, res) => {
                         // Sync committed inventory for open orders
                         const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
-                        logger.info('Committed inventory sync completed via webhook', { count: committedResult });
+                        if (committedResult?.skipped) {
+                            logger.info('Committed inventory sync skipped via webhook', { reason: committedResult.reason });
+                        } else {
+                            logger.info('Committed inventory sync completed via webhook', { count: committedResult });
+                        }
                     } catch (syncError) {
                         logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
@@ -8714,6 +8731,9 @@ app.post('/api/webhooks/square', async (req, res) => {
                         // Sync committed inventory (fulfilled orders reduce committed qty)
                         const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
                         syncResults.committedInventory = committedResult;
+                        if (committedResult?.skipped) {
+                            logger.info('Committed inventory sync skipped via fulfillment webhook', { reason: committedResult.reason });
+                        }
 
                         // If fulfilled/completed, also sync sales velocity
                         if (fulfillment?.state === 'COMPLETED') {

@@ -11,7 +11,7 @@
 | # | Finding | Risk | Status |
 |---|---------|------|--------|
 | 1 | Database Export All Merchants | HIGH | **FIXED** - Endpoints removed |
-| 2 | Webhook Events No Tenant Filter | MEDIUM | Open (see plan below) |
+| 2 | Webhook Events No Tenant Filter | MEDIUM | **FIXED** - Super-admin only (SUPER_ADMIN_EMAILS) |
 | 3 | Images Table No merchant_id | LOW | Accepted Risk |
 | 4 | Vendor ID Not Pre-Validated | MEDIUM | **FIXED** - Pre-validation added |
 | 5 | PO Creation IDs Not Pre-Validated | MEDIUM | **FIXED** - Pre-validation added |
