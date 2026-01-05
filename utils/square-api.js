@@ -20,13 +20,14 @@ const RETRY_DELAY_MS = 1000;
 
 /**
  * Get decrypted access token for a merchant
- * @param {number} merchantId - The merchant ID
+ * @param {number} merchantId - The merchant ID (REQUIRED)
  * @returns {Promise<string>} Decrypted access token
  */
 async function getMerchantToken(merchantId) {
+    // NOTE: Legacy single-tenant fallback removed (2026-01-05)
+    // merchantId is now required - no more fallback to ACCESS_TOKEN env var
     if (!merchantId) {
-        // Legacy single-tenant mode - use environment variable
-        return ACCESS_TOKEN;
+        throw new Error('merchantId is required - legacy single-tenant mode removed');
     }
 
     const result = await db.query(
@@ -83,8 +84,12 @@ function generateIdempotencyKey(prefix) {
  */
 async function makeSquareRequest(endpoint, options = {}) {
     const url = `${SQUARE_BASE_URL}${endpoint}`;
-    // Use provided accessToken (for multi-tenant) or fall back to global ACCESS_TOKEN (legacy)
-    const token = options.accessToken || ACCESS_TOKEN;
+    // NOTE: Legacy single-tenant fallback removed (2026-01-05)
+    // accessToken is now required for all requests
+    const token = options.accessToken;
+    if (!token) {
+        throw new Error('accessToken is required in options - legacy single-tenant mode removed');
+    }
     const headers = {
         'Square-Version': SQUARE_API_VERSION,
         'Authorization': `Bearer ${token}`,
