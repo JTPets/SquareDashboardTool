@@ -1655,10 +1655,10 @@ app.patch('/api/variations/:id/extended', requireAuth, requireMerchant, async (r
                     case_pack_quantity: {
                         number_value: newCasePackValue.toString()
                     }
-                });
-                logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue });
+                }, { merchantId });
+                logger.info('Case pack synced to Square', { variation_id: id, case_pack: newCasePackValue, merchantId });
             } catch (syncError) {
-                logger.error('Failed to sync case pack to Square', { variation_id: id, error: syncError.message });
+                logger.error('Failed to sync case pack to Square', { variation_id: id, merchantId, error: syncError.message });
                 // Don't fail the request - local update succeeded
                 squareSyncResult = { success: false, error: syncError.message };
             }
@@ -2226,9 +2226,9 @@ app.post('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
                 // Always push does_not_expire toggle (it's a real setting)
                 customAttributeValues.does_not_expire = { boolean_value: does_not_expire === true };
 
-                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues, { merchantId });
                 squarePushResults.success++;
-                logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire });
+                logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire, merchantId });
             } catch (squareError) {
                 squarePushResults.failed++;
                 squarePushResults.errors.push({ variation_id, error: squareError.message });
@@ -2325,13 +2325,14 @@ app.post('/api/expirations/review', requireAuth, requireMerchant, async (req, re
                 if (reviewed_by) {
                     customAttributeValues.expiry_reviewed_by = { string_value: reviewed_by };
                 }
-                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues);
+                await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues, { merchantId });
                 squarePushResults.success++;
             } catch (squareError) {
                 squarePushResults.failed++;
                 squarePushResults.errors.push({ variation_id, error: squareError.message });
                 logger.warn('Failed to push review data to Square', {
                     variation_id,
+                    merchantId,
                     error: squareError.message
                 });
             }
@@ -4116,10 +4117,10 @@ app.put('/api/gmc/items/:itemId/brand', requireAuth, requireMerchant, async (req
             try {
                 squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
                     brand: { string_value: '' }
-                });
-                logger.info('Brand removed from Square', { item_id: itemId });
+                }, { merchantId });
+                logger.info('Brand removed from Square', { item_id: itemId, merchantId });
             } catch (syncError) {
-                logger.error('Failed to remove brand from Square', { item_id: itemId, error: syncError.message });
+                logger.error('Failed to remove brand from Square', { item_id: itemId, merchantId, error: syncError.message });
                 squareSyncResult = { success: false, error: syncError.message };
             }
 
@@ -4144,10 +4145,10 @@ app.put('/api/gmc/items/:itemId/brand', requireAuth, requireMerchant, async (req
         try {
             squareSyncResult = await squareApi.updateCustomAttributeValues(itemId, {
                 brand: { string_value: brandName }
-            });
-            logger.info('Brand synced to Square', { item_id: itemId, brand: brandName });
+            }, { merchantId });
+            logger.info('Brand synced to Square', { item_id: itemId, brand: brandName, merchantId });
         } catch (syncError) {
-            logger.error('Failed to sync brand to Square', { item_id: itemId, error: syncError.message });
+            logger.error('Failed to sync brand to Square', { item_id: itemId, merchantId, error: syncError.message });
             squareSyncResult = { success: false, error: syncError.message };
         }
 

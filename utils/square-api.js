@@ -2106,14 +2106,25 @@ async function upsertCustomAttributeDefinition(definition) {
  * Update custom attribute values on a catalog object (item or variation)
  * @param {string} catalogObjectId - The item or variation ID
  * @param {Object} customAttributeValues - Key-value pairs of custom attributes
+ * @param {Object} options - Options including merchantId
+ * @param {number} options.merchantId - Required merchant ID for multi-tenant
  * @returns {Promise<Object>} Updated catalog object
  */
-async function updateCustomAttributeValues(catalogObjectId, customAttributeValues) {
-    logger.info('Updating custom attribute values', { catalogObjectId, keys: Object.keys(customAttributeValues) });
+async function updateCustomAttributeValues(catalogObjectId, customAttributeValues, options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for updateCustomAttributeValues');
+    }
+
+    logger.info('Updating custom attribute values', { catalogObjectId, keys: Object.keys(customAttributeValues), merchantId });
+
+    // Get merchant-specific access token
+    const accessToken = await getMerchantToken(merchantId);
 
     try {
         // First, retrieve the current catalog object to get its version and type
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`);
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { accessToken });
 
         if (!retrieveData.object) {
             throw new Error(`Catalog object not found: ${catalogObjectId}`);
@@ -2153,11 +2164,13 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
 
         const data = await makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            accessToken
         });
 
         logger.info('Custom attribute values updated', {
             catalogObjectId,
+            merchantId,
             newVersion: data.catalog_object?.version
         });
 
@@ -2169,6 +2182,7 @@ async function updateCustomAttributeValues(catalogObjectId, customAttributeValue
     } catch (error) {
         logger.error('Failed to update custom attribute values', {
             catalogObjectId,
+            merchantId,
             error: error.message
         });
         throw error;
