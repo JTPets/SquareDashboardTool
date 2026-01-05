@@ -136,36 +136,39 @@ app.use(session({
 
 console.log('Session middleware initialized');
 
-// Warn if using default session secret
+// Session secret validation - refuse to start in production without it
 if (!process.env.SESSION_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+        logger.error('FATAL: SESSION_SECRET must be set in production environment');
+        console.error('FATAL: SESSION_SECRET must be set in production environment');
+        process.exit(1);
+    }
     logger.warn('SESSION_SECRET not set! Using random secret. Sessions will be lost on restart.');
 }
 
 // ==================== PAGE AUTHENTICATION ====================
 // Redirect unauthenticated users to login page for protected HTML pages
-const authEnabled = process.env.AUTH_DISABLED !== 'true';
+// NOTE: AUTH_DISABLED bypass removed for security (2026-01-05)
 
 // Public pages that don't require authentication
 const publicPages = ['/', '/index.html', '/login.html', '/subscribe.html', '/support.html', '/set-password.html', '/subscription-expired.html'];
 
-if (authEnabled) {
-    app.use((req, res, next) => {
-        // Only check HTML page requests (not API, not static assets)
-        if (req.method === 'GET' && (req.path.match(/\.(html)$/) || req.path === '/')) {
-            // Allow public pages without auth
-            if (publicPages.includes(req.path)) {
-                return next();
-            }
-            // Check if user is authenticated
-            if (!req.session || !req.session.user) {
-                // Redirect to login with return URL
-                const returnUrl = encodeURIComponent(req.originalUrl);
-                return res.redirect(`/login.html?returnUrl=${returnUrl}`);
-            }
+app.use((req, res, next) => {
+    // Only check HTML page requests (not API, not static assets)
+    if (req.method === 'GET' && (req.path.match(/\.(html)$/) || req.path === '/')) {
+        // Allow public pages without auth
+        if (publicPages.includes(req.path)) {
+            return next();
         }
-        next();
-    });
-}
+        // Check if user is authenticated
+        if (!req.session || !req.session.user) {
+            // Redirect to login with return URL
+            const returnUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login.html?returnUrl=${returnUrl}`);
+        }
+    }
+    next();
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1309,7 +1312,7 @@ app.post('/api/sync-smart', requireAuth, requireMerchant, async (req, res) => {
  * GET /api/sync-history
  * Get recent sync history
  */
-app.get('/api/sync-history', requireMerchant, async (req, res) => {
+app.get('/api/sync-history', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const limit = parseInt(req.query.limit) || 20;
@@ -1400,7 +1403,7 @@ app.get('/api/sync-status', requireAuth, requireMerchant, async (req, res) => {
  * GET /api/categories
  * Get list of all distinct categories from items
  */
-app.get('/api/categories', requireMerchant, async (req, res) => {
+app.get('/api/categories', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const result = await db.query(`
@@ -1424,7 +1427,7 @@ app.get('/api/categories', requireMerchant, async (req, res) => {
  * GET /api/items
  * List all items with optional filtering
  */
-app.get('/api/items', requireMerchant, async (req, res) => {
+app.get('/api/items', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { name, category } = req.query;
@@ -1464,7 +1467,7 @@ app.get('/api/items', requireMerchant, async (req, res) => {
  * GET /api/variations
  * List all variations with optional filtering
  */
-app.get('/api/variations', requireMerchant, async (req, res) => {
+app.get('/api/variations', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { item_id, sku, has_cost } = req.query;
@@ -2745,7 +2748,7 @@ app.patch('/api/expiry-discounts/settings', requireAuth, requireMerchant, async 
  * GET /api/inventory
  * Get current inventory levels
  */
-app.get('/api/inventory', requireMerchant, async (req, res) => {
+app.get('/api/inventory', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { location_id, low_stock } = req.query;
@@ -2854,7 +2857,7 @@ app.get('/api/inventory', requireMerchant, async (req, res) => {
  * GET /api/low-stock
  * Get items below minimum stock alert threshold
  */
-app.get('/api/low-stock', requireMerchant, async (req, res) => {
+app.get('/api/low-stock', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const query = `
@@ -3308,111 +3311,7 @@ app.get('/api/square/custom-attributes', requireAuth, requireMerchant, async (re
     }
 });
 
-/**
- * GET /api/debug/merchant-data
- * Debug endpoint to check merchant data state for troubleshooting
- */
-app.get('/api/debug/merchant-data', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-
-        // Check data counts for this merchant
-        const counts = await db.query(`
-            SELECT
-                (SELECT COUNT(*) FROM items WHERE merchant_id = $1) as items,
-                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1) as variations,
-                (SELECT COUNT(*) FROM vendors WHERE merchant_id = $1) as vendors,
-                (SELECT COUNT(*) FROM variation_vendors WHERE merchant_id = $1) as variation_vendors,
-                (SELECT COUNT(*) FROM locations WHERE merchant_id = $1) as locations,
-                (SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1) as inventory_counts,
-                (SELECT COUNT(*) FROM sales_velocity WHERE merchant_id = $1) as sales_velocity,
-                (SELECT COUNT(*) FROM items WHERE merchant_id IS NULL) as items_null_merchant,
-                (SELECT COUNT(*) FROM variations WHERE merchant_id IS NULL) as variations_null_merchant,
-                (SELECT COUNT(*) FROM variation_vendors WHERE merchant_id IS NULL) as variation_vendors_null_merchant
-        `, [merchantId]);
-
-        // Check user_merchants for this user
-        const userMerchants = await db.query(`
-            SELECT um.merchant_id, um.role, um.is_primary, m.business_name
-            FROM user_merchants um
-            JOIN merchants m ON m.id = um.merchant_id
-            WHERE um.user_id = $1
-        `, [req.session.user.id]);
-
-        // Check all merchants
-        const allMerchants = await db.query(`
-            SELECT id, business_name, square_merchant_id, is_active, created_at
-            FROM merchants
-            ORDER BY id
-        `);
-
-        // Check sync history for this merchant
-        const syncHistory = await db.query(`
-            SELECT sync_type, status, records_synced, completed_at, error_message
-            FROM sync_history
-            WHERE merchant_id = $1
-            ORDER BY completed_at DESC
-            LIMIT 20
-        `, [merchantId]);
-
-        // Check if merchant has a valid token
-        const tokenCheck = await db.query(`
-            SELECT
-                square_access_token IS NOT NULL as has_token,
-                square_token_expires_at,
-                square_token_expires_at > NOW() as token_valid
-            FROM merchants
-            WHERE id = $1
-        `, [merchantId]);
-
-        // Diagnostic: Check why inventory JOIN might be failing (step by step)
-        const joinDiagnostic = await db.query(`
-            SELECT
-                (SELECT COUNT(*) FROM inventory_counts WHERE merchant_id = $1 AND state = 'IN_STOCK') as step1_inv_in_stock,
-                (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step2_plus_variations,
-                (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
-                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step3_plus_items,
-                (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
-                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
-                 JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK') as step4_plus_locations,
-                (SELECT COUNT(*) FROM inventory_counts ic
-                 JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
-                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
-                 JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
-                 WHERE ic.merchant_id = $1 AND ic.state = 'IN_STOCK'
-                   AND COALESCE(v.is_deleted, FALSE) = FALSE
-                   AND COALESCE(i.is_deleted, FALSE) = FALSE) as step5_with_deleted_filter,
-                -- Check is_deleted status breakdown
-                (SELECT COUNT(*) FROM items WHERE merchant_id = $1 AND is_deleted = TRUE) as items_deleted_true,
-                (SELECT COUNT(*) FROM items WHERE merchant_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL)) as items_not_deleted,
-                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1 AND is_deleted = TRUE) as vars_deleted_true,
-                (SELECT COUNT(*) FROM variations WHERE merchant_id = $1 AND (is_deleted = FALSE OR is_deleted IS NULL)) as vars_not_deleted
-        `, [merchantId]);
-
-        res.json({
-            currentMerchant: {
-                id: merchantId,
-                businessName: req.merchantContext.businessName,
-                squareMerchantId: req.merchantContext.squareMerchantId
-            },
-            tokenStatus: tokenCheck.rows[0],
-            dataCounts: counts.rows[0],
-            joinDiagnostic: joinDiagnostic.rows[0],
-            syncHistory: syncHistory.rows,
-            userMerchants: userMerchants.rows,
-            allMerchants: allMerchants.rows
-        });
-    } catch (error) {
-        logger.error('Debug merchant-data error', { error: error.message });
-        res.status(500).json({ error: error.message });
-    }
-});
+// REMOVED: /api/debug/merchant-data endpoint - exposed cross-tenant data (security audit 2026-01-05)
 
 /**
  * POST /api/debug/restore-deleted-items
@@ -4940,7 +4839,7 @@ app.get('/api/gmc/history', requireAuth, requireMerchant, async (req, res) => {
  * GET /api/vendors
  * List all vendors
  */
-app.get('/api/vendors', requireMerchant, async (req, res) => {
+app.get('/api/vendors', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { status } = req.query;
@@ -5446,7 +5345,7 @@ app.post('/api/vendor-catalog/push-price-changes', requireAuth, requireMerchant,
  * GET /api/locations
  * List all locations
  */
-app.get('/api/locations', requireMerchant, async (req, res) => {
+app.get('/api/locations', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const result = await db.query(`
@@ -5472,7 +5371,7 @@ app.get('/api/locations', requireMerchant, async (req, res) => {
  * GET /api/sales-velocity
  * Get sales velocity data
  */
-app.get('/api/sales-velocity', requireMerchant, async (req, res) => {
+app.get('/api/sales-velocity', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { variation_id, location_id, period_days } = req.query;
@@ -5541,7 +5440,7 @@ app.get('/api/sales-velocity', requireMerchant, async (req, res) => {
  * GET /api/reorder-suggestions
  * Calculate reorder suggestions based on sales velocity
  */
-app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
+app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const {
@@ -7076,7 +6975,7 @@ app.post('/api/cycle-counts/reset', requireAuth, requireMerchant, async (req, re
  * POST /api/purchase-orders
  * Create a new purchase order
  */
-app.post('/api/purchase-orders', requireMerchant, async (req, res) => {
+app.post('/api/purchase-orders', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { vendor_id, location_id, supply_days_override, items, notes, created_by } = req.body;
@@ -7158,7 +7057,7 @@ app.post('/api/purchase-orders', requireMerchant, async (req, res) => {
  * GET /api/purchase-orders
  * List purchase orders with filtering
  */
-app.get('/api/purchase-orders', requireMerchant, async (req, res) => {
+app.get('/api/purchase-orders', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { status, vendor_id } = req.query;
@@ -7202,7 +7101,7 @@ app.get('/api/purchase-orders', requireMerchant, async (req, res) => {
  * GET /api/purchase-orders/:id
  * Get single purchase order with all items
  */
-app.get('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
+app.get('/api/purchase-orders/:id', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { id } = req.params;
@@ -7253,7 +7152,7 @@ app.get('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
  * PATCH /api/purchase-orders/:id
  * Update a draft purchase order
  */
-app.patch('/api/purchase-orders/:id', requireMerchant, async (req, res) => {
+app.patch('/api/purchase-orders/:id', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { id } = req.params;
@@ -8777,9 +8676,15 @@ app.post('/api/webhooks/square', async (req, res) => {
         const signature = req.headers['x-square-hmacsha256-signature'];
         const event = req.body;
 
-        // Verify webhook signature if configured
+        // Verify webhook signature - MANDATORY in production
         const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY?.trim();
-        if (signatureKey && process.env.WEBHOOK_SIGNATURE_VERIFY !== 'false') {
+        if (!signatureKey) {
+            if (process.env.NODE_ENV === 'production') {
+                logger.error('SECURITY: Webhook rejected - SQUARE_WEBHOOK_SIGNATURE_KEY not configured in production');
+                return res.status(500).json({ error: 'Webhook verification not configured' });
+            }
+            logger.warn('Development mode: Webhook signature verification skipped (configure SQUARE_WEBHOOK_SIGNATURE_KEY for production)');
+        } else {
             const crypto = require('crypto');
             // Use the exact URL registered with Square (hardcode to avoid proxy issues)
             const notificationUrl = process.env.SQUARE_WEBHOOK_URL || `https://${req.get('host')}${req.originalUrl}`;
@@ -8799,8 +8704,6 @@ app.post('/api/webhooks/square', async (req, res) => {
                 });
                 return res.status(401).json({ error: 'Invalid signature' });
             }
-        } else if (!signatureKey) {
-            logger.info('Webhook signature verification skipped (no key configured)');
         }
 
         // Check for duplicate events (idempotency)
