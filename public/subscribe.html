@@ -431,6 +431,146 @@
       color: white;
     }
 
+    /* TERMS CHECKBOX */
+    .terms-acceptance {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #374151;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-top: 2px;
+      cursor: pointer;
+    }
+
+    .checkbox-label a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .checkbox-label a:hover {
+      text-decoration: underline;
+    }
+
+    /* TERMS MODAL */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 12px;
+      max-width: 700px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 30px;
+      position: relative;
+    }
+
+    .modal-content h2 {
+      color: #1f2937;
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+
+    .modal-content h3 {
+      color: #374151;
+      margin: 20px 0 10px;
+      font-size: 16px;
+    }
+
+    .modal-content p {
+      color: #4b5563;
+      line-height: 1.7;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    .modal-content ul {
+      margin: 10px 0 15px 20px;
+      color: #4b5563;
+      font-size: 14px;
+    }
+
+    .modal-content li {
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      background: none;
+      border: none;
+      font-size: 28px;
+      cursor: pointer;
+      color: #6b7280;
+      line-height: 1;
+    }
+
+    .modal-close:hover {
+      color: #1f2937;
+    }
+
+    .modal-accept-btn {
+      width: 100%;
+      padding: 15px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+
+    .modal-accept-btn:hover {
+      background: #1d4ed8;
+    }
+
+    .disclaimer-box {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 20px 0;
+    }
+
+    .disclaimer-box p {
+      color: #92400e;
+      margin: 0;
+    }
+
     /* RESPONSIVE */
     @media (max-width: 768px) {
       body {
@@ -530,6 +670,13 @@
           <p><strong>100% refundable</strong> if you cancel within 30 days - no questions asked!</p>
         </div>
 
+        <div class="terms-acceptance">
+          <label class="checkbox-label">
+            <input type="checkbox" id="terms-accepted" required>
+            <span>I agree to the <a href="#" onclick="openTermsModal(); return false;">Terms of Service</a> and acknowledge the <a href="#" onclick="openTermsModal(); return false;">Liability Disclaimer</a></span>
+          </label>
+        </div>
+
         <div class="form-group promo-section">
           <label for="promo-code">Promo Code (Optional)</label>
           <div style="display: flex; gap: 8px;">
@@ -584,12 +731,111 @@
     </div>
   </div>
 
+  <!-- TERMS OF SERVICE MODAL -->
+  <div class="modal-overlay" id="terms-modal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeTermsModal()">&times;</button>
+
+      <h2>Terms of Service & Liability Disclaimer</h2>
+
+      <p><strong>Effective Date:</strong> January 2026</p>
+
+      <h3>1. Acceptance of Terms</h3>
+      <p>By subscribing to and using the Square Dashboard Addon Tool ("Service"), you agree to be bound by these Terms of Service. If you do not agree, please do not use this Service.</p>
+
+      <h3>2. Service Description</h3>
+      <p>The Service provides inventory management, sales analytics, and purchase order tools that integrate with your Square POS account. The Service requires OAuth authorization to access your Square account data.</p>
+
+      <h3>3. Data Security</h3>
+      <p>We implement industry-standard security measures including:</p>
+      <ul>
+        <li>AES-256-GCM encryption for stored OAuth tokens</li>
+        <li>Session-based authentication with secure cookies</li>
+        <li>Multi-tenant data isolation</li>
+        <li>HTTPS encryption for all data transmission</li>
+        <li>Role-based access controls</li>
+      </ul>
+
+      <div class="disclaimer-box">
+        <p><strong>IMPORTANT SECURITY DISCLAIMER:</strong> While this software is designed and built with security as a priority, no computer system can be guaranteed to be completely secure. By nature, all computer systems carry inherent security risks. We employ best practices and reasonable measures to protect your data and prevent unauthorized access; however, we cannot guarantee absolute security against all potential threats, vulnerabilities, or breaches.</p>
+      </div>
+
+      <h3>4. Limitation of Liability</h3>
+      <p>TO THE MAXIMUM EXTENT PERMITTED BY LAW:</p>
+      <ul>
+        <li>The Service is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, express or implied.</li>
+        <li>We are not liable for any unauthorized access to, or alteration, theft, or destruction of your data through accident, fraudulent means, or any unauthorized access.</li>
+        <li>We are not liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data, business opportunities, or goodwill.</li>
+        <li>Our total liability for any claims arising from your use of the Service shall not exceed the amount you paid for the Service in the 12 months preceding the claim.</li>
+        <li>We are not responsible for any actions taken by Square, Inc. regarding your Square account or API access.</li>
+      </ul>
+
+      <h3>5. Your Responsibilities</h3>
+      <p>You are responsible for:</p>
+      <ul>
+        <li>Maintaining the confidentiality of your account credentials</li>
+        <li>All activities that occur under your account</li>
+        <li>Ensuring your use complies with Square's Terms of Service</li>
+        <li>Backing up your own data as needed</li>
+        <li>Promptly notifying us of any unauthorized access</li>
+      </ul>
+
+      <h3>6. Data Processing</h3>
+      <p>By using the Service, you authorize us to access, retrieve, and process data from your Square account as necessary to provide the Service. This includes inventory, sales, catalog, and location data.</p>
+
+      <h3>7. Subscription & Cancellation</h3>
+      <ul>
+        <li>Subscriptions auto-renew unless cancelled</li>
+        <li>You may cancel at any time through your account settings</li>
+        <li>Refunds are available within 30 days of initial purchase</li>
+        <li>Upon cancellation, your access will continue until the end of your billing period</li>
+      </ul>
+
+      <h3>8. Modifications</h3>
+      <p>We reserve the right to modify these terms at any time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
+
+      <h3>9. Governing Law</h3>
+      <p>These terms are governed by the laws of the jurisdiction in which the Service provider operates, without regard to conflict of law principles.</p>
+
+      <h3>10. Contact</h3>
+      <p>For questions about these terms, please contact us through the Support page.</p>
+
+      <button class="modal-accept-btn" onclick="acceptTerms()">I Understand and Accept</button>
+    </div>
+  </div>
+
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
 
   <script>
     // Set year
     document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Terms modal functions
+    function openTermsModal() {
+      document.getElementById('terms-modal').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeTermsModal() {
+      document.getElementById('terms-modal').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    function acceptTerms() {
+      document.getElementById('terms-accepted').checked = true;
+      closeTermsModal();
+    }
+
+    // Close modal on overlay click
+    document.getElementById('terms-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeTermsModal();
+    });
+
+    // Close modal on escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeTermsModal();
+    });
 
     // State
     let selectedPlan = null;
@@ -813,6 +1059,13 @@
         return;
       }
 
+      // Validate terms acceptance
+      const termsAccepted = document.getElementById('terms-accepted').checked;
+      if (!termsAccepted) {
+        showMessage('error', 'Please accept the Terms of Service to continue.');
+        return;
+      }
+
       // Disable button and show loading
       const btn = document.getElementById('subscribe-btn');
       const btnText = document.getElementById('btn-text');
@@ -839,7 +1092,8 @@
             businessName: business,
             plan: selectedPlan,
             sourceId: result.token,
-            promoCode: appliedPromo?.code || null
+            promoCode: appliedPromo?.code || null,
+            termsAcceptedAt: new Date().toISOString()
           })
         });
 
