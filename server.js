@@ -1191,7 +1191,7 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
 
                     if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
                         const spreadsheetId = sheetIdResult.rows[0].setting_value;
-                        const { products } = await gmcFeedModule.generateFeedData();
+                        const { products } = await gmcFeedModule.generateFeedData({ merchantId });
 
                         googleSheetResult = await googleSheetsModule.writeFeedToSheet(spreadsheetId, products, {
                             sheetName: 'GMC Feed',
@@ -1775,7 +1775,7 @@ app.patch('/api/variations/:id/min-stock', requireAuth, requireMerchant, async (
         await db.query(
             `INSERT INTO variation_location_settings (variation_id, location_id, stock_alert_min, merchant_id, updated_at)
              VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-             ON CONFLICT (variation_id, location_id)
+             ON CONFLICT (variation_id, location_id, merchant_id)
              DO UPDATE SET stock_alert_min = EXCLUDED.stock_alert_min, updated_at = CURRENT_TIMESTAMP`,
             [id, targetLocationId, min_stock, merchantId]
         );
@@ -2173,7 +2173,7 @@ app.post('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, expiration_date, does_not_expire, updated_at, merchant_id)
                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
-                ON CONFLICT (variation_id)
+                ON CONFLICT (variation_id, merchant_id)
                 DO UPDATE SET
                     expiration_date = EXCLUDED.expiration_date,
                     does_not_expire = EXCLUDED.does_not_expire,
@@ -2283,7 +2283,7 @@ app.post('/api/expirations/review', requireAuth, requireMerchant, async (req, re
             await db.query(`
                 INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
                 VALUES ($1, NOW(), $2, NOW(), $3)
-                ON CONFLICT (variation_id)
+                ON CONFLICT (variation_id, merchant_id)
                 DO UPDATE SET
                     reviewed_at = NOW(),
                     reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
@@ -2909,12 +2909,28 @@ app.get('/api/low-stock', requireMerchant, async (req, res) => {
 
 /**
  * GET /api/deleted-items
- * Get soft-deleted items for cleanup management
+ * Get soft-deleted AND archived items for cleanup/management
+ * Query params:
+ *   - age_months: filter to items deleted/archived more than X months ago
+ *   - status: 'deleted', 'archived', or 'all' (default: 'all')
  */
 app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const { age_months } = req.query;
+        const { age_months, status = 'all' } = req.query;
         const merchantId = req.merchantContext.id;
+
+        // Build the WHERE clause based on status filter
+        let statusCondition;
+        if (status === 'deleted') {
+            // Only truly deleted items (not in Square anymore)
+            statusCondition = 'v.is_deleted = TRUE AND COALESCE(i.is_archived, FALSE) = FALSE';
+        } else if (status === 'archived') {
+            // Only archived items (still in Square but hidden)
+            statusCondition = 'COALESCE(i.is_archived, FALSE) = TRUE AND COALESCE(v.is_deleted, FALSE) = FALSE';
+        } else {
+            // Both deleted and archived
+            statusCondition = '(v.is_deleted = TRUE OR COALESCE(i.is_archived, FALSE) = TRUE)';
+        }
 
         let query = `
             SELECT
@@ -2927,14 +2943,25 @@ app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => 
                 i.category_name,
                 v.deleted_at,
                 v.is_deleted,
+                COALESCE(i.is_archived, FALSE) as is_archived,
+                i.archived_at,
+                CASE
+                    WHEN v.is_deleted = TRUE THEN 'deleted'
+                    WHEN COALESCE(i.is_archived, FALSE) = TRUE THEN 'archived'
+                    ELSE 'unknown'
+                END as status,
                 COALESCE(SUM(ic.quantity), 0) as current_stock,
-                DATE_PART('day', NOW() - v.deleted_at) as days_deleted,
+                CASE
+                    WHEN v.is_deleted = TRUE THEN DATE_PART('day', NOW() - v.deleted_at)
+                    WHEN COALESCE(i.is_archived, FALSE) = TRUE THEN DATE_PART('day', NOW() - i.archived_at)
+                    ELSE 0
+                END as days_inactive,
                 v.images,
                 i.images as item_images
             FROM variations v
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.state = 'IN_STOCK' AND ic.merchant_id = $1
-            WHERE v.is_deleted = TRUE AND v.merchant_id = $1
+            WHERE ${statusCondition} AND v.merchant_id = $1
         `;
         const params = [merchantId];
 
@@ -2942,14 +2969,19 @@ app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => 
         if (age_months) {
             const months = parseInt(age_months);
             if (!isNaN(months) && months > 0) {
-                query += ` AND v.deleted_at <= NOW() - INTERVAL '${months} months'`;
+                query += ` AND (
+                    (v.deleted_at IS NOT NULL AND v.deleted_at <= NOW() - INTERVAL '${months} months')
+                    OR (i.archived_at IS NOT NULL AND i.archived_at <= NOW() - INTERVAL '${months} months')
+                )`;
             }
         }
 
         query += `
             GROUP BY v.id, i.name, v.name, v.sku, v.price_money, v.currency,
-                     i.category_name, v.deleted_at, v.is_deleted, v.images, i.images
-            ORDER BY v.deleted_at DESC NULLS LAST, i.name, v.name
+                     i.category_name, v.deleted_at, v.is_deleted, i.is_archived, i.archived_at, v.images, i.images
+            ORDER BY
+                COALESCE(v.deleted_at, i.archived_at) DESC NULLS LAST,
+                i.name, v.name
         `;
 
         const result = await db.query(query, params);
@@ -2965,9 +2997,15 @@ app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => 
             };
         }));
 
+        // Count by status
+        const deletedCount = items.filter(i => i.status === 'deleted').length;
+        const archivedCount = items.filter(i => i.status === 'archived').length;
+
         res.json({
             count: items.length,
-            deleted_items: items
+            deleted_count: deletedCount,
+            archived_count: archivedCount,
+            deleted_items: items  // Keep the key name for backward compatibility
         });
     } catch (error) {
         logger.error('Get deleted items error', { error: error.message, stack: error.stack });
@@ -4557,10 +4595,10 @@ app.post('/api/gmc/brands/bulk-assign', requireAuth, requireMerchant, async (req
             try {
                 // Save to local database
                 await db.query(`
-                    INSERT INTO item_brands (item_id, brand_id)
-                    VALUES ($1, $2)
-                    ON CONFLICT (item_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
-                `, [item_id, brand_id]);
+                    INSERT INTO item_brands (item_id, brand_id, merchant_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (item_id, merchant_id) DO UPDATE SET brand_id = EXCLUDED.brand_id
+                `, [item_id, brand_id, merchantId]);
 
                 results.assigned++;
 
@@ -5632,8 +5670,8 @@ app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
                 END as below_minimum
             FROM variations v
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
-            JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
-            JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
+            LEFT JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
             LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
             LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
             LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
@@ -5671,7 +5709,10 @@ app.get('/api/reorder-suggestions', requireMerchant, async (req, res) => {
 
         const params = [supplyDaysNum, merchantId];
 
-        if (vendor_id) {
+        if (vendor_id === 'none') {
+            // Filter for items with NO vendor assigned
+            query += ` AND vv.vendor_id IS NULL`;
+        } else if (vendor_id) {
             params.push(vendor_id);
             query += ` AND vv.vendor_id = $${params.length}`;
         }

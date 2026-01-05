@@ -210,6 +210,12 @@ async function ensureSchema() {
         { table: 'variations', column: 'is_deleted', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
         { table: 'variations', column: 'deleted_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
 
+        // Archive status from Square (archived items are hidden in Square but still operational)
+        { table: 'items', column: 'is_archived', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
+        { table: 'items', column: 'archived_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+        { table: 'variations', column: 'is_archived', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
+        { table: 'variations', column: 'archived_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+
         // SEO and tax fields from Square API
         { table: 'items', column: 'tax_ids', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS tax_ids JSONB' },
         { table: 'items', column: 'seo_title', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS seo_title TEXT' },
@@ -1530,6 +1536,260 @@ async function ensureSchema() {
         }
     } catch (error) {
         logger.error('Failed to update expiry_discount_settings constraint:', error.message);
+    }
+
+    // variation_location_settings: Update unique constraint to include merchant_id
+    try {
+        const vlsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'variation_location_settings')
+        `);
+
+        if (vlsTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'variation_location_settings' AND constraint_name = 'variation_location_settings_variation_id_location_id_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE variation_location_settings DROP CONSTRAINT variation_location_settings_variation_id_location_id_key');
+                await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_var_loc_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
+                logger.info('Updated variation_location_settings unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'variation_location_settings' AND constraint_name = 'variation_location_settings_var_loc_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    // Check if any constraint exists on these columns before adding
+                    const anyConstraint = await query(`
+                        SELECT constraint_name FROM information_schema.table_constraints tc
+                        JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+                        WHERE tc.table_name = 'variation_location_settings' AND tc.constraint_type = 'UNIQUE'
+                        AND ccu.column_name IN ('variation_id', 'location_id')
+                    `);
+                    if (anyConstraint.rows.length === 0) {
+                        await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_var_loc_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
+                        logger.info('Added variation_location_settings unique constraint on (variation_id, location_id, merchant_id)');
+                        appliedCount++;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update variation_location_settings constraint:', error.message);
+    }
+
+    // variation_vendors: Update unique constraint to include merchant_id
+    try {
+        const vvTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'variation_vendors')
+        `);
+
+        if (vvTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'variation_vendors' AND constraint_name = 'variation_vendors_variation_id_vendor_id_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE variation_vendors DROP CONSTRAINT variation_vendors_variation_id_vendor_id_key');
+                await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_var_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
+                logger.info('Updated variation_vendors unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'variation_vendors' AND constraint_name = 'variation_vendors_var_vendor_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    const anyConstraint = await query(`
+                        SELECT constraint_name FROM information_schema.table_constraints tc
+                        JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+                        WHERE tc.table_name = 'variation_vendors' AND tc.constraint_type = 'UNIQUE'
+                        AND ccu.column_name IN ('variation_id', 'vendor_id')
+                    `);
+                    if (anyConstraint.rows.length === 0) {
+                        await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_var_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
+                        logger.info('Added variation_vendors unique constraint on (variation_id, vendor_id, merchant_id)');
+                        appliedCount++;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update variation_vendors constraint:', error.message);
+    }
+
+    // sales_velocity: Update unique constraint to include merchant_id
+    try {
+        const svTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sales_velocity')
+        `);
+
+        if (svTableCheck.rows[0].exists) {
+            const oldConstraintCheck = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'sales_velocity' AND constraint_name = 'sales_velocity_variation_id_location_id_period_days_key'
+            `);
+
+            if (oldConstraintCheck.rows.length > 0) {
+                await query('ALTER TABLE sales_velocity DROP CONSTRAINT sales_velocity_variation_id_location_id_period_days_key');
+                await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_var_loc_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
+                logger.info('Updated sales_velocity unique constraint to include merchant_id');
+                appliedCount++;
+            } else {
+                const newConstraintCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'sales_velocity' AND constraint_name = 'sales_velocity_var_loc_period_merchant_unique'
+                `);
+
+                if (newConstraintCheck.rows.length === 0) {
+                    const anyConstraint = await query(`
+                        SELECT constraint_name FROM information_schema.table_constraints tc
+                        JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
+                        WHERE tc.table_name = 'sales_velocity' AND tc.constraint_type = 'UNIQUE'
+                        AND ccu.column_name IN ('variation_id', 'location_id', 'period_days')
+                    `);
+                    if (anyConstraint.rows.length === 0) {
+                        await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_var_loc_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
+                        logger.info('Added sales_velocity unique constraint on (variation_id, location_id, period_days, merchant_id)');
+                        appliedCount++;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to update sales_velocity constraint:', error.message);
+    }
+
+    // variation_expiration: Restructure from PRIMARY KEY(variation_id) to support multi-tenant
+    // Need to: add id column, change PK, add unique constraint on (variation_id, merchant_id)
+    try {
+        const veTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'variation_expiration')
+        `);
+
+        if (veTableCheck.rows[0].exists) {
+            // Check if we already have the new unique constraint (migration already done)
+            const newConstraintExists = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'variation_expiration' AND constraint_name = 'variation_expiration_var_merchant_unique'
+            `);
+
+            if (newConstraintExists.rows.length === 0) {
+                // Check if variation_id is still the primary key
+                const pkCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'variation_expiration' AND constraint_type = 'PRIMARY KEY'
+                    AND constraint_name = 'variation_expiration_pkey'
+                `);
+
+                if (pkCheck.rows.length > 0) {
+                    // Check if id column exists
+                    const idColCheck = await query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'variation_expiration' AND column_name = 'id'
+                    `);
+
+                    if (idColCheck.rows.length === 0) {
+                        // Add id column
+                        await query('ALTER TABLE variation_expiration ADD COLUMN id SERIAL');
+                        logger.info('Added id column to variation_expiration');
+                    }
+
+                    // Drop the old primary key
+                    await query('ALTER TABLE variation_expiration DROP CONSTRAINT variation_expiration_pkey');
+                    logger.info('Dropped old variation_expiration primary key');
+
+                    // Add new primary key on id
+                    await query('ALTER TABLE variation_expiration ADD PRIMARY KEY (id)');
+                    logger.info('Added new primary key on id for variation_expiration');
+
+                    // Add unique constraint on (variation_id, merchant_id)
+                    await query('ALTER TABLE variation_expiration ADD CONSTRAINT variation_expiration_var_merchant_unique UNIQUE (variation_id, merchant_id)');
+                    logger.info('Added variation_expiration unique constraint on (variation_id, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to restructure variation_expiration:', error.message);
+    }
+
+    // variation_discount_status: Restructure from PRIMARY KEY(variation_id) to support multi-tenant
+    // Also need to add merchant_id column if missing
+    try {
+        const vdsTableCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'variation_discount_status')
+        `);
+
+        if (vdsTableCheck.rows[0].exists) {
+            // First, ensure merchant_id column exists
+            const merchantIdCheck = await query(`
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'variation_discount_status' AND column_name = 'merchant_id'
+            `);
+
+            if (merchantIdCheck.rows.length === 0) {
+                await query('ALTER TABLE variation_discount_status ADD COLUMN merchant_id INTEGER REFERENCES merchants(id)');
+                logger.info('Added merchant_id column to variation_discount_status');
+
+                // Backfill merchant_id from variations table
+                await query(`
+                    UPDATE variation_discount_status vds
+                    SET merchant_id = v.merchant_id
+                    FROM variations v
+                    WHERE vds.variation_id = v.id AND vds.merchant_id IS NULL
+                `);
+                logger.info('Backfilled merchant_id in variation_discount_status from variations table');
+            }
+
+            // Check if we already have the new unique constraint
+            const newConstraintExists = await query(`
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE table_name = 'variation_discount_status' AND constraint_name = 'variation_discount_status_var_merchant_unique'
+            `);
+
+            if (newConstraintExists.rows.length === 0) {
+                // Check if variation_id is still the primary key
+                const pkCheck = await query(`
+                    SELECT constraint_name FROM information_schema.table_constraints
+                    WHERE table_name = 'variation_discount_status' AND constraint_type = 'PRIMARY KEY'
+                    AND constraint_name = 'variation_discount_status_pkey'
+                `);
+
+                if (pkCheck.rows.length > 0) {
+                    // Check if id column exists
+                    const idColCheck = await query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'variation_discount_status' AND column_name = 'id'
+                    `);
+
+                    if (idColCheck.rows.length === 0) {
+                        await query('ALTER TABLE variation_discount_status ADD COLUMN id SERIAL');
+                        logger.info('Added id column to variation_discount_status');
+                    }
+
+                    // Drop the old primary key
+                    await query('ALTER TABLE variation_discount_status DROP CONSTRAINT variation_discount_status_pkey');
+                    logger.info('Dropped old variation_discount_status primary key');
+
+                    // Add new primary key on id
+                    await query('ALTER TABLE variation_discount_status ADD PRIMARY KEY (id)');
+                    logger.info('Added new primary key on id for variation_discount_status');
+
+                    // Add unique constraint on (variation_id, merchant_id)
+                    await query('ALTER TABLE variation_discount_status ADD CONSTRAINT variation_discount_status_var_merchant_unique UNIQUE (variation_id, merchant_id)');
+                    logger.info('Added variation_discount_status unique constraint on (variation_id, merchant_id)');
+                    appliedCount++;
+                }
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to restructure variation_discount_status:', error.message);
     }
 
     for (const migration of migrations) {
