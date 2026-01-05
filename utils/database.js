@@ -884,6 +884,7 @@ async function ensureSchema() {
                 locked_until TIMESTAMPTZ,
                 last_login TIMESTAMPTZ,
                 password_changed_at TIMESTAMPTZ DEFAULT NOW(),
+                terms_accepted_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
@@ -1163,6 +1164,21 @@ async function ensureSchema() {
         }
     } catch (error) {
         logger.error('Failed to add email to auth_audit_log:', error.message);
+    }
+
+    // Add terms_accepted_at column to users table for legal compliance
+    try {
+        const termsColumnCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'terms_accepted_at'
+        `);
+        if (termsColumnCheck.rows.length === 0) {
+            await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ');
+            logger.info('Added terms_accepted_at column to users');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to add terms_accepted_at to users:', error.message);
     }
 
     // Add gmc_feed_token column to merchants table for secure GMC feed access

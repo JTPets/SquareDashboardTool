@@ -7693,10 +7693,14 @@ app.post('/api/subscriptions/promo/validate', async (req, res) => {
  */
 app.post('/api/subscriptions/create', async (req, res) => {
     try {
-        const { email, businessName, plan, sourceId, promoCode } = req.body;
+        const { email, businessName, plan, sourceId, promoCode, termsAcceptedAt } = req.body;
 
         if (!email || !plan || !sourceId) {
             return res.status(400).json({ error: 'Email, plan, and payment source are required' });
+        }
+
+        if (!termsAcceptedAt) {
+            return res.status(400).json({ error: 'Terms of Service must be accepted' });
         }
 
         // Check if subscriber already exists
@@ -7933,10 +7937,10 @@ app.post('/api/subscriptions/create', async (req, res) => {
 
                 // Create user account
                 const userResult = await db.query(`
-                    INSERT INTO users (email, password_hash, name, role)
-                    VALUES ($1, $2, $3, 'user')
+                    INSERT INTO users (email, password_hash, name, role, terms_accepted_at)
+                    VALUES ($1, $2, $3, 'user', $4)
                     RETURNING id
-                `, [normalizedEmail, passwordHash, businessName || null]);
+                `, [normalizedEmail, passwordHash, businessName || null, termsAcceptedAt]);
 
                 userId = userResult.rows[0].id;
 
