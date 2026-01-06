@@ -823,6 +823,8 @@
             <tr>
               <th>Product</th>
               <th>SKU</th>
+              <th>Vendor Code</th>
+              <th>GTIN/UPC</th>
               <th class="text-right">Qty Ordered</th>
               <th class="text-right">Unit Cost</th>
               <th class="text-right">Total</th>
@@ -834,7 +836,7 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="${isEditMode ? 5 : 4}" class="text-right"><strong>Total:</strong></td>
+              <td colspan="${isEditMode ? 7 : 6}" class="text-right"><strong>Total:</strong></td>
               <td class="text-right"><strong id="grand-total">$${calculateTotal().toFixed(2)}</strong></td>
               ${isEditMode ? '<td></td>' : ''}
             </tr>
@@ -955,6 +957,8 @@
             ${item.variation_name ? `<br><small>${escapeHtml(item.variation_name)}</small>` : ''}
           </td>
           <td>${escapeHtml(item.sku || '-')}</td>
+          <td>${escapeHtml(item.vendor_code || '-')}</td>
+          <td>${escapeHtml(item.gtin || '-')}</td>
           <td class="text-right">${qtyInput}</td>
           <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
           <td class="text-right item-total" data-index="${index}">$${((item.quantity_ordered * item.unit_cost_cents) / 100).toFixed(2)}</td>
