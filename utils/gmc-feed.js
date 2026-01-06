@@ -83,6 +83,10 @@ async function generateFeedData(options = {}) {
     const startTime = Date.now();
     logger.info('Starting GMC feed generation', { merchantId });
 
+    if (!merchantId) {
+        throw new Error('merchantId is required for feed generation');
+    }
+
     try {
         const settings = await getSettings(merchantId);
         const baseUrl = settings.website_base_url || 'https://your-store-url.com';
@@ -92,8 +96,8 @@ async function generateFeedData(options = {}) {
         const adultContent = settings.adult_content || 'no';
         const isBundle = settings.is_bundle || 'no';
 
-        // Query to get all product data with brands and taxonomy
-        const query = `
+        // Query to get all product data with brands and taxonomy - filtered by merchant_id
+        const queryText = `
             SELECT
                 v.id as variation_id,
                 v.name as variation_name,
@@ -112,7 +116,7 @@ async function generateFeedData(options = {}) {
                     SELECT ARRAY_AGG(img.url ORDER BY idx)
                     FROM jsonb_array_elements_text(COALESCE(i.images, '[]'::jsonb)) WITH ORDINALITY AS t(image_id, idx)
                     JOIN images img ON img.id = t.image_id
-                    WHERE img.url IS NOT NULL
+                    WHERE img.url IS NOT NULL AND img.merchant_id = $1
                 ) as image_urls,
                 -- Brand
                 b.name as brand_name,
@@ -125,23 +129,25 @@ async function generateFeedData(options = {}) {
                      FROM inventory_counts ic
                      WHERE ic.catalog_object_id = v.id
                        AND ic.state = 'IN_STOCK'
-                       ${options.locationId ? 'AND ic.location_id = $1' : ''}
+                       AND ic.merchant_id = $1
+                       ${options.locationId ? 'AND ic.location_id = $2' : ''}
                     ), 0
                 ) as quantity
             FROM variations v
-            JOIN items i ON v.item_id = i.id
-            LEFT JOIN item_brands ib ON i.id = ib.item_id
-            LEFT JOIN brands b ON ib.brand_id = b.id
-            LEFT JOIN category_taxonomy_mapping ctm ON i.category_id = ctm.category_id
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            LEFT JOIN item_brands ib ON i.id = ib.item_id AND ib.merchant_id = $1
+            LEFT JOIN brands b ON ib.brand_id = b.id AND b.merchant_id = $1
+            LEFT JOIN category_taxonomy_mapping ctm ON i.category_id = ctm.category_id AND ctm.merchant_id = $1
             LEFT JOIN google_taxonomy gt ON ctm.google_taxonomy_id = gt.id
             WHERE v.is_deleted = FALSE
               AND i.is_deleted = FALSE
               AND i.available_online = TRUE
+              AND v.merchant_id = $1
             ORDER BY i.name, v.name
         `;
 
-        const params = options.locationId ? [options.locationId] : [];
-        const result = await db.query(query, params);
+        const params = options.locationId ? [merchantId, options.locationId] : [merchantId];
+        const result = await db.query(queryText, params);
 
         const products = [];
         let productsWithErrors = 0;
@@ -395,6 +401,321 @@ async function importGoogleTaxonomy(taxonomyItems) {
     return imported;
 }
 
+/**
+ * Get GMC location settings (store codes) for a merchant
+ * @param {number} merchantId - The merchant ID
+ * @returns {Promise<Array>} Array of location settings
+ */
+async function getLocationSettings(merchantId) {
+    if (!merchantId) {
+        return [];
+    }
+    const result = await db.query(`
+        SELECT
+            gls.id,
+            gls.location_id,
+            gls.google_store_code,
+            gls.enabled,
+            l.name as location_name,
+            l.address as location_address
+        FROM gmc_location_settings gls
+        JOIN locations l ON gls.location_id = l.id AND l.merchant_id = $1
+        WHERE gls.merchant_id = $1
+        ORDER BY l.name
+    `, [merchantId]);
+    return result.rows;
+}
+
+/**
+ * Save or update GMC location settings
+ * @param {number} merchantId - The merchant ID
+ * @param {string} locationId - The Square location ID
+ * @param {Object} settings - Settings to save (google_store_code, enabled)
+ */
+async function saveLocationSettings(merchantId, locationId, settings) {
+    const { google_store_code, enabled = true } = settings;
+
+    await db.query(`
+        INSERT INTO gmc_location_settings (merchant_id, location_id, google_store_code, enabled)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (merchant_id, location_id)
+        DO UPDATE SET
+            google_store_code = EXCLUDED.google_store_code,
+            enabled = EXCLUDED.enabled,
+            updated_at = NOW()
+    `, [merchantId, locationId, google_store_code, enabled]);
+}
+
+/**
+ * Generate Local Inventory Feed data for a specific location
+ * This creates the feed format required by Google Merchant Center for local inventory
+ *
+ * @param {Object} options - Generation options
+ * @param {number} options.merchantId - Merchant ID (required)
+ * @param {string} options.locationId - Location ID (required)
+ * @returns {Promise<Object>} Local inventory feed data
+ */
+async function generateLocalInventoryFeed(options = {}) {
+    const { merchantId, locationId } = options;
+    const startTime = Date.now();
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for local inventory feed generation');
+    }
+    if (!locationId) {
+        throw new Error('locationId is required for local inventory feed generation');
+    }
+
+    logger.info('Starting local inventory feed generation', { merchantId, locationId });
+
+    try {
+        // Get location settings to get the Google store code
+        const locationResult = await db.query(`
+            SELECT
+                l.id,
+                l.name as location_name,
+                COALESCE(gls.google_store_code, l.id) as store_code,
+                COALESCE(gls.enabled, true) as enabled
+            FROM locations l
+            LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
+            WHERE l.id = $2 AND l.merchant_id = $1
+        `, [merchantId, locationId]);
+
+        if (locationResult.rows.length === 0) {
+            throw new Error(`Location ${locationId} not found for merchant ${merchantId}`);
+        }
+
+        const location = locationResult.rows[0];
+
+        // Query to get inventory for this specific location with total inventory across all locations
+        const queryText = `
+            SELECT
+                v.id as variation_id,
+                v.sku,
+                v.upc,
+                i.id as item_id,
+                i.name as item_name,
+                v.name as variation_name,
+                -- Inventory at this specific location
+                COALESCE(
+                    (SELECT SUM(ic.quantity)
+                     FROM inventory_counts ic
+                     WHERE ic.catalog_object_id = v.id
+                       AND ic.state = 'IN_STOCK'
+                       AND ic.merchant_id = $1
+                       AND ic.location_id = $2
+                    ), 0
+                ) as location_quantity,
+                -- Total inventory across ALL locations
+                COALESCE(
+                    (SELECT SUM(ic.quantity)
+                     FROM inventory_counts ic
+                     WHERE ic.catalog_object_id = v.id
+                       AND ic.state = 'IN_STOCK'
+                       AND ic.merchant_id = $1
+                    ), 0
+                ) as total_quantity
+            FROM variations v
+            JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+            WHERE v.is_deleted = FALSE
+              AND i.is_deleted = FALSE
+              AND i.available_online = TRUE
+              AND v.merchant_id = $1
+            ORDER BY i.name, v.name
+        `;
+
+        const result = await db.query(queryText, [merchantId, locationId]);
+
+        const items = [];
+        let itemsWithErrors = 0;
+
+        for (const row of result.rows) {
+            try {
+                // Use SKU, UPC, or variation_id as the item identifier
+                const itemId = row.sku || row.upc || row.variation_id;
+
+                const item = {
+                    store_code: location.store_code,
+                    itemid: itemId,
+                    quantity: row.location_quantity || 0,
+                    total_inventory: row.total_quantity || 0,
+                    // Additional fields that may be useful
+                    variation_id: row.variation_id,
+                    item_name: row.item_name,
+                    variation_name: row.variation_name
+                };
+
+                items.push(item);
+            } catch (err) {
+                logger.error('Error processing item for local inventory feed', {
+                    variationId: row.variation_id,
+                    error: err.message
+                });
+                itemsWithErrors++;
+            }
+        }
+
+        const duration = Math.round((Date.now() - startTime) / 1000);
+        logger.info('Local inventory feed data generated', {
+            merchantId,
+            locationId,
+            locationName: location.location_name,
+            totalItems: items.length,
+            itemsWithErrors,
+            duration
+        });
+
+        return {
+            items,
+            location,
+            stats: {
+                total: items.length,
+                withErrors: itemsWithErrors,
+                duration
+            }
+        };
+    } catch (error) {
+        logger.error('Local inventory feed generation failed', {
+            error: error.message,
+            stack: error.stack,
+            merchantId,
+            locationId
+        });
+        throw error;
+    }
+}
+
+/**
+ * Generate TSV content for local inventory feed
+ * Google Merchant Center Local Inventory Feed format
+ */
+function generateLocalInventoryTsvContent(items) {
+    // Google's Local Product Inventory Feed requires these columns
+    const headers = [
+        'store_code',
+        'itemid',
+        'quantity'
+    ];
+
+    const rows = items.map(item => [
+        escapeTsvValue(item.store_code),
+        escapeTsvValue(item.itemid),
+        escapeTsvValue(item.quantity)
+    ].join('\t'));
+
+    return [headers.join('\t'), ...rows].join('\n');
+}
+
+/**
+ * Generate all local inventory feeds for all enabled locations
+ * @param {Object} options - Generation options
+ * @param {number} options.merchantId - Merchant ID (required)
+ * @returns {Promise<Object>} Results for all locations
+ */
+async function generateAllLocalInventoryFeeds(options = {}) {
+    const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    // Get all locations for this merchant
+    const locationsResult = await db.query(`
+        SELECT
+            l.id,
+            l.name,
+            COALESCE(gls.google_store_code, l.id) as store_code,
+            COALESCE(gls.enabled, true) as enabled
+        FROM locations l
+        LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
+        WHERE l.merchant_id = $1 AND l.active = true
+        ORDER BY l.name
+    `, [merchantId]);
+
+    const results = {
+        success: true,
+        locations: [],
+        totalItems: 0,
+        errors: []
+    };
+
+    for (const location of locationsResult.rows) {
+        if (!location.enabled) {
+            results.locations.push({
+                locationId: location.id,
+                locationName: location.name,
+                storeCode: location.store_code,
+                skipped: true,
+                reason: 'Location disabled for GMC feeds'
+            });
+            continue;
+        }
+
+        try {
+            const { items, stats } = await generateLocalInventoryFeed({
+                merchantId,
+                locationId: location.id
+            });
+
+            // Generate TSV content
+            const tsvContent = generateLocalInventoryTsvContent(items);
+
+            // Generate safe filename from location name
+            const safeLocationName = location.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .substring(0, 50);
+
+            const filename = `local-inventory-${safeLocationName}.tsv`;
+            const filePath = await saveTsvFile(tsvContent, filename);
+
+            results.locations.push({
+                locationId: location.id,
+                locationName: location.name,
+                storeCode: location.store_code,
+                itemCount: items.length,
+                filename,
+                filePath,
+                stats
+            });
+            results.totalItems += items.length;
+        } catch (error) {
+            results.errors.push({
+                locationId: location.id,
+                locationName: location.name,
+                error: error.message
+            });
+        }
+    }
+
+    if (results.errors.length > 0 && results.locations.length === 0) {
+        results.success = false;
+    }
+
+    return results;
+}
+
+/**
+ * Save GMC settings (including Google Sheet URL)
+ * @param {number} merchantId - The merchant ID
+ * @param {Object} settings - Settings to save
+ */
+async function saveSettings(merchantId, settings) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    for (const [key, value] of Object.entries(settings)) {
+        await db.query(`
+            INSERT INTO gmc_settings (merchant_id, setting_key, setting_value)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (merchant_id, setting_key)
+            DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
+        `, [merchantId, key, value]);
+    }
+}
+
 module.exports = {
     generateFeedData,
     generateTsvContent,
@@ -402,5 +723,11 @@ module.exports = {
     generateFeed,
     importBrands,
     importGoogleTaxonomy,
-    getSettings
+    getSettings,
+    saveSettings,
+    getLocationSettings,
+    saveLocationSettings,
+    generateLocalInventoryFeed,
+    generateLocalInventoryTsvContent,
+    generateAllLocalInventoryFeeds
 };

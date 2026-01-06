@@ -4754,6 +4754,192 @@ app.get('/api/gmc/history', requireAuth, requireMerchant, async (req, res) => {
     }
 });
 
+/**
+ * GET /api/gmc/location-settings
+ * Get GMC location settings (Google store codes) for all locations
+ */
+app.get('/api/gmc/location-settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Get all locations with their GMC settings
+        const result = await db.query(`
+            SELECT
+                l.id as location_id,
+                l.name as location_name,
+                l.address as location_address,
+                l.active,
+                COALESCE(gls.google_store_code, '') as google_store_code,
+                COALESCE(gls.enabled, true) as enabled
+            FROM locations l
+            LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
+            WHERE l.merchant_id = $1
+            ORDER BY l.name
+        `, [merchantId]);
+
+        res.json({
+            success: true,
+            locations: result.rows
+        });
+    } catch (error) {
+        logger.error('GMC location settings error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/location-settings/:locationId
+ * Update GMC settings for a specific location
+ */
+app.put('/api/gmc/location-settings/:locationId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { locationId } = req.params;
+        const { google_store_code, enabled } = req.body;
+        const merchantId = req.merchantContext.id;
+
+        // Verify location belongs to this merchant
+        const locationCheck = await db.query(
+            'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
+            [locationId, merchantId]
+        );
+
+        if (locationCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Location not found' });
+        }
+
+        await gmcFeed.saveLocationSettings(merchantId, locationId, {
+            google_store_code,
+            enabled
+        });
+
+        res.json({
+            success: true,
+            message: 'Location settings updated'
+        });
+    } catch (error) {
+        logger.error('GMC location settings update error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/local-inventory/generate
+ * Generate local inventory feeds for all enabled locations
+ */
+app.post('/api/gmc/local-inventory/generate', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const results = await gmcFeed.generateAllLocalInventoryFeeds({ merchantId });
+
+        res.json(results);
+    } catch (error) {
+        logger.error('Local inventory feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/local-inventory/generate/:locationId
+ * Generate local inventory feed for a specific location
+ */
+app.post('/api/gmc/local-inventory/generate/:locationId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { locationId } = req.params;
+        const merchantId = req.merchantContext.id;
+
+        const { items, location, stats } = await gmcFeed.generateLocalInventoryFeed({
+            merchantId,
+            locationId
+        });
+
+        // Generate and save TSV
+        const tsvContent = gmcFeed.generateLocalInventoryTsvContent(items);
+        const safeLocationName = location.location_name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .substring(0, 50);
+
+        const filename = `local-inventory-${safeLocationName}.tsv`;
+        const filePath = await gmcFeed.saveTsvFile(tsvContent, filename);
+
+        res.json({
+            success: true,
+            location: {
+                id: location.id,
+                name: location.location_name,
+                storeCode: location.store_code
+            },
+            itemCount: items.length,
+            filename,
+            filePath,
+            stats
+        });
+    } catch (error) {
+        logger.error('Local inventory feed generation error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/local-inventory/:locationId.tsv
+ * Download local inventory feed TSV for a specific location
+ * Requires authentication or valid feed token
+ */
+app.get('/api/gmc/local-inventory/:locationId.tsv', async (req, res) => {
+    try {
+        const { locationId } = req.params;
+        const { token } = req.query;
+        let merchantId = null;
+
+        // Check for feed token (for Google Merchant Center access)
+        if (token) {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
+                [token]
+            );
+            if (merchantResult.rows.length === 0) {
+                return res.status(401).json({ error: 'Invalid or expired feed token' });
+            }
+            merchantId = merchantResult.rows[0].id;
+        } else if (req.session && req.session.merchantId) {
+            merchantId = req.session.merchantId;
+        } else {
+            return res.status(401).json({ error: 'Authentication required. Use ?token=<feed_token> or login.' });
+        }
+
+        // Verify location belongs to this merchant
+        const locationCheck = await db.query(
+            'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
+            [locationId, merchantId]
+        );
+
+        if (locationCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Location not found' });
+        }
+
+        const { items, location } = await gmcFeed.generateLocalInventoryFeed({
+            merchantId,
+            locationId
+        });
+
+        const tsvContent = gmcFeed.generateLocalInventoryTsvContent(items);
+        const safeLocationName = location.location_name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .substring(0, 50);
+
+        res.setHeader('Content-Type', 'text/tab-separated-values');
+        res.setHeader('Content-Disposition', `attachment; filename="local-inventory-${safeLocationName}.tsv"`);
+        res.send(tsvContent);
+    } catch (error) {
+        logger.error('Local inventory TSV download error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
