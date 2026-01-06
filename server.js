@@ -7693,7 +7693,11 @@ app.post('/api/subscriptions/promo/validate', async (req, res) => {
 
 /**
  * POST /api/subscriptions/create
- * Create a new subscription with payment
+ * Create a new subscription using Square Subscriptions API
+ *
+ * SECURITY: No credit card data is stored locally. All payment data is held by Square.
+ * We only store Square IDs (customer_id, card_id, subscription_id).
+ * Square handles all recurring billing, PCI compliance, and payment processing.
  */
 app.post('/api/subscriptions/create', async (req, res) => {
     try {
@@ -7707,17 +7711,32 @@ app.post('/api/subscriptions/create', async (req, res) => {
             return res.status(400).json({ error: 'Terms of Service must be accepted' });
         }
 
+        // Verify Square configuration
+        const locationId = process.env.SQUARE_LOCATION_ID;
+        if (!locationId) {
+            logger.error('SQUARE_LOCATION_ID not configured');
+            return res.status(500).json({ error: 'Payment system not configured. Please contact support.' });
+        }
+
         // Check if subscriber already exists
         const existing = await subscriptionHandler.getSubscriberByEmail(email);
         if (existing) {
             return res.status(400).json({ error: 'An account with this email already exists' });
         }
 
-        // Get plan pricing
+        // Get plan pricing and Square plan variation ID
         const plans = await subscriptionHandler.getPlans();
         const selectedPlan = plans.find(p => p.plan_key === plan);
         if (!selectedPlan) {
             return res.status(400).json({ error: 'Invalid plan selected' });
+        }
+
+        // Verify Square subscription plan exists
+        if (!selectedPlan.square_plan_id) {
+            logger.error('Square plan not configured', { plan: plan });
+            return res.status(500).json({
+                error: 'Subscription plan not configured. Please contact support.'
+            });
         }
 
         // Validate and apply promo code if provided
@@ -7766,50 +7785,54 @@ app.post('/api/subscriptions/create', async (req, res) => {
             }
         }
 
-        // Create customer in Square
+        // ==================== SQUARE CUSTOMER & CARD SETUP ====================
+        // Create customer and card on file in Square (no card numbers stored locally)
         let squareCustomerId = null;
         let cardId = null;
         let cardBrand = null;
         let cardLastFour = null;
 
-        try {
-            // Create Square customer
-            const customerResponse = await squareApi.makeSquareRequest('/v2/customers', {
-                method: 'POST',
-                body: JSON.stringify({
-                    email_address: email,
-                    company_name: businessName || undefined,
-                    idempotency_key: `customer-${email}-${Date.now()}`
-                })
-            });
+        // Create Square customer
+        const customerResponse = await squareApi.makeSquareRequest('/v2/customers', {
+            method: 'POST',
+            body: JSON.stringify({
+                email_address: email,
+                company_name: businessName || undefined,
+                idempotency_key: `customer-${email}-${Date.now()}`
+            })
+        });
 
-            if (customerResponse.customer) {
-                squareCustomerId = customerResponse.customer.id;
-
-                // Create card on file
-                const cardResponse = await squareApi.makeSquareRequest(`/v2/cards`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        source_id: sourceId,
-                        idempotency_key: `card-${email}-${Date.now()}`,
-                        card: {
-                            customer_id: squareCustomerId
-                        }
-                    })
-                });
-
-                if (cardResponse.card) {
-                    cardId = cardResponse.card.id;
-                    cardBrand = cardResponse.card.card_brand;
-                    cardLastFour = cardResponse.card.last_4;
-                }
-            }
-        } catch (squareError) {
-            logger.error('Square customer/card creation failed', { error: squareError.message });
-            // Continue anyway - we can create customer later
+        if (!customerResponse.customer) {
+            const errorMsg = customerResponse.errors?.[0]?.detail || 'Failed to create customer';
+            logger.error('Square customer creation failed', { error: errorMsg });
+            return res.status(400).json({ error: errorMsg });
         }
 
-        // Create subscriber in database
+        squareCustomerId = customerResponse.customer.id;
+
+        // Create card on file (Square tokenizes the card - we never see card numbers)
+        const cardResponse = await squareApi.makeSquareRequest('/v2/cards', {
+            method: 'POST',
+            body: JSON.stringify({
+                source_id: sourceId,
+                idempotency_key: `card-${email}-${Date.now()}`,
+                card: {
+                    customer_id: squareCustomerId
+                }
+            })
+        });
+
+        if (!cardResponse.card) {
+            const errorMsg = cardResponse.errors?.[0]?.detail || 'Failed to save payment method';
+            logger.error('Square card creation failed', { error: errorMsg, customerId: squareCustomerId });
+            return res.status(400).json({ error: errorMsg });
+        }
+
+        cardId = cardResponse.card.id;
+        cardBrand = cardResponse.card.card_brand;
+        cardLastFour = cardResponse.card.last_4;
+
+        // ==================== CREATE LOCAL SUBSCRIBER RECORD ====================
         const subscriber = await subscriptionHandler.createSubscriber({
             email: email.toLowerCase(),
             businessName,
@@ -7820,13 +7843,20 @@ app.post('/api/subscriptions/create', async (req, res) => {
             cardId
         });
 
-        // Process initial payment (skip if 100% discount)
+        // ==================== PAYMENT & SUBSCRIPTION LOGIC ====================
+        // Strategy:
+        // - If promo code gives discount: Make first payment manually with discount,
+        //   then create subscription starting next billing cycle
+        // - If no promo: Create subscription immediately (Square handles first payment)
+
         let paymentResult = null;
-        if (squareCustomerId && cardId && finalPriceCents > 0) {
+        let squareSubscription = null;
+        const squareSubscriptions = require('./utils/square-subscriptions');
+
+        if (discountCents > 0 && finalPriceCents > 0) {
+            // PROMO CODE: Make first discounted payment manually, then schedule subscription
             try {
-                const paymentNote = discountCents > 0
-                    ? `Square Dashboard Addon - ${selectedPlan.name} (Promo: -$${(discountCents/100).toFixed(2)})`
-                    : `Square Dashboard Addon - ${selectedPlan.name} (30-day trial, fully refundable)`;
+                const paymentNote = `Square Dashboard Addon - ${selectedPlan.name} (Promo: -$${(discountCents/100).toFixed(2)})`;
 
                 const paymentResponse = await squareApi.makeSquareRequest('/v2/payments', {
                     method: 'POST',
@@ -7855,45 +7885,105 @@ app.post('/api/subscriptions/create', async (req, res) => {
                         paymentType: 'subscription',
                         receiptUrl: paymentResult.receipt_url
                     });
-
-                    // Log event
-                    await subscriptionHandler.logEvent({
-                        subscriberId: subscriber.id,
-                        eventType: 'subscription.created',
-                        eventData: {
-                            plan,
-                            originalAmount: selectedPlan.price_cents,
-                            discountCents,
-                            finalAmount: finalPriceCents,
-                            promoCode: promoCode || null,
-                            payment_id: paymentResult.id
-                        }
-                    });
                 }
+
+                // Calculate next billing date based on plan
+                const nextBillingDate = new Date();
+                if (plan === 'annual') {
+                    nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+                } else {
+                    nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+                }
+                const startDate = nextBillingDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+                // Create Square subscription starting next billing cycle
+                squareSubscription = await squareSubscriptions.createSubscription({
+                    customerId: squareCustomerId,
+                    cardId: cardId,
+                    planVariationId: selectedPlan.square_plan_id,
+                    locationId: locationId,
+                    startDate: startDate
+                });
+
             } catch (paymentError) {
-                logger.error('Payment processing failed', { error: paymentError.message });
-                // Don't fail the subscription - it's in trial anyway
+                logger.error('Discounted payment failed', { error: paymentError.message });
+                return res.status(400).json({
+                    error: 'Payment failed: ' + (paymentError.message || 'Please check your card details')
+                });
             }
+
         } else if (finalPriceCents === 0) {
-            // 100% discount - no payment needed
+            // 100% DISCOUNT: Create subscription starting next billing cycle (no immediate payment)
+            const nextBillingDate = new Date();
+            if (plan === 'annual') {
+                nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+            } else {
+                nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+            }
+            const startDate = nextBillingDate.toISOString().split('T')[0];
+
+            squareSubscription = await squareSubscriptions.createSubscription({
+                customerId: squareCustomerId,
+                cardId: cardId,
+                planVariationId: selectedPlan.square_plan_id,
+                locationId: locationId,
+                startDate: startDate
+            });
+
             logger.info('Subscription created with 100% promo discount - no payment processed', {
                 subscriberId: subscriber.id,
-                promoCode
+                promoCode,
+                nextBillingDate: startDate
             });
 
-            await subscriptionHandler.logEvent({
-                subscriberId: subscriber.id,
-                eventType: 'subscription.created',
-                eventData: {
-                    plan,
-                    originalAmount: selectedPlan.price_cents,
-                    discountCents,
-                    finalAmount: 0,
-                    promoCode,
-                    payment_id: null
-                }
-            });
+        } else {
+            // NO PROMO: Create subscription immediately (Square handles first payment)
+            try {
+                squareSubscription = await squareSubscriptions.createSubscription({
+                    customerId: squareCustomerId,
+                    cardId: cardId,
+                    planVariationId: selectedPlan.square_plan_id,
+                    locationId: locationId
+                    // No startDate = starts immediately
+                });
+
+                // Square handles the first payment - record it when webhook arrives
+                logger.info('Square subscription created - first payment handled by Square', {
+                    subscriberId: subscriber.id,
+                    squareSubscriptionId: squareSubscription.id
+                });
+
+            } catch (subError) {
+                logger.error('Subscription creation failed', { error: subError.message });
+                return res.status(400).json({
+                    error: 'Subscription failed: ' + (subError.message || 'Please try again')
+                });
+            }
         }
+
+        // Update subscriber with Square subscription ID
+        if (squareSubscription) {
+            await db.query(`
+                UPDATE subscribers
+                SET square_subscription_id = $1, subscription_status = 'active', updated_at = NOW()
+                WHERE id = $2
+            `, [squareSubscription.id, subscriber.id]);
+        }
+
+        // Log subscription event
+        await subscriptionHandler.logEvent({
+            subscriberId: subscriber.id,
+            eventType: 'subscription.created',
+            eventData: {
+                plan,
+                originalAmount: selectedPlan.price_cents,
+                discountCents,
+                finalAmount: finalPriceCents,
+                promoCode: promoCode || null,
+                payment_id: paymentResult?.id || null,
+                square_subscription_id: squareSubscription?.id || null
+            }
+        });
 
         // Record promo code usage
         if (promoCodeId) {
@@ -8033,7 +8123,10 @@ app.get('/api/subscriptions/status', async (req, res) => {
 
 /**
  * POST /api/subscriptions/cancel
- * Cancel a subscription
+ * Cancel a subscription (cancels in both local DB and Square)
+ *
+ * SECURITY: Cancellation is processed through Square's API to ensure
+ * billing is properly stopped. No payment data is handled locally.
  */
 app.post('/api/subscriptions/cancel', requireAuth, async (req, res) => {
     try {
@@ -8048,13 +8141,35 @@ app.post('/api/subscriptions/cancel', requireAuth, async (req, res) => {
             return res.status(404).json({ error: 'Subscriber not found' });
         }
 
+        // Cancel in Square first (if subscription exists)
+        if (subscriber.square_subscription_id) {
+            try {
+                const squareSubscriptions = require('./utils/square-subscriptions');
+                await squareSubscriptions.cancelSubscription(subscriber.square_subscription_id);
+                logger.info('Square subscription canceled', {
+                    subscriberId: subscriber.id,
+                    squareSubscriptionId: subscriber.square_subscription_id
+                });
+            } catch (squareError) {
+                // Log but don't fail - Square webhook will update status anyway
+                logger.warn('Failed to cancel Square subscription', {
+                    error: squareError.message,
+                    squareSubscriptionId: subscriber.square_subscription_id
+                });
+            }
+        }
+
+        // Update local status
         const updated = await subscriptionHandler.cancelSubscription(subscriber.id, reason);
 
         // Log event
         await subscriptionHandler.logEvent({
             subscriberId: subscriber.id,
             eventType: 'subscription.canceled',
-            eventData: { reason }
+            eventData: {
+                reason,
+                square_subscription_id: subscriber.square_subscription_id
+            }
         });
 
         res.json({
@@ -8161,6 +8276,83 @@ app.get('/api/subscriptions/admin/list', requireAdmin, async (req, res) => {
 
     } catch (error) {
         logger.error('List subscribers error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/subscriptions/admin/plans
+ * Get subscription plans with Square status (admin endpoint)
+ */
+app.get('/api/subscriptions/admin/plans', requireAdmin, async (req, res) => {
+    try {
+        const squareSubscriptions = require('./utils/square-subscriptions');
+        const plans = await squareSubscriptions.listPlans();
+
+        res.json({
+            success: true,
+            plans,
+            squareConfigured: !!process.env.SQUARE_LOCATION_ID
+        });
+
+    } catch (error) {
+        logger.error('List subscription plans error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/subscriptions/admin/setup-plans
+ * Initialize or update subscription plans in Square (SUPER ADMIN ONLY)
+ *
+ * SECURITY: This creates subscription plans in Square's catalog.
+ * Only super admins can run this to prevent unauthorized plan creation.
+ */
+app.post('/api/subscriptions/admin/setup-plans', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        // Super-admin check
+        const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+        const userEmail = req.session?.user?.email?.toLowerCase();
+
+        if (!superAdminEmails.includes(userEmail)) {
+            logger.warn('Unauthorized attempt to setup subscription plans', { email: userEmail });
+            return res.status(403).json({
+                error: 'Super admin access required',
+                message: 'Only super admins can setup subscription plans in Square.'
+            });
+        }
+
+        // Verify Square configuration
+        if (!process.env.SQUARE_LOCATION_ID) {
+            return res.status(400).json({
+                error: 'SQUARE_LOCATION_ID not configured',
+                message: 'Please configure SQUARE_LOCATION_ID in your environment before setting up plans.'
+            });
+        }
+
+        if (!process.env.SQUARE_ACCESS_TOKEN) {
+            return res.status(400).json({
+                error: 'SQUARE_ACCESS_TOKEN not configured',
+                message: 'Please configure SQUARE_ACCESS_TOKEN in your environment before setting up plans.'
+            });
+        }
+
+        const squareSubscriptions = require('./utils/square-subscriptions');
+        const result = await squareSubscriptions.setupSubscriptionPlans();
+
+        logger.info('Subscription plans setup completed', {
+            plans: result.plans.length,
+            errors: result.errors.length,
+            adminEmail: userEmail
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Setup subscription plans error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
