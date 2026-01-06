@@ -556,6 +556,50 @@ async function syncAllLocationsInventory(merchantId) {
 }
 
 /**
+ * Update local inventory for a single product at a specific store
+ */
+async function updateLocalInventory(options) {
+    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability } = options;
+
+    const auth = await getAuthClient(merchantId);
+    const content = google.content({ version: 'v2.1', auth });
+
+    const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
+
+    const localInventory = {
+        storeCode: storeCode,
+        availability: inventoryAvailability,
+        quantity: quantity.toString()
+    };
+
+    try {
+        const response = await content.localinventory.insert({
+            merchantId: gmcMerchantId,
+            productId: `online:en:CA:${productId}`,
+            requestBody: localInventory
+        });
+
+        logger.info('Updated local inventory in GMC', {
+            merchantId,
+            gmcMerchantId,
+            storeCode,
+            productId
+        });
+
+        return { success: true, data: response.data };
+    } catch (error) {
+        logger.error('Failed to update local inventory in GMC', {
+            error: error.message,
+            merchantId,
+            gmcMerchantId,
+            storeCode,
+            productId
+        });
+        throw error;
+    }
+}
+
+/**
  * Test GMC API connection
  */
 async function testConnection(merchantId) {
