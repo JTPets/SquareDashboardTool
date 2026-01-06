@@ -1092,13 +1092,30 @@
           // image_urls comes from ...item spread (API returns it as array)
         }));
 
-        allItems = [
+        const combinedItems = [
           ...(expired.variations || []),
           ...(auto50.variations || []),
           ...(auto25.variations || []),
           ...(review.variations || []),
           ...noExpiryItems
         ];
+
+        // Deduplicate by variation_id - keep the most urgent (lowest days_until_expiry)
+        const itemMap = new Map();
+        for (const item of combinedItems) {
+          const existing = itemMap.get(item.variation_id);
+          if (!existing) {
+            itemMap.set(item.variation_id, item);
+          } else {
+            // Keep the one with fewer days until expiry (more urgent)
+            const existingDays = existing.days_until_expiry ?? 999;
+            const newDays = item.days_until_expiry ?? 999;
+            if (newDays < existingDays) {
+              itemMap.set(item.variation_id, item);
+            }
+          }
+        }
+        allItems = Array.from(itemMap.values());
 
         // Filter out items with 0 stock
         allItems = allItems.filter(item => (item.current_stock || 0) > 0);
