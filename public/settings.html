@@ -315,6 +315,7 @@
     <!-- Tabs -->
     <div class="tabs">
       <div class="tab active" data-tab="connections">Connections</div>
+      <div class="tab" data-tab="business-rules">Business Rules</div>
       <div class="tab" data-tab="environment">Environment Variables</div>
       <div class="tab" data-tab="api-tokens">API Tokens</div>
       <div class="tab" data-tab="sync">Sync Settings</div>
@@ -372,6 +373,148 @@
             <button class="btn-primary" onclick="testEmailConnection()">Send Test Email</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Business Rules Tab (Per-Merchant Settings) -->
+    <div class="tab-content" id="tab-business-rules">
+      <div class="alert info">
+        These settings are specific to your merchant account and can be customized without affecting other users.
+        Changes take effect immediately.
+      </div>
+
+      <!-- Reorder Settings -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Reorder Priority Rules</div>
+            <div class="section-desc">Configure how items are prioritized in the reorder suggestions</div>
+          </div>
+        </div>
+
+        <div class="settings-form" id="reorder-settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Safety Days
+              <small>Extra buffer days added to supply calculations</small>
+            </label>
+            <input type="number" class="form-input" id="reorder_safety_days" min="0" max="90" value="7">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Default Supply Days
+              <small>Default supply duration for items without history</small>
+            </label>
+            <input type="number" class="form-input" id="default_supply_days" min="1" max="365" value="45">
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 15px;">
+            <div class="form-group">
+              <label class="form-label">
+                Urgent Priority
+                <small>Days remaining (red)</small>
+              </label>
+              <input type="number" class="form-input" id="reorder_priority_urgent_days" min="0" max="30" value="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                High Priority
+                <small>Days remaining (orange)</small>
+              </label>
+              <input type="number" class="form-input" id="reorder_priority_high_days" min="0" max="60" value="7">
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                Medium Priority
+                <small>Days remaining (yellow)</small>
+              </label>
+              <input type="number" class="form-input" id="reorder_priority_medium_days" min="0" max="90" value="14">
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                Low Priority
+                <small>Days remaining (green)</small>
+              </label>
+              <input type="number" class="form-input" id="reorder_priority_low_days" min="0" max="120" value="30">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cycle Count Settings -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Cycle Count Settings</div>
+            <div class="section-desc">Configure daily inventory count assignments</div>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Daily Count Target
+              <small>Number of items to assign for counting each day</small>
+            </label>
+            <input type="number" class="form-input" id="daily_count_target" min="1" max="500" value="30">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 10px;">
+              <input type="checkbox" id="cycle_count_email_enabled" checked style="width: auto;">
+              Send Daily Count Assignment Emails
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 10px;">
+              <input type="checkbox" id="cycle_count_report_email" checked style="width: auto;">
+              Send Completion Report Emails
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Additional Report Email
+              <small>Optional: extra email address for cycle count reports</small>
+            </label>
+            <input type="email" class="form-input" id="additional_cycle_count_email" placeholder="staff@example.com">
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification Settings -->
+      <div class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Notification Settings</div>
+            <div class="section-desc">Configure alerts and notifications</div>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label class="form-label">
+              Notification Email
+              <small>Primary email for system alerts</small>
+            </label>
+            <input type="email" class="form-input" id="notification_email" placeholder="alerts@example.com">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 10px;">
+              <input type="checkbox" id="low_stock_alerts_enabled" checked style="width: auto;">
+              Enable Low Stock Alerts
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Save Button -->
+      <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="btn-secondary" onclick="resetMerchantSettingsToDefaults()">Reset to Defaults</button>
+        <button class="btn-primary" onclick="saveMerchantSettings()">Save Business Rules</button>
       </div>
     </div>
 
@@ -1435,12 +1578,164 @@
       }
     }
 
+    // ==================== MERCHANT SETTINGS FUNCTIONS ====================
+
+    // Load merchant settings from API
+    async function loadMerchantSettings() {
+      try {
+        const response = await fetch('/api/settings/merchant');
+        if (!response.ok) {
+          if (response.status === 400) {
+            // No merchant context - hide business rules tab or show message
+            console.log('No merchant context for business rules');
+            return;
+          }
+          throw new Error('Failed to load merchant settings');
+        }
+
+        const data = await response.json();
+        const settings = data.settings;
+
+        // Populate form fields
+        const fields = [
+          'reorder_safety_days', 'default_supply_days',
+          'reorder_priority_urgent_days', 'reorder_priority_high_days',
+          'reorder_priority_medium_days', 'reorder_priority_low_days',
+          'daily_count_target', 'additional_cycle_count_email', 'notification_email'
+        ];
+
+        for (const field of fields) {
+          const el = document.getElementById(field);
+          if (el && settings[field] !== undefined && settings[field] !== null) {
+            el.value = settings[field];
+          }
+        }
+
+        // Populate checkboxes
+        const checkboxFields = ['cycle_count_email_enabled', 'cycle_count_report_email', 'low_stock_alerts_enabled'];
+        for (const field of checkboxFields) {
+          const el = document.getElementById(field);
+          if (el) {
+            el.checked = settings[field] === true;
+          }
+        }
+
+        console.log('Merchant settings loaded', settings);
+      } catch (error) {
+        console.error('Failed to load merchant settings:', error);
+      }
+    }
+
+    // Save merchant settings to API
+    async function saveMerchantSettings() {
+      try {
+        const settings = {};
+
+        // Collect numeric fields
+        const numericFields = [
+          'reorder_safety_days', 'default_supply_days',
+          'reorder_priority_urgent_days', 'reorder_priority_high_days',
+          'reorder_priority_medium_days', 'reorder_priority_low_days',
+          'daily_count_target'
+        ];
+
+        for (const field of numericFields) {
+          const el = document.getElementById(field);
+          if (el) {
+            settings[field] = parseInt(el.value) || 0;
+          }
+        }
+
+        // Collect text fields
+        const textFields = ['additional_cycle_count_email', 'notification_email'];
+        for (const field of textFields) {
+          const el = document.getElementById(field);
+          if (el) {
+            settings[field] = el.value.trim() || null;
+          }
+        }
+
+        // Collect checkbox fields
+        const checkboxFields = ['cycle_count_email_enabled', 'cycle_count_report_email', 'low_stock_alerts_enabled'];
+        for (const field of checkboxFields) {
+          const el = document.getElementById(field);
+          if (el) {
+            settings[field] = el.checked;
+          }
+        }
+
+        const response = await fetch('/api/settings/merchant', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to save settings');
+        }
+
+        alert('Business rules saved successfully!');
+        console.log('Merchant settings saved', data.settings);
+      } catch (error) {
+        alert('Failed to save settings: ' + error.message);
+        console.error('Failed to save merchant settings:', error);
+      }
+    }
+
+    // Reset merchant settings to defaults
+    async function resetMerchantSettingsToDefaults() {
+      if (!confirm('Are you sure you want to reset all business rules to defaults? This cannot be undone.')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/settings/merchant/defaults');
+        if (!response.ok) throw new Error('Failed to load defaults');
+
+        const data = await response.json();
+        const defaults = data.defaults;
+
+        // Update form with defaults
+        const fields = [
+          'reorder_safety_days', 'default_supply_days',
+          'reorder_priority_urgent_days', 'reorder_priority_high_days',
+          'reorder_priority_medium_days', 'reorder_priority_low_days',
+          'daily_count_target'
+        ];
+
+        for (const field of fields) {
+          const el = document.getElementById(field);
+          if (el && defaults[field] !== undefined) {
+            el.value = defaults[field];
+          }
+        }
+
+        // Reset text fields
+        document.getElementById('additional_cycle_count_email').value = defaults.additional_cycle_count_email || '';
+        document.getElementById('notification_email').value = defaults.notification_email || '';
+
+        // Reset checkboxes
+        document.getElementById('cycle_count_email_enabled').checked = defaults.cycle_count_email_enabled !== false;
+        document.getElementById('cycle_count_report_email').checked = defaults.cycle_count_report_email !== false;
+        document.getElementById('low_stock_alerts_enabled').checked = defaults.low_stock_alerts_enabled !== false;
+
+        // Save the defaults
+        await saveMerchantSettings();
+      } catch (error) {
+        alert('Failed to reset to defaults: ' + error.message);
+        console.error('Failed to reset merchant settings:', error);
+      }
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       handleOAuthCallback();
       loadAllStatuses();
       loadCurrentUser();
       loadSecuritySettings();
+      loadMerchantSettings();
     });
   </script>
 </body>
