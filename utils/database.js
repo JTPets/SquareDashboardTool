@@ -1946,6 +1946,39 @@ async function ensureSchema() {
         logger.error('Failed to create gmc_location_settings table:', error.message);
     }
 
+    // Create gmc_sync_logs table if it doesn't exist (for tracking GMC sync history)
+    try {
+        const gmcSyncLogsCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'gmc_sync_logs')
+        `);
+
+        if (!gmcSyncLogsCheck.rows[0].exists) {
+            await query(`
+                CREATE TABLE gmc_sync_logs (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                    sync_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    total_items INTEGER DEFAULT 0,
+                    succeeded INTEGER DEFAULT 0,
+                    failed INTEGER DEFAULT 0,
+                    error_details JSONB,
+                    location_id TEXT,
+                    location_name TEXT,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    duration_ms INTEGER
+                )
+            `);
+            await query('CREATE INDEX IF NOT EXISTS idx_gmc_sync_logs_merchant ON gmc_sync_logs(merchant_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_gmc_sync_logs_started ON gmc_sync_logs(started_at DESC)');
+            logger.info('Created gmc_sync_logs table for tracking GMC sync history');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create gmc_sync_logs table:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {

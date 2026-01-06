@@ -5046,6 +5046,37 @@ app.post('/api/gmc/api/sync-local-inventory/:locationId', requireAuth, requireMe
     }
 });
 
+/**
+ * GET /api/gmc/api/sync-status
+ * Get last sync status for each sync type
+ */
+app.get('/api/gmc/api/sync-status', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const status = await gmcApi.getLastSyncStatus(merchantId);
+        res.json({ success: true, status });
+    } catch (error) {
+        logger.error('Get GMC sync status error', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/api/sync-history
+ * Get sync history for the merchant
+ */
+app.get('/api/gmc/api/sync-history', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const limit = parseInt(req.query.limit) || 20;
+        const history = await gmcApi.getSyncHistory(merchantId, limit);
+        res.json({ success: true, history });
+    } catch (error) {
+        logger.error('Get GMC sync history error', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**
