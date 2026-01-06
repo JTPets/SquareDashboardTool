@@ -1808,6 +1808,77 @@ async function ensureSchema() {
         logger.error('Failed to restructure variation_discount_status:', error.message);
     }
 
+    // ==================== MERCHANT SETTINGS TABLE ====================
+    // Per-merchant configurable business rules (reorder thresholds, cycle count settings, etc.)
+    // These settings override global env var defaults on a per-merchant basis
+    const merchantSettingsCheck = await query(`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'merchant_settings'
+    `);
+
+    if (merchantSettingsCheck.rows.length === 0) {
+        logger.info('Creating merchant_settings table...');
+
+        await query(`
+            CREATE TABLE IF NOT EXISTS merchant_settings (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+
+                -- Reorder Business Rules
+                reorder_safety_days INTEGER DEFAULT 7,
+                default_supply_days INTEGER DEFAULT 45,
+                reorder_priority_urgent_days INTEGER DEFAULT 0,
+                reorder_priority_high_days INTEGER DEFAULT 7,
+                reorder_priority_medium_days INTEGER DEFAULT 14,
+                reorder_priority_low_days INTEGER DEFAULT 30,
+
+                -- Cycle Count Settings
+                daily_count_target INTEGER DEFAULT 30,
+                cycle_count_email_enabled BOOLEAN DEFAULT TRUE,
+                cycle_count_report_email BOOLEAN DEFAULT TRUE,
+                additional_cycle_count_email TEXT,
+
+                -- Notification Settings
+                notification_email TEXT,
+                low_stock_alerts_enabled BOOLEAN DEFAULT TRUE,
+
+                -- Timestamps
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+                UNIQUE(merchant_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_merchant_settings_merchant ON merchant_settings(merchant_id)');
+
+        logger.info('Created merchant_settings table');
+        appliedCount++;
+    } else {
+        // Ensure all columns exist for existing installations
+        const settingsColumnMigrations = [
+            { column: 'additional_cycle_count_email', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS additional_cycle_count_email TEXT' },
+            { column: 'notification_email', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS notification_email TEXT' },
+            { column: 'low_stock_alerts_enabled', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS low_stock_alerts_enabled BOOLEAN DEFAULT TRUE' }
+        ];
+
+        for (const migration of settingsColumnMigrations) {
+            try {
+                const colCheck = await query(`
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'merchant_settings' AND column_name = $1
+                `, [migration.column]);
+
+                if (colCheck.rows.length === 0) {
+                    await query(migration.sql);
+                    logger.info(`Added ${migration.column} column to merchant_settings`);
+                    appliedCount++;
+                }
+            } catch (err) {
+                logger.error(`Failed to add ${migration.column} column to merchant_settings`, { error: err.message });
+            }
+        }
+    }
+
     for (const migration of migrations) {
         try {
             // Check if column exists
@@ -1845,6 +1916,172 @@ async function ensureSchema() {
     }
 }
 
+// ==================== MERCHANT SETTINGS FUNCTIONS ====================
+
+/**
+ * Default merchant settings values (fallback to env vars or hardcoded defaults)
+ */
+const DEFAULT_MERCHANT_SETTINGS = {
+    reorder_safety_days: parseInt(process.env.REORDER_SAFETY_DAYS) || 7,
+    default_supply_days: parseInt(process.env.DEFAULT_SUPPLY_DAYS) || 45,
+    reorder_priority_urgent_days: parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS) || 0,
+    reorder_priority_high_days: parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS) || 7,
+    reorder_priority_medium_days: parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS) || 14,
+    reorder_priority_low_days: parseInt(process.env.REORDER_PRIORITY_LOW_DAYS) || 30,
+    daily_count_target: parseInt(process.env.DAILY_COUNT_TARGET) || 30,
+    cycle_count_email_enabled: process.env.CYCLE_COUNT_EMAIL_ENABLED !== 'false',
+    cycle_count_report_email: process.env.CYCLE_COUNT_REPORT_EMAIL !== 'false',
+    additional_cycle_count_email: process.env.ADDITIONAL_CYCLE_COUNT_REPORT_EMAIL || null,
+    notification_email: process.env.EMAIL_TO || null,
+    low_stock_alerts_enabled: true
+};
+
+/**
+ * Get merchant settings from database with fallback to env var defaults
+ * Creates default settings for merchant if none exist
+ *
+ * @param {number} merchantId - The merchant ID
+ * @returns {Promise<Object>} Merchant settings object
+ */
+async function getMerchantSettings(merchantId) {
+    if (!merchantId) {
+        // No merchant context - return defaults from env vars
+        return { ...DEFAULT_MERCHANT_SETTINGS };
+    }
+
+    try {
+        // Try to get existing settings
+        const result = await query(`
+            SELECT * FROM merchant_settings WHERE merchant_id = $1
+        `, [merchantId]);
+
+        if (result.rows.length > 0) {
+            // Merge with defaults (in case new columns were added)
+            return {
+                ...DEFAULT_MERCHANT_SETTINGS,
+                ...result.rows[0]
+            };
+        }
+
+        // No settings exist - create defaults for this merchant
+        const insertResult = await query(`
+            INSERT INTO merchant_settings (
+                merchant_id,
+                reorder_safety_days,
+                default_supply_days,
+                reorder_priority_urgent_days,
+                reorder_priority_high_days,
+                reorder_priority_medium_days,
+                reorder_priority_low_days,
+                daily_count_target,
+                cycle_count_email_enabled,
+                cycle_count_report_email,
+                additional_cycle_count_email,
+                notification_email,
+                low_stock_alerts_enabled
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (merchant_id) DO UPDATE SET updated_at = NOW()
+            RETURNING *
+        `, [
+            merchantId,
+            DEFAULT_MERCHANT_SETTINGS.reorder_safety_days,
+            DEFAULT_MERCHANT_SETTINGS.default_supply_days,
+            DEFAULT_MERCHANT_SETTINGS.reorder_priority_urgent_days,
+            DEFAULT_MERCHANT_SETTINGS.reorder_priority_high_days,
+            DEFAULT_MERCHANT_SETTINGS.reorder_priority_medium_days,
+            DEFAULT_MERCHANT_SETTINGS.reorder_priority_low_days,
+            DEFAULT_MERCHANT_SETTINGS.daily_count_target,
+            DEFAULT_MERCHANT_SETTINGS.cycle_count_email_enabled,
+            DEFAULT_MERCHANT_SETTINGS.cycle_count_report_email,
+            DEFAULT_MERCHANT_SETTINGS.additional_cycle_count_email,
+            DEFAULT_MERCHANT_SETTINGS.notification_email,
+            DEFAULT_MERCHANT_SETTINGS.low_stock_alerts_enabled
+        ]);
+
+        logger.info('Created default merchant settings', { merchantId });
+        return insertResult.rows[0];
+
+    } catch (error) {
+        // If table doesn't exist yet (pre-migration), return defaults
+        if (error.message.includes('relation "merchant_settings" does not exist')) {
+            logger.warn('merchant_settings table does not exist yet, using defaults');
+            return { ...DEFAULT_MERCHANT_SETTINGS };
+        }
+        logger.error('Failed to get merchant settings', { merchantId, error: error.message });
+        return { ...DEFAULT_MERCHANT_SETTINGS };
+    }
+}
+
+/**
+ * Update merchant settings
+ *
+ * @param {number} merchantId - The merchant ID
+ * @param {Object} settings - Settings to update
+ * @returns {Promise<Object>} Updated settings
+ */
+async function updateMerchantSettings(merchantId, settings) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    // Build dynamic update query based on provided settings
+    const allowedFields = [
+        'reorder_safety_days', 'default_supply_days',
+        'reorder_priority_urgent_days', 'reorder_priority_high_days',
+        'reorder_priority_medium_days', 'reorder_priority_low_days',
+        'daily_count_target', 'cycle_count_email_enabled',
+        'cycle_count_report_email', 'additional_cycle_count_email',
+        'notification_email', 'low_stock_alerts_enabled'
+    ];
+
+    const updates = [];
+    const values = [merchantId];
+    let paramIndex = 2;
+
+    for (const field of allowedFields) {
+        if (settings.hasOwnProperty(field)) {
+            updates.push(`${field} = $${paramIndex}`);
+            values.push(settings[field]);
+            paramIndex++;
+        }
+    }
+
+    if (updates.length === 0) {
+        // No valid updates - just return current settings
+        return getMerchantSettings(merchantId);
+    }
+
+    updates.push('updated_at = NOW()');
+
+    const result = await query(`
+        UPDATE merchant_settings
+        SET ${updates.join(', ')}
+        WHERE merchant_id = $1
+        RETURNING *
+    `, values);
+
+    if (result.rows.length === 0) {
+        // Settings don't exist - create them first, then update
+        await getMerchantSettings(merchantId); // This creates defaults
+        return updateMerchantSettings(merchantId, settings); // Retry update
+    }
+
+    logger.info('Updated merchant settings', { merchantId, fields: Object.keys(settings) });
+    return result.rows[0];
+}
+
+/**
+ * Get a specific setting value with fallback
+ *
+ * @param {number} merchantId - The merchant ID
+ * @param {string} settingKey - The setting key (e.g., 'reorder_safety_days')
+ * @returns {Promise<any>} The setting value
+ */
+async function getMerchantSetting(merchantId, settingKey) {
+    const settings = await getMerchantSettings(merchantId);
+    return settings[settingKey] ?? DEFAULT_MERCHANT_SETTINGS[settingKey];
+}
+
 module.exports = {
     query,
     getClient,
@@ -1853,5 +2090,10 @@ module.exports = {
     testConnection,
     ensureSchema,
     close,
-    pool
+    pool,
+    // Merchant settings functions
+    getMerchantSettings,
+    updateMerchantSettings,
+    getMerchantSetting,
+    DEFAULT_MERCHANT_SETTINGS
 };
