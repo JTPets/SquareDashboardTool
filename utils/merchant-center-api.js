@@ -95,6 +95,95 @@ async function saveGmcApiSettings(merchantId, settings) {
     }
 }
 
+// ==================== SYNC LOGGING ====================
+
+/**
+ * Create a sync log entry (call at start of sync)
+ */
+async function createSyncLog(options) {
+    const { merchantId, syncType, locationId, locationName } = options;
+
+    const result = await db.query(`
+        INSERT INTO gmc_sync_logs (merchant_id, sync_type, status, location_id, location_name, started_at)
+        VALUES ($1, $2, 'in_progress', $3, $4, NOW())
+        RETURNING id
+    `, [merchantId, syncType, locationId || null, locationName || null]);
+
+    return result.rows[0].id;
+}
+
+/**
+ * Update a sync log entry (call at end of sync)
+ */
+async function updateSyncLog(logId, results) {
+    const { status, total, succeeded, failed, errors } = results;
+
+    await db.query(`
+        UPDATE gmc_sync_logs
+        SET status = $2,
+            total_items = $3,
+            succeeded = $4,
+            failed = $5,
+            error_details = $6,
+            completed_at = NOW(),
+            duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000
+        WHERE id = $1
+    `, [logId, status, total || 0, succeeded || 0, failed || 0, JSON.stringify(errors || [])]);
+}
+
+/**
+ * Get sync history for a merchant
+ */
+async function getSyncHistory(merchantId, limit = 20) {
+    const result = await db.query(`
+        SELECT
+            id,
+            sync_type,
+            status,
+            total_items,
+            succeeded,
+            failed,
+            error_details,
+            location_id,
+            location_name,
+            started_at,
+            completed_at,
+            duration_ms
+        FROM gmc_sync_logs
+        WHERE merchant_id = $1
+        ORDER BY started_at DESC
+        LIMIT $2
+    `, [merchantId, limit]);
+
+    return result.rows;
+}
+
+/**
+ * Get the last sync status for each sync type
+ */
+async function getLastSyncStatus(merchantId) {
+    const result = await db.query(`
+        SELECT DISTINCT ON (sync_type)
+            sync_type,
+            status,
+            total_items,
+            succeeded,
+            failed,
+            started_at,
+            completed_at,
+            duration_ms
+        FROM gmc_sync_logs
+        WHERE merchant_id = $1
+        ORDER BY sync_type, started_at DESC
+    `, [merchantId]);
+
+    const statusMap = {};
+    for (const row of result.rows) {
+        statusMap[row.sync_type] = row;
+    }
+    return statusMap;
+}
+
 // ==================== PRODUCT CATALOG SYNC ====================
 
 /**
@@ -214,15 +303,29 @@ function buildGmcProduct(row, settings) {
  * Sync all products to GMC
  */
 async function syncProductCatalog(merchantId) {
-    const settings = await getGmcApiSettings(merchantId);
-    const gmcMerchantId = settings.gmc_merchant_id;
+    // Create sync log entry
+    const logId = await createSyncLog({
+        merchantId,
+        syncType: 'product_catalog'
+    });
 
-    if (!gmcMerchantId) {
-        throw new Error('Google Merchant Center ID not configured');
-    }
+    try {
+        const settings = await getGmcApiSettings(merchantId);
+        const gmcMerchantId = settings.gmc_merchant_id;
 
-    // Get all products with required data
-    const result = await db.query(`
+        if (!gmcMerchantId) {
+            await updateSyncLog(logId, {
+                status: 'failed',
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                errors: [{ error: 'Google Merchant Center ID not configured' }]
+            });
+            throw new Error('Google Merchant Center ID not configured');
+        }
+
+        // Get all products with required data
+        const result = await db.query(`
         SELECT
             v.id as variation_id,
             v.name as variation_name,
@@ -260,6 +363,13 @@ async function syncProductCatalog(merchantId) {
     `, [merchantId]);
 
     if (result.rows.length === 0) {
+        await updateSyncLog(logId, {
+            status: 'success',
+            total: 0,
+            succeeded: 0,
+            failed: 0,
+            errors: []
+        });
         return {
             success: true,
             message: 'No products with SKUs found to sync',
@@ -302,6 +412,15 @@ async function syncProductCatalog(merchantId) {
         failed: totalFailed
     });
 
+    // Log sync completion
+    await updateSyncLog(logId, {
+        status: totalFailed === 0 ? 'success' : (totalSucceeded > 0 ? 'partial' : 'failed'),
+        total: products.length,
+        succeeded: totalSucceeded,
+        failed: totalFailed,
+        errors: allErrors.slice(0, 10)
+    });
+
     return {
         success: totalFailed === 0,
         total: products.length,
@@ -309,6 +428,18 @@ async function syncProductCatalog(merchantId) {
         failed: totalFailed,
         errors: allErrors.slice(0, 10)
     };
+
+    } catch (error) {
+        // Log sync failure
+        await updateSyncLog(logId, {
+            status: 'failed',
+            total: 0,
+            succeeded: 0,
+            failed: 0,
+            errors: [{ error: error.message }]
+        });
+        throw error;
+    }
 }
 
 // ==================== LOCAL INVENTORY SYNC ====================
@@ -496,63 +627,91 @@ async function syncLocationInventory(options) {
  * Sync all locations' inventory to GMC
  */
 async function syncAllLocationsInventory(merchantId) {
-    // Get all enabled locations
-    const locationsResult = await db.query(`
-        SELECT
-            l.id,
-            l.name,
-            COALESCE(gls.google_store_code, l.id) as store_code,
-            COALESCE(gls.enabled, true) as enabled
-        FROM locations l
-        LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
-        WHERE l.merchant_id = $1 AND l.active = true
-        ORDER BY l.name
-    `, [merchantId]);
+    // Create sync log entry
+    const logId = await createSyncLog({
+        merchantId,
+        syncType: 'local_inventory_all'
+    });
 
-    const results = {
-        success: true,
-        locations: [],
-        totalSynced: 0,
-        totalFailed: 0
-    };
+    try {
+        // Get all enabled locations
+        const locationsResult = await db.query(`
+            SELECT
+                l.id,
+                l.name,
+                COALESCE(gls.google_store_code, l.id) as store_code,
+                COALESCE(gls.enabled, true) as enabled
+            FROM locations l
+            LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
+            WHERE l.merchant_id = $1 AND l.active = true
+            ORDER BY l.name
+        `, [merchantId]);
 
-    for (const location of locationsResult.rows) {
-        if (!location.enabled) {
-            results.locations.push({
-                locationId: location.id,
-                locationName: location.name,
-                skipped: true,
-                reason: 'Location disabled for GMC'
-            });
-            continue;
+        const results = {
+            success: true,
+            locations: [],
+            totalSynced: 0,
+            totalFailed: 0
+        };
+
+        for (const location of locationsResult.rows) {
+            if (!location.enabled) {
+                results.locations.push({
+                    locationId: location.id,
+                    locationName: location.name,
+                    skipped: true,
+                    reason: 'Location disabled for GMC'
+                });
+                continue;
+            }
+
+            try {
+                const syncResult = await syncLocationInventory({
+                    merchantId,
+                    locationId: location.id
+                });
+
+                results.locations.push({
+                    locationId: location.id,
+                    locationName: location.name,
+                    storeCode: location.store_code,
+                    ...syncResult
+                });
+
+                results.totalSynced += syncResult.synced || 0;
+                results.totalFailed += syncResult.failed || 0;
+            } catch (error) {
+                results.locations.push({
+                    locationId: location.id,
+                    locationName: location.name,
+                    error: error.message
+                });
+                results.success = false;
+            }
         }
 
-        try {
-            const syncResult = await syncLocationInventory({
-                merchantId,
-                locationId: location.id
-            });
+        // Log sync completion
+        await updateSyncLog(logId, {
+            status: results.success ? 'success' : (results.totalSynced > 0 ? 'partial' : 'failed'),
+            total: results.totalSynced + results.totalFailed,
+            succeeded: results.totalSynced,
+            failed: results.totalFailed,
+            errors: results.locations.filter(l => l.error).map(l => ({ location: l.locationName, error: l.error }))
+        });
 
-            results.locations.push({
-                locationId: location.id,
-                locationName: location.name,
-                storeCode: location.store_code,
-                ...syncResult
-            });
+        return results;
 
-            results.totalSynced += syncResult.synced || 0;
-            results.totalFailed += syncResult.failed || 0;
-        } catch (error) {
-            results.locations.push({
-                locationId: location.id,
-                locationName: location.name,
-                error: error.message
-            });
-            results.success = false;
-        }
+    } catch (error) {
+        // Log sync failure
+        await updateSyncLog(logId, {
+            status: 'failed',
+            total: 0,
+            succeeded: 0,
+            failed: 0,
+            errors: [{ error: error.message }]
+        });
+        throw error;
     }
-
-    return results;
 }
 
 /**
@@ -641,6 +800,9 @@ module.exports = {
     // Settings
     getGmcApiSettings,
     saveGmcApiSettings,
+    // Sync history/status
+    getSyncHistory,
+    getLastSyncStatus,
     // Product catalog sync
     upsertProduct,
     batchUpsertProducts,
