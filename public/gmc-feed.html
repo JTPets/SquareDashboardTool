@@ -654,6 +654,221 @@
       color: #6b7280;
     }
     .taxonomy-empty p { margin: 10px 0; }
+
+    /* Tab Navigation */
+    .tab-nav {
+      display: flex;
+      background: #f9fafb;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .tab-nav button {
+      flex: 1;
+      padding: 15px 20px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #6b7280;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.15s;
+    }
+    .tab-nav button:hover { background: #f3f4f6; }
+    .tab-nav button.active {
+      color: #ea580c;
+      border-bottom-color: #ea580c;
+      background: white;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Settings Section */
+    .settings-section {
+      padding: 20px;
+    }
+    .settings-section h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #374151;
+    }
+    .settings-group {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .settings-group h4 {
+      margin: 0 0 15px 0;
+      font-size: 14px;
+      color: #374151;
+      font-weight: 600;
+    }
+    .form-row {
+      display: flex;
+      gap: 15px;
+      align-items: flex-start;
+      margin-bottom: 15px;
+    }
+    .form-row:last-child { margin-bottom: 0; }
+    .form-group {
+      flex: 1;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="url"] {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: #ea580c;
+      box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1);
+    }
+    .form-hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+    .btn-save {
+      background: #16a34a;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .btn-save:hover { background: #15803d; }
+    .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Location Settings Table */
+    .location-settings-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .location-settings-table th,
+    .location-settings-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .location-settings-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+    .location-settings-table input[type="text"] {
+      width: 100%;
+      padding: 6px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .location-settings-table input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .btn-save-row {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn-save-row:hover { background: #1d4ed8; }
+
+    /* Local Inventory Section */
+    .local-inventory-section {
+      padding: 20px;
+    }
+    .inventory-feeds-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .location-feed-card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .location-feed-card h4 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      color: #374151;
+    }
+    .location-feed-card .store-code {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 15px;
+    }
+    .location-feed-card .feed-stats {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+    .location-feed-card .feed-stats span {
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .location-feed-card .feed-stats strong {
+      color: #374151;
+    }
+    .location-feed-card .btn-generate {
+      background: #ea580c;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-right: 8px;
+    }
+    .location-feed-card .btn-generate:hover { background: #c2410c; }
+    .location-feed-card .btn-download {
+      background: #6b7280;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .location-feed-card .btn-download:hover { background: #4b5563; }
+    .location-feed-card.disabled {
+      background: #f9fafb;
+      opacity: 0.7;
+    }
+    .location-feed-card.disabled h4 { color: #9ca3af; }
+    .btn-generate-all {
+      background: #ea580c;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .btn-generate-all:hover { background: #c2410c; }
+    .btn-generate-all:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -663,6 +878,15 @@
       <a href="/dashboard.html" class="back-button">Back to Dashboard</a>
     </div>
 
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+      <button class="active" onclick="switchTab('product-feed')">Product Feed</button>
+      <button onclick="switchTab('local-inventory')">Local Inventory Feeds</button>
+      <button onclick="switchTab('settings')">Settings</button>
+    </div>
+
+    <!-- TAB: Product Feed -->
+    <div id="tab-product-feed" class="tab-content active">
     <!-- Stats Summary -->
     <div class="stats-summary" id="stats-summary">
       <div class="stat-box">
@@ -898,6 +1122,72 @@ Wellness"></textarea>
       <span class="page-info" id="page-info">Page 1 of 1</span>
       <button id="next-btn" onclick="nextPage()" disabled>Next</button>
     </div>
+    </div><!-- END TAB: Product Feed -->
+
+    <!-- TAB: Local Inventory Feeds -->
+    <div id="tab-local-inventory" class="tab-content">
+      <div class="local-inventory-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <div>
+            <h3 style="margin: 0;">Local Inventory Feeds</h3>
+            <p style="margin: 5px 0 0 0; font-size: 13px; color: #6b7280;">
+              Generate per-location inventory feeds for Google Merchant Center Local Inventory Ads
+            </p>
+          </div>
+          <button class="btn-generate-all" onclick="generateAllLocalInventory()">
+            Generate All Feeds
+          </button>
+        </div>
+
+        <div class="inventory-feeds-grid" id="inventory-feeds-grid">
+          <div class="loading" id="inventory-loading">Loading locations...</div>
+        </div>
+      </div>
+    </div><!-- END TAB: Local Inventory Feeds -->
+
+    <!-- TAB: Settings -->
+    <div id="tab-settings" class="tab-content">
+      <div class="settings-section">
+        <div class="settings-group">
+          <h4>Google Merchant Center Configuration</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="google-sheet-url">Google Sheet URL (for manual integration)</label>
+              <input type="url" id="google-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+              <div class="form-hint">
+                Enter the Google Sheets URL provided by Google Merchant Center for local inventory management
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex: none;">
+              <button class="btn-save" onclick="saveGmcSettings()">Save Settings</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h4>Location Store Codes</h4>
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+            Map your Square locations to Google Business Profile store codes. These codes are used in the local inventory feeds.
+          </p>
+          <table class="location-settings-table" id="location-settings-table">
+            <thead>
+              <tr>
+                <th>Location Name</th>
+                <th>Address</th>
+                <th>Google Store Code</th>
+                <th style="width: 80px;">Enabled</th>
+                <th style="width: 80px;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="location-settings-body">
+              <tr><td colspan="5" style="text-align: center; color: #6b7280;">Loading locations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- END TAB: Settings -->
   </div>
 
   <!-- Error Helper for user-friendly messages -->
@@ -1881,6 +2171,272 @@ Wellness"></textarea>
 
       } catch (error) {
         statusMsg.textContent = 'Error: ' + error.message;
+      }
+    }
+
+    // ==================== TAB NAVIGATION ====================
+    function switchTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.tab-nav button').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      event.target.classList.add('active');
+
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+
+      // Load data for the selected tab
+      if (tabName === 'local-inventory') {
+        loadLocalInventoryLocations();
+      } else if (tabName === 'settings') {
+        loadGmcSettings();
+        loadLocationSettings();
+      }
+    }
+
+    // ==================== SETTINGS TAB ====================
+    let gmcSettings = {};
+    let locationSettings = [];
+
+    async function loadGmcSettings() {
+      try {
+        const response = await fetch('/api/gmc/settings');
+        const data = await response.json();
+        gmcSettings = data.settings || {};
+
+        // Populate form
+        document.getElementById('google-sheet-url').value = gmcSettings.google_sheet_url || '';
+      } catch (error) {
+        console.error('Failed to load GMC settings:', error);
+      }
+    }
+
+    async function saveGmcSettings() {
+      try {
+        const googleSheetUrl = document.getElementById('google-sheet-url').value.trim();
+
+        const response = await fetch('/api/gmc/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: {
+              google_sheet_url: googleSheetUrl
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+
+        alert('Settings saved successfully!');
+      } catch (error) {
+        alert('Error saving settings: ' + error.message);
+      }
+    }
+
+    async function loadLocationSettings() {
+      try {
+        const response = await fetch('/api/gmc/location-settings');
+        const data = await response.json();
+        locationSettings = data.locations || [];
+
+        renderLocationSettings();
+      } catch (error) {
+        console.error('Failed to load location settings:', error);
+        document.getElementById('location-settings-body').innerHTML =
+          '<tr><td colspan="5" style="text-align: center; color: #dc2626;">Error loading locations</td></tr>';
+      }
+    }
+
+    function renderLocationSettings() {
+      const tbody = document.getElementById('location-settings-body');
+
+      if (locationSettings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #6b7280;">No locations found. Sync your catalog first.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = locationSettings.map((loc, idx) => `
+        <tr data-location-id="${loc.location_id}">
+          <td>${escapeHtml(loc.location_name || 'Unknown')}</td>
+          <td style="font-size: 12px; color: #6b7280;">${escapeHtml(loc.location_address || '-')}</td>
+          <td>
+            <input type="text" class="store-code-input" data-idx="${idx}"
+                   value="${escapeHtml(loc.google_store_code || '')}"
+                   placeholder="Enter store code...">
+          </td>
+          <td style="text-align: center;">
+            <input type="checkbox" class="enabled-checkbox" data-idx="${idx}"
+                   ${loc.enabled ? 'checked' : ''}>
+          </td>
+          <td>
+            <button class="btn-save-row" onclick="saveLocationSetting('${loc.location_id}', ${idx})">Save</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function saveLocationSetting(locationId, idx) {
+      try {
+        const row = document.querySelector(`tr[data-location-id="${locationId}"]`);
+        const storeCodeInput = row.querySelector('.store-code-input');
+        const enabledCheckbox = row.querySelector('.enabled-checkbox');
+
+        const response = await fetch(`/api/gmc/location-settings/${locationId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            google_store_code: storeCodeInput.value.trim(),
+            enabled: enabledCheckbox.checked
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save');
+
+        // Update local data
+        locationSettings[idx].google_store_code = storeCodeInput.value.trim();
+        locationSettings[idx].enabled = enabledCheckbox.checked;
+
+        // Visual feedback
+        const btn = row.querySelector('.btn-save-row');
+        btn.textContent = 'Saved!';
+        btn.style.background = '#16a34a';
+        setTimeout(() => {
+          btn.textContent = 'Save';
+          btn.style.background = '';
+        }, 2000);
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // ==================== LOCAL INVENTORY TAB ====================
+    let inventoryLocations = [];
+
+    async function loadLocalInventoryLocations() {
+      try {
+        document.getElementById('inventory-feeds-grid').innerHTML =
+          '<div class="loading">Loading locations...</div>';
+
+        const response = await fetch('/api/gmc/location-settings');
+        const data = await response.json();
+        inventoryLocations = data.locations || [];
+
+        renderInventoryLocations();
+      } catch (error) {
+        console.error('Failed to load locations:', error);
+        document.getElementById('inventory-feeds-grid').innerHTML =
+          '<div style="color: #dc2626; text-align: center; padding: 40px;">Error loading locations</div>';
+      }
+    }
+
+    function renderInventoryLocations() {
+      const grid = document.getElementById('inventory-feeds-grid');
+
+      if (inventoryLocations.length === 0) {
+        grid.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No locations found. Sync your catalog first.</div>';
+        return;
+      }
+
+      grid.innerHTML = inventoryLocations.map(loc => `
+        <div class="location-feed-card ${!loc.enabled ? 'disabled' : ''}" data-location-id="${loc.location_id}">
+          <h4>${escapeHtml(loc.location_name || 'Unknown Location')}</h4>
+          <div class="store-code">
+            Store Code: <strong>${escapeHtml(loc.google_store_code || loc.location_id)}</strong>
+            ${!loc.enabled ? ' <span style="color: #dc2626;">(Disabled)</span>' : ''}
+          </div>
+          <div class="feed-stats" id="feed-stats-${loc.location_id}">
+            <span>Products: <strong>--</strong></span>
+          </div>
+          <div>
+            <button class="btn-generate" onclick="generateLocationFeed('${loc.location_id}')" ${!loc.enabled ? 'disabled' : ''}>
+              Generate Feed
+            </button>
+            <button class="btn-download" onclick="downloadLocationFeed('${loc.location_id}')" ${!loc.enabled ? 'disabled' : ''}>
+              Download TSV
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function generateLocationFeed(locationId) {
+      try {
+        const card = document.querySelector(`[data-location-id="${locationId}"]`);
+        const btn = card.querySelector('.btn-generate');
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+
+        const response = await fetch(`/api/gmc/local-inventory/generate/${locationId}`, {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Generation failed');
+
+        // Update stats
+        const statsEl = card.querySelector(`#feed-stats-${locationId}`);
+        statsEl.innerHTML = `<span>Products: <strong>${data.itemCount}</strong></span>`;
+
+        btn.textContent = 'Generated!';
+        btn.style.background = '#16a34a';
+        setTimeout(() => {
+          btn.textContent = 'Generate Feed';
+          btn.style.background = '';
+          btn.disabled = false;
+        }, 2000);
+      } catch (error) {
+        alert('Error: ' + error.message);
+        const card = document.querySelector(`[data-location-id="${locationId}"]`);
+        const btn = card.querySelector('.btn-generate');
+        btn.disabled = false;
+        btn.textContent = 'Generate Feed';
+      }
+    }
+
+    function downloadLocationFeed(locationId) {
+      window.open(`/api/gmc/local-inventory/${locationId}.tsv`, '_blank');
+    }
+
+    async function generateAllLocalInventory() {
+      try {
+        const btn = document.querySelector('.btn-generate-all');
+        btn.disabled = true;
+        btn.textContent = 'Generating All Feeds...';
+
+        const response = await fetch('/api/gmc/local-inventory/generate', {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Generation failed');
+
+        // Show results
+        let message = `Generated feeds for ${data.locations.filter(l => !l.skipped).length} locations.\n`;
+        message += `Total items: ${data.totalItems}`;
+        if (data.errors.length > 0) {
+          message += `\n\nErrors (${data.errors.length}):\n`;
+          data.errors.forEach(e => {
+            message += `- ${e.locationName}: ${e.error}\n`;
+          });
+        }
+
+        alert(message);
+
+        // Reload to show updated stats
+        loadLocalInventoryLocations();
+
+        btn.textContent = 'Generate All Feeds';
+        btn.disabled = false;
+      } catch (error) {
+        alert('Error: ' + error.message);
+        const btn = document.querySelector('.btn-generate-all');
+        btn.disabled = false;
+        btn.textContent = 'Generate All Feeds';
       }
     }
 

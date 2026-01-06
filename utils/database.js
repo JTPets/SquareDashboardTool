@@ -470,6 +470,22 @@ async function ensureSchema() {
             )
         `);
 
+        // 6b. GMC Location Settings - stores Google store codes and per-location settings
+        await query(`
+            CREATE TABLE IF NOT EXISTS gmc_location_settings (
+                id SERIAL PRIMARY KEY,
+                merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                location_id TEXT NOT NULL,
+                google_store_code TEXT,
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(merchant_id, location_id)
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_merchant ON gmc_location_settings(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_location ON gmc_location_settings(location_id)');
+
         // 7. Google OAuth tokens storage (per-merchant)
         await query(`
             CREATE TABLE IF NOT EXISTS google_oauth_tokens (
