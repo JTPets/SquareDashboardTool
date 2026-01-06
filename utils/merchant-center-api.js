@@ -227,7 +227,7 @@ async function merchantApiRequest(auth, method, path, body = null) {
  * Insert or update a single product in GMC using Merchant API
  */
 async function upsertProduct(options) {
-    const { merchantId, gmcMerchantId, product } = options;
+    const { merchantId, gmcMerchantId, dataSourceId, product } = options;
 
     const auth = await getAuthClient(merchantId);
 
@@ -237,7 +237,7 @@ async function upsertProduct(options) {
         const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert`;
 
         // Convert to Merchant API format
-        const productInput = buildMerchantApiProduct(product, gmcMerchantId);
+        const productInput = buildMerchantApiProduct(product, gmcMerchantId, dataSourceId);
 
         const response = await merchantApiRequest(auth, 'POST', path, productInput);
         return { success: true, data: response };
@@ -256,7 +256,7 @@ async function upsertProduct(options) {
  * so we process products individually but in parallel
  */
 async function batchUpsertProducts(options) {
-    const { merchantId, gmcMerchantId, products } = options;
+    const { merchantId, gmcMerchantId, dataSourceId, products } = options;
 
     const results = {
         success: true,
@@ -272,7 +272,7 @@ async function batchUpsertProducts(options) {
         const batch = products.slice(i, i + CONCURRENCY);
         const promises = batch.map(async (product, idx) => {
             try {
-                await upsertProduct({ merchantId, gmcMerchantId, product });
+                await upsertProduct({ merchantId, gmcMerchantId, dataSourceId, product });
                 return { success: true, index: i + idx };
             } catch (error) {
                 return {
@@ -305,11 +305,13 @@ async function batchUpsertProducts(options) {
  * Build Merchant API product input from our product data
  * Merchant API uses a different structure than Content API
  */
-function buildMerchantApiProduct(product, gmcMerchantId) {
+function buildMerchantApiProduct(product, gmcMerchantId, dataSourceId) {
     // Merchant API productInput format
     // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
     return {
         name: `accounts/${gmcMerchantId}/productInputs/${product.offerId}`,
+        product: `accounts/${gmcMerchantId}/products/${product.offerId}`,
+        dataSource: `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`,
         offerId: product.offerId,
         contentLanguage: product.contentLanguage || 'en',
         feedLabel: product.targetCountry || 'CA',
@@ -384,6 +386,7 @@ async function syncProductCatalog(merchantId) {
     try {
         const settings = await getGmcApiSettings(merchantId);
         const gmcMerchantId = settings.gmc_merchant_id;
+        const dataSourceId = settings.gmc_data_source_id;
 
         if (!gmcMerchantId) {
             await updateSyncLog(logId, {
@@ -394,6 +397,17 @@ async function syncProductCatalog(merchantId) {
                 errors: [{ error: 'Google Merchant Center ID not configured' }]
             });
             throw new Error('Google Merchant Center ID not configured');
+        }
+
+        if (!dataSourceId) {
+            await updateSyncLog(logId, {
+                status: 'failed',
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                errors: [{ error: 'Data Source ID not configured. Add your GMC Data Source ID in Settings.' }]
+            });
+            throw new Error('Data Source ID not configured. Add your GMC Data Source ID in Settings.');
         }
 
         // Get all products with required data
@@ -456,6 +470,7 @@ async function syncProductCatalog(merchantId) {
         const batchResult = await batchUpsertProducts({
             merchantId,
             gmcMerchantId,
+            dataSourceId,
             products
         });
 
