@@ -10,7 +10,9 @@ const db = require('./database');
 const logger = require('./logger');
 
 // OAuth2 client configuration
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'];
+// Using only drive.file scope - limits access to files user explicitly opens/shares with this app
+// (removes broad 'spreadsheets' scope that gave access to ALL user spreadsheets)
+const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
 
 // Private IP regex pattern - matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x
 const PRIVATE_IP_PATTERN = /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/;
