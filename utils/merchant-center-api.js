@@ -6,15 +6,15 @@
  * - Product catalog sync
  * - Local inventory sync per store location
  *
- * Uses the Content API for Shopping (Merchant API)
- * https://developers.google.com/shopping-content/guides/quickstart
+ * Uses the NEW Merchant API (replacing deprecated Content API)
+ * https://developers.google.com/merchant/api
  */
 
 const { google } = require('googleapis');
 const db = require('./database');
 const logger = require('./logger');
 
-// OAuth2 scopes for Merchant Center
+// OAuth2 scopes for Merchant Center (content scope works for new API too)
 const SCOPES = ['https://www.googleapis.com/auth/content'];
 
 /**
@@ -184,24 +184,63 @@ async function getLastSyncStatus(merchantId) {
     return statusMap;
 }
 
+// ==================== MERCHANT API HELPERS ====================
+
+/**
+ * Make authenticated request to Merchant API
+ * The new Merchant API uses REST endpoints directly
+ */
+async function merchantApiRequest(auth, method, path, body = null) {
+    const baseUrl = 'https://merchantapi.googleapis.com';
+    const url = `${baseUrl}${path}`;
+
+    const headers = {
+        'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
+        'Content-Type': 'application/json'
+    };
+
+    const options = {
+        method,
+        headers
+    };
+
+    if (body && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
+        options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    if (!response.ok) {
+        const error = new Error(data.error?.message || `API error: ${response.status}`);
+        error.status = response.status;
+        error.details = data.error;
+        throw error;
+    }
+
+    return data;
+}
+
 // ==================== PRODUCT CATALOG SYNC ====================
 
 /**
- * Insert or update a single product in GMC
+ * Insert or update a single product in GMC using Merchant API
  */
 async function upsertProduct(options) {
     const { merchantId, gmcMerchantId, product } = options;
 
     const auth = await getAuthClient(merchantId);
-    const content = google.content({ version: 'v2.1', auth });
 
     try {
-        const response = await content.products.insert({
-            merchantId: gmcMerchantId,
-            requestBody: product
-        });
+        // Use the Products API (products_v1beta)
+        // POST /products/v1beta/accounts/{account}/productInputs:insert
+        const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert`;
 
-        return { success: true, data: response.data };
+        // Convert to Merchant API format
+        const productInput = buildMerchantApiProduct(product, gmcMerchantId);
+
+        const response = await merchantApiRequest(auth, 'POST', path, productInput);
+        return { success: true, data: response };
     } catch (error) {
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
@@ -213,55 +252,88 @@ async function upsertProduct(options) {
 
 /**
  * Batch insert/update products in GMC
+ * Note: New Merchant API doesn't have a batch endpoint like the old one,
+ * so we process products individually but in parallel
  */
 async function batchUpsertProducts(options) {
     const { merchantId, gmcMerchantId, products } = options;
 
-    const auth = await getAuthClient(merchantId);
-    const content = google.content({ version: 'v2.1', auth });
+    const results = {
+        success: true,
+        total: products.length,
+        succeeded: 0,
+        failed: 0,
+        errors: []
+    };
 
-    const entries = products.map((product, index) => ({
-        batchId: index,
-        merchantId: gmcMerchantId,
-        method: 'insert',
-        product: product
-    }));
-
-    try {
-        const response = await content.products.custombatch({
-            requestBody: { entries }
+    // Process in parallel with concurrency limit
+    const CONCURRENCY = 10;
+    for (let i = 0; i < products.length; i += CONCURRENCY) {
+        const batch = products.slice(i, i + CONCURRENCY);
+        const promises = batch.map(async (product, idx) => {
+            try {
+                await upsertProduct({ merchantId, gmcMerchantId, product });
+                return { success: true, index: i + idx };
+            } catch (error) {
+                return {
+                    success: false,
+                    index: i + idx,
+                    error: error.message,
+                    offerId: product.offerId
+                };
+            }
         });
 
-        const results = {
-            success: true,
-            total: entries.length,
-            succeeded: 0,
-            failed: 0,
-            errors: []
-        };
-
-        for (const entry of response.data.entries || []) {
-            if (entry.errors && entry.errors.length > 0) {
+        const batchResults = await Promise.all(promises);
+        for (const result of batchResults) {
+            if (result.success) {
+                results.succeeded++;
+            } else {
                 results.failed++;
                 results.errors.push({
-                    batchId: entry.batchId,
-                    offerId: products[entry.batchId]?.offerId,
-                    errors: entry.errors
+                    offerId: result.offerId,
+                    error: result.error
                 });
-            } else {
-                results.succeeded++;
             }
         }
-
-        return results;
-    } catch (error) {
-        logger.error('Failed to batch upsert products in GMC', { error: error.message });
-        throw error;
     }
+
+    return results;
 }
 
 /**
- * Build GMC product object from database product data
+ * Build Merchant API product input from our product data
+ * Merchant API uses a different structure than Content API
+ */
+function buildMerchantApiProduct(product, gmcMerchantId) {
+    // Merchant API productInput format
+    // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
+    return {
+        name: `accounts/${gmcMerchantId}/productInputs/${product.offerId}`,
+        offerId: product.offerId,
+        contentLanguage: product.contentLanguage || 'en',
+        feedLabel: product.targetCountry || 'CA',
+        channel: 'ONLINE',
+        attributes: {
+            title: product.title,
+            description: product.description,
+            link: product.link,
+            imageLink: product.imageLink,
+            availability: product.availability === 'in_stock' ? 'in_stock' : 'out_of_stock',
+            condition: product.condition || 'new',
+            price: {
+                amountMicros: Math.round(parseFloat(product.price.value) * 1000000).toString(),
+                currencyCode: product.price.currency
+            },
+            gtin: product.gtin || undefined,
+            brand: product.brand || undefined,
+            googleProductCategory: product.googleProductCategory || undefined
+        }
+    };
+}
+
+/**
+ * Build GMC product object from database product data (internal format)
  */
 function buildGmcProduct(row, settings) {
     const baseUrl = settings.website_base_url || 'https://example.com';
@@ -360,74 +432,56 @@ async function syncProductCatalog(merchantId) {
           AND i.available_online = TRUE
           AND v.merchant_id = $1
           AND (v.sku IS NOT NULL OR v.upc IS NOT NULL)
-    `, [merchantId]);
+        `, [merchantId]);
 
-    if (result.rows.length === 0) {
-        await updateSyncLog(logId, {
-            status: 'success',
-            total: 0,
-            succeeded: 0,
-            failed: 0,
-            errors: []
-        });
-        return {
-            success: true,
-            message: 'No products with SKUs found to sync',
-            synced: 0
-        };
-    }
-
-    // Build GMC products
-    const products = result.rows.map(row => buildGmcProduct(row, settings));
-
-    // Batch sync in chunks of 100
-    const BATCH_SIZE = 100;
-    let totalSucceeded = 0;
-    let totalFailed = 0;
-    const allErrors = [];
-
-    for (let i = 0; i < products.length; i += BATCH_SIZE) {
-        const batch = products.slice(i, i + BATCH_SIZE);
-
-        try {
-            const batchResult = await batchUpsertProducts({
-                merchantId,
-                gmcMerchantId,
-                products: batch
+        if (result.rows.length === 0) {
+            await updateSyncLog(logId, {
+                status: 'success',
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                errors: []
             });
-
-            totalSucceeded += batchResult.succeeded;
-            totalFailed += batchResult.failed;
-            allErrors.push(...batchResult.errors);
-        } catch (error) {
-            totalFailed += batch.length;
-            allErrors.push({ error: error.message, batch: i / BATCH_SIZE });
+            return {
+                success: true,
+                message: 'No products with SKUs found to sync',
+                synced: 0
+            };
         }
-    }
 
-    logger.info('Product catalog sync completed', {
-        merchantId,
-        total: products.length,
-        succeeded: totalSucceeded,
-        failed: totalFailed
-    });
+        // Build GMC products
+        const products = result.rows.map(row => buildGmcProduct(row, settings));
 
-    // Log sync completion
-    await updateSyncLog(logId, {
-        status: totalFailed === 0 ? 'success' : (totalSucceeded > 0 ? 'partial' : 'failed'),
-        total: products.length,
-        succeeded: totalSucceeded,
-        failed: totalFailed,
-        errors: allErrors.slice(0, 10)
-    });
+        // Batch sync
+        const batchResult = await batchUpsertProducts({
+            merchantId,
+            gmcMerchantId,
+            products
+        });
 
-    return {
-        success: totalFailed === 0,
-        total: products.length,
-        synced: totalSucceeded,
-        failed: totalFailed,
-        errors: allErrors.slice(0, 10)
-    };
+        logger.info('Product catalog sync completed', {
+            merchantId,
+            total: products.length,
+            succeeded: batchResult.succeeded,
+            failed: batchResult.failed
+        });
+
+        // Log sync completion
+        await updateSyncLog(logId, {
+            status: batchResult.failed === 0 ? 'success' : (batchResult.succeeded > 0 ? 'partial' : 'failed'),
+            total: products.length,
+            succeeded: batchResult.succeeded,
+            failed: batchResult.failed,
+            errors: batchResult.errors.slice(0, 10)
+        });
+
+        return {
+            success: batchResult.failed === 0,
+            total: products.length,
+            synced: batchResult.succeeded,
+            failed: batchResult.failed,
+            errors: batchResult.errors.slice(0, 10)
+        };
 
     } catch (error) {
         // Log sync failure
@@ -445,74 +499,113 @@ async function syncProductCatalog(merchantId) {
 // ==================== LOCAL INVENTORY SYNC ====================
 
 /**
+ * Update local inventory for a single product at a specific store
+ * Uses the new Merchant Inventories API
+ */
+async function updateLocalInventory(options) {
+    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability } = options;
+
+    const auth = await getAuthClient(merchantId);
+
+    const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
+
+    try {
+        // Merchant Inventories API endpoint
+        // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
+        const productName = `online~en~CA~${productId}`;
+        const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
+
+        const localInventory = {
+            storeCode: storeCode,
+            availability: inventoryAvailability.toUpperCase().replace('_', '_'),
+            quantity: quantity.toString()
+        };
+
+        const response = await merchantApiRequest(auth, 'POST', path, localInventory);
+
+        logger.info('Updated local inventory in GMC', {
+            merchantId,
+            gmcMerchantId,
+            storeCode,
+            productId
+        });
+
+        return { success: true, data: response };
+    } catch (error) {
+        logger.error('Failed to update local inventory in GMC', {
+            error: error.message,
+            merchantId,
+            gmcMerchantId,
+            storeCode,
+            productId
+        });
+        throw error;
+    }
+}
+
+/**
  * Batch update local inventory for multiple products
- * Uses the Content API batch endpoint for efficiency
+ * Processes in parallel with concurrency limit
  */
 async function batchUpdateLocalInventory(options) {
     const { merchantId, gmcMerchantId, storeCode, items } = options;
 
-    const auth = await getAuthClient(merchantId);
-    const content = google.content({ version: 'v2.1', auth });
+    const results = {
+        success: true,
+        total: items.length,
+        succeeded: 0,
+        failed: 0,
+        errors: []
+    };
 
-    // Build batch entries
-    const entries = items.map((item, index) => ({
-        batchId: index,
-        merchantId: gmcMerchantId,
-        method: 'insert',
-        productId: `online:en:CA:${item.productId}`,
-        localInventory: {
-            storeCode: storeCode,
-            availability: item.quantity > 0 ? 'in_stock' : 'out_of_stock',
-            quantity: item.quantity.toString()
-        }
-    }));
-
-    try {
-        const response = await content.localinventory.custombatch({
-            requestBody: { entries }
+    // Process in parallel with concurrency limit
+    const CONCURRENCY = 10;
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+        const batch = items.slice(i, i + CONCURRENCY);
+        const promises = batch.map(async (item, idx) => {
+            try {
+                await updateLocalInventory({
+                    merchantId,
+                    gmcMerchantId,
+                    storeCode,
+                    productId: item.productId,
+                    quantity: item.quantity
+                });
+                return { success: true, index: i + idx };
+            } catch (error) {
+                return {
+                    success: false,
+                    index: i + idx,
+                    error: error.message,
+                    productId: item.productId
+                };
+            }
         });
 
-        const results = {
-            success: true,
-            total: entries.length,
-            succeeded: 0,
-            failed: 0,
-            errors: []
-        };
-
-        // Process results
-        for (const entry of response.data.entries || []) {
-            if (entry.errors && entry.errors.length > 0) {
+        const batchResults = await Promise.all(promises);
+        for (const result of batchResults) {
+            if (result.success) {
+                results.succeeded++;
+            } else {
                 results.failed++;
                 results.errors.push({
-                    batchId: entry.batchId,
-                    productId: items[entry.batchId]?.productId,
-                    errors: entry.errors
+                    productId: result.productId,
+                    error: result.error
                 });
-            } else {
-                results.succeeded++;
             }
         }
-
-        logger.info('Batch updated local inventory in GMC', {
-            merchantId,
-            gmcMerchantId,
-            storeCode,
-            total: results.total,
-            succeeded: results.succeeded,
-            failed: results.failed
-        });
-
-        return results;
-    } catch (error) {
-        logger.error('Failed to batch update local inventory in GMC', {
-            error: error.message,
-            merchantId,
-            gmcMerchantId,
-            storeCode
-        });
-        throw error;
     }
+
+    logger.info('Batch updated local inventory in GMC', {
+        merchantId,
+        gmcMerchantId,
+        storeCode,
+        total: results.total,
+        succeeded: results.succeeded,
+        failed: results.failed
+    });
+
+    return results;
 }
 
 /**
@@ -585,41 +678,22 @@ async function syncLocationInventory(options) {
         quantity: row.quantity
     }));
 
-    // Batch update in chunks of 100 (API limit)
-    const BATCH_SIZE = 100;
-    let totalSucceeded = 0;
-    let totalFailed = 0;
-    const allErrors = [];
-
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-        const batch = items.slice(i, i + BATCH_SIZE);
-
-        try {
-            const result = await batchUpdateLocalInventory({
-                merchantId,
-                gmcMerchantId,
-                storeCode: location.store_code,
-                items: batch
-            });
-
-            totalSucceeded += result.succeeded;
-            totalFailed += result.failed;
-            allErrors.push(...result.errors);
-        } catch (error) {
-            // If batch fails entirely, count all as failed
-            totalFailed += batch.length;
-            allErrors.push({ error: error.message, batch: i / BATCH_SIZE });
-        }
-    }
+    // Batch update
+    const result = await batchUpdateLocalInventory({
+        merchantId,
+        gmcMerchantId,
+        storeCode: location.store_code,
+        items
+    });
 
     return {
-        success: totalFailed === 0,
+        success: result.failed === 0,
         location: location.location_name,
         storeCode: location.store_code,
         total: items.length,
-        synced: totalSucceeded,
-        failed: totalFailed,
-        errors: allErrors.slice(0, 10) // Limit error details
+        synced: result.succeeded,
+        failed: result.failed,
+        errors: result.errors.slice(0, 10)
     };
 }
 
@@ -715,51 +789,7 @@ async function syncAllLocationsInventory(merchantId) {
 }
 
 /**
- * Update local inventory for a single product at a specific store
- */
-async function updateLocalInventory(options) {
-    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability } = options;
-
-    const auth = await getAuthClient(merchantId);
-    const content = google.content({ version: 'v2.1', auth });
-
-    const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
-
-    const localInventory = {
-        storeCode: storeCode,
-        availability: inventoryAvailability,
-        quantity: quantity.toString()
-    };
-
-    try {
-        const response = await content.localinventory.insert({
-            merchantId: gmcMerchantId,
-            productId: `online:en:CA:${productId}`,
-            requestBody: localInventory
-        });
-
-        logger.info('Updated local inventory in GMC', {
-            merchantId,
-            gmcMerchantId,
-            storeCode,
-            productId
-        });
-
-        return { success: true, data: response.data };
-    } catch (error) {
-        logger.error('Failed to update local inventory in GMC', {
-            error: error.message,
-            merchantId,
-            gmcMerchantId,
-            storeCode,
-            productId
-        });
-        throw error;
-    }
-}
-
-/**
- * Test GMC API connection
+ * Test GMC API connection using new Merchant API
  */
 async function testConnection(merchantId) {
     try {
@@ -774,18 +804,17 @@ async function testConnection(merchantId) {
         }
 
         const auth = await getAuthClient(merchantId);
-        const content = google.content({ version: 'v2.1', auth });
 
-        // Try to get account info
-        const response = await content.accounts.get({
-            merchantId: gmcMerchantId,
-            accountId: gmcMerchantId
-        });
+        // Use Merchant Accounts API to get account info
+        // GET /accounts/v1beta/accounts/{account}
+        const path = `/accounts/v1beta/accounts/${gmcMerchantId}`;
+
+        const response = await merchantApiRequest(auth, 'GET', path);
 
         return {
             success: true,
-            accountName: response.data.name,
-            accountId: response.data.id
+            accountName: response.accountName || response.name,
+            accountId: gmcMerchantId
         };
     } catch (error) {
         logger.error('GMC API connection test failed', { error: error.message, merchantId });
