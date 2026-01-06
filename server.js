@@ -4998,12 +4998,19 @@ app.post('/api/gmc/api/test-connection', requireAuth, requireMerchant, async (re
 /**
  * POST /api/gmc/api/sync-products
  * Sync product catalog to Google Merchant Center
+ * Runs async in background to avoid timeout
  */
 app.post('/api/gmc/api/sync-products', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const result = await gmcApi.syncProductCatalog(merchantId);
-        res.json(result);
+
+        // Return immediately, run sync in background
+        res.json({ success: true, message: 'Sync started. Check Sync History for progress.', async: true });
+
+        // Run sync in background (don't await)
+        gmcApi.syncProductCatalog(merchantId).catch(err => {
+            logger.error('Background GMC product sync error', { error: err.message, stack: err.stack });
+        });
     } catch (error) {
         logger.error('GMC product sync error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
@@ -5013,12 +5020,19 @@ app.post('/api/gmc/api/sync-products', requireAuth, requireMerchant, async (req,
 /**
  * POST /api/gmc/api/sync-local-inventory
  * Sync local inventory for all locations to Google Merchant Center
+ * Runs async in background to avoid timeout
  */
 app.post('/api/gmc/api/sync-local-inventory', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const result = await gmcApi.syncAllLocationsInventory(merchantId);
-        res.json(result);
+
+        // Return immediately, run sync in background
+        res.json({ success: true, message: 'Sync started. Check Sync History for progress.', async: true });
+
+        // Run sync in background (don't await)
+        gmcApi.syncAllLocationsInventory(merchantId).catch(err => {
+            logger.error('Background GMC inventory sync error', { error: err.message, stack: err.stack });
+        });
     } catch (error) {
         logger.error('GMC local inventory sync error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
