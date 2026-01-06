@@ -4940,6 +4940,112 @@ app.get('/api/gmc/local-inventory/:locationId.tsv', async (req, res) => {
     }
 });
 
+// ==================== MERCHANT CENTER API ENDPOINTS ====================
+
+const gmcApi = require('./utils/merchant-center-api');
+
+/**
+ * GET /api/gmc/api-settings
+ * Get GMC API settings (Merchant Center ID, etc.)
+ */
+app.get('/api/gmc/api-settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const settings = await gmcApi.getGmcApiSettings(merchantId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        logger.error('GMC API settings fetch error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/gmc/api-settings
+ * Save GMC API settings
+ */
+app.put('/api/gmc/api-settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { settings } = req.body;
+
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ error: 'Settings object required' });
+        }
+
+        await gmcApi.saveGmcApiSettings(merchantId, settings);
+        res.json({ success: true, message: 'GMC API settings saved' });
+    } catch (error) {
+        logger.error('GMC API settings save error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/api/test-connection
+ * Test connection to Google Merchant Center API
+ */
+app.post('/api/gmc/api/test-connection', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await gmcApi.testConnection(merchantId);
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC API test connection error', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/api/sync-products
+ * Sync product catalog to Google Merchant Center
+ */
+app.post('/api/gmc/api/sync-products', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await gmcApi.syncProductCatalog(merchantId);
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC product sync error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/api/sync-local-inventory
+ * Sync local inventory for all locations to Google Merchant Center
+ */
+app.post('/api/gmc/api/sync-local-inventory', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await gmcApi.syncAllLocationsInventory(merchantId);
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC local inventory sync error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * POST /api/gmc/api/sync-local-inventory/:locationId
+ * Sync local inventory for a specific location
+ */
+app.post('/api/gmc/api/sync-local-inventory/:locationId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { locationId } = req.params;
+        const merchantId = req.merchantContext.id;
+
+        const result = await gmcApi.syncLocationInventory({
+            merchantId,
+            locationId
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('GMC location inventory sync error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**

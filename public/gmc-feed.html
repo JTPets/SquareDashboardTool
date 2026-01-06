@@ -1148,28 +1148,92 @@ Wellness"></textarea>
     <!-- TAB: Settings -->
     <div id="tab-settings" class="tab-content">
       <div class="settings-section">
+        <!-- Merchant Center API Integration -->
         <div class="settings-group">
-          <h4>Google Merchant Center Configuration</h4>
+          <h4>Google Merchant Center API Integration</h4>
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+            Connect directly to Google Merchant Center to automatically sync products and inventory.
+          </p>
+
           <div class="form-row">
             <div class="form-group">
-              <label for="google-sheet-url">Google Sheet URL (for manual integration)</label>
-              <input type="url" id="google-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+              <label for="gmc-merchant-id">Merchant Center ID</label>
+              <input type="text" id="gmc-merchant-id" placeholder="e.g., 123456789">
               <div class="form-hint">
-                Enter the Google Sheets URL provided by Google Merchant Center for local inventory management
+                Find this in your Google Merchant Center account under Settings > Account Information
               </div>
             </div>
+            <div class="form-group" style="flex: 0.5;">
+              <label>&nbsp;</label>
+              <button class="btn-save" onclick="testGmcConnection()" style="width: 100%;">Test Connection</button>
+            </div>
           </div>
+
+          <div id="gmc-connection-status" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
+
           <div class="form-row">
             <div class="form-group" style="flex: none;">
-              <button class="btn-save" onclick="saveGmcSettings()">Save Settings</button>
+              <button class="btn-save" onclick="saveGmcApiSettings()">Save Merchant Center ID</button>
             </div>
           </div>
         </div>
 
+        <!-- API Sync Controls -->
+        <div class="settings-group">
+          <h4>Sync to Merchant Center</h4>
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+            Push your product catalog and local inventory directly to Google Merchant Center via API.
+          </p>
+
+          <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 250px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+              <h5 style="margin: 0 0 10px 0; color: #166534;">Product Catalog Sync</h5>
+              <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
+                Upload all products with prices, images, and categories to GMC.
+              </p>
+              <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                Sync Products
+              </button>
+              <div id="product-sync-status" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+
+            <div style="flex: 1; min-width: 250px; padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+              <h5 style="margin: 0 0 10px 0; color: #1e40af;">Local Inventory Sync</h5>
+              <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
+                Update inventory counts for all locations in GMC.
+              </p>
+              <button onclick="syncLocalInventoryToGmc()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                Sync All Inventory
+              </button>
+              <div id="inventory-sync-status" style="margin-top: 10px; font-size: 12px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Integration (legacy) -->
+        <div class="settings-group" style="opacity: 0.7;">
+          <h4>Manual Integration (Legacy)</h4>
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+            For manual TSV file uploads or Google Sheets integration.
+          </p>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="google-sheet-url">Google Sheet URL</label>
+              <input type="url" id="google-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex: none;">
+              <button class="btn-save" onclick="saveGmcSettings()" style="background: #6b7280;">Save Sheet URL</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Location Store Codes -->
         <div class="settings-group">
           <h4>Location Store Codes</h4>
           <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Map your Square locations to Google Business Profile store codes. These codes are used in the local inventory feeds.
+            Map your Square locations to Google Business Profile store codes for local inventory.
           </p>
           <table class="location-settings-table" id="location-settings-table">
             <thead>
@@ -2199,16 +2263,22 @@ Wellness"></textarea>
 
     // ==================== SETTINGS TAB ====================
     let gmcSettings = {};
+    let gmcApiSettings = {};
     let locationSettings = [];
 
     async function loadGmcSettings() {
       try {
+        // Load legacy settings (sheet URL)
         const response = await fetch('/api/gmc/settings');
         const data = await response.json();
         gmcSettings = data.settings || {};
-
-        // Populate form
         document.getElementById('google-sheet-url').value = gmcSettings.google_sheet_url || '';
+
+        // Load API settings (merchant ID)
+        const apiResponse = await fetch('/api/gmc/api-settings');
+        const apiData = await apiResponse.json();
+        gmcApiSettings = apiData.settings || {};
+        document.getElementById('gmc-merchant-id').value = gmcApiSettings.gmc_merchant_id || '';
       } catch (error) {
         console.error('Failed to load GMC settings:', error);
       }
@@ -2231,9 +2301,127 @@ Wellness"></textarea>
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to save settings');
 
-        alert('Settings saved successfully!');
+        alert('Sheet URL saved!');
       } catch (error) {
         alert('Error saving settings: ' + error.message);
+      }
+    }
+
+    async function saveGmcApiSettings() {
+      try {
+        const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
+
+        if (!gmcMerchantId) {
+          alert('Please enter your Merchant Center ID');
+          return;
+        }
+
+        const response = await fetch('/api/gmc/api-settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: {
+              gmc_merchant_id: gmcMerchantId
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+
+        alert('Merchant Center ID saved!');
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    async function testGmcConnection() {
+      const statusEl = document.getElementById('gmc-connection-status');
+      statusEl.style.display = 'block';
+      statusEl.style.background = '#fef3c7';
+      statusEl.style.color = '#92400e';
+      statusEl.textContent = 'Testing connection...';
+
+      try {
+        // Save the merchant ID first
+        const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
+        if (gmcMerchantId) {
+          await fetch('/api/gmc/api-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { gmc_merchant_id: gmcMerchantId } })
+          });
+        }
+
+        const response = await fetch('/api/gmc/api/test-connection', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+          statusEl.style.background = '#d1fae5';
+          statusEl.style.color = '#065f46';
+          statusEl.textContent = `Connected! Account: ${data.accountName || data.accountId}`;
+        } else {
+          statusEl.style.background = '#fee2e2';
+          statusEl.style.color = '#991b1b';
+          statusEl.textContent = `Connection failed: ${data.error}`;
+        }
+      } catch (error) {
+        statusEl.style.background = '#fee2e2';
+        statusEl.style.color = '#991b1b';
+        statusEl.textContent = `Error: ${error.message}`;
+      }
+    }
+
+    async function syncProductsToGmc() {
+      const statusEl = document.getElementById('product-sync-status');
+      statusEl.textContent = 'Syncing products...';
+      statusEl.style.color = '#6b7280';
+
+      try {
+        const response = await fetch('/api/gmc/api/sync-products', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+          statusEl.style.color = '#059669';
+          statusEl.textContent = `Synced ${data.synced} of ${data.total} products`;
+        } else {
+          statusEl.style.color = '#dc2626';
+          statusEl.textContent = `Synced ${data.synced}/${data.total}. ${data.failed} failed.`;
+        }
+
+        if (data.errors && data.errors.length > 0) {
+          console.log('Sync errors:', data.errors);
+        }
+      } catch (error) {
+        statusEl.style.color = '#dc2626';
+        statusEl.textContent = `Error: ${error.message}`;
+      }
+    }
+
+    async function syncLocalInventoryToGmc() {
+      const statusEl = document.getElementById('inventory-sync-status');
+      statusEl.textContent = 'Syncing inventory...';
+      statusEl.style.color = '#6b7280';
+
+      try {
+        const response = await fetch('/api/gmc/api/sync-local-inventory', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+          statusEl.style.color = '#059669';
+          statusEl.textContent = `Synced ${data.totalSynced} items across ${data.locations.filter(l => !l.skipped && !l.error).length} locations`;
+        } else {
+          statusEl.style.color = '#dc2626';
+          const successCount = data.locations.filter(l => l.synced > 0).length;
+          statusEl.textContent = `Partial sync: ${successCount} locations. Check console for errors.`;
+        }
+
+        if (data.locations) {
+          console.log('Inventory sync results:', data.locations);
+        }
+      } catch (error) {
+        statusEl.style.color = '#dc2626';
+        statusEl.textContent = `Error: ${error.message}`;
       }
     }
 
