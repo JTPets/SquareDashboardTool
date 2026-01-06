@@ -1376,26 +1376,13 @@
         // Also update the item's reviewed_at so stats are accurate
         currentItem.reviewed_at = new Date().toISOString();
 
-        // Visual feedback
-        const card = document.getElementById(`item-${currentItem.variation_id}`);
-        if (card) {
-          card.classList.add('confirmed');
-          const confirmBtn = card.querySelector('.confirm-btn');
-          const updateBtn = card.querySelector('.update-btn');
-          if (confirmBtn) {
-            confirmBtn.classList.add('disabled');
-            confirmBtn.textContent = 'Confirmed';
-            confirmBtn.disabled = true;
-          }
-          if (updateBtn) {
-            updateBtn.classList.add('disabled');
-            updateBtn.disabled = true;
-          }
-        }
-
         closeConfirmModal();
         updateCounts();
         updateStats();
+
+        // Re-render to ensure confirmed items are properly styled
+        renderItems();
+
         showToast(config.successMessage, 'success');
 
       } catch (error) {
