@@ -2433,26 +2433,33 @@ Wellness"></textarea>
 
     async function syncProductsToGmc() {
       const statusEl = document.getElementById('product-sync-status');
-      statusEl.textContent = 'Syncing products...';
+      statusEl.textContent = 'Starting sync...';
       statusEl.style.color = '#6b7280';
 
       try {
         const response = await fetch('/api/gmc/api/sync-products', { method: 'POST' });
         const data = await response.json();
 
-        if (data.success) {
+        if (data.async) {
+          // Sync is running in background
+          statusEl.style.color = '#2563eb';
+          statusEl.innerHTML = 'Sync running in background... <a href="#" onclick="loadSyncHistory(); return false;" style="color: #2563eb;">Refresh history</a>';
+
+          // Start polling for completion
+          pollSyncStatus('product_catalog', statusEl);
+        } else if (data.success) {
           statusEl.style.color = '#059669';
           statusEl.textContent = `Synced ${data.synced} of ${data.total} products`;
         } else {
           statusEl.style.color = '#dc2626';
-          statusEl.textContent = `Synced ${data.synced}/${data.total}. ${data.failed} failed.`;
+          statusEl.textContent = `Error: ${data.error || 'Sync failed'}`;
         }
 
         if (data.errors && data.errors.length > 0) {
           console.log('Sync errors:', data.errors);
         }
 
-        // Refresh sync history after sync
+        // Refresh sync history
         loadSyncHistory();
       } catch (error) {
         statusEl.style.color = '#dc2626';
@@ -2460,29 +2467,84 @@ Wellness"></textarea>
       }
     }
 
+    // Poll sync status until complete
+    async function pollSyncStatus(syncType, statusEl) {
+      let attempts = 0;
+      const maxAttempts = 120; // 10 minutes max
+
+      const poll = async () => {
+        attempts++;
+        if (attempts > maxAttempts) {
+          statusEl.textContent = 'Sync taking longer than expected. Check history.';
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/gmc/api/sync-status');
+          const data = await response.json();
+
+          if (data.success && data.status[syncType]) {
+            const status = data.status[syncType];
+
+            if (status.status === 'in_progress') {
+              // Still running, poll again
+              setTimeout(poll, 5000);
+            } else {
+              // Sync complete
+              loadSyncHistory();
+              if (status.status === 'success') {
+                statusEl.style.color = '#059669';
+                statusEl.textContent = `Done! ${status.succeeded}/${status.total_items} synced`;
+              } else if (status.status === 'partial') {
+                statusEl.style.color = '#d97706';
+                statusEl.textContent = `Partial: ${status.succeeded}/${status.total_items} synced, ${status.failed} failed`;
+              } else {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = `Failed. Check sync history for details.`;
+              }
+            }
+          } else {
+            // No status yet, keep polling
+            setTimeout(poll, 5000);
+          }
+        } catch (err) {
+          setTimeout(poll, 5000);
+        }
+      };
+
+      // Start polling after 5 seconds
+      setTimeout(poll, 5000);
+    }
+
     async function syncLocalInventoryToGmc() {
       const statusEl = document.getElementById('inventory-sync-status');
-      statusEl.textContent = 'Syncing inventory...';
+      statusEl.textContent = 'Starting sync...';
       statusEl.style.color = '#6b7280';
 
       try {
         const response = await fetch('/api/gmc/api/sync-local-inventory', { method: 'POST' });
         const data = await response.json();
 
-        if (data.success) {
+        if (data.async) {
+          // Sync is running in background
+          statusEl.style.color = '#2563eb';
+          statusEl.innerHTML = 'Sync running in background... <a href="#" onclick="loadSyncHistory(); return false;" style="color: #2563eb;">Refresh history</a>';
+
+          // Start polling for completion
+          pollSyncStatus('local_inventory_all', statusEl);
+        } else if (data.success) {
           statusEl.style.color = '#059669';
           statusEl.textContent = `Synced ${data.totalSynced} items across ${data.locations.filter(l => !l.skipped && !l.error).length} locations`;
         } else {
           statusEl.style.color = '#dc2626';
-          const successCount = data.locations.filter(l => l.synced > 0).length;
-          statusEl.textContent = `Partial sync: ${successCount} locations. Check console for errors.`;
+          statusEl.textContent = `Error: ${data.error || 'Sync failed'}`;
         }
 
         if (data.locations) {
           console.log('Inventory sync results:', data.locations);
         }
 
-        // Refresh sync history after sync
+        // Refresh sync history
         loadSyncHistory();
       } catch (error) {
         statusEl.style.color = '#dc2626';
