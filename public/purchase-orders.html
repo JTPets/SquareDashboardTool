@@ -20,27 +20,55 @@
     header {
       background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
       color: white;
-      padding: 20px 30px;
+      padding: 15px 20px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
     }
 
     header h1 {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 600;
     }
 
-    .back-link {
-      color: white;
-      text-decoration: none;
-      font-size: 14px;
-      opacity: 0.9;
-      display: inline-block;
-      margin-top: 8px;
+    .header-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
-    .back-link:hover {
-      opacity: 1;
-      text-decoration: underline;
+    .header-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .header-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    @media (max-width: 600px) {
+      header {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+      }
+      header h1 { font-size: 20px; }
+      .header-buttons {
+        justify-content: center;
+      }
+      .header-btn {
+        flex: 1;
+        text-align: center;
+        min-width: 80px;
+      }
     }
 
     .container {
@@ -546,7 +574,10 @@
 <body>
   <header>
     <h1>📦 Purchase Orders</h1>
-    <a href="/dashboard.html" class="back-link">← Back to Dashboard</a>
+    <div class="header-buttons">
+      <a href="reorder.html" class="header-btn" style="background: #10b981;">Reorder Suggestions</a>
+      <a href="/dashboard.html" class="header-btn">← Dashboard</a>
+    </div>
   </header>
 
   <div class="container">
