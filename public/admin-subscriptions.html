@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subscription Management - Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-subtitle { font-size: 14px; opacity: 0.9; margin-top: 4px; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    .content { padding: 30px; }
+
+    /* Alert Banners */
+    .alert {
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .alert-warning {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      color: #92400e;
+    }
+    .alert-success {
+      background: #d1fae5;
+      border: 1px solid #059669;
+      color: #065f46;
+    }
+    .alert-error {
+      background: #fee2e2;
+      border: 1px solid #dc2626;
+      color: #991b1b;
+    }
+    .alert-info {
+      background: #dbeafe;
+      border: 1px solid #2563eb;
+      color: #1e40af;
+    }
+
+    /* Section Cards */
+    .section {
+      margin-bottom: 30px;
+    }
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    .stat-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+    .stat-card.highlight {
+      background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+      color: white;
+    }
+    .stat-card.highlight .stat-value,
+    .stat-card.highlight .stat-label { color: white; }
+
+    /* Plans Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px 15px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+    tr:hover { background: #f9fafb; }
+
+    /* Status Badges */
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-success { background: #d1fae5; color: #065f46; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-error { background: #fee2e2; color: #991b1b; }
+    .badge-info { background: #dbeafe; color: #1e40af; }
+    .badge-gray { background: #f3f4f6; color: #6b7280; }
+
+    /* Buttons */
+    .btn {
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      border: none;
+    }
+    .btn-primary {
+      background: #7c3aed;
+      color: white;
+    }
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-success {
+      background: #059669;
+      color: white;
+    }
+    .btn-success:hover { background: #047857; }
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+
+    /* Loading Spinner */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    /* Configuration Card */
+    .config-card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .config-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .config-item:last-child { border-bottom: none; }
+    .config-label {
+      font-weight: 500;
+      color: #374151;
+    }
+    .config-value {
+      font-family: monospace;
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .config-value.set { color: #059669; }
+    .config-value.missing { color: #dc2626; }
+
+    /* Subscriber List */
+    .subscriber-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
+      gap: 15px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .subscriber-row:hover { background: #f9fafb; margin: 0 -15px; padding: 12px 15px; }
+    .subscriber-email {
+      font-weight: 500;
+      color: #111827;
+    }
+    .subscriber-business {
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .subscriber-row { grid-template-columns: 1fr; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1>Subscription Management</h1>
+        <div class="header-subtitle">Super Admin - Manage subscription plans and subscribers</div>
+      </div>
+      <a href="/settings.html" class="back-button">Back to Settings</a>
+    </div>
+
+    <div class="content">
+      <!-- Access Check -->
+      <div id="access-denied" style="display: none;">
+        <div class="alert alert-error">
+          <strong>Access Denied</strong> - This page requires super admin privileges.
+        </div>
+      </div>
+
+      <div id="main-content">
+        <!-- Configuration Status -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Square Configuration</h2>
+          </div>
+          <div class="config-card" id="config-status">
+            <div class="loading"><div class="spinner"></div><p>Checking configuration...</p></div>
+          </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Subscription Statistics</h2>
+            <button class="btn btn-secondary btn-sm" onclick="loadStats()">Refresh</button>
+          </div>
+          <div id="stats-container">
+            <div class="loading"><div class="spinner"></div><p>Loading statistics...</p></div>
+          </div>
+        </div>
+
+        <!-- Subscription Plans -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Subscription Plans</h2>
+            <button class="btn btn-primary" onclick="setupPlans()" id="setup-btn">
+              Setup Plans in Square
+            </button>
+          </div>
+          <div id="plans-container">
+            <div class="loading"><div class="spinner"></div><p>Loading plans...</p></div>
+          </div>
+        </div>
+
+        <!-- Recent Subscribers -->
+        <div class="section">
+          <div class="section-header">
+            <h2 class="section-title">Recent Subscribers</h2>
+          </div>
+          <div id="subscribers-container">
+            <div class="loading"><div class="spinner"></div><p>Loading subscribers...</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Check access and load data on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+      await checkAccess();
+    });
+
+    async function checkAccess() {
+      try {
+        // Try to load admin plans - this will fail if not super admin
+        const response = await fetch('/api/subscriptions/admin/plans');
+        if (response.status === 403) {
+          document.getElementById('access-denied').style.display = 'block';
+          document.getElementById('main-content').style.display = 'none';
+          return;
+        }
+        if (!response.ok) {
+          throw new Error('Failed to verify access');
+        }
+
+        // Access granted - load all data
+        loadConfig();
+        loadStats();
+        loadPlans();
+        loadSubscribers();
+      } catch (error) {
+        console.error('Access check failed:', error);
+        document.getElementById('access-denied').style.display = 'block';
+        document.getElementById('main-content').style.display = 'none';
+      }
+    }
+
+    async function loadConfig() {
+      const container = document.getElementById('config-status');
+      try {
+        const response = await fetch('/api/subscriptions/admin/plans');
+        const data = await response.json();
+
+        const locationConfigured = data.squareConfigured;
+
+        container.innerHTML = `
+          <div class="config-item">
+            <span class="config-label">SQUARE_LOCATION_ID</span>
+            <span class="config-value ${locationConfigured ? 'set' : 'missing'}">
+              ${locationConfigured ? 'Configured' : 'Not configured'}
+            </span>
+          </div>
+          <div class="config-item">
+            <span class="config-label">SQUARE_ACCESS_TOKEN</span>
+            <span class="config-value set">Configured (hidden)</span>
+          </div>
+          <div class="config-item">
+            <span class="config-label">Subscription Billing</span>
+            <span class="config-value ${locationConfigured ? 'set' : 'missing'}">
+              ${locationConfigured ? 'Ready' : 'Setup required'}
+            </span>
+          </div>
+        `;
+
+        if (!locationConfigured) {
+          container.innerHTML += `
+            <div class="alert alert-warning" style="margin-top: 15px; margin-bottom: 0;">
+              <strong>Action Required:</strong> Configure SQUARE_LOCATION_ID in your environment to enable subscriptions.
+            </div>
+          `;
+        }
+      } catch (error) {
+        container.innerHTML = `
+          <div class="alert alert-error">Failed to load configuration: ${escapeHtml(error.message)}</div>
+        `;
+      }
+    }
+
+    async function loadStats() {
+      const container = document.getElementById('stats-container');
+      try {
+        const response = await fetch('/api/subscriptions/admin/list');
+        if (!response.ok) throw new Error('Failed to load statistics');
+
+        const data = await response.json();
+        const stats = data.stats || {};
+
+        container.innerHTML = `
+          <div class="stats-grid">
+            <div class="stat-card highlight">
+              <div class="stat-value">${stats.total_subscribers || 0}</div>
+              <div class="stat-label">Total Subscribers</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${stats.active_count || 0}</div>
+              <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${stats.trial_count || 0}</div>
+              <div class="stat-label">Trial</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${stats.canceled_count || 0}</div>
+              <div class="stat-label">Canceled</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${stats.monthly_count || 0}</div>
+              <div class="stat-label">Monthly Plans</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${stats.annual_count || 0}</div>
+              <div class="stat-label">Annual Plans</div>
+            </div>
+            <div class="stat-card highlight">
+              <div class="stat-value">$${((stats.monthly_revenue_cents || 0) / 100).toFixed(2)}</div>
+              <div class="stat-label">Est. Monthly Revenue</div>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        container.innerHTML = `
+          <div class="alert alert-error">Failed to load statistics: ${escapeHtml(error.message)}</div>
+        `;
+      }
+    }
+
+    async function loadPlans() {
+      const container = document.getElementById('plans-container');
+      try {
+        const response = await fetch('/api/subscriptions/admin/plans');
+        if (!response.ok) throw new Error('Failed to load plans');
+
+        const data = await response.json();
+        const plans = data.plans || [];
+
+        if (plans.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h3>No Plans Configured</h3>
+              <p>No subscription plans found in the database.</p>
+            </div>
+          `;
+          return;
+        }
+
+        let hasUnconfiguredPlans = false;
+
+        let html = `
+          <table>
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th>Price</th>
+                <th>Billing</th>
+                <th>Square Status</th>
+                <th>Active</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        for (const plan of plans) {
+          const hasSquarePlan = !!plan.square_plan_id;
+          if (!hasSquarePlan) hasUnconfiguredPlans = true;
+
+          html += `
+            <tr>
+              <td>
+                <strong>${escapeHtml(plan.name)}</strong>
+                <br><small style="color: #6b7280;">${escapeHtml(plan.plan_key)}</small>
+              </td>
+              <td>$${(plan.price_cents / 100).toFixed(2)}</td>
+              <td>${plan.billing_frequency}</td>
+              <td>
+                ${hasSquarePlan
+                  ? `<span class="badge badge-success">Configured</span>`
+                  : `<span class="badge badge-warning">Not in Square</span>`}
+              </td>
+              <td>
+                ${plan.is_active
+                  ? `<span class="badge badge-success">Active</span>`
+                  : `<span class="badge badge-gray">Inactive</span>`}
+              </td>
+            </tr>
+          `;
+        }
+
+        html += '</tbody></table>';
+
+        if (hasUnconfiguredPlans) {
+          html += `
+            <div class="alert alert-warning" style="margin-top: 15px;">
+              <strong>Action Required:</strong> Some plans are not configured in Square.
+              Click "Setup Plans in Square" to create them.
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="alert alert-success" style="margin-top: 15px;">
+              All plans are configured in Square and ready for billing.
+            </div>
+          `;
+          document.getElementById('setup-btn').textContent = 'Re-sync Plans';
+        }
+
+        container.innerHTML = html;
+      } catch (error) {
+        container.innerHTML = `
+          <div class="alert alert-error">Failed to load plans: ${escapeHtml(error.message)}</div>
+        `;
+      }
+    }
+
+    async function loadSubscribers() {
+      const container = document.getElementById('subscribers-container');
+      try {
+        const response = await fetch('/api/subscriptions/admin/list');
+        if (!response.ok) throw new Error('Failed to load subscribers');
+
+        const data = await response.json();
+        const subscribers = (data.subscribers || []).slice(0, 20); // Show last 20
+
+        if (subscribers.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <h3>No Subscribers Yet</h3>
+              <p>Subscribers will appear here once users sign up.</p>
+            </div>
+          `;
+          return;
+        }
+
+        let html = `
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Square Sub</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        for (const sub of subscribers) {
+          const statusClass = {
+            'active': 'badge-success',
+            'trial': 'badge-info',
+            'canceled': 'badge-gray',
+            'expired': 'badge-error',
+            'past_due': 'badge-warning'
+          }[sub.subscription_status] || 'badge-gray';
+
+          html += `
+            <tr>
+              <td>
+                <div class="subscriber-email">${escapeHtml(sub.email)}</div>
+                ${sub.business_name ? `<div class="subscriber-business">${escapeHtml(sub.business_name)}</div>` : ''}
+              </td>
+              <td>${escapeHtml(sub.subscription_plan || '-')}</td>
+              <td><span class="badge ${statusClass}">${sub.subscription_status}</span></td>
+              <td>
+                ${sub.square_subscription_id
+                  ? `<span class="badge badge-success">Linked</span>`
+                  : `<span class="badge badge-gray">None</span>`}
+              </td>
+              <td>${formatDate(sub.created_at)}</td>
+            </tr>
+          `;
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      } catch (error) {
+        container.innerHTML = `
+          <div class="alert alert-error">Failed to load subscribers: ${escapeHtml(error.message)}</div>
+        `;
+      }
+    }
+
+    async function setupPlans() {
+      const btn = document.getElementById('setup-btn');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Setting up...';
+
+      try {
+        const response = await fetch('/api/subscriptions/admin/setup-plans', {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.message || 'Setup failed');
+        }
+
+        // Show results
+        let message = `Setup completed!\n\nPlans created: ${data.plans?.length || 0}`;
+        if (data.errors?.length > 0) {
+          message += `\nErrors: ${data.errors.length}`;
+          for (const err of data.errors) {
+            message += `\n- ${err.planKey}: ${err.error}`;
+          }
+        }
+        alert(message);
+
+        // Reload plans
+        loadPlans();
+
+      } catch (error) {
+        alert('Failed to setup plans: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '-';
+      try {
+        return new Date(dateStr).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      } catch {
+        return '-';
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
