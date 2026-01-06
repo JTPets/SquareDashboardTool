@@ -1918,6 +1918,34 @@ async function ensureSchema() {
         }
     }
 
+    // Create gmc_location_settings table if it doesn't exist (for multi-tenant GMC feeds)
+    try {
+        const gmcLocationSettingsCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'gmc_location_settings')
+        `);
+
+        if (!gmcLocationSettingsCheck.rows[0].exists) {
+            await query(`
+                CREATE TABLE gmc_location_settings (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                    location_id TEXT NOT NULL,
+                    google_store_code TEXT,
+                    enabled BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(merchant_id, location_id)
+                )
+            `);
+            await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_merchant ON gmc_location_settings(merchant_id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_location ON gmc_location_settings(location_id)');
+            logger.info('Created gmc_location_settings table for multi-tenant GMC feeds');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create gmc_location_settings table:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
