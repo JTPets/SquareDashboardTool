@@ -559,7 +559,7 @@ async function getVariationsNeedingDiscountUpdate(merchantId) {
             edt.square_discount_id
         FROM variation_discount_status vds
         JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
-        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+        JOIN variations v ON vds.variation_id = v.id AND vds.merchant_id = $1 AND v.merchant_id = $1
         WHERE edt.is_auto_apply = TRUE
           AND edt.square_discount_id IS NOT NULL
           AND v.is_deleted = FALSE
@@ -696,7 +696,7 @@ async function applyDiscounts(options = {}) {
                     v.sku,
                     i.name as item_name
                 FROM variation_discount_status vds
-                JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+                JOIN variations v ON vds.variation_id = v.id AND vds.merchant_id = $1 AND v.merchant_id = $1
                 JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
                 WHERE vds.current_tier_id = $2
                   AND v.is_deleted = FALSE
@@ -779,7 +779,8 @@ async function applyDiscounts(options = {}) {
                 edt.is_auto_apply
             FROM variation_discount_status vds
             JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
-            WHERE vds.discount_applied_at IS NOT NULL
+            WHERE vds.merchant_id = $1
+              AND vds.discount_applied_at IS NOT NULL
               AND edt.is_auto_apply = FALSE
         `, [merchantId]);
 
@@ -1126,7 +1127,7 @@ async function getVariationsInTier(tierCode, merchantId, options = {}) {
             edt.discount_percent,
             edt.color_code
         FROM variation_discount_status vds
-        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+        JOIN variations v ON vds.variation_id = v.id AND vds.merchant_id = $1 AND v.merchant_id = $1
         JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
         JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
         LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1

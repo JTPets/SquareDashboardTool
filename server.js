@@ -2586,7 +2586,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
                 COALESCE(SUM(CASE WHEN ic.state = 'IN_STOCK' THEN ic.quantity ELSE 0 END), 0)
                     - COALESCE(SUM(CASE WHEN ic.state = 'RESERVED_FOR_SALE' THEN ic.quantity ELSE 0 END), 0) as available_to_sell
             FROM variation_discount_status vds
-            JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+            JOIN variations v ON vds.variation_id = v.id AND vds.merchant_id = $1 AND v.merchant_id = $1
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
             LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
@@ -2627,7 +2627,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
         let countQuery = `
             SELECT COUNT(DISTINCT vds.variation_id) as total
             FROM variation_discount_status vds
-            JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+            JOIN variations v ON vds.variation_id = v.id AND vds.merchant_id = $1 AND v.merchant_id = $1
             LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id AND edt.merchant_id = $1
             WHERE v.is_deleted = FALSE
         `;
