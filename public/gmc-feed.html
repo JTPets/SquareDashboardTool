@@ -1169,11 +1169,21 @@ Wellness"></textarea>
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label for="gmc-data-source-id">Data Source ID</label>
+              <input type="text" id="gmc-data-source-id" placeholder="e.g., 10599592289">
+              <div class="form-hint">
+                Find this in Merchant Center > Products > All Products > look at the "Source" column, or go to Products > Feeds
+              </div>
+            </div>
+          </div>
+
           <div id="gmc-connection-status" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
 
           <div class="form-row">
             <div class="form-group" style="flex: none;">
-              <button class="btn-save" onclick="saveGmcApiSettings()">Save Merchant Center ID</button>
+              <button class="btn-save" onclick="saveGmcApiSettings()">Save Settings</button>
             </div>
           </div>
         </div>
@@ -2319,11 +2329,12 @@ Wellness"></textarea>
         gmcSettings = data.settings || {};
         document.getElementById('google-sheet-url').value = gmcSettings.google_sheet_url || '';
 
-        // Load API settings (merchant ID)
+        // Load API settings (merchant ID and data source ID)
         const apiResponse = await fetch('/api/gmc/api-settings');
         const apiData = await apiResponse.json();
         gmcApiSettings = apiData.settings || {};
         document.getElementById('gmc-merchant-id').value = gmcApiSettings.gmc_merchant_id || '';
+        document.getElementById('gmc-data-source-id').value = gmcApiSettings.gmc_data_source_id || '';
       } catch (error) {
         console.error('Failed to load GMC settings:', error);
       }
@@ -2355,6 +2366,7 @@ Wellness"></textarea>
     async function saveGmcApiSettings() {
       try {
         const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
+        const dataSourceId = document.getElementById('gmc-data-source-id').value.trim();
 
         if (!gmcMerchantId) {
           alert('Please enter your Merchant Center ID');
@@ -2366,7 +2378,8 @@ Wellness"></textarea>
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             settings: {
-              gmc_merchant_id: gmcMerchantId
+              gmc_merchant_id: gmcMerchantId,
+              gmc_data_source_id: dataSourceId
             }
           })
         });
@@ -2374,7 +2387,7 @@ Wellness"></textarea>
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to save settings');
 
-        alert('Merchant Center ID saved!');
+        alert('Settings saved!');
       } catch (error) {
         alert('Error: ' + error.message);
       }
@@ -2388,13 +2401,14 @@ Wellness"></textarea>
       statusEl.textContent = 'Testing connection...';
 
       try {
-        // Save the merchant ID first
+        // Save the settings first
         const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
+        const dataSourceId = document.getElementById('gmc-data-source-id').value.trim();
         if (gmcMerchantId) {
           await fetch('/api/gmc/api-settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings: { gmc_merchant_id: gmcMerchantId } })
+            body: JSON.stringify({ settings: { gmc_merchant_id: gmcMerchantId, gmc_data_source_id: dataSourceId } })
           });
         }
 
