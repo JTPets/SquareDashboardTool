@@ -23,21 +23,45 @@
     .header {
       background: #2563eb;
       color: white;
-      padding: 20px;
+      padding: 15px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
     }
     .header h1 { font-size: 24px; font-weight: 600; }
+    .header-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
     .back-button {
       background: rgba(255,255,255,0.2);
       color: white;
-      padding: 8px 16px;
-      border-radius: 4px;
+      padding: 8px 12px;
+      border-radius: 6px;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 13px;
+      white-space: nowrap;
     }
     .back-button:hover { background: rgba(255,255,255,0.3); }
+    @media (max-width: 600px) {
+      .header {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+      }
+      .header h1 { font-size: 20px; }
+      .header-buttons {
+        justify-content: center;
+      }
+      .back-button {
+        flex: 1;
+        text-align: center;
+        min-width: 80px;
+      }
+    }
 
     .controls {
       padding: 20px;
@@ -321,7 +345,10 @@
   <div class="container">
     <div class="header">
       <h1>📦 Full Inventory Overview</h1>
-      <a href="/dashboard.html" class="back-button">← Back to Dashboard</a>
+      <div class="header-buttons">
+        <a href="deleted-items.html" class="back-button" style="background: #6b7280;">Deleted Items</a>
+        <a href="/dashboard.html" class="back-button">← Dashboard</a>
+      </div>
     </div>
 
     <div class="controls">

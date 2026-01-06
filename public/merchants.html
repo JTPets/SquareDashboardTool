@@ -33,10 +33,12 @@
     .header {
       background: #2563eb;
       color: white;
-      padding: 20px;
+      padding: 15px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
     }
 
     .header-content h1 {
@@ -53,7 +55,31 @@
 
     .header-actions {
       display: flex;
-      gap: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    @media (max-width: 700px) {
+      .header {
+        flex-direction: column;
+        text-align: center;
+      }
+      .header-content {
+        flex-direction: column !important;
+        gap: 8px !important;
+      }
+      .header-content img {
+        height: 50px !important;
+      }
+      .header-actions {
+        justify-content: center;
+        width: 100%;
+      }
+      .header-actions .btn {
+        flex: 1;
+        min-width: 100px;
+        justify-content: center;
+      }
     }
 
     .btn {
@@ -459,9 +485,10 @@
         </div>
       </div>
       <div class="header-actions">
-        <a href="dashboard.html" class="btn btn-secondary">Back to Dashboard</a>
+        <a href="settings.html" class="btn btn-secondary" style="background: #6b7280;">⚙️ Settings</a>
+        <a href="dashboard.html" class="btn btn-secondary">← Dashboard</a>
         <button class="btn btn-primary" onclick="connectSquare()">
-          + Connect Square Account
+          + Connect Account
         </button>
       </div>
     </div>
