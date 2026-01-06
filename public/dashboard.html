@@ -312,6 +312,27 @@
       background: #047857;
     }
 
+    .tool-card-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tool-card-links a {
+      flex: 1;
+      min-width: 100px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .tool-card-links a.secondary {
+      background: #6b7280;
+    }
+
+    .tool-card-links a.secondary:hover {
+      background: #4b5563;
+    }
+
     /* CARD CATEGORIES */
     .critical {
       border-left: 4px solid #ef4444;
@@ -597,20 +618,15 @@
     <!-- TOOL CARDS -->
     <div class="tools-grid">
 
-      <!-- REORDER SUGGESTIONS -->
+      <!-- REORDER & PURCHASE ORDERS (consolidated) -->
       <div class="tool-card inventory">
         <div class="tag value">START HERE</div>
-        <h2>📦 Reorder Suggestions</h2>
-        <p>Smart reorder suggestions by vendor with one-click purchase order creation. View stock levels, sales velocity, and generate POs instantly.</p>
-        <a href="reorder.html">View Reorders</a>
-      </div>
-
-      <!-- PO MANAGEMENT -->
-      <div class="tool-card inventory">
-        <div class="tag new">NEW</div>
-        <h2>📋 Manage Purchase Orders</h2>
-        <p>View, edit, and track all purchase orders. Export to CSV, view history, and mark orders as received.</p>
-        <a href="purchase-orders.html">View All POs</a>
+        <h2>📦 Reorder & Purchase Orders</h2>
+        <p>Smart reorder suggestions by vendor. Create, track, and manage purchase orders. Export to CSV and mark as received.</p>
+        <div class="tool-card-links">
+          <a href="reorder.html">Reorder Suggestions</a>
+          <a href="purchase-orders.html" class="secondary">Manage POs</a>
+        </div>
       </div>
 
       <!-- EXPIRATION TRACKER -->
@@ -636,19 +652,14 @@
         <a href="sales-velocity.html">View Reports</a>
       </div>
 
-      <!-- CYCLE COUNT -->
+      <!-- CYCLE COUNT (consolidated) -->
       <div class="tool-card operations">
-        <div class="tag new">NEW</div>
-        <h2>🔄 Cycle Count System</h2>
-        <p>Mobile-optimized cycle counting with rotation logic. Track count history and priority items.</p>
-        <a href="cycle-count.html">Start Counting</a>
-      </div>
-
-      <!-- CYCLE COUNT HISTORY -->
-      <div class="tool-card operations">
-        <h2>📊 Cycle Count History</h2>
-        <p>View historical cycle count data, accuracy tracking, and variance reports.</p>
-        <a href="cycle-count-history.html">View History</a>
+        <h2>🔄 Cycle Count</h2>
+        <p>Mobile-optimized cycle counting with rotation logic. Track counts, view history, and variance reports.</p>
+        <div class="tool-card-links">
+          <a href="cycle-count.html">Start Counting</a>
+          <a href="cycle-count-history.html" class="secondary">History</a>
+        </div>
       </div>
 
       <!-- DELETED ITEMS -->
