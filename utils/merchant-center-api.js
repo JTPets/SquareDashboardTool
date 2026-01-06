@@ -233,11 +233,12 @@ async function upsertProduct(options) {
 
     try {
         // Use the Products API (products_v1beta)
-        // POST /products/v1beta/accounts/{account}/productInputs:insert
-        const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert`;
+        // dataSource must be passed as query parameter, not in body
+        const dataSourceName = `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
+        const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
 
-        // Convert to Merchant API format
-        const productInput = buildMerchantApiProduct(product, gmcMerchantId, dataSourceId);
+        // Convert to Merchant API format (without dataSource in body)
+        const productInput = buildMerchantApiProduct(product, gmcMerchantId);
 
         const response = await merchantApiRequest(auth, 'POST', path, productInput);
         return { success: true, data: response };
@@ -304,14 +305,12 @@ async function batchUpsertProducts(options) {
 /**
  * Build Merchant API product input from our product data
  * Merchant API uses a different structure than Content API
+ * Note: dataSource is passed as query param, not in body
  */
-function buildMerchantApiProduct(product, gmcMerchantId, dataSourceId) {
+function buildMerchantApiProduct(product, gmcMerchantId) {
     // Merchant API productInput format
     // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
     return {
-        name: `accounts/${gmcMerchantId}/productInputs/${product.offerId}`,
-        product: `accounts/${gmcMerchantId}/products/${product.offerId}`,
-        dataSource: `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`,
         offerId: product.offerId,
         contentLanguage: product.contentLanguage || 'en',
         feedLabel: product.targetCountry || 'CA',
