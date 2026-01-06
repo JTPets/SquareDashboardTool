@@ -2892,11 +2892,19 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
  */
 async function updateVariationCost(variationId, vendorId, newCostCents, currency = 'CAD', options = {}) {
     const { merchantId } = options;
+
+    if (!merchantId) {
+        throw new Error('merchantId is required for updateVariationCost');
+    }
+
     logger.info('Updating variation cost in Square', { variationId, vendorId, newCostCents, currency, merchantId });
+
+    // Get merchant-specific access token
+    const accessToken = await getMerchantToken(merchantId);
 
     try {
         // First, retrieve the current catalog object to get its version and existing data
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`);
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`, { accessToken });
 
         if (!retrieveData.object) {
             throw new Error(`Catalog object not found: ${variationId}`);
@@ -2961,12 +2969,14 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
 
         const data = await makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
-            body: JSON.stringify(updateBody)
+            body: JSON.stringify(updateBody),
+            accessToken
         });
 
         logger.info('Variation cost updated in Square', {
             variationId,
             vendorId,
+            merchantId,
             oldCost: oldCostCents,
             newCost: newCostCents,
             newVersion: data.catalog_object?.version
@@ -2994,6 +3004,7 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
         logger.error('Failed to update variation cost', {
             variationId,
             vendorId,
+            merchantId,
             newCostCents,
             error: error.message,
             stack: error.stack
