@@ -5091,6 +5091,35 @@ app.get('/api/gmc/api/sync-history', requireAuth, requireMerchant, async (req, r
     }
 });
 
+/**
+ * POST /api/gmc/api/cleanup-stale-syncs
+ * Mark old in_progress syncs as interrupted (older than 10 minutes)
+ */
+app.post('/api/gmc/api/cleanup-stale-syncs', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await db.query(`
+            UPDATE gmc_sync_logs
+            SET status = 'interrupted',
+                completed_at = NOW(),
+                error_details = '["Sync was interrupted or timed out"]'
+            WHERE merchant_id = $1
+              AND status = 'in_progress'
+              AND started_at < NOW() - INTERVAL '10 minutes'
+            RETURNING id
+        `, [merchantId]);
+
+        res.json({
+            success: true,
+            cleaned: result.rowCount,
+            message: `Marked ${result.rowCount} stale syncs as interrupted`
+        });
+    } catch (error) {
+        logger.error('Cleanup stale syncs error', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ==================== VENDOR ENDPOINTS ====================
 
 /**

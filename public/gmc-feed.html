@@ -1257,9 +1257,12 @@ Wellness"></textarea>
               </tbody>
             </table>
           </div>
-          <div style="margin-top: 10px;">
+          <div style="margin-top: 10px; display: flex; gap: 10px;">
             <button onclick="loadSyncHistory()" style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">
               Refresh History
+            </button>
+            <button onclick="cleanupStaleSyncs()" style="background: #fef3c7; border: 1px solid #fcd34d; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; color: #92400e;">
+              Clear Stuck Syncs
             </button>
           </div>
         </div>
@@ -2612,10 +2615,12 @@ Wellness"></textarea>
         tbody.innerHTML = data.history.map(row => {
           const statusColor = row.status === 'success' ? '#059669' :
                              row.status === 'partial' ? '#d97706' :
-                             row.status === 'in_progress' ? '#2563eb' : '#dc2626';
+                             row.status === 'in_progress' ? '#2563eb' :
+                             row.status === 'interrupted' ? '#6b7280' : '#dc2626';
           const statusBg = row.status === 'success' ? '#dcfce7' :
                           row.status === 'partial' ? '#fef3c7' :
-                          row.status === 'in_progress' ? '#dbeafe' : '#fee2e2';
+                          row.status === 'in_progress' ? '#dbeafe' :
+                          row.status === 'interrupted' ? '#f3f4f6' : '#fee2e2';
           const typeLabel = row.sync_type === 'product_catalog' ? 'Products' :
                            row.sync_type === 'local_inventory_all' ? 'Inventory (All)' :
                            row.sync_type.replace(/_/g, ' ');
@@ -2644,6 +2649,22 @@ Wellness"></textarea>
         console.error('Failed to load sync history:', error);
         document.getElementById('sync-history-body').innerHTML =
           '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #dc2626;">Error loading history</td></tr>';
+      }
+    }
+
+    async function cleanupStaleSyncs() {
+      try {
+        const response = await fetch('/api/gmc/api/cleanup-stale-syncs', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+          alert(data.message);
+          loadSyncHistory();
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
       }
     }
 
