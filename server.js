@@ -6965,19 +6965,22 @@ app.get('/api/purchase-orders/:id', requireAuth, requireMerchant, async (req, re
 
         const po = poResult.rows[0];
 
-        // Get PO items
+        // Get PO items with vendor code and UPC for reconciliation
         const itemsResult = await db.query(`
             SELECT
                 poi.*,
                 v.sku,
+                v.upc as gtin,
                 i.name as item_name,
-                v.name as variation_name
+                v.name as variation_name,
+                vv.vendor_code
             FROM purchase_order_items poi
             JOIN variations v ON poi.variation_id = v.id AND v.merchant_id = $2
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.vendor_id = $3 AND vv.merchant_id = $2
             WHERE poi.purchase_order_id = $1 AND poi.merchant_id = $2
             ORDER BY i.name, v.name
-        `, [id, merchantId]);
+        `, [id, merchantId, po.vendor_id]);
 
         po.items = itemsResult.rows;
 
