@@ -203,6 +203,90 @@ async function ensureSchema() {
     try {
     logger.info('Checking database schema...');
 
+    let appliedCount = 0;
+
+    // ==================== FOUNDATIONAL TABLES (must be created FIRST) ====================
+    // These tables are referenced by many other tables, so they must exist before anything else
+
+    // 1. Users table - MUST be created before subscribers, auth_audit_log, etc.
+    const usersTableExists = await query(`
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'users'
+        )
+    `);
+
+    if (!usersTableExists.rows[0].exists) {
+        logger.info('Creating users table (foundational)...');
+        await query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                name TEXT,
+                role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'readonly')),
+                is_active BOOLEAN DEFAULT TRUE,
+                failed_login_attempts INTEGER DEFAULT 0,
+                locked_until TIMESTAMPTZ,
+                last_login TIMESTAMPTZ,
+                password_changed_at TIMESTAMPTZ DEFAULT NOW(),
+                terms_accepted_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+        await query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
+        await query('CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active) WHERE is_active = TRUE');
+        logger.info('Created users table with indexes');
+        appliedCount++;
+    }
+
+    // 2. Merchants table - MUST be created before google_oauth_tokens, gmc_location_settings, etc.
+    const merchantsTableExists = await query(`
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'merchants'
+        )
+    `);
+
+    if (!merchantsTableExists.rows[0].exists) {
+        logger.info('Creating merchants table (foundational)...');
+        await query(`
+            CREATE TABLE IF NOT EXISTS merchants (
+                id SERIAL PRIMARY KEY,
+                square_merchant_id TEXT UNIQUE NOT NULL,
+                business_name TEXT NOT NULL,
+                business_email TEXT,
+                square_access_token TEXT NOT NULL,
+                square_refresh_token TEXT,
+                square_token_expires_at TIMESTAMPTZ,
+                square_token_scopes TEXT[],
+                subscription_status TEXT DEFAULT 'trial',
+                subscription_plan_id INTEGER,
+                trial_ends_at TIMESTAMPTZ,
+                subscription_ends_at TIMESTAMPTZ,
+                timezone TEXT DEFAULT 'America/New_York',
+                currency TEXT DEFAULT 'USD',
+                settings JSONB DEFAULT '{}',
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                last_sync_at TIMESTAMPTZ,
+                CONSTRAINT valid_subscription_status CHECK (
+                    subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
+                )
+            )
+        `);
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_square_id ON merchants(square_merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_subscription ON merchants(subscription_status, is_active)');
+        await query('CREATE INDEX IF NOT EXISTS idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE');
+        logger.info('Created merchants table with indexes');
+        appliedCount++;
+    }
+
+    // ==================== COLUMN MIGRATIONS ====================
+
     const migrations = [
         // Soft delete tracking (added in earlier migration)
         { table: 'items', column: 'is_deleted', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
@@ -225,8 +309,6 @@ async function ensureSchema() {
         { table: 'variation_expiration', column: 'reviewed_at', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ' },
         { table: 'variation_expiration', column: 'reviewed_by', sql: 'ALTER TABLE variation_expiration ADD COLUMN IF NOT EXISTS reviewed_by TEXT' },
     ];
-
-    let appliedCount = 0;
 
     // ==================== VARIATION EXPIRATION TABLE ====================
     // Ensure variation_expiration table exists (needed for review tracking columns)
@@ -876,40 +958,15 @@ async function ensureSchema() {
         // Legacy global settings migration removed as the table now uses (setting_key, merchant_id) unique constraint.
     }
 
-    // ==================== USER AUTHENTICATION TABLES ====================
+    // ==================== USER AUTHENTICATION RELATED TABLES ====================
+    // Note: Users table is created in FOUNDATIONAL TABLES section at the top
+    // Here we create the related tables that depend on users existing
 
-    // Check if users table exists
-    const usersCheck = await query(`
-        SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'users'
+    // Sessions table (for connect-pg-simple)
+    const sessionsTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sessions')
     `);
-
-    if (usersCheck.rows.length === 0) {
-        logger.info('Creating user authentication tables...');
-
-        // 1. Users table
-        await query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                name TEXT,
-                role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'readonly')),
-                is_active BOOLEAN DEFAULT TRUE,
-                failed_login_attempts INTEGER DEFAULT 0,
-                locked_until TIMESTAMPTZ,
-                last_login TIMESTAMPTZ,
-                password_changed_at TIMESTAMPTZ DEFAULT NOW(),
-                terms_accepted_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        `);
-        await query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
-        await query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
-        await query('CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active) WHERE is_active = TRUE');
-
-        // 2. Sessions table (for connect-pg-simple)
+    if (!sessionsTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS sessions (
                 sid VARCHAR NOT NULL PRIMARY KEY,
@@ -918,8 +975,15 @@ async function ensureSchema() {
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire)');
+        logger.info('Created sessions table');
+        appliedCount++;
+    }
 
-        // 3. Auth audit log table
+    // Auth audit log table
+    const authAuditTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'auth_audit_log')
+    `);
+    if (!authAuditTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS auth_audit_log (
                 id SERIAL PRIMARY KEY,
@@ -934,8 +998,15 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_user ON auth_audit_log(user_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_event ON auth_audit_log(event_type)');
         await query('CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON auth_audit_log(created_at DESC)');
+        logger.info('Created auth_audit_log table');
+        appliedCount++;
+    }
 
-        // 4. Password reset tokens table
+    // Password reset tokens table
+    const resetTokensTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'password_reset_tokens')
+    `);
+    if (!resetTokensTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS password_reset_tokens (
                 id SERIAL PRIMARY KEY,
@@ -949,33 +1020,8 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token)');
         await query('CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at)');
-
-        logger.info('Created user authentication tables with indexes');
+        logger.info('Created password_reset_tokens table');
         appliedCount++;
-    } else {
-        // Check if password_reset_tokens table exists (may need to add to existing installs)
-        const resetTokensCheck = await query(`
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'password_reset_tokens'
-        `);
-
-        if (resetTokensCheck.rows.length === 0) {
-            await query(`
-                CREATE TABLE IF NOT EXISTS password_reset_tokens (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    token TEXT NOT NULL UNIQUE,
-                    expires_at TIMESTAMPTZ NOT NULL,
-                    used_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            `);
-            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token)');
-            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)');
-            await query('CREATE INDEX IF NOT EXISTS idx_password_reset_expires ON password_reset_tokens(expires_at)');
-            logger.info('Created password_reset_tokens table');
-            appliedCount++;
-        }
     }
 
     // ==================== WEBHOOK EVENTS TABLE ====================
@@ -1012,51 +1058,15 @@ async function ensureSchema() {
         appliedCount++;
     }
 
-    // ==================== MULTI-TENANT TABLES ====================
-    // These tables support the multi-merchant OAuth system
+    // ==================== MULTI-TENANT RELATED TABLES ====================
+    // Note: Merchants table is created in FOUNDATIONAL TABLES section at the top
+    // Here we create the related tables that depend on merchants existing
 
-    const merchantsTableExists = await query(`
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables
-            WHERE table_name = 'merchants'
-        )
+    // User-Merchant relationships
+    const userMerchantsTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'user_merchants')
     `);
-
-    if (!merchantsTableExists.rows[0].exists) {
-        logger.info('Creating multi-tenant tables...');
-
-        // 1. Merchants table - Core tenant table storing Square OAuth credentials
-        await query(`
-            CREATE TABLE IF NOT EXISTS merchants (
-                id SERIAL PRIMARY KEY,
-                square_merchant_id TEXT UNIQUE NOT NULL,
-                business_name TEXT NOT NULL,
-                business_email TEXT,
-                square_access_token TEXT NOT NULL,
-                square_refresh_token TEXT,
-                square_token_expires_at TIMESTAMPTZ,
-                square_token_scopes TEXT[],
-                subscription_status TEXT DEFAULT 'trial',
-                subscription_plan_id INTEGER,
-                trial_ends_at TIMESTAMPTZ,
-                subscription_ends_at TIMESTAMPTZ,
-                timezone TEXT DEFAULT 'America/New_York',
-                currency TEXT DEFAULT 'USD',
-                settings JSONB DEFAULT '{}',
-                is_active BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW(),
-                last_sync_at TIMESTAMPTZ,
-                CONSTRAINT valid_subscription_status CHECK (
-                    subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
-                )
-            )
-        `);
-        await query('CREATE INDEX IF NOT EXISTS idx_merchants_square_id ON merchants(square_merchant_id)');
-        await query('CREATE INDEX IF NOT EXISTS idx_merchants_subscription ON merchants(subscription_status, is_active)');
-        await query('CREATE INDEX IF NOT EXISTS idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE');
-
-        // 2. User-Merchant relationships
+    if (!userMerchantsTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS user_merchants (
                 id SERIAL PRIMARY KEY,
@@ -1074,8 +1084,15 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_user ON user_merchants(user_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_merchant ON user_merchants(merchant_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_user_merchants_primary ON user_merchants(user_id, is_primary) WHERE is_primary = TRUE');
+        logger.info('Created user_merchants table');
+        appliedCount++;
+    }
 
-        // 3. Merchant invitations
+    // Merchant invitations
+    const merchantInvitationsTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'merchant_invitations')
+    `);
+    if (!merchantInvitationsTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS merchant_invitations (
                 id SERIAL PRIMARY KEY,
@@ -1092,8 +1109,15 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_token ON merchant_invitations(token)');
         await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_email ON merchant_invitations(email)');
         await query('CREATE INDEX IF NOT EXISTS idx_merchant_invitations_merchant ON merchant_invitations(merchant_id)');
+        logger.info('Created merchant_invitations table');
+        appliedCount++;
+    }
 
-        // 4. OAuth states for CSRF protection
+    // OAuth states for CSRF protection
+    const oauthStatesTableCheck = await query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'oauth_states')
+    `);
+    if (!oauthStatesTableCheck.rows[0].exists) {
         await query(`
             CREATE TABLE IF NOT EXISTS oauth_states (
                 id SERIAL PRIMARY KEY,
@@ -1107,8 +1131,7 @@ async function ensureSchema() {
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state)');
         await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)');
-
-        logger.info('Created multi-tenant tables with indexes');
+        logger.info('Created oauth_states table');
         appliedCount++;
     }
 
