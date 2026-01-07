@@ -20,8 +20,72 @@ DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS vendors CASCADE;
 DROP TABLE IF EXISTS locations CASCADE;
 DROP TABLE IF EXISTS sync_history CASCADE;
+DROP TABLE IF EXISTS user_merchants CASCADE;
+DROP TABLE IF EXISTS merchant_invitations CASCADE;
+DROP TABLE IF EXISTS oauth_states CASCADE;
+DROP TABLE IF EXISTS merchants CASCADE;
+DROP TABLE IF EXISTS password_reset_tokens CASCADE;
+DROP TABLE IF EXISTS auth_audit_log CASCADE;
+DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
 -- Create tables
+
+-- ==================== FOUNDATIONAL TABLES (must be created FIRST) ====================
+-- These tables are referenced by many other tables via foreign keys
+
+-- 0a. Users table - authentication and user management
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name TEXT,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'readonly')),
+    is_active BOOLEAN DEFAULT TRUE,
+    failed_login_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMPTZ,
+    last_login TIMESTAMPTZ,
+    password_changed_at TIMESTAMPTZ DEFAULT NOW(),
+    terms_accepted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = TRUE;
+
+-- 0b. Merchants table - multi-tenant support, stores Square OAuth credentials
+CREATE TABLE merchants (
+    id SERIAL PRIMARY KEY,
+    square_merchant_id TEXT UNIQUE NOT NULL,
+    business_name TEXT NOT NULL,
+    business_email TEXT,
+    square_access_token TEXT NOT NULL,
+    square_refresh_token TEXT,
+    square_token_expires_at TIMESTAMPTZ,
+    square_token_scopes TEXT[],
+    subscription_status TEXT DEFAULT 'trial',
+    subscription_plan_id INTEGER,
+    trial_ends_at TIMESTAMPTZ,
+    subscription_ends_at TIMESTAMPTZ,
+    timezone TEXT DEFAULT 'America/New_York',
+    currency TEXT DEFAULT 'USD',
+    settings JSONB DEFAULT '{}',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    last_sync_at TIMESTAMPTZ,
+    CONSTRAINT valid_subscription_status CHECK (
+        subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
+    )
+);
+
+CREATE INDEX idx_merchants_square_id ON merchants(square_merchant_id);
+CREATE INDEX idx_merchants_subscription ON merchants(subscription_status, is_active);
+CREATE INDEX idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE;
+
+-- ==================== CORE APPLICATION TABLES ====================
 
 -- 1. Sync history tracking for smart sync optimization
 CREATE TABLE sync_history (
