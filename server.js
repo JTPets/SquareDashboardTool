@@ -9201,6 +9201,128 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            // ==================== VENDOR WEBHOOKS ====================
+
+            case 'vendor.created':
+            case 'vendor.updated':
+                // Vendor created or updated in Square - sync to local database
+                if (process.env.WEBHOOK_CATALOG_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync vendor - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
+                    try {
+                        const vendor = data.vendor;
+                        logger.info('Vendor change detected via webhook', {
+                            vendorId: vendor?.id,
+                            vendorName: vendor?.name,
+                            status: vendor?.status,
+                            eventType: event.type,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Sync the specific vendor directly
+                        if (vendor) {
+                            await db.query(`
+                                INSERT INTO vendors (
+                                    id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at
+                                )
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    name = EXCLUDED.name,
+                                    status = EXCLUDED.status,
+                                    contact_name = EXCLUDED.contact_name,
+                                    contact_email = EXCLUDED.contact_email,
+                                    contact_phone = EXCLUDED.contact_phone,
+                                    merchant_id = EXCLUDED.merchant_id,
+                                    updated_at = CURRENT_TIMESTAMP
+                            `, [
+                                vendor.id,
+                                vendor.name,
+                                vendor.status,
+                                vendor.contacts?.[0]?.name || null,
+                                vendor.contacts?.[0]?.email_address || null,
+                                vendor.contacts?.[0]?.phone_number || null,
+                                internalMerchantId
+                            ]);
+                            syncResults.vendor = {
+                                id: vendor.id,
+                                name: vendor.name,
+                                status: vendor.status
+                            };
+                            logger.info('Vendor synced via webhook', { vendorId: vendor.id, vendorName: vendor.name });
+                        }
+                    } catch (syncError) {
+                        logger.error('Vendor sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
+                    }
+                } else {
+                    logger.info('Vendor webhook received but WEBHOOK_CATALOG_SYNC is disabled');
+                    syncResults.skipped = true;
+                }
+                break;
+
+            // ==================== LOCATION WEBHOOKS ====================
+
+            case 'location.created':
+            case 'location.updated':
+                // Location created or updated in Square - sync to local database
+                if (process.env.WEBHOOK_CATALOG_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot sync location - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
+                    try {
+                        const location = data.location;
+                        logger.info('Location change detected via webhook', {
+                            locationId: location?.id,
+                            locationName: location?.name,
+                            status: location?.status,
+                            eventType: event.type,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Sync the specific location directly
+                        if (location) {
+                            await db.query(`
+                                INSERT INTO locations (id, name, square_location_id, active, address, timezone, merchant_id, updated_at)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    name = EXCLUDED.name,
+                                    square_location_id = EXCLUDED.square_location_id,
+                                    active = EXCLUDED.active,
+                                    address = EXCLUDED.address,
+                                    timezone = EXCLUDED.timezone,
+                                    merchant_id = EXCLUDED.merchant_id,
+                                    updated_at = CURRENT_TIMESTAMP
+                            `, [
+                                location.id,
+                                location.name,
+                                location.id,
+                                location.status === 'ACTIVE',
+                                location.address ? JSON.stringify(location.address) : null,
+                                location.timezone,
+                                internalMerchantId
+                            ]);
+                            syncResults.location = {
+                                id: location.id,
+                                name: location.name,
+                                status: location.status
+                            };
+                            logger.info('Location synced via webhook', { locationId: location.id, locationName: location.name });
+                        }
+                    } catch (syncError) {
+                        logger.error('Location sync via webhook failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
+                    }
+                } else {
+                    logger.info('Location webhook received but WEBHOOK_CATALOG_SYNC is disabled');
+                    syncResults.skipped = true;
+                }
+                break;
+
             // ==================== OAUTH WEBHOOKS ====================
 
             case 'oauth.authorization.revoked':
