@@ -9130,6 +9130,7 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'order.created':
             case 'order.updated':
                 // Order created/updated - sync committed inventory (open orders)
+                // Also sync sales velocity when order is COMPLETED (catches delivery orders)
                 if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
                     if (!internalMerchantId) {
                         logger.warn('Cannot sync committed inventory - merchant not found for webhook');
@@ -9151,6 +9152,14 @@ app.post('/api/webhooks/square', async (req, res) => {
                             logger.info('Committed inventory sync skipped via webhook', { reason: committedResult.reason });
                         } else {
                             logger.info('Committed inventory sync completed via webhook', { count: committedResult });
+                        }
+
+                        // If order is COMPLETED, also sync sales velocity
+                        // This catches delivery orders that may not trigger fulfillment webhooks
+                        if (order?.state === 'COMPLETED') {
+                            await squareApi.syncSalesVelocity(91, internalMerchantId);
+                            syncResults.salesVelocity = true;
+                            logger.info('Sales velocity sync completed via order.updated (COMPLETED state)');
                         }
                     } catch (syncError) {
                         logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
