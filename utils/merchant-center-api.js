@@ -598,7 +598,7 @@ async function syncProductCatalog(merchantId) {
  * Uses the new Merchant Inventories API
  */
 async function updateLocalInventory(options) {
-    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability } = options;
+    const { merchantId, gmcMerchantId, storeCode, productId, quantity, availability, feedLabel, contentLanguage } = options;
 
     const auth = await getAuthClient(merchantId);
 
@@ -607,7 +607,10 @@ async function updateLocalInventory(options) {
     try {
         // Merchant Inventories API endpoint
         // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
-        const productName = `online~en~CA~${productId}`;
+        // Product name format: channel~contentLanguage~feedLabel~offerId
+        const lang = contentLanguage || 'en';
+        const feed = feedLabel || 'CA';
+        const productName = `online~${lang}~${feed}~${productId}`;
         const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
 
         const localInventory = {
@@ -622,7 +625,8 @@ async function updateLocalInventory(options) {
             merchantId,
             gmcMerchantId,
             storeCode,
-            productId
+            productId,
+            productName
         });
 
         return { success: true, data: response };
@@ -643,7 +647,7 @@ async function updateLocalInventory(options) {
  * Processes in parallel with concurrency limit
  */
 async function batchUpdateLocalInventory(options) {
-    const { merchantId, gmcMerchantId, storeCode, items } = options;
+    const { merchantId, gmcMerchantId, storeCode, items, feedLabel, contentLanguage } = options;
 
     const results = {
         success: true,
@@ -664,7 +668,9 @@ async function batchUpdateLocalInventory(options) {
                     gmcMerchantId,
                     storeCode,
                     productId: item.productId,
-                    quantity: item.quantity
+                    quantity: item.quantity,
+                    feedLabel,
+                    contentLanguage
                 });
                 return { success: true, index: i + idx };
             } catch (error) {
@@ -773,12 +779,14 @@ async function syncLocationInventory(options) {
         quantity: row.quantity
     }));
 
-    // Batch update
+    // Batch update - pass feedLabel and contentLanguage from settings
     const result = await batchUpdateLocalInventory({
         merchantId,
         gmcMerchantId,
         storeCode: location.store_code,
-        items
+        items,
+        feedLabel: settings.feed_label,
+        contentLanguage: settings.content_language
     });
 
     return {
