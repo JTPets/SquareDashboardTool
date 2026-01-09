@@ -504,7 +504,7 @@ async function syncProductCatalog(merchantId) {
             b.name as brand_name,
             gt.name as google_product_category,
             (SELECT img.url FROM images img
-             WHERE img.id = (i.images->0)::text
+             WHERE img.id = i.images->>0
                AND img.merchant_id = $1
              LIMIT 1) as image_url,
             COALESCE(
