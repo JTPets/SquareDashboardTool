@@ -618,11 +618,18 @@ async function updateLocalInventory(options) {
         quantity: quantity.toString()
     };
 
+    // Debug: Write to file for troubleshooting (first few only)
+    const fs = require('fs');
+    const debugFile = require('path').join(__dirname, '../output/gmc-local-inventory-debug.log');
+    if (!updateLocalInventory._debugCount) updateLocalInventory._debugCount = 0;
+
     try {
         const response = await merchantApiRequest(auth, 'POST', path, localInventory);
 
-        // Only log first success to avoid spam (use static flag)
+        // Log first success to debug file
         if (!updateLocalInventory._loggedSuccess) {
+            const successMsg = `[${new Date().toISOString()}] SUCCESS: productId=${productId}, productName=${productName}, storeCode=${storeCode}\n`;
+            fs.appendFileSync(debugFile, successMsg);
             logger.info('First successful local inventory update', {
                 productId,
                 productName,
@@ -634,6 +641,24 @@ async function updateLocalInventory(options) {
 
         return { success: true, data: response };
     } catch (error) {
+        // Write errors to debug file
+        updateLocalInventory._debugCount++;
+        if (updateLocalInventory._debugCount <= 10) {
+            const errorMsg = `[${new Date().toISOString()}] ERROR #${updateLocalInventory._debugCount}:
+  productId: ${productId}
+  productName: ${productName}
+  storeCode: ${storeCode}
+  path: ${path}
+  feedLabel: ${feed}
+  contentLanguage: ${lang}
+  error: ${error.message}
+  details: ${error.details ? JSON.stringify(error.details, null, 2) : 'none'}
+  body: ${JSON.stringify(localInventory)}
+---
+`;
+            fs.appendFileSync(debugFile, errorMsg);
+        }
+
         // Log errors with full details for debugging
         // Only log first few errors to avoid spam
         if (!updateLocalInventory._errorCount) {
@@ -846,6 +871,12 @@ async function syncAllLocationsInventory(merchantId) {
     // Reset logging flags for fresh sync
     updateLocalInventory._loggedSuccess = false;
     updateLocalInventory._errorCount = 0;
+    updateLocalInventory._debugCount = 0;
+
+    // Write sync start to debug file
+    const fs = require('fs');
+    const debugFile = require('path').join(__dirname, '../output/gmc-local-inventory-debug.log');
+    fs.writeFileSync(debugFile, `[${new Date().toISOString()}] === STARTING LOCAL INVENTORY SYNC ===\nmerchantId: ${merchantId}\n\n`);
 
     // Create sync log entry
     const logId = await createSyncLog({
