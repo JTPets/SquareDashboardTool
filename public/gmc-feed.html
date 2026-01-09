@@ -1177,10 +1177,18 @@ Wellness"></textarea>
 
           <div class="form-row">
             <div class="form-group">
-              <label for="gmc-data-source-id">Data Source ID</label>
+              <label for="gmc-data-source-id">Data Source ID (Online Products)</label>
               <input type="text" id="gmc-data-source-id" placeholder="e.g., 10599592289">
               <div class="form-hint">
-                Find this in Merchant Center > Products > All Products > look at the "Source" column, or go to Products > Feeds
+                For ONLINE channel products. Find in Merchant Center > Products > Feeds
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="gmc-local-data-source-id">Local Data Source ID (Optional)</label>
+              <input type="text" id="gmc-local-data-source-id" placeholder="e.g., 10599592290">
+              <div class="form-hint">
+                For LOCAL channel products (enables local inventory sync).<br>
+                <strong>Create a separate "Local products" data source in GMC for this.</strong>
               </div>
             </div>
           </div>
@@ -2363,6 +2371,7 @@ Wellness"></textarea>
         gmcApiSettings = apiData.settings || {};
         document.getElementById('gmc-merchant-id').value = gmcApiSettings.gmc_merchant_id || '';
         document.getElementById('gmc-data-source-id').value = gmcApiSettings.gmc_data_source_id || '';
+        document.getElementById('gmc-local-data-source-id').value = gmcApiSettings.gmc_local_data_source_id || '';
         document.getElementById('gmc-feed-label').value = gmcApiSettings.feed_label || '';
         document.getElementById('gmc-content-language').value = gmcApiSettings.content_language || '';
       } catch (error) {
@@ -2397,6 +2406,7 @@ Wellness"></textarea>
       try {
         const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
         const dataSourceId = document.getElementById('gmc-data-source-id').value.trim();
+        const localDataSourceId = document.getElementById('gmc-local-data-source-id').value.trim();
         // Feed label and content language are now OPTIONAL
         // Leave empty to sync without them (for data sources with unset feed label)
         const feedLabelRaw = document.getElementById('gmc-feed-label').value.trim();
@@ -2416,6 +2426,7 @@ Wellness"></textarea>
             settings: {
               gmc_merchant_id: gmcMerchantId,
               gmc_data_source_id: dataSourceId,
+              gmc_local_data_source_id: localDataSourceId,
               feed_label: feedLabel,
               content_language: contentLanguage
             }
