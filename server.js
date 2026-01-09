@@ -5006,6 +5006,35 @@ app.post('/api/gmc/api/test-connection', requireAuth, requireMerchant, async (re
 });
 
 /**
+ * GET /api/gmc/api/data-source-info
+ * Get data source configuration from Google Merchant Center
+ */
+app.get('/api/gmc/api/data-source-info', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const settings = await gmcApi.getGmcApiSettings(merchantId);
+
+        if (!settings.gmc_merchant_id || !settings.gmc_data_source_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'GMC Merchant ID and Data Source ID must be configured'
+            });
+        }
+
+        const dataSourceInfo = await gmcApi.getDataSourceInfo(
+            merchantId,
+            settings.gmc_merchant_id,
+            settings.gmc_data_source_id
+        );
+
+        res.json({ success: true, dataSource: dataSourceInfo, settings });
+    } catch (error) {
+        logger.error('GMC data source info error', { error: error.message });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * POST /api/gmc/api/sync-products
  * Sync product catalog to Google Merchant Center
  * Runs async in background to avoid timeout

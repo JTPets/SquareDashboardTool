@@ -221,6 +221,25 @@ async function merchantApiRequest(auth, method, path, body = null) {
     return data;
 }
 
+/**
+ * Get data source info from GMC to check its configuration
+ */
+async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
+    try {
+        const auth = await getAuthClient(merchantId);
+        const path = `/datasources/v1beta/accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
+        const response = await merchantApiRequest(auth, 'GET', path);
+        logger.info('GMC Data Source info', {
+            dataSourceId,
+            response: JSON.stringify(response, null, 2)
+        });
+        return response;
+    } catch (error) {
+        logger.error('Failed to get data source info', { error: error.message });
+        return null;
+    }
+}
+
 // ==================== PRODUCT CATALOG SYNC ====================
 
 /**
@@ -410,6 +429,24 @@ async function syncProductCatalog(merchantId) {
                 errors: [{ error: 'Data Source ID not configured. Add your GMC Data Source ID in Settings.' }]
             });
             throw new Error('Data Source ID not configured. Add your GMC Data Source ID in Settings.');
+        }
+
+        // Log settings being used for debugging
+        const feedLabel = settings.feed_label || settings.target_country || 'CA';
+        const contentLanguage = settings.content_language || 'en';
+        logger.info('GMC sync settings', {
+            merchantId,
+            gmcMerchantId,
+            dataSourceId,
+            feedLabel,
+            contentLanguage,
+            allSettings: settings
+        });
+
+        // Try to get data source info to verify configuration
+        const dataSourceInfo = await getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId);
+        if (dataSourceInfo) {
+            logger.info('Data source configuration from GMC', { dataSourceInfo });
         }
 
         // Get all products with required data
@@ -849,6 +886,8 @@ module.exports = {
     // Sync history/status
     getSyncHistory,
     getLastSyncStatus,
+    // Data source info
+    getDataSourceInfo,
     // Product catalog sync
     upsertProduct,
     batchUpsertProducts,
