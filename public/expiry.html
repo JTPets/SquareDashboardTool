@@ -668,6 +668,28 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      // Check for URL parameters to pre-set filters
+      const urlParams = new URLSearchParams(window.location.search);
+      const filterParam = urlParams.get('filter');
+      if (filterParam) {
+        const filterSelect = document.getElementById('expiry-filter');
+        // Map friendly names to filter values
+        const filterMap = {
+          'expiring': '120',
+          'expiring-soon': '120',
+          'no-data': 'no-expiry',
+          'missing': 'no-expiry',
+          'review': 'review',
+          '30': '30',
+          '60': '60',
+          '90': '90',
+          '120': '120'
+        };
+        const filterValue = filterMap[filterParam] || filterParam;
+        if (filterSelect.querySelector(`option[value="${filterValue}"]`)) {
+          filterSelect.value = filterValue;
+        }
+      }
       loadCategories();
       loadItems();
     });
