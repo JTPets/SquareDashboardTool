@@ -1702,15 +1702,30 @@
           // Update local data
           item[field] = newValue;
 
-          // Re-render entire table to recalculate order quantities
+          // For stock_alert_min, also recalculate priority locally if now below minimum
+          if (field === 'stock_alert_min' && newValue !== null) {
+            const availableQty = item.available_quantity || 0;
+            if (availableQty <= newValue) {
+              item.below_minimum = true;
+              // Upgrade priority if currently lower than MEDIUM
+              const priorityOrder = { LOW: 1, MEDIUM: 2, HIGH: 3, URGENT: 4 };
+              if (priorityOrder[item.priority] < priorityOrder['MEDIUM']) {
+                item.priority = 'MEDIUM';
+              }
+            } else {
+              item.below_minimum = false;
+            }
+          }
+
+          // Re-render table (preserves editedOrderQtys and selectedItems)
           renderTable();
           updateFooter();
 
-          // Show success toast for min stock (Square sync)
+          // Show success toast - different message for min stock
           if (field === 'stock_alert_min') {
             showToast('Min stock updated and synced to Square!', 'success');
-            // Refresh suggestions to recalculate reorder quantities with new min stock
-            await getSuggestions();
+            // NOTE: We intentionally do NOT call getSuggestions() here to preserve PO edits
+            // Suggested quantities are unchanged - user can refresh page for full recalculation
           }
 
         } catch (error) {
