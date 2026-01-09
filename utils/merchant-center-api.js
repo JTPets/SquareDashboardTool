@@ -251,6 +251,12 @@ async function upsertProduct(options) {
 
     const auth = await getAuthClient(merchantId);
 
+    // Debug file logging
+    const fs = require('fs');
+    const debugFile = require('path').join(__dirname, '../output/gmc-product-sync-debug.log');
+    if (!upsertProduct._debugCount) upsertProduct._debugCount = { ONLINE: 0, LOCAL: 0 };
+    if (!upsertProduct._successCount) upsertProduct._successCount = { ONLINE: 0, LOCAL: 0 };
+
     try {
         // Use the Products API (products_v1beta)
         // dataSource must be passed as query parameter, not in body
@@ -273,8 +279,31 @@ async function upsertProduct(options) {
         }
 
         const response = await merchantApiRequest(auth, 'POST', path, productInput);
+
+        // Log first success per channel to debug file
+        upsertProduct._successCount[channel]++;
+        if (upsertProduct._successCount[channel] === 1) {
+            const successMsg = `[${new Date().toISOString()}] SUCCESS [${channel}] #1: offerId=${product.offerId}\n`;
+            fs.appendFileSync(debugFile, successMsg);
+        }
+
         return { success: true, data: response };
     } catch (error) {
+        // Write errors to debug file (first 10 per channel)
+        upsertProduct._debugCount[channel]++;
+        if (upsertProduct._debugCount[channel] <= 10) {
+            const errorMsg = `[${new Date().toISOString()}] ERROR [${channel}] #${upsertProduct._debugCount[channel]}:
+  offerId: ${product.offerId}
+  channel: ${channel}
+  feedLabel: ${product.feedLabel || '(not set)'}
+  contentLanguage: ${product.contentLanguage || '(not set)'}
+  error: ${error.message}
+  details: ${error.details ? JSON.stringify(error.details, null, 2) : 'none'}
+---
+`;
+            fs.appendFileSync(debugFile, errorMsg);
+        }
+
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
             productId: product.offerId,
@@ -448,8 +477,15 @@ function buildGmcProduct(row, settings, channel = 'online') {
  * Sync all products to GMC
  */
 async function syncProductCatalog(merchantId) {
-    // Reset debug logging flag for fresh sync
+    // Reset debug logging flags for fresh sync
     upsertProduct._logged = false;
+    upsertProduct._debugCount = { ONLINE: 0, LOCAL: 0 };
+    upsertProduct._successCount = { ONLINE: 0, LOCAL: 0 };
+
+    // Write sync start to debug file
+    const fs = require('fs');
+    const debugFile = require('path').join(__dirname, '../output/gmc-product-sync-debug.log');
+    fs.writeFileSync(debugFile, `[${new Date().toISOString()}] === STARTING PRODUCT CATALOG SYNC ===\nmerchantId: ${merchantId}\n\n`);
 
     // Create sync log entry
     const logId = await createSyncLog({
@@ -586,6 +622,15 @@ async function syncProductCatalog(merchantId) {
         const totalFailed = onlineResult.failed + localResult.failed;
         const allErrors = [...onlineResult.errors.map(e => ({ ...e, channel: 'ONLINE' })),
                           ...localResult.errors.map(e => ({ ...e, channel: 'LOCAL' }))];
+
+        // Write summary to debug file
+        const summaryMsg = `
+[${new Date().toISOString()}] === SYNC COMPLETE ===
+Total products: ${totalProducts}
+ONLINE: ${onlineResult.succeeded} succeeded, ${onlineResult.failed} failed
+LOCAL:  ${localResult.succeeded} succeeded, ${localResult.failed} failed
+`;
+        fs.appendFileSync(debugFile, summaryMsg);
 
         logger.info('Product catalog sync completed', {
             merchantId,
