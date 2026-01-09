@@ -497,6 +497,7 @@ async function syncProductCatalog(merchantId) {
         const settings = await getGmcApiSettings(merchantId);
         const gmcMerchantId = settings.gmc_merchant_id;
         const dataSourceId = settings.gmc_data_source_id;
+        const localDataSourceId = settings.gmc_local_data_source_id; // Separate data source for LOCAL channel
 
         if (!gmcMerchantId) {
             await updateSyncLog(logId, {
@@ -526,6 +527,7 @@ async function syncProductCatalog(merchantId) {
             merchantId,
             gmcMerchantId,
             dataSourceId,
+            localDataSourceId: localDataSourceId || '(not configured - will skip LOCAL sync)',
             feedLabel: settings.feed_label || '(not set - will be omitted)',
             contentLanguage: settings.content_language || '(not set - will be omitted)',
             allSettings: settings
@@ -593,9 +595,6 @@ async function syncProductCatalog(merchantId) {
         // Build GMC products for ONLINE channel
         const onlineProducts = result.rows.map(row => buildGmcProduct(row, settings, 'online'));
 
-        // Build GMC products for LOCAL channel (for local inventory support)
-        const localProducts = result.rows.map(row => buildGmcProduct(row, settings, 'local'));
-
         // Sync ONLINE channel first
         logger.info('Syncing products to ONLINE channel...', { count: onlineProducts.length });
         const onlineResult = await batchUpsertProducts({
@@ -606,15 +605,24 @@ async function syncProductCatalog(merchantId) {
             channel: 'ONLINE'
         });
 
-        // Sync LOCAL channel (required for local inventory to work)
-        logger.info('Syncing products to LOCAL channel...', { count: localProducts.length });
-        const localResult = await batchUpsertProducts({
-            merchantId,
-            gmcMerchantId,
-            dataSourceId,
-            products: localProducts,
-            channel: 'LOCAL'
-        });
+        // Sync LOCAL channel only if a local data source is configured
+        let localResult = { succeeded: 0, failed: 0, errors: [] };
+        if (localDataSourceId) {
+            // Build GMC products for LOCAL channel (for local inventory support)
+            const localProducts = result.rows.map(row => buildGmcProduct(row, settings, 'local'));
+
+            logger.info('Syncing products to LOCAL channel...', { count: localProducts.length, dataSourceId: localDataSourceId });
+            localResult = await batchUpsertProducts({
+                merchantId,
+                gmcMerchantId,
+                dataSourceId: localDataSourceId, // Use separate data source for LOCAL
+                products: localProducts,
+                channel: 'LOCAL'
+            });
+        } else {
+            logger.info('Skipping LOCAL channel sync - no local data source configured');
+            fs.appendFileSync(debugFile, `[${new Date().toISOString()}] SKIPPED LOCAL sync - no gmc_local_data_source_id configured\n`);
+        }
 
         // Combine results
         const totalProducts = onlineProducts.length;
@@ -628,7 +636,7 @@ async function syncProductCatalog(merchantId) {
 [${new Date().toISOString()}] === SYNC COMPLETE ===
 Total products: ${totalProducts}
 ONLINE: ${onlineResult.succeeded} succeeded, ${onlineResult.failed} failed
-LOCAL:  ${localResult.succeeded} succeeded, ${localResult.failed} failed
+LOCAL:  ${localDataSourceId ? `${localResult.succeeded} succeeded, ${localResult.failed} failed` : 'SKIPPED (no data source configured)'}
 `;
         fs.appendFileSync(debugFile, summaryMsg);
 
