@@ -243,6 +243,7 @@ app.get('/api/health', async (req, res) => {
 
         // Check Square connection (quick test using any active merchant)
         let squareStatus = 'not_configured';
+        let squareError = null;
         try {
             const merchantResult = await db.query(
                 'SELECT id FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE LIMIT 1'
@@ -253,6 +254,8 @@ app.get('/api/health', async (req, res) => {
             }
         } catch (e) {
             squareStatus = 'error';
+            squareError = e.message;
+            logger.warn('Health check Square API error', { error: e.message });
         }
 
         // Format uptime
@@ -265,6 +268,7 @@ app.get('/api/health', async (req, res) => {
             status: 'ok',
             database: dbConnected ? 'connected' : 'disconnected',
             square: squareStatus,
+            squareError: squareError,
             uptime: uptime,
             memory: {
                 heapUsed: process.memoryUsage().heapUsed,
