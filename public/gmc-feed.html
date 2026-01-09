@@ -1179,6 +1179,23 @@ Wellness"></textarea>
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label for="gmc-feed-label">Feed Label (Region)</label>
+              <input type="text" id="gmc-feed-label" placeholder="e.g., CA, US, GB" value="CA" style="text-transform: uppercase;">
+              <div class="form-hint">
+                Must match your GMC data source's feed label (usually country code like CA, US, GB)
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="gmc-content-language">Content Language</label>
+              <input type="text" id="gmc-content-language" placeholder="e.g., en, fr" value="en" style="text-transform: lowercase;">
+              <div class="form-hint">
+                Language code (en, fr, de, etc.) - must match your GMC data source
+              </div>
+            </div>
+          </div>
+
           <div id="gmc-connection-status" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
 
           <div class="form-row">
@@ -2329,12 +2346,14 @@ Wellness"></textarea>
         gmcSettings = data.settings || {};
         document.getElementById('google-sheet-url').value = gmcSettings.google_sheet_url || '';
 
-        // Load API settings (merchant ID and data source ID)
+        // Load API settings (merchant ID, data source ID, feed label, language)
         const apiResponse = await fetch('/api/gmc/api-settings');
         const apiData = await apiResponse.json();
         gmcApiSettings = apiData.settings || {};
         document.getElementById('gmc-merchant-id').value = gmcApiSettings.gmc_merchant_id || '';
         document.getElementById('gmc-data-source-id').value = gmcApiSettings.gmc_data_source_id || '';
+        document.getElementById('gmc-feed-label').value = gmcApiSettings.feed_label || 'CA';
+        document.getElementById('gmc-content-language').value = gmcApiSettings.content_language || 'en';
       } catch (error) {
         console.error('Failed to load GMC settings:', error);
       }
@@ -2367,6 +2386,8 @@ Wellness"></textarea>
       try {
         const gmcMerchantId = document.getElementById('gmc-merchant-id').value.trim();
         const dataSourceId = document.getElementById('gmc-data-source-id').value.trim();
+        const feedLabel = document.getElementById('gmc-feed-label').value.trim().toUpperCase() || 'CA';
+        const contentLanguage = document.getElementById('gmc-content-language').value.trim().toLowerCase() || 'en';
 
         if (!gmcMerchantId) {
           alert('Please enter your Merchant Center ID');
@@ -2379,7 +2400,9 @@ Wellness"></textarea>
           body: JSON.stringify({
             settings: {
               gmc_merchant_id: gmcMerchantId,
-              gmc_data_source_id: dataSourceId
+              gmc_data_source_id: dataSourceId,
+              feed_label: feedLabel,
+              content_language: contentLanguage
             }
           })
         });
