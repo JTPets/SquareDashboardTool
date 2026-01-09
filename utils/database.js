@@ -6,6 +6,10 @@
 const { Pool } = require('pg');
 const logger = require('./logger');
 
+// Track shutdown state to prevent queries after pool is closed
+let isShuttingDown = false;
+let activeQueries = 0;
+
 // Create connection pool
 const pool = new Pool({
     user: process.env.DB_USER || 'postgres',
@@ -33,6 +37,17 @@ pool.on('error', (err, client) => {
  * @returns {Promise<Object>} Query result
  */
 async function query(text, params) {
+    // Prevent queries during shutdown to avoid "Cannot use a pool after calling end" errors
+    if (isShuttingDown) {
+        const error = new Error('Database is shutting down - query rejected');
+        error.code = 'POOL_SHUTDOWN';
+        logger.warn('Query rejected - database shutting down', {
+            query: text.substring(0, 50)
+        });
+        throw error;
+    }
+
+    activeQueries++;
     const start = Date.now();
     try {
         const res = await pool.query(text, params);
@@ -55,6 +70,8 @@ async function query(text, params) {
             params: params
         });
         throw error;
+    } finally {
+        activeQueries--;
     }
 }
 
@@ -63,6 +80,15 @@ async function query(text, params) {
  * @returns {Promise<Object>} Client connection
  */
 async function getClient() {
+    // Prevent getting clients during shutdown
+    if (isShuttingDown) {
+        const error = new Error('Database is shutting down - cannot get client');
+        error.code = 'POOL_SHUTDOWN';
+        logger.warn('Client request rejected - database shutting down');
+        throw error;
+    }
+
+    activeQueries++;
     const client = await pool.connect();
     const originalQuery = client.query;
     const originalRelease = client.release;
@@ -82,6 +108,7 @@ async function getClient() {
         clearTimeout(timeout);
         client.query = originalQuery;
         client.release = originalRelease;
+        activeQueries--;
         return originalRelease.apply(client);
     };
 
@@ -189,8 +216,24 @@ async function testConnection() {
 
 /**
  * Close all connections in the pool
+ * Waits for active queries to complete before closing
  */
 async function close() {
+    isShuttingDown = true;
+    logger.info('Database shutdown initiated', { activeQueries });
+
+    // Wait for active queries to complete (up to 10 seconds)
+    const maxWait = 10000;
+    const startTime = Date.now();
+    while (activeQueries > 0 && (Date.now() - startTime) < maxWait) {
+        logger.info('Waiting for active queries to complete', { activeQueries });
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (activeQueries > 0) {
+        logger.warn('Closing pool with active queries still pending', { activeQueries });
+    }
+
     await pool.end();
     logger.info('Database pool closed');
 }
@@ -2182,6 +2225,14 @@ async function getMerchantSetting(merchantId, settingKey) {
     return settings[settingKey] ?? DEFAULT_MERCHANT_SETTINGS[settingKey];
 }
 
+/**
+ * Check if the database pool is shutting down
+ * @returns {boolean} True if shutdown is in progress
+ */
+function isPoolShuttingDown() {
+    return isShuttingDown;
+}
+
 module.exports = {
     query,
     getClient,
@@ -2191,6 +2242,7 @@ module.exports = {
     ensureSchema,
     close,
     pool,
+    isPoolShuttingDown,
     // Merchant settings functions
     getMerchantSettings,
     updateMerchantSettings,
