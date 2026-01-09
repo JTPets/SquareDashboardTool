@@ -244,9 +244,10 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
 
 /**
  * Insert or update a single product in GMC using Merchant API
+ * @param {Object} options - Options including merchantId, gmcMerchantId, dataSourceId, product, channel
  */
 async function upsertProduct(options) {
-    const { merchantId, gmcMerchantId, dataSourceId, product } = options;
+    const { merchantId, gmcMerchantId, dataSourceId, product, channel = 'ONLINE' } = options;
 
     const auth = await getAuthClient(merchantId);
 
@@ -257,7 +258,7 @@ async function upsertProduct(options) {
         const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
 
         // Convert to Merchant API format (without dataSource in body)
-        const productInput = buildMerchantApiProduct(product, gmcMerchantId);
+        const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
 
         // Log first product for debugging (only log first to avoid spam)
         if (!upsertProduct._logged) {
@@ -289,9 +290,11 @@ async function upsertProduct(options) {
  * Batch insert/update products in GMC
  * Note: New Merchant API doesn't have a batch endpoint like the old one,
  * so we process products individually but in parallel
+ *
+ * @param {Object} options - Options including merchantId, gmcMerchantId, dataSourceId, products, channel
  */
 async function batchUpsertProducts(options) {
-    const { merchantId, gmcMerchantId, dataSourceId, products } = options;
+    const { merchantId, gmcMerchantId, dataSourceId, products, channel = 'ONLINE' } = options;
 
     const results = {
         success: true,
@@ -307,7 +310,7 @@ async function batchUpsertProducts(options) {
         const batch = products.slice(i, i + CONCURRENCY);
         const promises = batch.map(async (product, idx) => {
             try {
-                await upsertProduct({ merchantId, gmcMerchantId, dataSourceId, product });
+                await upsertProduct({ merchantId, gmcMerchantId, dataSourceId, product, channel });
                 return { success: true, index: i + idx };
             } catch (error) {
                 return {
@@ -344,13 +347,17 @@ async function batchUpsertProducts(options) {
  * IMPORTANT: feedLabel and contentLanguage must match the data source configuration:
  * - If data source has feedLabel/contentLanguage SET, products must match exactly
  * - If data source has them UNSET, products can have any value OR omit them
+ *
+ * @param {Object} product - Product data
+ * @param {string} gmcMerchantId - GMC merchant ID
+ * @param {string} channel - Channel: 'ONLINE' or 'LOCAL' (default: 'ONLINE')
  */
-function buildMerchantApiProduct(product, gmcMerchantId) {
+function buildMerchantApiProduct(product, gmcMerchantId, channel = 'ONLINE') {
     // Merchant API productInput format
     // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
     const productInput = {
         offerId: product.offerId,
-        channel: 'ONLINE',
+        channel: channel.toUpperCase(),
         attributes: {
             title: product.title,
             description: product.description,
@@ -389,8 +396,12 @@ function buildMerchantApiProduct(product, gmcMerchantId) {
  * - Only set them if explicitly configured in settings
  * - If data source has them unset, omitting them allows products to sync without restriction
  * - If data source has them set, they must match exactly
+ *
+ * @param {Object} row - Database row with product data
+ * @param {Object} settings - GMC settings
+ * @param {string} channel - Channel: 'online' or 'local' (default: 'online')
  */
-function buildGmcProduct(row, settings) {
+function buildGmcProduct(row, settings, channel = 'online') {
     const baseUrl = settings.website_base_url || 'https://example.com';
     const currency = settings.currency || 'CAD';
 
@@ -405,7 +416,7 @@ function buildGmcProduct(row, settings) {
         description: row.description || row.item_name,
         link: `${baseUrl}/product/${row.item_id}`,
         imageLink: row.image_url || undefined,
-        channel: 'online',
+        channel: channel.toLowerCase(),
         availability: row.quantity > 0 ? 'in_stock' : 'out_of_stock',
         condition: settings.default_condition || 'new',
         price: {
@@ -543,39 +554,63 @@ async function syncProductCatalog(merchantId) {
             };
         }
 
-        // Build GMC products
-        const products = result.rows.map(row => buildGmcProduct(row, settings));
+        // Build GMC products for ONLINE channel
+        const onlineProducts = result.rows.map(row => buildGmcProduct(row, settings, 'online'));
 
-        // Batch sync
-        const batchResult = await batchUpsertProducts({
+        // Build GMC products for LOCAL channel (for local inventory support)
+        const localProducts = result.rows.map(row => buildGmcProduct(row, settings, 'local'));
+
+        // Sync ONLINE channel first
+        logger.info('Syncing products to ONLINE channel...', { count: onlineProducts.length });
+        const onlineResult = await batchUpsertProducts({
             merchantId,
             gmcMerchantId,
             dataSourceId,
-            products
+            products: onlineProducts,
+            channel: 'ONLINE'
         });
+
+        // Sync LOCAL channel (required for local inventory to work)
+        logger.info('Syncing products to LOCAL channel...', { count: localProducts.length });
+        const localResult = await batchUpsertProducts({
+            merchantId,
+            gmcMerchantId,
+            dataSourceId,
+            products: localProducts,
+            channel: 'LOCAL'
+        });
+
+        // Combine results
+        const totalProducts = onlineProducts.length;
+        const totalSucceeded = onlineResult.succeeded + localResult.succeeded;
+        const totalFailed = onlineResult.failed + localResult.failed;
+        const allErrors = [...onlineResult.errors.map(e => ({ ...e, channel: 'ONLINE' })),
+                          ...localResult.errors.map(e => ({ ...e, channel: 'LOCAL' }))];
 
         logger.info('Product catalog sync completed', {
             merchantId,
-            total: products.length,
-            succeeded: batchResult.succeeded,
-            failed: batchResult.failed
+            totalProducts,
+            online: { succeeded: onlineResult.succeeded, failed: onlineResult.failed },
+            local: { succeeded: localResult.succeeded, failed: localResult.failed }
         });
 
         // Log sync completion
         await updateSyncLog(logId, {
-            status: batchResult.failed === 0 ? 'success' : (batchResult.succeeded > 0 ? 'partial' : 'failed'),
-            total: products.length,
-            succeeded: batchResult.succeeded,
-            failed: batchResult.failed,
-            errors: batchResult.errors.slice(0, 10)
+            status: totalFailed === 0 ? 'success' : (totalSucceeded > 0 ? 'partial' : 'failed'),
+            total: totalProducts * 2, // Both channels
+            succeeded: totalSucceeded,
+            failed: totalFailed,
+            errors: allErrors.slice(0, 10)
         });
 
         return {
-            success: batchResult.failed === 0,
-            total: products.length,
-            synced: batchResult.succeeded,
-            failed: batchResult.failed,
-            errors: batchResult.errors.slice(0, 10)
+            success: totalFailed === 0,
+            total: totalProducts,
+            synced: totalSucceeded,
+            failed: totalFailed,
+            online: { succeeded: onlineResult.succeeded, failed: onlineResult.failed },
+            local: { succeeded: localResult.succeeded, failed: localResult.failed },
+            errors: allErrors.slice(0, 10)
         };
 
     } catch (error) {
