@@ -313,7 +313,7 @@ function buildMerchantApiProduct(product, gmcMerchantId) {
     return {
         offerId: product.offerId,
         contentLanguage: product.contentLanguage || 'en',
-        feedLabel: product.targetCountry || 'CA',
+        feedLabel: product.feedLabel || product.targetCountry || 'CA',
         channel: 'ONLINE',
         attributes: {
             title: product.title,
@@ -341,6 +341,8 @@ function buildGmcProduct(row, settings) {
     const currency = settings.currency || 'CAD';
     const country = settings.target_country || 'CA';
     const language = settings.content_language || 'en';
+    // Feed label can be different from target country (must match GMC data source)
+    const feedLabel = settings.feed_label || country;
 
     // Use SKU as offer ID (required to be unique)
     const offerId = row.sku || row.upc || row.variation_id;
@@ -355,6 +357,7 @@ function buildGmcProduct(row, settings) {
         imageLink: row.image_url || undefined,
         contentLanguage: language,
         targetCountry: country,
+        feedLabel: feedLabel,
         channel: 'online',
         availability: row.quantity > 0 ? 'in_stock' : 'out_of_stock',
         condition: settings.default_condition || 'new',
