@@ -219,6 +219,17 @@
       margin-top: 4px;
     }
 
+    .stat.clickable {
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+
+    .stat.clickable:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
     /* SYNC STATUS */
     .sync-status {
       background: #10b981;
@@ -587,11 +598,11 @@
 
       <!-- Row 2: Expiration & Cycle Count Metrics -->
       <div class="stats-row">
-        <div class="stat">
+        <div class="stat clickable" onclick="window.location.href='expiry.html?filter=no-data'" title="View items missing expiry data">
           <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
           <div class="stat-label">With Expiry Data</div>
         </div>
-        <div class="stat">
+        <div class="stat clickable" onclick="window.location.href='expiry.html?filter=120'" title="View items expiring within 120 days">
           <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
           <div class="stat-label">Expiring &lt; 120 Days</div>
         </div>
@@ -633,7 +644,11 @@
       <div class="tool-card inventory">
         <h2>📅 Expiration Tracker</h2>
         <p>Track and update product expiration dates to ensure freshness and compliance.</p>
-        <a href="expiry.html">Open Tool</a>
+        <div class="tool-card-links">
+          <a href="expiry.html?filter=120">Expiring Soon</a>
+          <a href="expiry.html?filter=no-data" class="secondary">Missing Data</a>
+          <a href="expiry.html" class="secondary">All Items</a>
+        </div>
       </div>
 
       <!-- FULL INVENTORY -->
