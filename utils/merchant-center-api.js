@@ -606,10 +606,11 @@ async function updateLocalInventory(options) {
 
     // Merchant Inventories API endpoint
     // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
-    // Product name format: channel~contentLanguage~feedLabel~offerId
+    // Product name format for LOCAL inventory: local~contentLanguage~feedLabel~offerId
+    // (Note: online products use "online~" prefix, local inventory uses "local~" prefix)
     const lang = contentLanguage || 'en';
     const feed = feedLabel || 'CA';
-    const productName = `online~${lang}~${feed}~${productId}`;
+    const productName = `local~${lang}~${feed}~${productId}`;
     const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
 
     const localInventory = {
