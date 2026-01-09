@@ -604,40 +604,56 @@ async function updateLocalInventory(options) {
 
     const inventoryAvailability = availability || (quantity > 0 ? 'in_stock' : 'out_of_stock');
 
+    // Merchant Inventories API endpoint
+    // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
+    // Product name format: channel~contentLanguage~feedLabel~offerId
+    const lang = contentLanguage || 'en';
+    const feed = feedLabel || 'CA';
+    const productName = `online~${lang}~${feed}~${productId}`;
+    const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
+
+    const localInventory = {
+        storeCode: storeCode,
+        availability: inventoryAvailability.toUpperCase().replace('_', '_'),
+        quantity: quantity.toString()
+    };
+
     try {
-        // Merchant Inventories API endpoint
-        // POST /inventories/v1beta/accounts/{account}/products/{product}/localInventories:insert
-        // Product name format: channel~contentLanguage~feedLabel~offerId
-        const lang = contentLanguage || 'en';
-        const feed = feedLabel || 'CA';
-        const productName = `online~${lang}~${feed}~${productId}`;
-        const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
-
-        const localInventory = {
-            storeCode: storeCode,
-            availability: inventoryAvailability.toUpperCase().replace('_', '_'),
-            quantity: quantity.toString()
-        };
-
         const response = await merchantApiRequest(auth, 'POST', path, localInventory);
 
-        logger.info('Updated local inventory in GMC', {
-            merchantId,
-            gmcMerchantId,
-            storeCode,
-            productId,
-            productName
-        });
+        // Only log first success to avoid spam (use static flag)
+        if (!updateLocalInventory._loggedSuccess) {
+            logger.info('First successful local inventory update', {
+                productId,
+                productName,
+                storeCode,
+                path
+            });
+            updateLocalInventory._loggedSuccess = true;
+        }
 
         return { success: true, data: response };
     } catch (error) {
-        logger.error('Failed to update local inventory in GMC', {
-            error: error.message,
-            merchantId,
-            gmcMerchantId,
-            storeCode,
-            productId
-        });
+        // Log errors with full details for debugging
+        // Only log first few errors to avoid spam
+        if (!updateLocalInventory._errorCount) {
+            updateLocalInventory._errorCount = 0;
+        }
+        updateLocalInventory._errorCount++;
+
+        if (updateLocalInventory._errorCount <= 3) {
+            logger.error('Local inventory update failed', {
+                error: error.message,
+                errorDetails: error.details ? JSON.stringify(error.details) : undefined,
+                productId,
+                productName,
+                storeCode,
+                path,
+                localInventory,
+                feedLabel: feed,
+                contentLanguage: lang
+            });
+        }
         throw error;
     }
 }
@@ -648,6 +664,17 @@ async function updateLocalInventory(options) {
  */
 async function batchUpdateLocalInventory(options) {
     const { merchantId, gmcMerchantId, storeCode, items, feedLabel, contentLanguage } = options;
+
+    // Log what we're about to do for debugging
+    logger.info('Starting batch local inventory update', {
+        merchantId,
+        gmcMerchantId,
+        storeCode,
+        feedLabel: feedLabel || '(not set)',
+        contentLanguage: contentLanguage || '(not set)',
+        itemCount: items.length,
+        sampleProductIds: items.slice(0, 3).map(i => i.productId)
+    });
 
     const results = {
         success: true,
@@ -697,14 +724,26 @@ async function batchUpdateLocalInventory(options) {
         }
     }
 
-    logger.info('Batch updated local inventory in GMC', {
+    // Log results with sample errors for debugging
+    logger.info('Batch local inventory update completed', {
         merchantId,
         gmcMerchantId,
         storeCode,
         total: results.total,
         succeeded: results.succeeded,
-        failed: results.failed
+        failed: results.failed,
+        sampleErrors: results.errors.slice(0, 5) // Log first 5 errors for debugging
     });
+
+    // If all failed, log a warning with more details
+    if (results.failed > 0 && results.succeeded === 0) {
+        logger.warn('All local inventory updates failed!', {
+            storeCode,
+            feedLabel: feedLabel || '(not set)',
+            contentLanguage: contentLanguage || '(not set)',
+            firstError: results.errors[0]
+        });
+    }
 
     return results;
 }
@@ -804,6 +843,10 @@ async function syncLocationInventory(options) {
  * Sync all locations' inventory to GMC
  */
 async function syncAllLocationsInventory(merchantId) {
+    // Reset logging flags for fresh sync
+    updateLocalInventory._loggedSuccess = false;
+    updateLocalInventory._errorCount = 0;
+
     // Create sync log entry
     const logId = await createSyncLog({
         merchantId,
@@ -867,9 +910,27 @@ async function syncAllLocationsInventory(merchantId) {
             }
         }
 
-        // Log sync completion
+        // Log sync completion - FIX: status should reflect actual results, not just exceptions
+        const actualStatus = results.totalFailed === 0 ? 'success' :
+                            (results.totalSynced > 0 ? 'partial' : 'failed');
+
+        // Log summary for debugging
+        logger.info('Local inventory sync completed', {
+            merchantId,
+            totalSynced: results.totalSynced,
+            totalFailed: results.totalFailed,
+            status: actualStatus,
+            locations: results.locations.map(l => ({
+                name: l.locationName,
+                storeCode: l.storeCode,
+                synced: l.synced,
+                failed: l.failed,
+                error: l.error
+            }))
+        });
+
         await updateSyncLog(logId, {
-            status: results.success ? 'success' : (results.totalSynced > 0 ? 'partial' : 'failed'),
+            status: actualStatus,
             total: results.totalSynced + results.totalFailed,
             succeeded: results.totalSynced,
             failed: results.totalFailed,
