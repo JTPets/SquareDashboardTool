@@ -1148,6 +1148,12 @@ Wellness"></textarea>
     <!-- TAB: Settings -->
     <div id="tab-settings" class="tab-content">
       <div class="settings-section">
+        <!-- Quick Links -->
+        <div style="margin-bottom: 15px; padding: 10px; background: #eff6ff; border-radius: 8px; display: flex; gap: 15px; flex-wrap: wrap;">
+          <strong style="color: #1e40af;">Quick Links:</strong>
+          <a href="#location-store-codes-section" style="color: #2563eb; text-decoration: none;">📍 Location Store Codes</a>
+        </div>
+
         <!-- Merchant Center API Integration -->
         <div class="settings-group">
           <h4>Google Merchant Center API Integration</h4>
@@ -1305,10 +1311,11 @@ Wellness"></textarea>
         </div>
 
         <!-- Location Store Codes -->
-        <div class="settings-group">
-          <h4>Location Store Codes</h4>
+        <div class="settings-group" id="location-store-codes-section" style="border: 2px solid #3b82f6;">
+          <h4 style="color: #1e40af;">📍 Location Store Codes</h4>
           <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Map your Square locations to Google Business Profile store codes for local inventory.
+            Map your Square locations to Google Business Profile store codes for local inventory ads.
+            <br><strong>Enter the store code from your Google Business Profile for each location.</strong>
           </p>
           <table class="location-settings-table" id="location-settings-table">
             <thead>
