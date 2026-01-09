@@ -241,7 +241,8 @@ app.get('/api/health', async (req, res) => {
     try {
         const dbConnected = await db.testConnection();
 
-        // Check Square connection (quick test using any active merchant)
+        // Check Square connection status from database
+        // (Uses synced data rather than live API call for faster health checks)
         let squareStatus = 'not_configured';
         let squareError = null;
         try {
@@ -249,13 +250,18 @@ app.get('/api/health', async (req, res) => {
                 'SELECT id FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE LIMIT 1'
             );
             if (merchantResult.rows.length > 0) {
-                const locations = await squareApi.getLocations({ merchantId: merchantResult.rows[0].id });
-                squareStatus = locations && locations.length > 0 ? 'connected' : 'no_locations';
+                // Check if we have synced locations for this merchant
+                const locationsResult = await db.query(
+                    'SELECT COUNT(*) as count FROM locations WHERE merchant_id = $1 AND active = TRUE',
+                    [merchantResult.rows[0].id]
+                );
+                const locationCount = parseInt(locationsResult.rows[0].count, 10);
+                squareStatus = locationCount > 0 ? 'connected' : 'no_locations';
             }
         } catch (e) {
             squareStatus = 'error';
             squareError = e.message;
-            logger.warn('Health check Square API error', { error: e.message });
+            logger.warn('Health check error', { error: e.message });
         }
 
         // Format uptime
