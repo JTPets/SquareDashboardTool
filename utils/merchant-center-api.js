@@ -259,12 +259,27 @@ async function upsertProduct(options) {
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId);
 
+        // Log first product for debugging (only log first to avoid spam)
+        if (!upsertProduct._logged) {
+            logger.info('First product input being sent to GMC', {
+                offerId: productInput.offerId,
+                feedLabel: productInput.feedLabel || '(omitted)',
+                contentLanguage: productInput.contentLanguage || '(omitted)',
+                channel: productInput.channel,
+                dataSource: dataSourceName
+            });
+            upsertProduct._logged = true;
+        }
+
         const response = await merchantApiRequest(auth, 'POST', path, productInput);
         return { success: true, data: response };
     } catch (error) {
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
-            productId: product.offerId
+            productId: product.offerId,
+            feedLabel: product.feedLabel || '(not set)',
+            contentLanguage: product.contentLanguage || '(not set)',
+            errorDetails: error.details ? JSON.stringify(error.details) : undefined
         });
         throw error;
     }
@@ -325,14 +340,16 @@ async function batchUpsertProducts(options) {
  * Build Merchant API product input from our product data
  * Merchant API uses a different structure than Content API
  * Note: dataSource is passed as query param, not in body
+ *
+ * IMPORTANT: feedLabel and contentLanguage must match the data source configuration:
+ * - If data source has feedLabel/contentLanguage SET, products must match exactly
+ * - If data source has them UNSET, products can have any value OR omit them
  */
 function buildMerchantApiProduct(product, gmcMerchantId) {
     // Merchant API productInput format
     // https://developers.google.com/merchant/api/reference/rest/products_v1beta/accounts.productInputs
-    return {
+    const productInput = {
         offerId: product.offerId,
-        contentLanguage: product.contentLanguage || 'en',
-        feedLabel: product.feedLabel || product.targetCountry || 'CA',
         channel: 'ONLINE',
         attributes: {
             title: product.title,
@@ -350,18 +367,32 @@ function buildMerchantApiProduct(product, gmcMerchantId) {
             googleProductCategory: product.googleProductCategory || undefined
         }
     };
+
+    // Only include feedLabel if explicitly set (not empty)
+    // If data source has feedLabel unset, omitting it should work
+    if (product.feedLabel) {
+        productInput.feedLabel = product.feedLabel;
+    }
+
+    // Only include contentLanguage if explicitly set (not empty)
+    if (product.contentLanguage) {
+        productInput.contentLanguage = product.contentLanguage;
+    }
+
+    return productInput;
 }
 
 /**
  * Build GMC product object from database product data (internal format)
+ *
+ * IMPORTANT: feedLabel and contentLanguage are OPTIONAL
+ * - Only set them if explicitly configured in settings
+ * - If data source has them unset, omitting them allows products to sync without restriction
+ * - If data source has them set, they must match exactly
  */
 function buildGmcProduct(row, settings) {
     const baseUrl = settings.website_base_url || 'https://example.com';
     const currency = settings.currency || 'CAD';
-    const country = settings.target_country || 'CA';
-    const language = settings.content_language || 'en';
-    // Feed label can be different from target country (must match GMC data source)
-    const feedLabel = settings.feed_label || country;
 
     // Use SKU as offer ID (required to be unique)
     const offerId = row.sku || row.upc || row.variation_id;
@@ -374,9 +405,6 @@ function buildGmcProduct(row, settings) {
         description: row.description || row.item_name,
         link: `${baseUrl}/product/${row.item_id}`,
         imageLink: row.image_url || undefined,
-        contentLanguage: language,
-        targetCountry: country,
-        feedLabel: feedLabel,
         channel: 'online',
         availability: row.quantity > 0 ? 'in_stock' : 'out_of_stock',
         condition: settings.default_condition || 'new',
@@ -385,6 +413,17 @@ function buildGmcProduct(row, settings) {
             currency: currency
         }
     };
+
+    // Only set feedLabel if explicitly configured (not falling back to defaults)
+    // This allows syncing to data sources that have feedLabel unset
+    if (settings.feed_label) {
+        product.feedLabel = settings.feed_label;
+    }
+
+    // Only set contentLanguage if explicitly configured
+    if (settings.content_language) {
+        product.contentLanguage = settings.content_language;
+    }
 
     // Optional fields
     if (row.upc) product.gtin = row.upc;
@@ -398,6 +437,9 @@ function buildGmcProduct(row, settings) {
  * Sync all products to GMC
  */
 async function syncProductCatalog(merchantId) {
+    // Reset debug logging flag for fresh sync
+    upsertProduct._logged = false;
+
     // Create sync log entry
     const logId = await createSyncLog({
         merchantId,
@@ -432,14 +474,13 @@ async function syncProductCatalog(merchantId) {
         }
 
         // Log settings being used for debugging
-        const feedLabel = settings.feed_label || settings.target_country || 'CA';
-        const contentLanguage = settings.content_language || 'en';
+        // feedLabel and contentLanguage are now OPTIONAL - only sent if explicitly configured
         logger.info('GMC sync settings', {
             merchantId,
             gmcMerchantId,
             dataSourceId,
-            feedLabel,
-            contentLanguage,
+            feedLabel: settings.feed_label || '(not set - will be omitted)',
+            contentLanguage: settings.content_language || '(not set - will be omitted)',
             allSettings: settings
         });
 
