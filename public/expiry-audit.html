@@ -1542,6 +1542,26 @@
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
+      // Check for URL parameters to pre-set filter
+      const urlParams = new URLSearchParams(window.location.search);
+      const filterParam = urlParams.get('filter');
+      if (filterParam) {
+        // Map friendly names to tier codes
+        const filterMap = {
+          'expired': 'EXPIRED',
+          'auto50': 'AUTO50',
+          'auto25': 'AUTO25',
+          'review': 'REVIEW',
+          'no-data': 'NO_EXPIRY',
+          'no-expiry': 'NO_EXPIRY',
+          'missing': 'NO_EXPIRY',
+          'all': 'all'
+        };
+        const tierCode = filterMap[filterParam.toLowerCase()] || filterParam.toUpperCase();
+        if (['all', 'EXPIRED', 'AUTO50', 'AUTO25', 'REVIEW', 'NO_EXPIRY'].includes(tierCode)) {
+          currentFilter = tierCode;
+        }
+      }
       // Load tier config first (ensures manual tier changes from settings are respected)
       await loadTierConfig();
       // Then load items for audit

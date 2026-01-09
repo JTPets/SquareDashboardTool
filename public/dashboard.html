@@ -598,11 +598,11 @@
 
       <!-- Row 2: Expiration & Cycle Count Metrics -->
       <div class="stats-row">
-        <div class="stat clickable" onclick="window.location.href='expiry.html?filter=no-data'" title="View items missing expiry data">
+        <div class="stat clickable" onclick="window.location.href='expiry-audit.html?filter=no-data'" title="Audit items missing expiry data">
           <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
           <div class="stat-label">With Expiry Data</div>
         </div>
-        <div class="stat clickable" onclick="window.location.href='expiry.html?filter=120'" title="View items expiring within 120 days">
+        <div class="stat clickable" onclick="window.location.href='expiry-audit.html'" title="Open expiry audit tool">
           <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
           <div class="stat-label">Expiring &lt; 120 Days</div>
         </div>
@@ -645,9 +645,9 @@
         <h2>📅 Expiration Tracker</h2>
         <p>Track and update product expiration dates to ensure freshness and compliance.</p>
         <div class="tool-card-links">
-          <a href="expiry.html?filter=120">Expiring Soon</a>
-          <a href="expiry.html?filter=no-data" class="secondary">Missing Data</a>
-          <a href="expiry.html" class="secondary">All Items</a>
+          <a href="expiry-audit.html">Audit Tool</a>
+          <a href="expiry-audit.html?filter=no-data" class="secondary">Missing Data</a>
+          <a href="expiry.html" class="secondary">All Expirations</a>
         </div>
       </div>
 
