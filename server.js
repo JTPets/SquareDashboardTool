@@ -121,7 +121,6 @@ console.log('Initializing session middleware...');
 
 // SECURITY FIX: Generate cryptographically secure fallback secret
 // Note: This is only for development; production requires SESSION_SECRET env var
-const crypto = require('crypto');
 const developmentSecret = crypto.randomBytes(64).toString('hex');
 
 app.use(session({
