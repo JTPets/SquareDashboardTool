@@ -216,11 +216,20 @@ app.use('/api', (req, res, next) => {
         '/auth/login',
         '/auth/forgot-password',
         '/auth/reset-password',
-        '/auth/verify-reset-token'
+        '/auth/verify-reset-token',
+        // GMC feed endpoints (use token-based auth, handled in route)
+        '/gmc/feed.tsv',
+        '/gmc/local-inventory-feed.tsv'
     ];
 
     // Allow public routes without auth
     if (publicPaths.includes(req.path)) {
+        return next();
+    }
+
+    // Allow GMC local inventory per-location feeds (token auth handled in route)
+    // Pattern: /gmc/local-inventory/{locationId}.tsv
+    if (req.path.match(/^\/gmc\/local-inventory\/[^/]+\.tsv$/)) {
         return next();
     }
 
