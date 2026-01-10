@@ -4044,21 +4044,42 @@ app.post('/api/gmc/generate', requireAuth, requireMerchant, async (req, res) => 
 /**
  * GET /api/gmc/feed.tsv
  * Download the current GMC feed as TSV
- * Requires either: authenticated session OR valid feed token in query param
- * Token URL format: /api/gmc/feed.tsv?token=<merchant_feed_token>
+ * Supports multiple auth methods:
+ *   1. Query param: ?token=xxx
+ *   2. HTTP Basic Auth: password = token (GMC standard method)
+ *   3. Session auth (for logged-in users)
  */
 app.get('/api/gmc/feed.tsv', async (req, res) => {
     try {
         const { location_id, token } = req.query;
         let merchantId = null;
+        let feedToken = token;
 
-        // Check for feed token (for Google Merchant Center access)
-        if (token) {
+        // Check for HTTP Basic Auth (GMC's preferred method)
+        // Format: Authorization: Basic base64(username:password)
+        // We use the password field as the token
+        const authHeader = req.headers.authorization;
+        if (!feedToken && authHeader && authHeader.startsWith('Basic ')) {
+            try {
+                const base64Credentials = authHeader.split(' ')[1];
+                const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+                const [, password] = credentials.split(':');
+                if (password) {
+                    feedToken = password;
+                }
+            } catch (e) {
+                logger.warn('Failed to parse Basic Auth header', { error: e.message });
+            }
+        }
+
+        // Check for feed token (query param or Basic Auth)
+        if (feedToken) {
             const merchantResult = await db.query(
                 'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
-                [token]
+                [feedToken]
             );
             if (merchantResult.rows.length === 0) {
+                res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
                 return res.status(401).json({ error: 'Invalid or expired feed token' });
             }
             merchantId = merchantResult.rows[0].id;
@@ -4067,10 +4088,11 @@ app.get('/api/gmc/feed.tsv', async (req, res) => {
         else if (req.session?.user && req.merchantContext?.id) {
             merchantId = req.merchantContext.id;
         }
-        // No auth provided
+        // No auth provided - send Basic Auth challenge
         else {
+            res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
             return res.status(401).json({
-                error: 'Authentication required. Use ?token=<feed_token> or login to access.'
+                error: 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.'
             });
         }
 
@@ -5045,20 +5067,43 @@ app.get('/api/gmc/local-inventory-feed-url', requireAuth, requireMerchant, async
 /**
  * GET /api/gmc/local-inventory-feed.tsv
  * Download combined local inventory feed TSV for all enabled locations
- * Requires authentication via feed token (for GMC) or session
+ * Supports multiple auth methods:
+ *   1. Query param: ?token=xxx
+ *   2. HTTP Basic Auth: password = token (GMC standard method)
+ *   3. Session auth (for logged-in users)
  */
 app.get('/api/gmc/local-inventory-feed.tsv', async (req, res) => {
     try {
         const { token } = req.query;
         let merchantId = null;
+        let feedToken = token;
 
-        // Check for feed token (for Google Merchant Center access)
-        if (token) {
+        // Check for HTTP Basic Auth (GMC's preferred method)
+        // Format: Authorization: Basic base64(username:password)
+        // We use the password field as the token
+        const authHeader = req.headers.authorization;
+        if (!feedToken && authHeader && authHeader.startsWith('Basic ')) {
+            try {
+                const base64Credentials = authHeader.split(' ')[1];
+                const credentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+                const [, password] = credentials.split(':');
+                if (password) {
+                    feedToken = password;
+                }
+            } catch (e) {
+                logger.warn('Failed to parse Basic Auth header', { error: e.message });
+            }
+        }
+
+        // Check for feed token (query param or Basic Auth)
+        if (feedToken) {
             const merchantResult = await db.query(
                 'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
-                [token]
+                [feedToken]
             );
             if (merchantResult.rows.length === 0) {
+                // Return 401 with WWW-Authenticate header for Basic Auth challenge
+                res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
                 return res.status(401).json({ error: 'Invalid or expired feed token' });
             }
             merchantId = merchantResult.rows[0].id;
@@ -5067,10 +5112,11 @@ app.get('/api/gmc/local-inventory-feed.tsv', async (req, res) => {
         else if (req.session?.user && req.merchantContext?.id) {
             merchantId = req.merchantContext.id;
         }
-        // No auth provided
+        // No auth provided - send Basic Auth challenge
         else {
+            res.setHeader('WWW-Authenticate', 'Basic realm="GMC Feed"');
             return res.status(401).json({
-                error: 'Authentication required. Use ?token=<feed_token> or login to access.'
+                error: 'Authentication required. Use ?token=<feed_token> or HTTP Basic Auth.'
             });
         }
 
