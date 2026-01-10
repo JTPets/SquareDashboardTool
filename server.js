@@ -5131,9 +5131,9 @@ app.get('/api/gmc/local-inventory-feed.tsv', async (req, res) => {
 
         // Get all enabled locations for this merchant
         const locationsResult = await db.query(`
-            SELECT location_id, google_store_code, location_name
-            FROM gmc_location_settings
-            WHERE merchant_id = $1 AND enabled = TRUE AND google_store_code IS NOT NULL AND google_store_code != ''
+            SELECT gls.location_id, gls.google_store_code
+            FROM gmc_location_settings gls
+            WHERE gls.merchant_id = $1 AND gls.enabled = TRUE AND gls.google_store_code IS NOT NULL AND gls.google_store_code != ''
         `, [merchantId]);
 
         if (locationsResult.rows.length === 0) {
