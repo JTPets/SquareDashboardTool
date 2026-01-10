@@ -5009,6 +5009,109 @@ app.get('/api/gmc/local-inventory/:locationId.tsv', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/gmc/local-inventory-feed-url
+ * Get the merchant's local inventory feed URL with token for Google Merchant Center
+ */
+app.get('/api/gmc/local-inventory-feed-url', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(
+            'SELECT gmc_feed_token FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+
+        if (result.rows.length === 0 || !result.rows[0].gmc_feed_token) {
+            return res.status(404).json({ error: 'Feed token not found. Please contact support.' });
+        }
+
+        const token = result.rows[0].gmc_feed_token;
+        const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+        const feedUrl = `${baseUrl}/api/gmc/local-inventory-feed.tsv?token=${token}`;
+
+        res.json({
+            success: true,
+            feedUrl,
+            token,
+            instructions: 'Use this URL in Google Merchant Center for local inventory. Keep the token secret.'
+        });
+    } catch (error) {
+        logger.error('Local inventory feed URL error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/gmc/local-inventory-feed.tsv
+ * Download combined local inventory feed TSV for all enabled locations
+ * Requires authentication via feed token (for GMC) or session
+ */
+app.get('/api/gmc/local-inventory-feed.tsv', async (req, res) => {
+    try {
+        const { token } = req.query;
+        let merchantId = null;
+
+        // Check for feed token (for Google Merchant Center access)
+        if (token) {
+            const merchantResult = await db.query(
+                'SELECT id FROM merchants WHERE gmc_feed_token = $1 AND is_active = TRUE',
+                [token]
+            );
+            if (merchantResult.rows.length === 0) {
+                return res.status(401).json({ error: 'Invalid or expired feed token' });
+            }
+            merchantId = merchantResult.rows[0].id;
+        }
+        // Check for session auth (for manual download)
+        else if (req.session?.user && req.merchantContext?.id) {
+            merchantId = req.merchantContext.id;
+        }
+        // No auth provided
+        else {
+            return res.status(401).json({
+                error: 'Authentication required. Use ?token=<feed_token> or login to access.'
+            });
+        }
+
+        // Get all enabled locations for this merchant
+        const locationsResult = await db.query(`
+            SELECT location_id, google_store_code, location_name
+            FROM gmc_location_settings
+            WHERE merchant_id = $1 AND enabled = TRUE AND google_store_code IS NOT NULL AND google_store_code != ''
+        `, [merchantId]);
+
+        if (locationsResult.rows.length === 0) {
+            return res.status(400).json({
+                error: 'No enabled locations with store codes found. Configure location settings first.'
+            });
+        }
+
+        // Generate combined feed for all locations
+        let allItems = [];
+        for (const loc of locationsResult.rows) {
+            try {
+                const { items } = await gmcFeed.generateLocalInventoryFeed({
+                    merchantId,
+                    locationId: loc.location_id
+                });
+                allItems = allItems.concat(items);
+            } catch (err) {
+                logger.warn('Skipping location in combined feed', { locationId: loc.location_id, error: err.message });
+            }
+        }
+
+        const tsvContent = gmcFeed.generateLocalInventoryTsvContent(allItems);
+
+        res.setHeader('Content-Type', 'text/tab-separated-values');
+        res.setHeader('Content-Disposition', 'attachment; filename="local-inventory-feed.tsv"');
+        res.send(tsvContent);
+    } catch (error) {
+        logger.error('Combined local inventory TSV error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== MERCHANT CENTER API ENDPOINTS ====================
 
 const gmcApi = require('./utils/merchant-center-api');
