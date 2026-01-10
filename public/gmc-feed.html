@@ -844,11 +844,14 @@
 
     <!-- Sync Controls & Status -->
     <div style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
-      <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-        <span>🔄</span> Sync to GMC
-      </button>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;" title="Push products directly to Google Merchant Center via API">
+          <span>🔄</span> Sync to GMC
+        </button>
+        <span style="font-size: 11px; color: #9ca3af;">Push products to Google via API</span>
+      </div>
       <div style="flex: 1; display: flex; gap: 20px; font-size: 13px; color: #6b7280;">
-        <span>Last sync: <strong id="last-product-sync-inline">--</strong></span>
+        <span>Last API sync: <strong id="last-product-sync-inline">--</strong></span>
         <span id="product-sync-status"></span>
       </div>
     </div>
@@ -879,9 +882,9 @@
         <div class="stat-value warning" id="stat-no-brand">--</div>
         <div class="stat-label">Missing Brand</div>
       </div>
-      <div class="stat-box">
+      <div class="stat-box" title="When TSV file was last generated (not API sync)">
         <div class="stat-value" id="stat-last-gen">--</div>
-        <div class="stat-label">Last Generated</div>
+        <div class="stat-label">TSV Generated</div>
       </div>
     </div>
 
@@ -1028,9 +1031,10 @@ Wellness"></textarea>
       <select id="category-filter">
         <option value="">All Categories</option>
       </select>
-      <button onclick="generateFeed()">Regenerate Feed</button>
-      <button class="secondary" onclick="downloadTsv()">Download TSV</button>
+      <button onclick="generateFeed()" title="Generate TSV file locally for manual upload or feed URL">Regenerate Feed</button>
+      <button class="secondary" onclick="downloadTsv()" title="Download the TSV file">Download TSV</button>
       <button class="secondary" onclick="exportCsv()">Export CSV</button>
+      <span style="font-size: 11px; color: #9ca3af; margin-left: 8px;" title="Generate TSV updates the 'Last Generated' stat. Use the green 'Sync to GMC' button above to push directly to Google.">ℹ️ Creates local TSV file</span>
     </div>
 
     <!-- Table -->
@@ -2333,16 +2337,46 @@ Wellness"></textarea>
         const data = await response.json();
 
         if (data.success && data.status) {
-          // Update inline product sync status
+          // Update inline product sync status with detailed counts
           const productStatus = data.status.product_catalog;
           const productEl = document.getElementById('last-product-sync-inline');
           if (productEl && productStatus) {
             const time = new Date(productStatus.started_at).toLocaleString();
             const statusIcon = productStatus.status === 'success' ? '✓' :
-                              productStatus.status === 'partial' ? '⚠' : '✗';
-            productEl.textContent = `${time} ${statusIcon}`;
+                              productStatus.status === 'partial' ? '⚠' :
+                              productStatus.status === 'in_progress' ? '⏳' : '✗';
+
+            // Build detailed status with counts
+            let statusText = `${time} ${statusIcon}`;
+            if (productStatus.total_items) {
+              statusText += ` (${productStatus.succeeded || 0}/${productStatus.total_items} synced`;
+              if (productStatus.failed > 0) {
+                statusText += `, ${productStatus.failed} failed`;
+              }
+              statusText += ')';
+            }
+
+            productEl.textContent = statusText;
             productEl.style.color = productStatus.status === 'success' ? '#059669' :
-                                   productStatus.status === 'partial' ? '#d97706' : '#dc2626';
+                                   productStatus.status === 'partial' ? '#d97706' :
+                                   productStatus.status === 'in_progress' ? '#2563eb' : '#dc2626';
+          }
+
+          // Update inventory sync status if element exists
+          const inventoryStatus = data.status.local_inventory_all;
+          const invEl = document.getElementById('last-inventory-sync-inline');
+          if (invEl && inventoryStatus) {
+            const time = new Date(inventoryStatus.started_at).toLocaleString();
+            const statusIcon = inventoryStatus.status === 'success' ? '✓' :
+                              inventoryStatus.status === 'partial' ? '⚠' :
+                              inventoryStatus.status === 'in_progress' ? '⏳' : '✗';
+            let statusText = `${time} ${statusIcon}`;
+            if (inventoryStatus.total_items) {
+              statusText += ` (${inventoryStatus.succeeded || 0}/${inventoryStatus.total_items})`;
+            }
+            invEl.textContent = statusText;
+            invEl.style.color = inventoryStatus.status === 'success' ? '#059669' :
+                               inventoryStatus.status === 'partial' ? '#d97706' : '#dc2626';
           }
         }
       } catch (error) {
