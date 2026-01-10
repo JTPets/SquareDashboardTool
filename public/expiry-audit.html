@@ -1524,33 +1524,40 @@
         // Determine new tier based on updated date
         const newTier = getTierFromDays(newDaysUntil);
 
-        // Update the item's data for the modal
-        currentItem.expiration_date = newDate;
-        currentItem.days_until_expiry = newDaysUntil;
+        // Save item reference before closing modal (closeUpdateModal sets currentItem to null)
+        const item = currentItem;
+        const variationId = item.variation_id;
 
-        closeUpdateModal();
+        // Update the item's data
+        item.expiration_date = newDate;
+        item.days_until_expiry = newDaysUntil;
+
+        // Close the update modal
+        document.getElementById('update-modal').classList.remove('active');
 
         // If new tier requires sticker confirmation (AUTO25 or AUTO50), show confirm modal
         if (newTier === 'AUTO25' || newTier === 'AUTO50') {
-          currentItem.tier_code = newTier;
-          currentItem.discount_percent = newTier === 'AUTO25' ? 25 : 50;
-          showToast(`Date updated! Now ${newDaysUntil} days until expiry. Please confirm ${currentItem.discount_percent}% sticker.`, 'success');
+          item.tier_code = newTier;
+          item.discount_percent = newTier === 'AUTO25' ? 25 : 50;
+          currentItem = item; // Restore for confirm modal
+          showToast(`Date updated! Now ${newDaysUntil} days until expiry. Please confirm ${item.discount_percent}% sticker.`, 'success');
           // Show the sticker confirmation modal
-          setTimeout(() => showConfirmModal(currentItem.variation_id), 300);
+          setTimeout(() => showConfirmModal(variationId), 300);
         } else {
           // Not in a discount tier - just mark as reviewed and remove
+          currentItem = null;
           await fetch('/api/expirations/review', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              variation_ids: [currentItem.variation_id],
+              variation_ids: [variationId],
               reviewed_by: 'Audit User',
-              notes: notes || `Date updated from audit: ${currentItem.expiration_date?.split('T')[0]} -> ${newDate}`
+              notes: notes || `Date updated from audit: ${item.expiration_date?.split('T')[0]} -> ${newDate}`
             })
           });
 
           // Remove from list since it's no longer in an audit tier
-          allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
+          allItems = allItems.filter(i => i.variation_id !== variationId);
           showToast(`Expiry date updated to ${newDate}. Item moved to ${newTier || 'FRESH'} tier.`, 'success');
         }
 
