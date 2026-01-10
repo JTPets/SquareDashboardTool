@@ -784,6 +784,12 @@
         <div class="value" id="modal-display-value">2025-03-15</div>
       </div>
 
+      <!-- Secondary display for expiry date (shown for AUTO25/AUTO50) -->
+      <div class="confirm-display review" id="modal-expiry-display" style="display: none; margin-top: 8px;">
+        <div class="label">Expiry Date in System</div>
+        <div class="value" id="modal-expiry-value">2025-03-15</div>
+      </div>
+
       <div class="verification-box" id="modal-verification-box">
         <strong>Please verify:</strong>
         <ul id="modal-verification-list">
@@ -908,10 +914,11 @@
         verification: [
           'Check product has discount sticker visible',
           'Verify discounted price is shown correctly',
-          'Ensure product is in clearance section'
+          'If expiry date is WRONG, click "Correct Date" first!'
         ],
         getDisplayValue: (item) => `${item.discount_percent || 25}% OFF`,
-        showUpdateButton: false
+        showUpdateButton: true,
+        updateButtonText: 'Correct Date'
       },
       AUTO50: {
         title: 'Confirm Discount Applied',
@@ -922,10 +929,11 @@
         verification: [
           'Check product has discount sticker visible',
           'Verify discounted price is shown correctly',
-          'Ensure product is in clearance section'
+          'If expiry date is WRONG, click "Correct Date" first!'
         ],
         getDisplayValue: (item) => `${item.discount_percent || 50}% OFF`,
-        showUpdateButton: false
+        showUpdateButton: true,
+        updateButtonText: 'Correct Date'
       },
       NO_EXPIRY: {
         title: 'Set Expiration Status',
@@ -1290,6 +1298,12 @@
                     <span class="detail-label">${item.tier_code === 'EXPIRED' ? 'Status' : (item.tier_code === 'REVIEW' ? 'Expiry Date' : (item.tier_code === 'NO_EXPIRY' ? 'Status' : 'Discount'))}</span>
                     <span class="detail-value">${item.tier_code === 'EXPIRED' ? 'EXPIRED' : (item.tier_code === 'REVIEW' ? expiryDate : (item.tier_code === 'NO_EXPIRY' ? 'Not Set' : discountPercent + '% OFF'))}</span>
                   </div>
+                  ${(item.tier_code === 'AUTO25' || item.tier_code === 'AUTO50') ? `
+                  <div class="detail-item">
+                    <span class="detail-label">Expiry Date</span>
+                    <span class="detail-value">${expiryDate}</span>
+                  </div>
+                  ` : ''}
                 </div>
 
                 ${priceDisplay}
@@ -1337,6 +1351,16 @@
       displayEl.className = `confirm-display ${config.displayClass}`;
       document.getElementById('modal-display-label').textContent = config.displayLabel;
       document.getElementById('modal-display-value').textContent = config.getDisplayValue(item);
+
+      // Show expiry date for discount tiers so user can verify before applying sticker
+      const expiryDisplayEl = document.getElementById('modal-expiry-display');
+      if (item.tier_code === 'AUTO25' || item.tier_code === 'AUTO50') {
+        const expiryDate = item.expiration_date ? item.expiration_date.split('T')[0] : 'Not set';
+        document.getElementById('modal-expiry-value').textContent = expiryDate;
+        expiryDisplayEl.style.display = 'block';
+      } else {
+        expiryDisplayEl.style.display = 'none';
+      }
 
       // Set verification list
       const listEl = document.getElementById('modal-verification-list');
