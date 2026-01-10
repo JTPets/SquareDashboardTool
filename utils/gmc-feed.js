@@ -539,8 +539,9 @@ async function generateLocalInventoryFeed(options = {}) {
 
         for (const row of result.rows) {
             try {
-                // Use SKU, UPC, or variation_id as the item identifier
-                const itemId = row.sku || row.upc || row.variation_id;
+                // Use variation_id as the item identifier to match the main product feed
+                // The main feed uses variation_id as the 'id' field, so local inventory must match
+                const itemId = row.variation_id;
 
                 const item = {
                     store_code: location.store_code,
