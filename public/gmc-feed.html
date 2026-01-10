@@ -67,52 +67,6 @@
       margin-top: 4px;
     }
 
-    /* Google Auth Status */
-    .google-status {
-      padding: 15px 20px;
-      background: #f0fdf4;
-      border-bottom: 1px solid #bbf7d0;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      flex-wrap: wrap;
-    }
-    .google-status.disconnected {
-      background: #fef2f2;
-      border-color: #fecaca;
-    }
-    .google-status .status-icon {
-      font-size: 24px;
-    }
-    .google-status .status-text {
-      flex: 1;
-      font-size: 14px;
-      color: #374151;
-    }
-    .google-status button {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 14px;
-    }
-    .google-status .btn-connect {
-      background: #4285f4;
-      color: white;
-    }
-    .google-status .btn-connect:hover { background: #3367d6; }
-    .google-status .btn-sync {
-      background: #16a34a;
-      color: white;
-    }
-    .google-status .btn-sync:hover { background: #15803d; }
-    .google-status .btn-disconnect {
-      background: #dc2626;
-      color: white;
-    }
-    .google-status .btn-disconnect:hover { background: #b91c1c; }
-
     /* Controls */
     .controls {
       padding: 20px;
@@ -207,41 +161,6 @@
       font-size: 12px;
       color: #6b7280;
     }
-
-    /* Spreadsheet Config */
-    .sheet-config {
-      padding: 15px 20px;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .sheet-config label {
-      font-size: 14px;
-      color: #374151;
-      font-weight: 500;
-    }
-    .sheet-config input {
-      flex: 1;
-      min-width: 300px;
-      padding: 8px 12px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    .sheet-config button {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 14px;
-      background: #16a34a;
-      color: white;
-    }
-    .sheet-config button:hover { background: #15803d; }
 
     /* Issue Badges */
     .issue-badges {
@@ -880,13 +799,60 @@
 
     <!-- Tab Navigation -->
     <div class="tab-nav">
-      <button class="active" onclick="switchTab('product-feed')">Product Feed</button>
-      <button onclick="switchTab('local-inventory')">Local Inventory Feeds</button>
-      <button onclick="switchTab('settings')">Settings</button>
+      <button class="active" onclick="switchTab('product-feed')">Products & Sync</button>
+      <button onclick="switchTab('local-inventory')">Local Inventory</button>
     </div>
 
-    <!-- TAB: Product Feed -->
+    <!-- TAB: Products & Sync -->
     <div id="tab-product-feed" class="tab-content active">
+
+    <!-- GMC API Settings (Collapsible) -->
+    <div class="settings-section" style="padding: 15px 20px; background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleApiSettings()">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-weight: 600; color: #374151;">⚙️ GMC API Settings</span>
+          <span id="gmc-connection-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: #fef3c7; color: #92400e;">Not configured</span>
+        </div>
+        <span id="api-settings-toggle" style="color: #6b7280;">▼</span>
+      </div>
+      <div id="api-settings-panel" style="display: none; margin-top: 15px;">
+        <div class="form-row" style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+          <div class="form-group" style="flex: 1; min-width: 200px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Merchant Center ID</label>
+            <input type="text" id="gmc-merchant-id" placeholder="e.g., 123456789" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+          </div>
+          <div class="form-group" style="flex: 1; min-width: 200px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Data Source ID</label>
+            <input type="text" id="gmc-data-source-id" placeholder="e.g., 10599592289" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+          </div>
+          <div class="form-group" style="flex: 0.5; min-width: 120px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Feed Label</label>
+            <input type="text" id="gmc-feed-label" placeholder="e.g., CA" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; text-transform: uppercase;">
+          </div>
+          <div class="form-group" style="flex: 0.5; min-width: 120px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Language</label>
+            <input type="text" id="gmc-content-language" placeholder="e.g., en" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; text-transform: lowercase;">
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button onclick="saveGmcApiSettings()" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Settings</button>
+          <button onclick="testGmcConnection()" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Test Connection</button>
+          <span id="gmc-connection-status" style="font-size: 13px; color: #6b7280;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Controls & Status -->
+    <div style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+      <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <span>🔄</span> Sync to GMC
+      </button>
+      <div style="flex: 1; display: flex; gap: 20px; font-size: 13px; color: #6b7280;">
+        <span>Last sync: <strong id="last-product-sync-inline">--</strong></span>
+        <span id="product-sync-status"></span>
+      </div>
+    </div>
+
     <!-- Stats Summary -->
     <div class="stats-summary" id="stats-summary">
       <div class="stat-box">
@@ -917,30 +883,6 @@
         <div class="stat-value" id="stat-last-gen">--</div>
         <div class="stat-label">Last Generated</div>
       </div>
-    </div>
-
-    <!-- Feed URL for Google Merchant Center -->
-    <div class="feed-url-section" id="feed-url-section">
-      <span class="label">GMC Feed URL:</span>
-      <div class="url-container">
-        <input type="text" id="feed-url-input" readonly placeholder="Loading...">
-        <button class="btn-copy" onclick="copyFeedUrl()">Copy</button>
-        <button class="btn-regenerate" onclick="regenerateFeedToken()">Regenerate Token</button>
-      </div>
-      <span class="help-text">Use this URL in Google Merchant Center. Keep it private.</span>
-    </div>
-
-    <!-- Google Auth Status -->
-    <div class="google-status disconnected" id="google-status">
-      <span class="status-icon">...</span>
-      <span class="status-text">Checking Google connection...</span>
-    </div>
-
-    <!-- Spreadsheet Config -->
-    <div class="sheet-config" id="sheet-config" style="display: none;">
-      <label>Google Spreadsheet ID:</label>
-      <input type="text" id="spreadsheet-id" placeholder="Enter spreadsheet ID from URL (e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms)">
-      <button onclick="syncToSheet()">Sync to Sheet</button>
     </div>
 
     <!-- Issue Filter Badges -->
@@ -1124,224 +1066,92 @@ Wellness"></textarea>
     </div>
     </div><!-- END TAB: Product Feed -->
 
-    <!-- TAB: Local Inventory Feeds -->
+    <!-- TAB: Local Inventory -->
     <div id="tab-local-inventory" class="tab-content">
-      <div class="local-inventory-section">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <div>
-            <h3 style="margin: 0;">Local Inventory Feeds</h3>
-            <p style="margin: 5px 0 0 0; font-size: 13px; color: #6b7280;">
-              Generate per-location inventory feeds for Google Merchant Center Local Inventory Ads
-            </p>
-          </div>
-          <button class="btn-generate-all" onclick="generateAllLocalInventory()">
-            Generate All Feeds
-          </button>
-        </div>
+      <div class="settings-section" style="padding: 20px;">
 
-        <div class="inventory-feeds-grid" id="inventory-feeds-grid">
-          <div class="loading" id="inventory-loading">Loading locations...</div>
-        </div>
-      </div>
-    </div><!-- END TAB: Local Inventory Feeds -->
-
-    <!-- TAB: Settings -->
-    <div id="tab-settings" class="tab-content">
-      <div class="settings-section">
-        <!-- Quick Links -->
-        <div style="margin-bottom: 15px; padding: 10px; background: #eff6ff; border-radius: 8px; display: flex; gap: 15px; flex-wrap: wrap;">
-          <strong style="color: #1e40af;">Quick Links:</strong>
-          <a href="#location-store-codes-section" style="color: #2563eb; text-decoration: none;">📍 Location Store Codes</a>
-        </div>
-
-        <!-- Merchant Center API Integration -->
-        <div class="settings-group">
-          <h4>Google Merchant Center API Integration</h4>
+        <!-- Location Store Codes Section -->
+        <div class="settings-group" style="margin-bottom: 25px;">
+          <h4 style="margin: 0 0 5px 0; color: #1e40af;">📍 Location Store Codes</h4>
           <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Connect directly to Google Merchant Center to automatically sync products and inventory.
+            Map your Square locations to Google Business Profile store codes for local inventory ads.
+          </p>
+          <table class="location-settings-table" id="location-settings-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb;">Location Name</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb;">Address</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb;">Google Store Code</th>
+                <th style="padding: 10px; width: 80px; text-align: center; border-bottom: 1px solid #e5e7eb;">Enabled</th>
+                <th style="padding: 10px; width: 80px; text-align: center; border-bottom: 1px solid #e5e7eb;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="location-settings-body">
+              <tr><td colspan="5" style="text-align: center; color: #6b7280; padding: 20px;">Loading locations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Local Inventory Feed Options -->
+        <div class="settings-group" style="margin-bottom: 25px;">
+          <h4 style="margin: 0 0 5px 0;">📦 Local Inventory Sync</h4>
+          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+            Choose how to sync inventory to Google Merchant Center
           </p>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label for="gmc-merchant-id">Merchant Center ID</label>
-              <input type="text" id="gmc-merchant-id" placeholder="e.g., 123456789">
-              <div class="form-hint">
-                Find this in your Google Merchant Center account under Settings > Account Information
-              </div>
-            </div>
-            <div class="form-group" style="flex: 0.5;">
-              <label>&nbsp;</label>
-              <button class="btn-save" onclick="testGmcConnection()" style="width: 100%;">Test Connection</button>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="gmc-data-source-id">Data Source ID (Online Products)</label>
-              <input type="text" id="gmc-data-source-id" placeholder="e.g., 10599592289">
-              <div class="form-hint">
-                For ONLINE channel products. Find in Merchant Center > Products > Feeds
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="gmc-local-data-source-id">Local Data Source ID (Optional)</label>
-              <input type="text" id="gmc-local-data-source-id" placeholder="e.g., 10599592290">
-              <div class="form-hint">
-                For LOCAL channel products (enables local inventory sync).<br>
-                <strong>Create a separate "Local products" data source in GMC for this.</strong>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="gmc-feed-label">Feed Label (Region)</label>
-              <input type="text" id="gmc-feed-label" placeholder="Leave empty if data source has no feed label" value="" style="text-transform: uppercase;">
-              <div class="form-hint">
-                Must match your GMC data source's feed label exactly.<br>
-                <strong>If your data source shows "Feed label: -" (unset), leave this empty.</strong><br>
-                Common values: CA (Canada), US (United States), GB (UK)
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="gmc-content-language">Content Language</label>
-              <input type="text" id="gmc-content-language" placeholder="Leave empty if not required" value="" style="text-transform: lowercase;">
-              <div class="form-hint">
-                Must match your GMC data source's language.<br>
-                <strong>If unsure, try leaving empty first.</strong><br>
-                Common values: en (English), fr (French)
-              </div>
-            </div>
-          </div>
-
-          <div id="gmc-connection-status" style="margin-bottom: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
-
-          <div class="form-row">
-            <div class="form-group" style="flex: none;">
-              <button class="btn-save" onclick="saveGmcApiSettings()">Save Settings</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- API Sync Controls -->
-        <div class="settings-group">
-          <h4>Sync to Merchant Center</h4>
-          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Push your product catalog and local inventory directly to Google Merchant Center via API.
-          </p>
-
-          <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 250px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
-              <h5 style="margin: 0 0 10px 0; color: #166534;">Product Catalog Sync</h5>
+          <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <!-- File Feed Option -->
+            <div style="flex: 1; min-width: 300px; padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+              <h5 style="margin: 0 0 10px 0; color: #1e40af;">📄 File Feed (Recommended)</h5>
               <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
-                Upload all products with prices, images, and categories to GMC.
+                GMC fetches your inventory file automatically every 24 hours. Most reliable method.
               </p>
-              <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                Sync Products
-              </button>
-              <div id="product-sync-status" style="margin-top: 10px; font-size: 12px;"></div>
+              <div style="margin-bottom: 10px;">
+                <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Local Inventory Feed URL:</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
+                  <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
+                </div>
+              </div>
+              <p style="font-size: 11px; color: #6b7280; margin: 0;">
+                Add this URL in GMC under "Add local inventory from a file"
+              </p>
             </div>
 
-            <div style="flex: 1; min-width: 250px; padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
-              <h5 style="margin: 0 0 10px 0; color: #1e40af;">Local Inventory Sync</h5>
+            <!-- API Sync Option -->
+            <div style="flex: 1; min-width: 300px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+              <h5 style="margin: 0 0 10px 0; color: #166534;">⚡ API Sync (Manual)</h5>
               <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
-                Update inventory counts for all locations in GMC.
+                Push inventory updates directly via API. Requires local products in GMC.
               </p>
-              <button onclick="syncLocalInventoryToGmc()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                Sync All Inventory
+              <button onclick="syncLocalInventoryToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                Sync Inventory Now
               </button>
               <div id="inventory-sync-status" style="margin-top: 10px; font-size: 12px;"></div>
             </div>
           </div>
         </div>
 
-        <!-- Sync Status & History -->
+        <!-- Per-Location Feeds Grid -->
         <div class="settings-group">
-          <h4>Sync Status & History</h4>
-          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            View the status of your recent sync operations.
-          </p>
-
-          <!-- Last Sync Summary -->
-          <div id="last-sync-summary" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
-              <div style="font-size: 12px; color: #6b7280; margin-bottom: 5px;">Last Product Sync</div>
-              <div id="last-product-sync" style="font-weight: 500;">Loading...</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div>
+              <h4 style="margin: 0;">📊 Location Inventory Status</h4>
+              <p style="font-size: 13px; color: #6b7280; margin: 5px 0 0 0;">
+                Individual feed files per location (for manual upload if needed)
+              </p>
             </div>
-            <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
-              <div style="font-size: 12px; color: #6b7280; margin-bottom: 5px;">Last Inventory Sync</div>
-              <div id="last-inventory-sync" style="font-weight: 500;">Loading...</div>
-            </div>
-          </div>
-
-          <!-- Sync History Table -->
-          <div style="max-height: 300px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-              <thead style="background: #f9fafb; position: sticky; top: 0;">
-                <tr>
-                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb;">Time</th>
-                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb;">Type</th>
-                  <th style="padding: 10px; text-align: center; border-bottom: 1px solid #e5e7eb;">Status</th>
-                  <th style="padding: 10px; text-align: right; border-bottom: 1px solid #e5e7eb;">Synced</th>
-                  <th style="padding: 10px; text-align: right; border-bottom: 1px solid #e5e7eb;">Failed</th>
-                  <th style="padding: 10px; text-align: right; border-bottom: 1px solid #e5e7eb;">Duration</th>
-                </tr>
-              </thead>
-              <tbody id="sync-history-body">
-                <tr><td colspan="6" style="padding: 20px; text-align: center; color: #6b7280;">Loading sync history...</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div style="margin-top: 10px;">
-            <button onclick="loadSyncHistory()" style="background: #f3f4f6; border: 1px solid #d1d5db; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">
-              Refresh History
+            <button class="btn-generate-all" onclick="generateAllLocalInventory()" style="background: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+              Generate All Feeds
             </button>
           </div>
-        </div>
-
-        <!-- Manual Integration (legacy) -->
-        <div class="settings-group" style="opacity: 0.7;">
-          <h4>Manual Integration (Legacy)</h4>
-          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            For manual TSV file uploads or Google Sheets integration.
-          </p>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="google-sheet-url">Google Sheet URL</label>
-              <input type="url" id="google-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="flex: none;">
-              <button class="btn-save" onclick="saveGmcSettings()" style="background: #6b7280;">Save Sheet URL</button>
-            </div>
+          <div class="inventory-feeds-grid" id="inventory-feeds-grid">
+            <div class="loading" id="inventory-loading">Loading locations...</div>
           </div>
         </div>
 
-        <!-- Location Store Codes -->
-        <div class="settings-group" id="location-store-codes-section" style="border: 2px solid #3b82f6;">
-          <h4 style="color: #1e40af;">📍 Location Store Codes</h4>
-          <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Map your Square locations to Google Business Profile store codes for local inventory ads.
-            <br><strong>Enter the store code from your Google Business Profile for each location.</strong>
-          </p>
-          <table class="location-settings-table" id="location-settings-table">
-            <thead>
-              <tr>
-                <th>Location Name</th>
-                <th>Address</th>
-                <th>Google Store Code</th>
-                <th style="width: 80px;">Enabled</th>
-                <th style="width: 80px;">Action</th>
-              </tr>
-            </thead>
-            <tbody id="location-settings-body">
-              <tr><td colspan="5" style="text-align: center; color: #6b7280;">Loading locations...</td></tr>
-            </tbody>
-          </table>
-        </div>
       </div>
-    </div><!-- END TAB: Settings -->
+    </div><!-- END TAB: Local Inventory -->
   </div>
 
   <!-- Error Helper for user-friendly messages -->
@@ -1353,7 +1163,6 @@ Wellness"></textarea>
     let currentPage = 1;
     const pageSize = 100;
     let currentFilter = 'all';
-    let spreadsheetId = '';
     let feedUrl = '';
 
     // Load GMC feed URL with token
@@ -1665,130 +1474,6 @@ Wellness"></textarea>
         }
       } catch (e) {
         document.getElementById('stat-last-gen').textContent = 'Unknown';
-      }
-    }
-
-    // Check Google auth status
-    async function checkGoogleStatus() {
-      try {
-        const response = await fetch('/api/google/status');
-        const status = await response.json();
-
-        const container = document.getElementById('google-status');
-        const sheetConfig = document.getElementById('sheet-config');
-
-        if (!status.hasClientCredentials) {
-          container.className = 'google-status disconnected';
-          container.innerHTML = `
-            <span class="status-icon">⚠️</span>
-            <span class="status-text">Google OAuth not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file.</span>
-            <a href="settings.html" style="color: #2563eb; text-decoration: none; font-weight: 500;">Go to Settings</a>
-          `;
-          sheetConfig.style.display = 'none';
-        } else if (!status.redirectUriValid) {
-          container.className = 'google-status disconnected';
-          container.innerHTML = `
-            <span class="status-icon">⚠️</span>
-            <span class="status-text">${status.redirectUriError || 'GOOGLE_REDIRECT_URI not configured or invalid.'}</span>
-            <a href="settings.html" style="color: #2563eb; text-decoration: none; font-weight: 500;">Go to Settings</a>
-          `;
-          sheetConfig.style.display = 'none';
-        } else if (!status.authenticated) {
-          container.className = 'google-status disconnected';
-          container.innerHTML = `
-            <span class="status-icon">🔴</span>
-            <span class="status-text">Not connected to Google. Connect to enable automatic sheet sync.</span>
-            <button class="btn-connect" onclick="connectGoogle()">Connect Google Account</button>
-          `;
-          sheetConfig.style.display = 'none';
-        } else {
-          container.className = 'google-status';
-          container.innerHTML = `
-            <span class="status-icon">🟢</span>
-            <span class="status-text">Connected to Google Sheets</span>
-            <button class="btn-sync" onclick="syncToSheet()">Sync Now</button>
-            <button class="btn-disconnect" onclick="disconnectGoogle()">Disconnect</button>
-          `;
-          sheetConfig.style.display = 'flex';
-          loadSpreadsheetId();
-        }
-      } catch (error) {
-        console.error('Google status check failed:', error);
-      }
-    }
-
-    // Load saved spreadsheet ID
-    async function loadSpreadsheetId() {
-      try {
-        const response = await fetch('/api/gmc/settings');
-        const data = await response.json();
-        if (data.settings && data.settings.google_sheet_id) {
-          document.getElementById('spreadsheet-id').value = data.settings.google_sheet_id;
-          spreadsheetId = data.settings.google_sheet_id;
-        }
-      } catch (e) {
-        console.error('Failed to load spreadsheet ID:', e);
-      }
-    }
-
-    // Connect Google
-    function connectGoogle() {
-      window.location.href = '/api/google/auth';
-    }
-
-    // Disconnect Google
-    async function disconnectGoogle() {
-      if (!confirm('Disconnect from Google? You will need to reconnect to sync sheets.')) return;
-      try {
-        await fetch('/api/google/disconnect', { method: 'POST' });
-        checkGoogleStatus();
-      } catch (e) {
-        alert('Error disconnecting: ' + e.message);
-      }
-    }
-
-    // Sync to Google Sheet
-    async function syncToSheet() {
-      const sheetId = document.getElementById('spreadsheet-id').value.trim();
-      if (!sheetId) {
-        alert('Please enter a Google Spreadsheet ID');
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/gmc/sync-sheet', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spreadsheet_id: sheetId })
-        });
-
-        const data = await response.json();
-
-        if (data.authRequired) {
-          if (confirm('Not authenticated with Google. Connect now?')) {
-            connectGoogle();
-          }
-          return;
-        }
-
-        if (!data.success) throw new Error(data.error);
-
-        alert(`Synced ${data.updatedRows} rows to Google Sheet!\n\n${data.spreadsheetUrl}`);
-
-      } catch (error) {
-        alert('Sync error: ' + error.message);
-      }
-    }
-
-    // Handle OAuth callback
-    function handleOAuthCallback() {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('google_connected')) {
-        alert('Successfully connected to Google!');
-        window.history.replaceState({}, '', window.location.pathname);
-      } else if (params.get('google_error')) {
-        alert('Google connection failed: ' + params.get('google_error'));
-        window.history.replaceState({}, '', window.location.pathname);
       }
     }
 
@@ -2345,60 +2030,93 @@ Wellness"></textarea>
       // Load data for the selected tab
       if (tabName === 'local-inventory') {
         loadLocalInventoryLocations();
-      } else if (tabName === 'settings') {
-        loadGmcSettings();
-        loadLocationSettings();
-        loadSyncHistory();
       }
     }
 
-    // ==================== SETTINGS TAB ====================
+    // ==================== GMC API SETTINGS ====================
     let gmcSettings = {};
     let gmcApiSettings = {};
     let locationSettings = [];
 
+    // Toggle API settings panel
+    function toggleApiSettings() {
+      const panel = document.getElementById('api-settings-panel');
+      const toggle = document.getElementById('api-settings-toggle');
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '▲';
+      } else {
+        panel.style.display = 'none';
+        toggle.textContent = '▼';
+      }
+    }
+
+    // Update connection badge based on settings
+    function updateConnectionBadge() {
+      const badge = document.getElementById('gmc-connection-badge');
+      if (gmcApiSettings.gmc_merchant_id && gmcApiSettings.gmc_data_source_id) {
+        badge.textContent = 'Connected';
+        badge.style.background = '#dcfce7';
+        badge.style.color = '#166534';
+      } else if (gmcApiSettings.gmc_merchant_id) {
+        badge.textContent = 'Partial';
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#92400e';
+      } else {
+        badge.textContent = 'Not configured';
+        badge.style.background = '#fee2e2';
+        badge.style.color = '#991b1b';
+      }
+    }
+
+    // Copy local inventory feed URL
+    async function copyLocalFeedUrl() {
+      const input = document.getElementById('local-inventory-feed-url');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        const btn = event.target;
+        btn.textContent = 'Copied!';
+        btn.style.background = '#16a34a';
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.style.background = '#3b82f6';
+        }, 2000);
+      } catch (err) {
+        input.select();
+        document.execCommand('copy');
+      }
+    }
+
+    // Load local inventory feed URL
+    async function loadLocalInventoryFeedUrl() {
+      try {
+        const response = await fetch('/api/gmc/local-inventory-feed-url');
+        const data = await response.json();
+        if (data.success && data.feedUrl) {
+          document.getElementById('local-inventory-feed-url').value = data.feedUrl;
+        } else {
+          document.getElementById('local-inventory-feed-url').value = window.location.origin + '/api/gmc/local-inventory-feed.tsv';
+        }
+      } catch (error) {
+        document.getElementById('local-inventory-feed-url').value = window.location.origin + '/api/gmc/local-inventory-feed.tsv';
+      }
+    }
+
     async function loadGmcSettings() {
       try {
-        // Load legacy settings (sheet URL)
-        const response = await fetch('/api/gmc/settings');
-        const data = await response.json();
-        gmcSettings = data.settings || {};
-        document.getElementById('google-sheet-url').value = gmcSettings.google_sheet_url || '';
-
         // Load API settings (merchant ID, data source ID, feed label, language)
         const apiResponse = await fetch('/api/gmc/api-settings');
         const apiData = await apiResponse.json();
         gmcApiSettings = apiData.settings || {};
         document.getElementById('gmc-merchant-id').value = gmcApiSettings.gmc_merchant_id || '';
         document.getElementById('gmc-data-source-id').value = gmcApiSettings.gmc_data_source_id || '';
-        document.getElementById('gmc-local-data-source-id').value = gmcApiSettings.gmc_local_data_source_id || '';
         document.getElementById('gmc-feed-label').value = gmcApiSettings.feed_label || '';
         document.getElementById('gmc-content-language').value = gmcApiSettings.content_language || '';
+
+        // Update connection badge
+        updateConnectionBadge();
       } catch (error) {
         console.error('Failed to load GMC settings:', error);
-      }
-    }
-
-    async function saveGmcSettings() {
-      try {
-        const googleSheetUrl = document.getElementById('google-sheet-url').value.trim();
-
-        const response = await fetch('/api/gmc/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            settings: {
-              google_sheet_url: googleSheetUrl
-            }
-          })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to save settings');
-
-        alert('Sheet URL saved!');
-      } catch (error) {
-        alert('Error saving settings: ' + error.message);
       }
     }
 
@@ -2435,6 +2153,12 @@ Wellness"></textarea>
 
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+
+        // Update connection badge to reflect new settings
+        gmcApiSettings.gmc_merchant_id = gmcMerchantId;
+        gmcApiSettings.gmc_data_source_id = dataSourceId;
+        gmcApiSettings.gmc_local_data_source_id = localDataSourceId;
+        updateConnectionBadge();
 
         alert('Settings saved!');
       } catch (error) {
@@ -2901,10 +2625,10 @@ Wellness"></textarea>
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
-      handleOAuthCallback();
       loadFeedData();
       loadFeedUrl();
-      checkGoogleStatus();
+      loadGmcSettings();
+      loadLocalInventoryFeedUrl();
     });
   </script>
 </body>
