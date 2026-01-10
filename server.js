@@ -2318,6 +2318,29 @@ app.post('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
                 merchantId
             ]);
 
+            // Check if new date puts item into a discount tier (AUTO25/AUTO50)
+            // If so, clear reviewed_at so it appears in expiry-audit for sticker confirmation
+            if (expiration_date && does_not_expire !== true) {
+                const daysUntilExpiry = expiryDiscount.calculateDaysUntilExpiry(expiration_date);
+                const tiers = await expiryDiscount.getActiveTiers(merchantId);
+                const newTier = expiryDiscount.determineTier(daysUntilExpiry, tiers);
+
+                if (newTier && (newTier.tier_code === 'AUTO25' || newTier.tier_code === 'AUTO50')) {
+                    // Clear reviewed_at so item shows up in audit for sticker confirmation
+                    await db.query(`
+                        UPDATE variation_expiration
+                        SET reviewed_at = NULL, reviewed_by = NULL
+                        WHERE variation_id = $1 AND merchant_id = $2
+                    `, [variation_id, merchantId]);
+                    logger.info('Cleared reviewed_at for discount tier item', {
+                        variation_id,
+                        daysUntilExpiry,
+                        tier: newTier.tier_code,
+                        merchantId
+                    });
+                }
+            }
+
             updatedCount++;
 
             // Push to Square
