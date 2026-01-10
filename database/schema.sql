@@ -703,6 +703,7 @@ CREATE TABLE IF NOT EXISTS gmc_settings (
 -- 6. GMC Feed Generation History
 CREATE TABLE IF NOT EXISTS gmc_feed_history (
     id SERIAL PRIMARY KEY,
+    merchant_id INTEGER REFERENCES merchants(id),
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     total_products INTEGER,
     products_with_errors INTEGER DEFAULT 0,
@@ -712,6 +713,9 @@ CREATE TABLE IF NOT EXISTS gmc_feed_history (
     status TEXT DEFAULT 'success',
     error_message TEXT
 );
+
+-- Index for efficient per-merchant history queries
+CREATE INDEX IF NOT EXISTS idx_gmc_feed_history_merchant ON gmc_feed_history(merchant_id, generated_at DESC);
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_google_taxonomy_parent ON google_taxonomy(parent_id);
@@ -854,4 +858,23 @@ DO $$
 BEGIN
     RAISE NOTICE 'Review tracking migration completed successfully!';
     RAISE NOTICE 'Added reviewed_at and reviewed_by columns to variation_expiration';
+END $$;
+
+-- ========================================
+-- MIGRATION: Add merchant_id to GMC feed history
+-- ========================================
+-- Fixes multi-tenant data isolation for feed generation tracking
+
+ALTER TABLE gmc_feed_history ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id);
+
+CREATE INDEX IF NOT EXISTS idx_gmc_feed_history_merchant
+    ON gmc_feed_history(merchant_id, generated_at DESC);
+
+COMMENT ON COLUMN gmc_feed_history.merchant_id IS 'Merchant ID for multi-tenant feed history isolation';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'GMC feed history multi-tenant migration completed successfully!';
+    RAISE NOTICE 'Added merchant_id column to gmc_feed_history table';
 END $$;

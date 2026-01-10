@@ -302,14 +302,20 @@ async function saveTsvFile(content, filename = 'gmc-feed.tsv') {
 
 /**
  * Record feed generation in history
+ * @param {Object} stats - Generation statistics
+ * @param {string} tsvPath - Path to TSV file
+ * @param {number} merchantId - Merchant ID for multi-tenant isolation
+ * @param {string} sheetUrl - Google Sheet URL (optional)
+ * @param {string} error - Error message if failed (optional)
  */
-async function recordFeedHistory(stats, tsvPath, sheetUrl = null, error = null) {
+async function recordFeedHistory(stats, tsvPath, merchantId, sheetUrl = null, error = null) {
     try {
         await db.query(`
             INSERT INTO gmc_feed_history
-            (total_products, products_with_errors, tsv_file_path, google_sheet_url, duration_seconds, status, error_message)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (merchant_id, total_products, products_with_errors, tsv_file_path, google_sheet_url, duration_seconds, status, error_message)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
+            merchantId,
             stats.total,
             stats.withErrors,
             tsvPath,
@@ -319,16 +325,18 @@ async function recordFeedHistory(stats, tsvPath, sheetUrl = null, error = null) 
             error
         ]);
     } catch (err) {
-        logger.error('Failed to record feed history', { error: err.message });
+        logger.error('Failed to record feed history', { error: err.message, merchantId });
     }
 }
 
 /**
  * Full feed generation - generates data, saves TSV, records history
- * @param {Object} options - Generation options
+ * @param {Object} options - Generation options (must include merchantId)
  * @returns {Promise<Object>} Generation result
  */
 async function generateFeed(options = {}) {
+    const { merchantId } = options;
+
     try {
         // Generate feed data
         const { products, stats, settings } = await generateFeedData(options);
@@ -337,8 +345,8 @@ async function generateFeed(options = {}) {
         const tsvContent = generateTsvContent(products);
         const tsvPath = await saveTsvFile(tsvContent, options.filename || 'gmc-feed.tsv');
 
-        // Record in history
-        await recordFeedHistory(stats, tsvPath, null, null);
+        // Record in history (with merchantId for multi-tenant isolation)
+        await recordFeedHistory(stats, tsvPath, merchantId, null, null);
 
         return {
             success: true,
@@ -348,7 +356,7 @@ async function generateFeed(options = {}) {
             products: options.includeProducts ? products : undefined
         };
     } catch (error) {
-        await recordFeedHistory({ total: 0, withErrors: 0, duration: 0 }, null, null, error.message);
+        await recordFeedHistory({ total: 0, withErrors: 0, duration: 0 }, null, merchantId, null, error.message);
         throw error;
     }
 }
