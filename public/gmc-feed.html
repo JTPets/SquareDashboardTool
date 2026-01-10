@@ -882,10 +882,6 @@
         <div class="stat-value warning" id="stat-no-brand">--</div>
         <div class="stat-label">Missing Brand</div>
       </div>
-      <div class="stat-box" title="When TSV file was last generated (not API sync)">
-        <div class="stat-value" id="stat-last-gen">--</div>
-        <div class="stat-label">TSV Generated</div>
-      </div>
     </div>
 
     <!-- Issue Filter Badges -->
@@ -1031,10 +1027,8 @@ Wellness"></textarea>
       <select id="category-filter">
         <option value="">All Categories</option>
       </select>
-      <button onclick="generateFeed()" title="Generate TSV file locally for manual upload or feed URL">Regenerate Feed</button>
-      <button class="secondary" onclick="downloadTsv()" title="Download the TSV file">Download TSV</button>
+      <button class="secondary" onclick="downloadTsv()" title="Download the current feed as TSV">Download TSV</button>
       <button class="secondary" onclick="exportCsv()">Export CSV</button>
-      <span style="font-size: 11px; color: #9ca3af; margin-left: 8px;" title="Generate TSV updates the 'Last Generated' stat. Use the green 'Sync to GMC' button above to push directly to Google.">ℹ️ Creates local TSV file</span>
     </div>
 
     <!-- Table -->
@@ -1257,7 +1251,6 @@ Wellness"></textarea>
         updateStats();
         populateCategories();
         renderTable();
-        loadLastGeneration();
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('feed-table').style.display = 'table';
@@ -1422,32 +1415,13 @@ Wellness"></textarea>
     document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 300));
     document.getElementById('category-filter').addEventListener('change', applyFilters);
 
-    // Generate feed
-    async function generateFeed() {
-      try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Generating...';
-
-        const response = await fetch('/api/gmc/generate', { method: 'POST' });
-        const data = await response.json();
-
-        if (!data.success) throw new Error(data.error || 'Generation failed');
-
-        alert(`Feed generated! ${data.stats.total} products`);
-        loadFeedData();
-
-      } catch (error) {
-        alert('Error: ' + error.message);
-      } finally {
-        event.target.disabled = false;
-        event.target.textContent = 'Regenerate Feed';
-      }
-    }
-
-    // Download TSV
+    // Download TSV using the token URL
     function downloadTsv() {
-      window.open('/api/gmc/feed.tsv', '_blank');
+      if (feedUrl) {
+        window.open(feedUrl, '_blank');
+      } else {
+        alert('Feed URL not available. Please refresh the page.');
+      }
     }
 
     // Export CSV
@@ -1469,22 +1443,6 @@ Wellness"></textarea>
       a.download = 'gmc-feed-' + new Date().toISOString().slice(0, 10) + '.csv';
       a.click();
       URL.revokeObjectURL(url);
-    }
-
-    // Load last generation time
-    async function loadLastGeneration() {
-      try {
-        const response = await fetch('/api/gmc/history?limit=1');
-        const data = await response.json();
-        if (data.history && data.history.length > 0) {
-          const last = new Date(data.history[0].generated_at);
-          document.getElementById('stat-last-gen').textContent = formatTimeAgo(last);
-        } else {
-          document.getElementById('stat-last-gen').textContent = 'Never';
-        }
-      } catch (e) {
-        document.getElementById('stat-last-gen').textContent = 'Unknown';
-      }
     }
 
     // Utilities

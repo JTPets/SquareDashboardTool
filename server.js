@@ -4030,27 +4030,6 @@ app.get('/api/gmc/feed', requireAuth, requireMerchant, async (req, res) => {
 });
 
 /**
- * POST /api/gmc/generate
- * Generate GMC feed and save to TSV file
- */
-app.post('/api/gmc/generate', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const { location_id, filename } = req.body;
-        const merchantId = req.merchantContext.id;
-        const result = await gmcFeed.generateFeed({
-            locationId: location_id,
-            filename: filename || 'gmc-feed.tsv',
-            merchantId
-        });
-
-        res.json(result);
-    } catch (error) {
-        logger.error('GMC feed generation error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
  * GET /api/gmc/feed.tsv
  * Download the current GMC feed as TSV
  * Supports multiple auth methods:
@@ -4826,30 +4805,6 @@ app.get('/api/gmc/taxonomy/fetch-google', requireAdmin, async (req, res) => {
 
     } catch (error) {
         logger.error('Google taxonomy fetch error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * GET /api/gmc/history
- * Get feed generation history
- */
-app.get('/api/gmc/history', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const { limit } = req.query;
-        const merchantId = req.merchantContext.id;
-        let query = 'SELECT * FROM gmc_feed_history WHERE merchant_id = $1 ORDER BY generated_at DESC';
-        const params = [merchantId];
-
-        if (limit) {
-            params.push(parseInt(limit));
-            query += ` LIMIT $${params.length}`;
-        }
-
-        const result = await db.query(query, params);
-        res.json({ count: result.rows.length, history: result.rows });
-    } catch (error) {
-        logger.error('GMC history error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
