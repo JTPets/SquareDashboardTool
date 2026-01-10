@@ -1136,21 +1136,27 @@ Wellness"></textarea>
           </div>
         </div>
 
-        <!-- Per-Location Feeds Grid -->
-        <div class="settings-group">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <!-- Per-Location Feeds (Collapsible - Advanced) -->
+        <div class="settings-group" style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f9fafb; cursor: pointer;" onclick="togglePerLocationFeeds()">
             <div>
-              <h4 style="margin: 0;">📊 Location Inventory Status</h4>
-              <p style="font-size: 13px; color: #6b7280; margin: 5px 0 0 0;">
-                Individual feed files per location (for manual upload if needed)
+              <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span id="per-location-toggle">▶</span> 📊 Per-Location Feeds (Advanced)
+              </h4>
+              <p style="font-size: 12px; color: #6b7280; margin: 5px 0 0 0;">
+                Individual feed files for manual upload - only needed if combined feed doesn't work
               </p>
             </div>
-            <button class="btn-generate-all" onclick="generateAllLocalInventory()" style="background: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
-              Generate All Feeds
-            </button>
           </div>
-          <div class="inventory-feeds-grid" id="inventory-feeds-grid">
-            <div class="loading" id="inventory-loading">Loading locations...</div>
+          <div id="per-location-feeds-panel" style="display: none; padding: 15px; border-top: 1px solid #e5e7eb;">
+            <div style="margin-bottom: 15px; text-align: right;">
+              <button class="btn-generate-all" onclick="generateAllLocalInventory()" style="background: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                Generate All Feeds
+              </button>
+            </div>
+            <div class="inventory-feeds-grid" id="inventory-feeds-grid">
+              <div class="loading" id="inventory-loading">Loading...</div>
+            </div>
           </div>
         </div>
 
@@ -2033,6 +2039,7 @@ Wellness"></textarea>
 
       // Load data for the selected tab
       if (tabName === 'local-inventory') {
+        loadLocationSettings();
         loadLocalInventoryLocations();
       }
     }
@@ -2052,6 +2059,18 @@ Wellness"></textarea>
       } else {
         panel.style.display = 'none';
         toggle.textContent = '▼';
+      }
+    }
+
+    function togglePerLocationFeeds() {
+      const panel = document.getElementById('per-location-feeds-panel');
+      const toggle = document.getElementById('per-location-toggle');
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '▼';
+      } else {
+        panel.style.display = 'none';
+        toggle.textContent = '▶';
       }
     }
 
