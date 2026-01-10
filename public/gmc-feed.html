@@ -2325,7 +2325,7 @@ Wellness"></textarea>
       }
     }
 
-    // ==================== SYNC HISTORY ====================
+    // ==================== SYNC STATUS ====================
 
     async function loadSyncStatus() {
       try {
@@ -2333,36 +2333,16 @@ Wellness"></textarea>
         const data = await response.json();
 
         if (data.success && data.status) {
-          // Update product sync status
+          // Update inline product sync status
           const productStatus = data.status.product_catalog;
-          const productEl = document.getElementById('last-product-sync');
-          if (productStatus) {
-            const statusColor = productStatus.status === 'success' ? '#059669' :
-                               productStatus.status === 'partial' ? '#d97706' : '#dc2626';
+          const productEl = document.getElementById('last-product-sync-inline');
+          if (productEl && productStatus) {
             const time = new Date(productStatus.started_at).toLocaleString();
-            productEl.innerHTML = `
-              <span style="color: ${statusColor};">${productStatus.status.toUpperCase()}</span>
-              <span style="color: #6b7280; font-weight: normal;"> - ${productStatus.succeeded}/${productStatus.total_items} items</span>
-              <div style="font-size: 11px; color: #9ca3af; margin-top: 3px;">${time}</div>
-            `;
-          } else {
-            productEl.innerHTML = '<span style="color: #9ca3af;">No sync yet</span>';
-          }
-
-          // Update inventory sync status
-          const invStatus = data.status.local_inventory_all;
-          const invEl = document.getElementById('last-inventory-sync');
-          if (invStatus) {
-            const statusColor = invStatus.status === 'success' ? '#059669' :
-                               invStatus.status === 'partial' ? '#d97706' : '#dc2626';
-            const time = new Date(invStatus.started_at).toLocaleString();
-            invEl.innerHTML = `
-              <span style="color: ${statusColor};">${invStatus.status.toUpperCase()}</span>
-              <span style="color: #6b7280; font-weight: normal;"> - ${invStatus.succeeded}/${invStatus.total_items} items</span>
-              <div style="font-size: 11px; color: #9ca3af; margin-top: 3px;">${time}</div>
-            `;
-          } else {
-            invEl.innerHTML = '<span style="color: #9ca3af;">No sync yet</span>';
+            const statusIcon = productStatus.status === 'success' ? '✓' :
+                              productStatus.status === 'partial' ? '⚠' : '✗';
+            productEl.textContent = `${time} ${statusIcon}`;
+            productEl.style.color = productStatus.status === 'success' ? '#059669' :
+                                   productStatus.status === 'partial' ? '#d97706' : '#dc2626';
           }
         }
       } catch (error) {
@@ -2370,54 +2350,9 @@ Wellness"></textarea>
       }
     }
 
-    async function loadSyncHistory() {
-      try {
-        const response = await fetch('/api/gmc/api/sync-history?limit=20');
-        const data = await response.json();
-
-        const tbody = document.getElementById('sync-history-body');
-
-        if (!data.success || !data.history || data.history.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #6b7280;">No sync history yet</td></tr>';
-          return;
-        }
-
-        tbody.innerHTML = data.history.map(row => {
-          const statusColor = row.status === 'success' ? '#059669' :
-                             row.status === 'partial' ? '#d97706' :
-                             row.status === 'in_progress' ? '#2563eb' : '#dc2626';
-          const statusBg = row.status === 'success' ? '#dcfce7' :
-                          row.status === 'partial' ? '#fef3c7' :
-                          row.status === 'in_progress' ? '#dbeafe' : '#fee2e2';
-          const typeLabel = row.sync_type === 'product_catalog' ? 'Products' :
-                           row.sync_type === 'local_inventory_all' ? 'Inventory (All)' :
-                           row.sync_type.replace(/_/g, ' ');
-          const time = new Date(row.started_at).toLocaleString();
-          const duration = row.duration_ms ? (row.duration_ms / 1000).toFixed(1) + 's' : '-';
-
-          return `
-            <tr>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${time}</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${typeLabel}${row.location_name ? ` (${row.location_name})` : ''}</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">
-                <span style="background: ${statusBg}; color: ${statusColor}; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;">
-                  ${row.status.toUpperCase()}
-                </span>
-              </td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #059669; font-weight: 500;">${row.succeeded || 0}</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: right; color: ${row.failed > 0 ? '#dc2626' : '#6b7280'}; font-weight: ${row.failed > 0 ? '500' : 'normal'};">${row.failed || 0}</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #6b7280;">${duration}</td>
-            </tr>
-          `;
-        }).join('');
-
-        // Also update the status summary
-        loadSyncStatus();
-      } catch (error) {
-        console.error('Failed to load sync history:', error);
-        document.getElementById('sync-history-body').innerHTML =
-          '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #dc2626;">Error loading history</td></tr>';
-      }
+    // Alias for backwards compatibility - just refreshes sync status
+    function loadSyncHistory() {
+      loadSyncStatus();
     }
 
     async function loadLocationSettings() {
@@ -2628,6 +2563,7 @@ Wellness"></textarea>
       loadFeedData();
       loadFeedUrl();
       loadGmcSettings();
+      loadSyncStatus();
       loadLocalInventoryFeedUrl();
     });
   </script>
