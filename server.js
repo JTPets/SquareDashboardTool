@@ -119,9 +119,14 @@ pgSessionStore.on('error', (err) => {
 
 console.log('Initializing session middleware...');
 
+// SECURITY FIX: Generate cryptographically secure fallback secret
+// Note: This is only for development; production requires SESSION_SECRET env var
+const crypto = require('crypto');
+const developmentSecret = crypto.randomBytes(64).toString('hex');
+
 app.use(session({
     store: pgSessionStore,
-    secret: process.env.SESSION_SECRET || 'change-this-secret-in-production-' + Math.random().toString(36),
+    secret: process.env.SESSION_SECRET || developmentSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -1035,9 +1040,9 @@ async function isSyncNeeded(syncType, intervalHours, merchantId) {
  * @returns {Promise<void>}
  */
 async function runAutomatedBackup() {
-    const { exec } = require('child_process');
+    const { execFile } = require('child_process');
     const { promisify } = require('util');
-    const execAsync = promisify(exec);
+    const execFileAsync = promisify(execFile);
 
     logger.info('Starting automated database backup');
 
@@ -1047,16 +1052,37 @@ async function runAutomatedBackup() {
     const dbUser = process.env.DB_USER || 'postgres';
     const dbPassword = process.env.DB_PASSWORD || '';
 
+    // SECURITY FIX: Validate database connection parameters to prevent injection
+    // Only allow alphanumeric, dots, underscores, and hyphens in host/dbname/user
+    const safePattern = /^[a-zA-Z0-9._-]+$/;
+    if (!safePattern.test(dbHost) || !safePattern.test(dbName) || !safePattern.test(dbUser)) {
+        throw new Error('Invalid database configuration: contains disallowed characters');
+    }
+    // Port must be numeric
+    if (!/^\d+$/.test(dbPort)) {
+        throw new Error('Invalid database port: must be numeric');
+    }
+
     // Find pg_dump command (handles Windows paths)
     const pgDumpCmd = process.platform === 'win32' ? findPgDumpOnWindows() : 'pg_dump';
 
     // Set PGPASSWORD environment variable for pg_dump
     const env = { ...process.env, PGPASSWORD: dbPassword };
 
-    // Use pg_dump to create backup
-    const command = `${pgDumpCmd} -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --clean --if-exists --no-owner --no-privileges`;
+    // SECURITY FIX: Use execFile with array arguments instead of string interpolation
+    // This prevents command injection via environment variables
+    const args = [
+        '-h', dbHost,
+        '-p', dbPort,
+        '-U', dbUser,
+        '-d', dbName,
+        '--clean',
+        '--if-exists',
+        '--no-owner',
+        '--no-privileges'
+    ];
 
-    const { stdout, stderr } = await execAsync(command, {
+    const { stdout, stderr } = await execFileAsync(pgDumpCmd, args, {
         env,
         maxBuffer: 50 * 1024 * 1024 // 50MB buffer
     });
@@ -2225,11 +2251,13 @@ app.get('/api/expirations', requireAuth, requireMerchant, async (req, res) => {
                     query += ` AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
                 }
             } else {
-                const days = parseInt(expiry);
-                if (!isNaN(days)) {
+                const days = parseInt(expiry, 10);
+                if (!isNaN(days) && days >= 0 && days <= 3650) {
+                    // SECURITY FIX: Use parameterized query instead of string interpolation
+                    params.push(days);
                     query += ` HAVING ve.expiration_date IS NOT NULL
                               AND ve.does_not_expire = FALSE
-                              AND ve.expiration_date <= NOW() + INTERVAL '${days} days'
+                              AND ve.expiration_date <= NOW() + ($${params.length} || ' days')::interval
                               AND ve.expiration_date >= NOW()`;
                 }
             }
@@ -3124,11 +3152,14 @@ app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => 
 
         // Filter by age if specified
         if (age_months) {
-            const months = parseInt(age_months);
-            if (!isNaN(months) && months > 0) {
+            const months = parseInt(age_months, 10);
+            // SECURITY FIX: Use parameterized query instead of string interpolation
+            // Also validate the months value is reasonable (1-120 months = 10 years max)
+            if (!isNaN(months) && months > 0 && months <= 120) {
+                params.push(months);
                 query += ` AND (
-                    (v.deleted_at IS NOT NULL AND v.deleted_at <= NOW() - INTERVAL '${months} months')
-                    OR (i.archived_at IS NOT NULL AND i.archived_at <= NOW() - INTERVAL '${months} months')
+                    (v.deleted_at IS NOT NULL AND v.deleted_at <= NOW() - ($${params.length} || ' months')::interval)
+                    OR (i.archived_at IS NOT NULL AND i.archived_at <= NOW() - ($${params.length} || ' months')::interval)
                 )`;
             }
         }
@@ -3181,7 +3212,11 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
         const { location_id, issue_type } = req.query;
         const merchantId = req.merchantContext.id;
 
+        // SECURITY FIX: Validate location_id format if provided (Square location IDs are alphanumeric)
+        const sanitizedLocationId = location_id && /^[A-Za-z0-9_-]+$/.test(location_id) ? location_id : null;
+
         // Build comprehensive audit query
+        // SECURITY FIX: Use parameterized query for location_id ($2) instead of string interpolation
         const query = `
             WITH variation_data AS (
                 SELECT
@@ -3229,12 +3264,13 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                      LIMIT 1
                     ) as unit_cost_cents,
                     -- Get current stock (sum across all locations or specific location)
+                    -- SECURITY: Uses parameterized query ($2) for location filter
                     (SELECT COALESCE(SUM(ic.quantity), 0)
                      FROM inventory_counts ic
                      WHERE ic.catalog_object_id = v.id
                        AND ic.state = 'IN_STOCK'
                        AND ic.merchant_id = v.merchant_id
-                       ${location_id ? "AND ic.location_id = '" + location_id.replace(/'/g, "''") + "'" : ""}
+                       AND ($2::text IS NULL OR ic.location_id = $2)
                     ) as current_stock,
                     -- Check if ANY location has a stock_alert_min set (for reorder threshold check)
                     (SELECT MAX(vls.stock_alert_min)
@@ -3310,7 +3346,8 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
             ORDER BY item_name, variation_name
         `;
 
-        const params = [merchantId];
+        // SECURITY FIX: Use parameterized query with location_id as $2
+        const params = [merchantId, sanitizedLocationId];
         const result = await db.query(query, params);
 
         // Calculate aggregate statistics

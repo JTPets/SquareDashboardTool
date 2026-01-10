@@ -77,31 +77,41 @@ async function verifyPassword(password, hash) {
 
 /**
  * Generate a random password (for initial admin or password resets)
+ * SECURITY FIX: Uses crypto.randomInt for cryptographically secure random numbers
  * @param {number} length - Password length (default 16)
  * @returns {string} Random password meeting requirements
  */
 function generateRandomPassword(length = 16) {
+    const crypto = require('crypto');
     const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const lowercase = 'abcdefghijklmnopqrstuvwxyz';
     const numbers = '0123456789';
     const special = '!@#$%^&*';
     const all = uppercase + lowercase + numbers + special;
 
+    // SECURITY FIX: Use crypto.randomInt instead of Math.random for secure random selection
+    const secureRandom = (max) => crypto.randomInt(0, max);
+
     let password = '';
 
     // Ensure at least one of each required type
-    password += uppercase[Math.floor(Math.random() * uppercase.length)];
-    password += lowercase[Math.floor(Math.random() * lowercase.length)];
-    password += numbers[Math.floor(Math.random() * numbers.length)];
-    password += special[Math.floor(Math.random() * special.length)];
+    password += uppercase[secureRandom(uppercase.length)];
+    password += lowercase[secureRandom(lowercase.length)];
+    password += numbers[secureRandom(numbers.length)];
+    password += special[secureRandom(special.length)];
 
     // Fill rest with random characters
     for (let i = password.length; i < length; i++) {
-        password += all[Math.floor(Math.random() * all.length)];
+        password += all[secureRandom(all.length)];
     }
 
-    // Shuffle the password
-    return password.split('').sort(() => Math.random() - 0.5).join('');
+    // SECURITY FIX: Use Fisher-Yates shuffle with crypto.randomInt for secure shuffling
+    const chars = password.split('');
+    for (let i = chars.length - 1; i > 0; i--) {
+        const j = secureRandom(i + 1);
+        [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    return chars.join('');
 }
 
 module.exports = {
