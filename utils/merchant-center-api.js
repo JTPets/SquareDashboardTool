@@ -497,7 +497,6 @@ async function syncProductCatalog(merchantId) {
         const settings = await getGmcApiSettings(merchantId);
         const gmcMerchantId = settings.gmc_merchant_id;
         const dataSourceId = settings.gmc_data_source_id;
-        const localDataSourceId = settings.gmc_local_data_source_id; // Separate data source for LOCAL channel
 
         if (!gmcMerchantId) {
             await updateSyncLog(logId, {
@@ -522,15 +521,12 @@ async function syncProductCatalog(merchantId) {
         }
 
         // Log settings being used for debugging
-        // feedLabel and contentLanguage are now OPTIONAL - only sent if explicitly configured
         logger.info('GMC sync settings', {
             merchantId,
             gmcMerchantId,
             dataSourceId,
-            localDataSourceId: localDataSourceId || '(not configured - will skip LOCAL sync)',
-            feedLabel: settings.feed_label || '(not set - will be omitted)',
-            contentLanguage: settings.content_language || '(not set - will be omitted)',
-            allSettings: settings
+            feedLabel: settings.feed_label || '(not set)',
+            contentLanguage: settings.content_language || '(not set)'
         });
 
         // Try to get data source info to verify configuration
@@ -593,77 +589,52 @@ async function syncProductCatalog(merchantId) {
         }
 
         // Build GMC products for ONLINE channel
-        const onlineProducts = result.rows.map(row => buildGmcProduct(row, settings, 'online'));
+        const products = result.rows.map(row => buildGmcProduct(row, settings, 'online'));
 
-        // Sync ONLINE channel first
-        logger.info('Syncing products to ONLINE channel...', { count: onlineProducts.length });
-        const onlineResult = await batchUpsertProducts({
+        // Sync to ONLINE channel only
+        // (Local inventory is handled via TSV feed which references products by offer ID)
+        logger.info('Syncing products to ONLINE channel...', { count: products.length });
+        const syncResult = await batchUpsertProducts({
             merchantId,
             gmcMerchantId,
             dataSourceId,
-            products: onlineProducts,
+            products,
             channel: 'ONLINE'
         });
 
-        // Sync LOCAL channel only if a local data source is configured
-        let localResult = { succeeded: 0, failed: 0, errors: [] };
-        if (localDataSourceId) {
-            // Build GMC products for LOCAL channel (for local inventory support)
-            const localProducts = result.rows.map(row => buildGmcProduct(row, settings, 'local'));
-
-            logger.info('Syncing products to LOCAL channel...', { count: localProducts.length, dataSourceId: localDataSourceId });
-            localResult = await batchUpsertProducts({
-                merchantId,
-                gmcMerchantId,
-                dataSourceId: localDataSourceId, // Use separate data source for LOCAL
-                products: localProducts,
-                channel: 'LOCAL'
-            });
-        } else {
-            logger.info('Skipping LOCAL channel sync - no local data source configured');
-            fs.appendFileSync(debugFile, `[${new Date().toISOString()}] SKIPPED LOCAL sync - no gmc_local_data_source_id configured\n`);
-        }
-
-        // Combine results
-        const totalProducts = onlineProducts.length;
-        const totalSucceeded = onlineResult.succeeded + localResult.succeeded;
-        const totalFailed = onlineResult.failed + localResult.failed;
-        const allErrors = [...onlineResult.errors.map(e => ({ ...e, channel: 'ONLINE' })),
-                          ...localResult.errors.map(e => ({ ...e, channel: 'LOCAL' }))];
+        const totalProducts = products.length;
 
         // Write summary to debug file
         const summaryMsg = `
 [${new Date().toISOString()}] === SYNC COMPLETE ===
 Total products: ${totalProducts}
-ONLINE: ${onlineResult.succeeded} succeeded, ${onlineResult.failed} failed
-LOCAL:  ${localDataSourceId ? `${localResult.succeeded} succeeded, ${localResult.failed} failed` : 'SKIPPED (no data source configured)'}
+Succeeded: ${syncResult.succeeded}
+Failed: ${syncResult.failed}
 `;
         fs.appendFileSync(debugFile, summaryMsg);
 
         logger.info('Product catalog sync completed', {
             merchantId,
             totalProducts,
-            online: { succeeded: onlineResult.succeeded, failed: onlineResult.failed },
-            local: { succeeded: localResult.succeeded, failed: localResult.failed }
+            succeeded: syncResult.succeeded,
+            failed: syncResult.failed
         });
 
         // Log sync completion
         await updateSyncLog(logId, {
-            status: totalFailed === 0 ? 'success' : (totalSucceeded > 0 ? 'partial' : 'failed'),
-            total: totalProducts * 2, // Both channels
-            succeeded: totalSucceeded,
-            failed: totalFailed,
-            errors: allErrors.slice(0, 10)
+            status: syncResult.failed === 0 ? 'success' : (syncResult.succeeded > 0 ? 'partial' : 'failed'),
+            total: totalProducts,
+            succeeded: syncResult.succeeded,
+            failed: syncResult.failed,
+            errors: syncResult.errors.slice(0, 10)
         });
 
         return {
-            success: totalFailed === 0,
+            success: syncResult.failed === 0,
             total: totalProducts,
-            synced: totalSucceeded,
-            failed: totalFailed,
-            online: { succeeded: onlineResult.succeeded, failed: onlineResult.failed },
-            local: { succeeded: localResult.succeeded, failed: localResult.failed },
-            errors: allErrors.slice(0, 10)
+            synced: syncResult.succeeded,
+            failed: syncResult.failed,
+            errors: syncResult.errors.slice(0, 10)
         };
 
     } catch (error) {
