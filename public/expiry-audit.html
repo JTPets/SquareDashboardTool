@@ -1514,28 +1514,49 @@
           throw new Error('Failed to update expiration date');
         }
 
-        // Also mark as reviewed
-        await fetch('/api/expirations/review', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            variation_ids: [currentItem.variation_id],
-            reviewed_by: 'Audit User',
-            notes: notes || `Date updated from audit: ${currentItem.expiration_date?.split('T')[0]} -> ${newDate}`
-          })
-        });
+        // Calculate new days until expiry
+        const newExpiryDate = new Date(newDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        newExpiryDate.setHours(0, 0, 0, 0);
+        const newDaysUntil = Math.ceil((newExpiryDate - today) / (1000 * 60 * 60 * 24));
 
-        // Mark as confirmed in session cache
-        sessionConfirmed[currentItem.variation_id] = currentItem.tier_code;
+        // Determine new tier based on updated date
+        const newTier = getTierFromDays(newDaysUntil);
 
-        // Remove from list since date changed (tier may change)
-        allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
+        // Update the item's data for the modal
+        currentItem.expiration_date = newDate;
+        currentItem.days_until_expiry = newDaysUntil;
 
         closeUpdateModal();
+
+        // If new tier requires sticker confirmation (AUTO25 or AUTO50), show confirm modal
+        if (newTier === 'AUTO25' || newTier === 'AUTO50') {
+          currentItem.tier_code = newTier;
+          currentItem.discount_percent = newTier === 'AUTO25' ? 25 : 50;
+          showToast(`Date updated! Now ${newDaysUntil} days until expiry. Please confirm ${currentItem.discount_percent}% sticker.`, 'success');
+          // Show the sticker confirmation modal
+          setTimeout(() => showConfirmModal(currentItem.variation_id), 300);
+        } else {
+          // Not in a discount tier - just mark as reviewed and remove
+          await fetch('/api/expirations/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              variation_ids: [currentItem.variation_id],
+              reviewed_by: 'Audit User',
+              notes: notes || `Date updated from audit: ${currentItem.expiration_date?.split('T')[0]} -> ${newDate}`
+            })
+          });
+
+          // Remove from list since it's no longer in an audit tier
+          allItems = allItems.filter(i => i.variation_id !== currentItem.variation_id);
+          showToast(`Expiry date updated to ${newDate}. Item moved to ${newTier || 'FRESH'} tier.`, 'success');
+        }
+
         updateCounts();
         updateStats();
         renderItems();
-        showToast(`Expiry date updated to ${newDate}. Item will be re-evaluated.`, 'success');
 
       } catch (error) {
         console.error('Failed to update date:', error);
