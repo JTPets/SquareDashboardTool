@@ -404,14 +404,32 @@ app.get('/api/config', requireAuth, async (req, res) => {
             squareConnected = false;
         }
 
+        // Try to load merchant settings if merchant context available
+        let merchantSettings = null;
+        const merchantId = req.session?.merchantId;
+        if (merchantId) {
+            try {
+                merchantSettings = await db.getMerchantSettings(merchantId);
+            } catch (e) {
+                logger.warn('Failed to load merchant settings for config', { merchantId, error: e.message });
+            }
+        }
+
+        // Use merchant settings if available, otherwise fall back to env vars
         res.json({
-            defaultSupplyDays: parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
-            reorderSafetyDays: parseInt(process.env.REORDER_SAFETY_DAYS || '7'),
+            defaultSupplyDays: merchantSettings?.default_supply_days ??
+                parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45'),
+            reorderSafetyDays: merchantSettings?.reorder_safety_days ??
+                parseInt(process.env.REORDER_SAFETY_DAYS || '7'),
             reorderPriorityThresholds: {
-                urgent: parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0'),
-                high: parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7'),
-                medium: parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14'),
-                low: parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30')
+                urgent: merchantSettings?.reorder_priority_urgent_days ??
+                    parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0'),
+                high: merchantSettings?.reorder_priority_high_days ??
+                    parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7'),
+                medium: merchantSettings?.reorder_priority_medium_days ??
+                    parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14'),
+                low: merchantSettings?.reorder_priority_low_days ??
+                    parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30')
             },
             square_connected: squareConnected,
             square_environment: process.env.SQUARE_ENVIRONMENT || 'sandbox',
@@ -420,7 +438,8 @@ app.get('/api/config', requireAuth, async (req, res) => {
                 catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL || '60'),
                 inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL || '15'),
                 sales: parseInt(process.env.SYNC_SALES_INTERVAL || '60')
-            }
+            },
+            usingMerchantSettings: !!merchantSettings
         });
     } catch (error) {
         logger.error('Failed to get config', { error: error.message });
@@ -5764,22 +5783,31 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
         const merchantId = req.merchantContext.id;
         const {
             vendor_id,
-            supply_days = 45,
+            supply_days,
             location_id,
             min_cost
         } = req.query;
+
+        // Load merchant settings for reorder calculations
+        const merchantSettings = await db.getMerchantSettings(merchantId);
+
+        // Use supply_days from query, or fall back to merchant setting, or env default
+        const defaultSupplyDays = merchantSettings.default_supply_days ||
+            parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45');
+        const supplyDaysParam = supply_days || defaultSupplyDays;
 
         // Debug logging for reorder issues
         logger.info('Reorder suggestions request', {
             merchantId,
             merchantName: req.merchantContext.businessName,
             vendor_id,
-            supply_days,
-            location_id
+            supply_days: supplyDaysParam,
+            location_id,
+            usingMerchantSettings: true
         });
 
         // Input validation
-        const supplyDaysNum = parseInt(supply_days);
+        const supplyDaysNum = parseInt(supplyDaysParam);
         if (isNaN(supplyDaysNum) || supplyDaysNum < 1 || supplyDaysNum > 365) {
             return res.status(400).json({
                 error: 'Invalid supply_days parameter',
@@ -5797,7 +5825,9 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
             }
         }
 
-        const safetyDays = parseInt(process.env.REORDER_SAFETY_DAYS || '7');
+        // Use merchant settings for safety days, fall back to env var
+        const safetyDays = merchantSettings.reorder_safety_days ??
+            parseInt(process.env.REORDER_SAFETY_DAYS || '7');
 
         let query = `
             SELECT
@@ -5950,11 +5980,15 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
             params: params.slice(0, 3) // First 3 params for debugging
         });
 
-        // Get priority thresholds from environment
-        const urgentDays = parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0');
-        const highDays = parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7');
-        const mediumDays = parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14');
-        const lowDays = parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30');
+        // Get priority thresholds from merchant settings, fall back to env vars
+        const urgentDays = merchantSettings.reorder_priority_urgent_days ??
+            parseInt(process.env.REORDER_PRIORITY_URGENT_DAYS || '0');
+        const highDays = merchantSettings.reorder_priority_high_days ??
+            parseInt(process.env.REORDER_PRIORITY_HIGH_DAYS || '7');
+        const mediumDays = merchantSettings.reorder_priority_medium_days ??
+            parseInt(process.env.REORDER_PRIORITY_MEDIUM_DAYS || '14');
+        const lowDays = merchantSettings.reorder_priority_low_days ??
+            parseInt(process.env.REORDER_PRIORITY_LOW_DAYS || '30');
 
         // Process suggestions with case pack and reorder multiple logic
         const suggestions = result.rows
