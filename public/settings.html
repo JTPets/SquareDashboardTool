@@ -585,61 +585,51 @@
       <div class="section">
         <div class="section-header">
           <div>
-            <div class="section-title">Sync Configuration</div>
-            <div class="section-desc">Configure automatic synchronization intervals</div>
+            <div class="section-title">Sync Intervals (Environment Configured)</div>
+            <div class="section-desc">These intervals are configured in <code>.env</code> file by server admin</div>
           </div>
         </div>
 
-        <div class="settings-form">
-          <div class="form-group">
-            <label class="form-label">
-              Catalog Sync Interval
-              <small>How often to sync catalog data from Square</small>
-            </label>
-            <input type="text" class="form-input" id="sync-catalog" value="Loading...">
-            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">
-              Inventory Sync Interval
-              <small>How often to sync inventory counts</small>
-            </label>
-            <input type="text" class="form-input" id="sync-inventory" value="Loading...">
-            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">
-              Sales Velocity Sync Interval
-              <small>How often to sync sales data</small>
-            </label>
-            <input type="text" class="form-input" id="sync-sales" value="Loading...">
-            <span style="padding-top: 8px; color: #6b7280;">minutes</span>
-          </div>
+        <div class="alert info" style="margin-bottom: 20px;">
+          Sync intervals are set via environment variables for security. Contact your administrator to change these values.
         </div>
 
-        <div style="margin-top: 20px;">
-          <button class="btn-success" onclick="saveSyncSettings()">Save Sync Settings</button>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-header">
-          <div>
-            <div class="section-title">GMC Feed Auto-Sync</div>
-            <div class="section-desc">Automatically sync Google Merchant Center feed to Google Sheets</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">
-            Google Spreadsheet ID
-            <small>The ID from the Google Sheets URL</small>
-          </label>
-          <input type="text" class="form-input" id="gmc-sheet-id" placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
-          <button class="btn-primary" onclick="saveGmcSheetId()">Save</button>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #e5e7eb;">
+              <th style="text-align: left; padding: 10px;">Sync Type</th>
+              <th style="text-align: left; padding: 10px;">Interval</th>
+              <th style="text-align: left; padding: 10px;">Env Variable</th>
+            </tr>
+          </thead>
+          <tbody id="sync-intervals-table">
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Catalog</td>
+              <td style="padding: 10px;" id="sync-catalog">Loading...</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">SYNC_CATALOG_INTERVAL_HOURS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Inventory</td>
+              <td style="padding: 10px;" id="sync-inventory">Loading...</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">SYNC_INVENTORY_INTERVAL_HOURS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Sales (91 days)</td>
+              <td style="padding: 10px;" id="sync-sales">Loading...</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">SYNC_SALES_91D_INTERVAL_HOURS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">GMC Product Sync</td>
+              <td style="padding: 10px;" id="sync-gmc">Loading...</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">GMC_SYNC_INTERVAL_HOURS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Cron Schedule</td>
+              <td style="padding: 10px;" id="sync-cron">Loading...</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">SYNC_CRON_SCHEDULE</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -1204,54 +1194,26 @@
       alert('Reloaded from file');
     }
 
-    // Sync settings
+    // Sync settings (read-only from env)
     async function loadSyncSettings() {
       try {
-        const response = await fetch('/api/config');
+        const response = await fetch('/api/sync-intervals');
         const data = await response.json();
 
-        document.getElementById('sync-catalog').value = data.sync_intervals?.catalog || 60;
-        document.getElementById('sync-inventory').value = data.sync_intervals?.inventory || 15;
-        document.getElementById('sync-sales').value = data.sync_intervals?.sales || 60;
-
-        // Load GMC sheet ID
-        const gmcResponse = await fetch('/api/gmc/settings');
-        const gmcData = await gmcResponse.json();
-        if (gmcData.settings && gmcData.settings.google_sheet_id) {
-          document.getElementById('gmc-sheet-id').value = gmcData.settings.google_sheet_id;
+        if (data.intervals) {
+          document.getElementById('sync-catalog').textContent = `${data.intervals.catalog || 3} hours`;
+          document.getElementById('sync-inventory').textContent = `${data.intervals.inventory || 3} hours`;
+          document.getElementById('sync-sales').textContent = `${data.intervals.sales_91d || 3} hours`;
+          document.getElementById('sync-gmc').textContent = data.intervals.gmc ? `${data.intervals.gmc} hours` : 'Not configured';
+          document.getElementById('sync-cron').textContent = data.cronSchedule || '0 * * * * (hourly)';
         }
       } catch (e) {
         console.error('Failed to load sync settings:', e);
-      }
-    }
-
-    async function saveSyncSettings() {
-      alert('Sync interval settings are configured in the .env file. Update SYNC_CATALOG_INTERVAL, SYNC_INVENTORY_INTERVAL, and SYNC_SALES_INTERVAL.');
-    }
-
-    async function saveGmcSheetId() {
-      const sheetId = document.getElementById('gmc-sheet-id').value.trim();
-      if (!sheetId) {
-        alert('Please enter a spreadsheet ID');
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/gmc/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            settings: { google_sheet_id: sheetId }
-          })
-        });
-        const data = await response.json();
-        if (data.success) {
-          alert('Spreadsheet ID saved! Feed will sync to this sheet after each Square sync.');
-        } else {
-          alert('Error: ' + (data.error || 'Failed to save'));
-        }
-      } catch (e) {
-        alert('Error: ' + e.message);
+        document.getElementById('sync-catalog').textContent = 'Error loading';
+        document.getElementById('sync-inventory').textContent = 'Error loading';
+        document.getElementById('sync-sales').textContent = 'Error loading';
+        document.getElementById('sync-gmc').textContent = 'Error loading';
+        document.getElementById('sync-cron').textContent = 'Error loading';
       }
     }
 
