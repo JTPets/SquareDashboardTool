@@ -1980,10 +1980,16 @@ async function fixLocationMismatches(merchantId) {
 
 /**
  * List all custom attribute definitions from Square Catalog
+ * @param {Object} options - Options object
+ * @param {number} options.merchantId - The merchant ID (required)
  * @returns {Promise<Array>} Array of custom attribute definitions
  */
-async function listCustomAttributeDefinitions() {
-    logger.info('Fetching custom attribute definitions from Square');
+async function listCustomAttributeDefinitions(options = {}) {
+    const { merchantId } = options;
+    logger.info('Fetching custom attribute definitions from Square', { merchantId });
+
+    // Get access token for this merchant
+    const accessToken = await getMerchantToken(merchantId);
 
     try {
         let cursor = null;
@@ -1991,7 +1997,7 @@ async function listCustomAttributeDefinitions() {
 
         do {
             const endpoint = `/v2/catalog/list?types=CUSTOM_ATTRIBUTE_DEFINITION${cursor ? `&cursor=${cursor}` : ''}`;
-            const data = await makeSquareRequest(endpoint);
+            const data = await makeSquareRequest(endpoint, { accessToken });
 
             const objects = data.objects || [];
             for (const obj of objects) {
@@ -2030,10 +2036,16 @@ async function listCustomAttributeDefinitions() {
  * @param {string} definition.description - Description
  * @param {string} definition.type - STRING, NUMBER, SELECTION, etc.
  * @param {Array} definition.allowed_object_types - ITEM, ITEM_VARIATION, etc.
+ * @param {Object} options - Options object
+ * @param {number} options.merchantId - The merchant ID (required)
  * @returns {Promise<Object>} Created/updated definition
  */
-async function upsertCustomAttributeDefinition(definition) {
-    logger.info('Creating/updating custom attribute definition', { key: definition.key });
+async function upsertCustomAttributeDefinition(definition, options = {}) {
+    const { merchantId } = options;
+    logger.info('Creating/updating custom attribute definition', { key: definition.key, merchantId });
+
+    // Get access token for this merchant
+    const accessToken = await getMerchantToken(merchantId);
 
     try {
         const idempotencyKey = generateIdempotencyKey('custom-attr-def');
@@ -2079,6 +2091,7 @@ async function upsertCustomAttributeDefinition(definition) {
         }
 
         const data = await makeSquareRequest('/v2/catalog/object', {
+            accessToken,
             method: 'POST',
             body: JSON.stringify(requestBody)
         });
@@ -2308,10 +2321,25 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
 /**
  * Initialize custom attribute definitions in Square
  * Creates the standard attribute definitions we use (case_pack_quantity, brand)
+ * @param {Object} options - Options object
+ * @param {number} options.merchantId - The merchant ID (required)
  * @returns {Promise<Object>} Initialization result
  */
-async function initializeCustomAttributes() {
-    logger.info('Initializing custom attribute definitions');
+async function initializeCustomAttributes(options = {}) {
+    const { merchantId } = options;
+    logger.info('Initializing custom attribute definitions', { merchantId });
+
+    // In multi-tenant mode, merchantId is required
+    if (!merchantId) {
+        logger.warn('initializeCustomAttributes called without merchantId - skipping in multi-tenant mode');
+        return {
+            success: false,
+            skipped: true,
+            error: 'merchantId is required in multi-tenant mode',
+            definitions: [],
+            errors: []
+        };
+    }
 
     const results = {
         success: true,
@@ -2368,7 +2396,7 @@ async function initializeCustomAttributes() {
     ];
 
     // Check existing definitions
-    const existingDefs = await listCustomAttributeDefinitions();
+    const existingDefs = await listCustomAttributeDefinitions({ merchantId });
     const existingByKey = new Map(existingDefs.map(d => [d.key, d]));
 
     for (const def of customDefinitions) {
@@ -2381,7 +2409,7 @@ async function initializeCustomAttributes() {
                 logger.info('Updating existing custom attribute definition', { key: def.key, id: existing.id });
             }
 
-            const result = await upsertCustomAttributeDefinition(def);
+            const result = await upsertCustomAttributeDefinition(def, { merchantId });
             results.definitions.push({
                 key: def.key,
                 id: result.definition?.id,
@@ -2581,15 +2609,19 @@ async function pushExpiryDatesToSquare(options = {}) {
  * @param {string} definitionIdOrKey - The definition ID or key
  * @returns {Promise<Object>} Deletion result
  */
-async function deleteCustomAttributeDefinition(definitionIdOrKey) {
-    logger.info('Deleting custom attribute definition', { definitionIdOrKey });
+async function deleteCustomAttributeDefinition(definitionIdOrKey, options = {}) {
+    const { merchantId } = options;
+    logger.info('Deleting custom attribute definition', { definitionIdOrKey, merchantId });
+
+    // Get access token for this merchant
+    const accessToken = await getMerchantToken(merchantId);
 
     try {
         let definitionId = definitionIdOrKey;
 
         // If it looks like a key (no hyphens/typical Square ID format), look it up
         if (!definitionIdOrKey.includes('-') && definitionIdOrKey.length < 30) {
-            const definitions = await listCustomAttributeDefinitions();
+            const definitions = await listCustomAttributeDefinitions({ merchantId });
             const found = definitions.find(d => d.key === definitionIdOrKey);
             if (!found) {
                 throw new Error(`Custom attribute definition not found with key: ${definitionIdOrKey}`);
@@ -2599,6 +2631,7 @@ async function deleteCustomAttributeDefinition(definitionIdOrKey) {
         }
 
         const data = await makeSquareRequest(`/v2/catalog/object/${definitionId}`, {
+            accessToken,
             method: 'DELETE'
         });
 
@@ -2622,15 +2655,22 @@ async function deleteCustomAttributeDefinition(definitionIdOrKey) {
  * @param {string} variationId - The variation ID
  * @param {number} newPriceCents - The new price in cents
  * @param {string} currency - Currency code (default: CAD)
- * @param {number} merchantId - The merchant ID for database updates
+ * @param {number} merchantId - The merchant ID (required for multi-tenant)
  * @returns {Promise<Object>} Result of the catalog update
  */
 async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD', merchantId = null) {
     logger.info('Updating variation price in Square', { variationId, newPriceCents, currency, merchantId });
 
+    if (!merchantId) {
+        throw new Error('merchantId is required for updateVariationPrice');
+    }
+
+    // Get access token for this merchant
+    const accessToken = await getMerchantToken(merchantId);
+
     try {
         // First, retrieve the current catalog object to get its version and existing data
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`);
+        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`, { accessToken });
 
         if (!retrieveData.object) {
             throw new Error(`Catalog object not found: ${variationId}`);
@@ -2667,6 +2707,7 @@ async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD'
         };
 
         const data = await makeSquareRequest('/v2/catalog/object', {
+            accessToken,
             method: 'POST',
             body: JSON.stringify(updateBody)
         });
@@ -2679,20 +2720,11 @@ async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD'
         });
 
         // Update local database to reflect the change
-        if (merchantId) {
-            await db.query(`
-                UPDATE variations
-                SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $3 AND merchant_id = $4
-            `, [newPriceCents, currency, variationId, merchantId]);
-        } else {
-            // Fallback for backwards compatibility (should be avoided)
-            await db.query(`
-                UPDATE variations
-                SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $3
-            `, [newPriceCents, currency, variationId]);
-        }
+        await db.query(`
+            UPDATE variations
+            SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3 AND merchant_id = $4
+        `, [newPriceCents, currency, variationId, merchantId]);
 
         return {
             success: true,
@@ -2729,6 +2761,9 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
         details: []
     };
 
+    // Get access token for this merchant
+    const accessToken = await getMerchantToken(merchantId);
+
     // Process in batches of 100 (Square API limit)
     const batchSize = 100;
 
@@ -2739,6 +2774,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
         try {
             // Batch retrieve objects to get current versions
             const retrieveData = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                accessToken,
                 method: 'POST',
                 body: JSON.stringify({
                     object_ids: variationIds,
@@ -2810,6 +2846,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
             const idempotencyKey = generateIdempotencyKey('price-batch');
 
             const upsertData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+                accessToken,
                 method: 'POST',
                 body: JSON.stringify({
                     idempotency_key: idempotencyKey,
@@ -2852,12 +2889,22 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
                 error: error.message
             });
 
+            // Mark all items in this batch as failed
             for (const update of batch) {
                 const existingDetail = results.details.find(d => d.variationId === update.variationId);
                 if (existingDetail && existingDetail.pending) {
+                    // Item already has a pending detail entry - mark it as failed
                     existingDetail.success = false;
                     existingDetail.error = error.message;
                     delete existingDetail.pending;
+                    results.failed++;
+                } else if (!existingDetail) {
+                    // No detail entry yet (error happened before processing) - create one
+                    results.details.push({
+                        variationId: update.variationId,
+                        success: false,
+                        error: error.message
+                    });
                     results.failed++;
                 }
             }
