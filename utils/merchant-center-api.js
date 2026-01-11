@@ -1089,15 +1089,12 @@ module.exports = {
     getLastSyncStatus,
     // Data source info
     getDataSourceInfo,
-    // Product catalog sync
+    // Product catalog sync (ONLINE channel only)
     upsertProduct,
     batchUpsertProducts,
     syncProductCatalog,
-    // Local inventory sync
-    updateLocalInventory,
-    batchUpdateLocalInventory,
-    syncLocationInventory,
-    syncAllLocationsInventory,
     // Utilities
     testConnection
+    // Note: Local inventory sync removed - use TSV feed instead
+    // (/api/gmc/local-inventory-feed.tsv?token=xxx)
 };
