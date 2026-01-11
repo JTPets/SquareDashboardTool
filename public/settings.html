@@ -633,57 +633,50 @@
         </div>
       </div>
 
-      <!-- Session Settings Section -->
+      <!-- Security Settings Info (read-only from .env) -->
       <div class="section">
         <div class="section-header">
           <div>
-            <div class="section-title">Session Settings</div>
-            <div class="section-desc">Configure authentication session behavior (requires server restart)</div>
+            <div class="section-title">Security Configuration</div>
+            <div class="section-desc">These settings are configured in <code>.env</code> by server admin</div>
           </div>
         </div>
 
-        <div class="settings-form">
-          <div class="form-group">
-            <label class="form-label">
-              Session Duration
-              <small>How long users stay logged in</small>
-            </label>
-            <input type="number" class="form-input" id="session-duration" min="1" max="720" value="24">
-            <span style="padding-top: 8px; color: #6b7280;">hours</span>
-          </div>
+        <div class="alert info" style="margin-bottom: 20px;">
+          Security settings are managed via environment variables for protection. Contact your administrator to change these values.
         </div>
 
-        <div class="alert info" style="margin-top: 15px;">
-          Session duration is configured via the <code>SESSION_DURATION_HOURS</code> environment variable.
-          Change <code>SESSION_DURATION_HOURS</code> in the server's <code>.env</code> file and restart.
-        </div>
-      </div>
-
-      <!-- CORS Settings Section -->
-      <div class="section">
-        <div class="section-header">
-          <div>
-            <div class="section-title">CORS / Allowed Origins</div>
-            <div class="section-desc">Control which domains can access the API (requires server restart)</div>
-          </div>
-        </div>
-
-        <div class="settings-form">
-          <div class="form-group">
-            <label class="form-label">
-              Allowed Origins
-              <small>Comma-separated list of allowed domains</small>
-            </label>
-            <input type="text" class="form-input" id="allowed-origins" placeholder="http://localhost:5001, https://yourdomain.com">
-            <div class="form-actions"></div>
-          </div>
-        </div>
-
-        <div class="alert info" style="margin-top: 15px;">
-          <strong>Development:</strong> Leave empty to allow all origins<br>
-          <strong>Production:</strong> Set <code>ALLOWED_ORIGINS</code> in your server's <code>.env</code> file to restrict access.<br>
-          Example: <code>https://yourdomain.com, https://admin.yourdomain.com</code>
-        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #e5e7eb;">
+              <th style="text-align: left; padding: 10px;">Setting</th>
+              <th style="text-align: left; padding: 10px;">Description</th>
+              <th style="text-align: left; padding: 10px;">Env Variable</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Session Duration</td>
+              <td style="padding: 10px;">How long users stay logged in (default: 24 hours)</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">SESSION_DURATION_HOURS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Allowed Origins (CORS)</td>
+              <td style="padding: 10px;">Domains allowed to access the API</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">ALLOWED_ORIGINS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Rate Limit</td>
+              <td style="padding: 10px;">Max API requests per 15 minutes (default: 100)</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">RATE_LIMIT_MAX_REQUESTS</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 10px;">Login Rate Limit</td>
+              <td style="padding: 10px;">Max login attempts per 15 minutes (default: 5)</td>
+              <td style="padding: 10px; font-family: monospace; color: #6b7280;">LOGIN_RATE_LIMIT_MAX</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- User Management Section (Admin Only) -->
@@ -740,22 +733,6 @@
               View application logs and debug information
             </div>
           </a>
-        </div>
-      </div>
-
-      <!-- Rate Limiting Info -->
-      <div class="section">
-        <div class="section-header">
-          <div>
-            <div class="section-title">Rate Limiting</div>
-            <div class="section-desc">Protection against brute force and abuse</div>
-          </div>
-        </div>
-
-        <div class="alert info">
-          <strong>General API:</strong> 100 requests per 15 minutes (configurable via <code>RATE_LIMIT_MAX_REQUESTS</code>)<br>
-          <strong>Login attempts:</strong> 5 per 15 minutes per IP/email combination<br>
-          <strong>Account lockout:</strong> After 5 failed logins, accounts are locked for 15 minutes
         </div>
       </div>
 
@@ -1320,22 +1297,6 @@
       }
     }
 
-    // Load security settings
-    async function loadSecuritySettings() {
-      try {
-        const response = await fetch('/api/settings/env');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.variables) {
-            document.getElementById('session-duration').value = data.variables.SESSION_DURATION_HOURS || '24';
-            document.getElementById('allowed-origins').value = data.variables.ALLOWED_ORIGINS || '';
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load security settings:', e);
-      }
-    }
-
     // ==================== MERCHANT SETTINGS FUNCTIONS ====================
 
     // Load merchant settings from API
@@ -1492,7 +1453,6 @@
       handleOAuthCallback();
       loadAllStatuses();
       loadCurrentUser();
-      loadSecuritySettings();
       loadMerchantSettings();
     });
   </script>
