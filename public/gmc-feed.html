@@ -711,83 +711,6 @@
       font-size: 12px;
     }
     .btn-save-row:hover { background: #1d4ed8; }
-
-    /* Local Inventory Section */
-    .local-inventory-section {
-      padding: 20px;
-    }
-    .inventory-feeds-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 15px;
-      margin-top: 15px;
-    }
-    .location-feed-card {
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 20px;
-    }
-    .location-feed-card h4 {
-      margin: 0 0 8px 0;
-      font-size: 15px;
-      color: #374151;
-    }
-    .location-feed-card .store-code {
-      font-size: 12px;
-      color: #6b7280;
-      margin-bottom: 15px;
-    }
-    .location-feed-card .feed-stats {
-      display: flex;
-      gap: 15px;
-      margin-bottom: 15px;
-    }
-    .location-feed-card .feed-stats span {
-      font-size: 13px;
-      color: #6b7280;
-    }
-    .location-feed-card .feed-stats strong {
-      color: #374151;
-    }
-    .location-feed-card .btn-generate {
-      background: #ea580c;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-      margin-right: 8px;
-    }
-    .location-feed-card .btn-generate:hover { background: #c2410c; }
-    .location-feed-card .btn-download {
-      background: #6b7280;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    .location-feed-card .btn-download:hover { background: #4b5563; }
-    .location-feed-card.disabled {
-      background: #f9fafb;
-      opacity: 0.7;
-    }
-    .location-feed-card.disabled h4 { color: #9ca3af; }
-    .btn-generate-all {
-      background: #ea580c;
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 14px;
-    }
-    .btn-generate-all:hover { background: #c2410c; }
-    .btn-generate-all:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -1102,30 +1025,6 @@ Wellness"></textarea>
             <div style="display: flex; gap: 8px;">
               <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
               <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Per-Location Feeds (Collapsible - Advanced) -->
-        <div class="settings-group" style="border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f9fafb; cursor: pointer;" onclick="togglePerLocationFeeds()">
-            <div>
-              <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                <span id="per-location-toggle">▶</span> 📊 Per-Location Feeds (Advanced)
-              </h4>
-              <p style="font-size: 12px; color: #6b7280; margin: 5px 0 0 0;">
-                Individual feed files for manual upload - only needed if combined feed doesn't work
-              </p>
-            </div>
-          </div>
-          <div id="per-location-feeds-panel" style="display: none; padding: 15px; border-top: 1px solid #e5e7eb;">
-            <div style="margin-bottom: 15px; text-align: right;">
-              <button class="btn-generate-all" onclick="generateAllLocalInventory()" style="background: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
-                Generate All Feeds
-              </button>
-            </div>
-            <div class="inventory-feeds-grid" id="inventory-feeds-grid">
-              <div class="loading" id="inventory-loading">Loading...</div>
             </div>
           </div>
         </div>
@@ -1974,7 +1873,6 @@ Wellness"></textarea>
       // Load data for the selected tab
       if (tabName === 'local-inventory') {
         loadLocationSettings();
-        loadLocalInventoryLocations();
       }
     }
 
@@ -1993,18 +1891,6 @@ Wellness"></textarea>
       } else {
         panel.style.display = 'none';
         toggle.textContent = '▼';
-      }
-    }
-
-    function togglePerLocationFeeds() {
-      const panel = document.getElementById('per-location-feeds-panel');
-      const toggle = document.getElementById('per-location-toggle');
-      if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        toggle.textContent = '▼';
-      } else {
-        panel.style.display = 'none';
-        toggle.textContent = '▶';
       }
     }
 
@@ -2380,132 +2266,6 @@ Wellness"></textarea>
         }, 2000);
       } catch (error) {
         alert('Error: ' + error.message);
-      }
-    }
-
-    // ==================== LOCAL INVENTORY TAB ====================
-    let inventoryLocations = [];
-
-    async function loadLocalInventoryLocations() {
-      try {
-        document.getElementById('inventory-feeds-grid').innerHTML =
-          '<div class="loading">Loading locations...</div>';
-
-        const response = await fetch('/api/gmc/location-settings');
-        const data = await response.json();
-        inventoryLocations = data.locations || [];
-
-        renderInventoryLocations();
-      } catch (error) {
-        console.error('Failed to load locations:', error);
-        document.getElementById('inventory-feeds-grid').innerHTML =
-          '<div style="color: #dc2626; text-align: center; padding: 40px;">Error loading locations</div>';
-      }
-    }
-
-    function renderInventoryLocations() {
-      const grid = document.getElementById('inventory-feeds-grid');
-
-      if (inventoryLocations.length === 0) {
-        grid.innerHTML = '<div style="color: #6b7280; text-align: center; padding: 40px;">No locations found. Sync your catalog first.</div>';
-        return;
-      }
-
-      grid.innerHTML = inventoryLocations.map(loc => `
-        <div class="location-feed-card ${!loc.enabled ? 'disabled' : ''}" data-location-id="${loc.location_id}">
-          <h4>${escapeHtml(loc.location_name || 'Unknown Location')}</h4>
-          <div class="store-code">
-            Store Code: <strong>${escapeHtml(loc.google_store_code || loc.location_id)}</strong>
-            ${!loc.enabled ? ' <span style="color: #dc2626;">(Disabled)</span>' : ''}
-          </div>
-          <div class="feed-stats" id="feed-stats-${loc.location_id}">
-            <span>Products: <strong>--</strong></span>
-          </div>
-          <div>
-            <button class="btn-generate" onclick="generateLocationFeed('${loc.location_id}')" ${!loc.enabled ? 'disabled' : ''}>
-              Generate Feed
-            </button>
-            <button class="btn-download" onclick="downloadLocationFeed('${loc.location_id}')" ${!loc.enabled ? 'disabled' : ''}>
-              Download TSV
-            </button>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    async function generateLocationFeed(locationId) {
-      try {
-        const card = document.querySelector(`[data-location-id="${locationId}"]`);
-        const btn = card.querySelector('.btn-generate');
-        btn.disabled = true;
-        btn.textContent = 'Generating...';
-
-        const response = await fetch(`/api/gmc/local-inventory/generate/${locationId}`, {
-          method: 'POST'
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Generation failed');
-
-        // Update stats
-        const statsEl = card.querySelector(`#feed-stats-${locationId}`);
-        statsEl.innerHTML = `<span>Products: <strong>${data.itemCount}</strong></span>`;
-
-        btn.textContent = 'Generated!';
-        btn.style.background = '#16a34a';
-        setTimeout(() => {
-          btn.textContent = 'Generate Feed';
-          btn.style.background = '';
-          btn.disabled = false;
-        }, 2000);
-      } catch (error) {
-        alert('Error: ' + error.message);
-        const card = document.querySelector(`[data-location-id="${locationId}"]`);
-        const btn = card.querySelector('.btn-generate');
-        btn.disabled = false;
-        btn.textContent = 'Generate Feed';
-      }
-    }
-
-    function downloadLocationFeed(locationId) {
-      window.open(`/api/gmc/local-inventory/${locationId}.tsv`, '_blank');
-    }
-
-    async function generateAllLocalInventory() {
-      try {
-        const btn = document.querySelector('.btn-generate-all');
-        btn.disabled = true;
-        btn.textContent = 'Generating All Feeds...';
-
-        const response = await fetch('/api/gmc/local-inventory/generate', {
-          method: 'POST'
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Generation failed');
-
-        // Show results
-        let message = `Generated feeds for ${data.locations.filter(l => !l.skipped).length} locations.\n`;
-        message += `Total items: ${data.totalItems}`;
-        if (data.errors.length > 0) {
-          message += `\n\nErrors (${data.errors.length}):\n`;
-          data.errors.forEach(e => {
-            message += `- ${e.locationName}: ${e.error}\n`;
-          });
-        }
-
-        alert(message);
-
-        // Reload to show updated stats
-        loadLocalInventoryLocations();
-
-        btn.textContent = 'Generate All Feeds';
-        btn.disabled = false;
-      } catch (error) {
-        alert('Error: ' + error.message);
-        const btn = document.querySelector('.btn-generate-all');
-        btn.disabled = false;
-        btn.textContent = 'Generate All Feeds';
       }
     }
 

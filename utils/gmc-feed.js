@@ -555,97 +555,7 @@ function generateLocalInventoryTsvContent(items) {
 }
 
 /**
- * Generate all local inventory feeds for all enabled locations
- * @param {Object} options - Generation options
- * @param {number} options.merchantId - Merchant ID (required)
- * @returns {Promise<Object>} Results for all locations
- */
-async function generateAllLocalInventoryFeeds(options = {}) {
-    const { merchantId } = options;
-
-    if (!merchantId) {
-        throw new Error('merchantId is required');
-    }
-
-    // Get all locations for this merchant
-    const locationsResult = await db.query(`
-        SELECT
-            l.id,
-            l.name,
-            COALESCE(gls.google_store_code, l.id) as store_code,
-            COALESCE(gls.enabled, true) as enabled
-        FROM locations l
-        LEFT JOIN gmc_location_settings gls ON l.id = gls.location_id AND gls.merchant_id = $1
-        WHERE l.merchant_id = $1 AND l.active = true
-        ORDER BY l.name
-    `, [merchantId]);
-
-    const results = {
-        success: true,
-        locations: [],
-        totalItems: 0,
-        errors: []
-    };
-
-    for (const location of locationsResult.rows) {
-        if (!location.enabled) {
-            results.locations.push({
-                locationId: location.id,
-                locationName: location.name,
-                storeCode: location.store_code,
-                skipped: true,
-                reason: 'Location disabled for GMC feeds'
-            });
-            continue;
-        }
-
-        try {
-            const { items, stats } = await generateLocalInventoryFeed({
-                merchantId,
-                locationId: location.id
-            });
-
-            // Generate TSV content
-            const tsvContent = generateLocalInventoryTsvContent(items);
-
-            // Generate safe filename from location name
-            const safeLocationName = location.name
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '')
-                .substring(0, 50);
-
-            const filename = `local-inventory-${safeLocationName}.tsv`;
-            const filePath = await saveTsvFile(tsvContent, filename);
-
-            results.locations.push({
-                locationId: location.id,
-                locationName: location.name,
-                storeCode: location.store_code,
-                itemCount: items.length,
-                filename,
-                filePath,
-                stats
-            });
-            results.totalItems += items.length;
-        } catch (error) {
-            results.errors.push({
-                locationId: location.id,
-                locationName: location.name,
-                error: error.message
-            });
-        }
-    }
-
-    if (results.errors.length > 0 && results.locations.length === 0) {
-        results.success = false;
-    }
-
-    return results;
-}
-
-/**
- * Save GMC settings (including Google Sheet URL)
+ * Save GMC settings
  * @param {number} merchantId - The merchant ID
  * @param {Object} settings - Settings to save
  */
@@ -675,6 +585,5 @@ module.exports = {
     getLocationSettings,
     saveLocationSettings,
     generateLocalInventoryFeed,
-    generateLocalInventoryTsvContent,
-    generateAllLocalInventoryFeeds
+    generateLocalInventoryTsvContent
 };
