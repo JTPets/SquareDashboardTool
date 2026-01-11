@@ -316,7 +316,6 @@
     <div class="tabs">
       <div class="tab active" data-tab="connections">Connections</div>
       <div class="tab" data-tab="business-rules">Business Rules</div>
-      <div class="tab" data-tab="api-tokens">API Tokens</div>
       <div class="tab" data-tab="sync">Sync Settings</div>
       <div class="tab" data-tab="security">Security</div>
     </div>
@@ -514,45 +513,6 @@
       <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
         <button class="btn-secondary" onclick="resetMerchantSettingsToDefaults()">Reset to Defaults</button>
         <button class="btn-primary" onclick="saveMerchantSettings()">Save Business Rules</button>
-      </div>
-    </div>
-
-    <!-- API Tokens Tab -->
-    <div class="tab-content" id="tab-api-tokens">
-      <div class="section">
-        <div class="section-header">
-          <div>
-            <div class="section-title">Square API Configuration</div>
-            <div class="section-desc">Manage Square API access tokens</div>
-          </div>
-        </div>
-
-        <div class="alert info">
-          To get a new Square access token:
-          <ol style="margin-top: 10px; margin-left: 20px;">
-            <li>Log in to your <a href="https://developer.squareup.com/apps" target="_blank">Square Developer Dashboard</a></li>
-            <li>Select your application</li>
-            <li>Go to "Credentials" tab</li>
-            <li>Copy the "Access Token" for Production or Sandbox</li>
-            <li>Set <code>SQUARE_ACCESS_TOKEN</code> in your server's <code>.env</code> file</li>
-          </ol>
-        </div>
-
-        <div class="connection-card" style="margin-top: 20px;">
-          <div class="connection-header">
-            <span class="connection-icon">🔑</span>
-            <span class="connection-name">Current Token Status</span>
-          </div>
-          <div class="connection-status" id="token-status">Checking...</div>
-          <div id="token-info" style="font-size: 13px; color: #6b7280; margin-top: 10px;"></div>
-        </div>
-
-        <div class="token-generator">
-          <h4>Generate Local API Token</h4>
-          <p>Generate a secure random token for internal API authentication.</p>
-          <button class="btn-primary" onclick="generateLocalToken()">Generate Token</button>
-          <div class="token-display" id="generated-token" style="display: none;"></div>
-        </div>
       </div>
     </div>
 
@@ -827,8 +787,7 @@
         checkDatabaseStatus(),
         checkGoogleStatus(),
         checkEmailStatus(),
-        loadSyncSettings(),
-        checkTokenStatus()
+        loadSyncSettings()
       ]);
     }
 
@@ -988,39 +947,6 @@
         document.getElementById('sync-gmc').textContent = 'Error loading';
         document.getElementById('sync-cron').textContent = 'Error loading';
       }
-    }
-
-    // Token status
-    async function checkTokenStatus() {
-      const status = document.getElementById('token-status');
-      const info = document.getElementById('token-info');
-      try {
-        const response = await fetch('/api/config');
-        const data = await response.json();
-
-        if (data.square_connected) {
-          status.textContent = 'Valid - API connection working';
-          info.innerHTML = `Environment: <strong>${data.square_environment || 'Unknown'}</strong>`;
-        } else {
-          status.textContent = 'Invalid or missing token';
-          info.textContent = 'Configure SQUARE_ACCESS_TOKEN in server .env file';
-        }
-      } catch (e) {
-        status.textContent = 'Unable to check status';
-      }
-    }
-
-    function generateLocalToken() {
-      const token = 'sda_' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      const display = document.getElementById('generated-token');
-      display.textContent = token;
-      display.style.display = 'block';
-
-      navigator.clipboard.writeText(token);
-      alert('Token generated and copied to clipboard!');
     }
 
     // Handle OAuth callback
