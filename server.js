@@ -1016,13 +1016,18 @@ async function loggedSync(syncType, syncFunction, merchantId) {
  * @returns {Promise<Object>} {needed: boolean, lastSync: Date|null, nextDue: Date|null}
  */
 async function isSyncNeeded(syncType, intervalHours, merchantId) {
+    // GMC sync uses gmc_sync_history table
+    const isGmcSync = syncType.startsWith('gmc_') || syncType === 'product_catalog';
+    const tableName = isGmcSync ? 'gmc_sync_history' : 'sync_history';
+    const timeColumn = isGmcSync ? 'created_at' : 'completed_at';
+
     const result = await db.query(`
-        SELECT completed_at, status
-        FROM sync_history
+        SELECT ${timeColumn} as completed_at, status
+        FROM ${tableName}
         WHERE sync_type = $1 AND status = 'success' AND merchant_id = $2
-        ORDER BY completed_at DESC
+        ORDER BY ${timeColumn} DESC
         LIMIT 1
-    `, [syncType, merchantId]);
+    `, [isGmcSync ? syncType.replace('gmc_', '') : syncType, merchantId]);
 
     if (result.rows.length === 0) {
         // Never synced before, sync is needed
@@ -1492,6 +1497,31 @@ app.get('/api/sync-history', requireAuth, requireMerchant, async (req, res) => {
         });
     } catch (error) {
         logger.error('Get sync history error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/sync-intervals
+ * Get configured sync intervals (read-only, from env vars)
+ */
+app.get('/api/sync-intervals', requireAuth, async (req, res) => {
+    try {
+        res.json({
+            intervals: {
+                catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+                locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
+                vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+                inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+                sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+                sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+                sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168'),
+                gmc: process.env.GMC_SYNC_INTERVAL_HOURS ? parseInt(process.env.GMC_SYNC_INTERVAL_HOURS) : null
+            },
+            cronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *'
+        });
+    } catch (error) {
+        logger.error('Get sync intervals error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
@@ -9801,6 +9831,8 @@ async function startServer() {
                 }
 
                 const allErrors = [];
+                const gmcSyncInterval = process.env.GMC_SYNC_INTERVAL_HOURS ? parseInt(process.env.GMC_SYNC_INTERVAL_HOURS) : null;
+
                 for (const merchant of merchants) {
                     try {
                         logger.info('Running smart sync for merchant', { merchantId: merchant.id, businessName: merchant.business_name });
@@ -9814,6 +9846,28 @@ async function startServer() {
 
                         if (result.errors && result.errors.length > 0) {
                             allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: result.errors });
+                        }
+
+                        // GMC Product Sync - push to Google Merchant Center if configured
+                        if (gmcSyncInterval) {
+                            try {
+                                const gmcSyncNeeded = await isSyncNeeded('gmc_product_catalog', gmcSyncInterval, merchant.id);
+                                if (gmcSyncNeeded.needed) {
+                                    logger.info('Running scheduled GMC product sync for merchant', { merchantId: merchant.id });
+                                    const gmcResult = await gmcApi.syncProductCatalog(merchant.id);
+                                    logger.info('Scheduled GMC product sync completed', {
+                                        merchantId: merchant.id,
+                                        total: gmcResult.total,
+                                        synced: gmcResult.synced,
+                                        failed: gmcResult.failed
+                                    });
+                                } else {
+                                    logger.debug('GMC sync not needed yet', { merchantId: merchant.id, nextDue: gmcSyncNeeded.nextDue });
+                                }
+                            } catch (gmcError) {
+                                logger.error('Scheduled GMC sync failed for merchant', { merchantId: merchant.id, error: gmcError.message });
+                                allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: [{ type: 'gmc_sync', error: gmcError.message }] });
+                            }
                         }
                     } catch (error) {
                         logger.error('Smart sync failed for merchant', { merchantId: merchant.id, error: error.message });
