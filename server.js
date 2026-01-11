@@ -1210,7 +1210,6 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
 
         // Generate GMC feed after sync completes
         let gmcFeedResult = null;
-        let googleSheetResult = null;
         try {
             logger.info('Generating GMC feed after sync...');
             const gmcFeedModule = require('./utils/gmc-feed');
@@ -1219,44 +1218,6 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
                 products: gmcFeedResult.stats.total,
                 feedUrl: gmcFeedResult.feedUrl
             });
-
-            // Try to sync to Google Sheets if configured and authenticated
-            try {
-                const googleSheetsModule = require('./utils/google-sheets');
-                const isAuthenticated = await googleSheetsModule.isAuthenticated();
-
-                if (isAuthenticated) {
-                    // Get configured spreadsheet ID from settings FOR THIS MERCHANT
-                    const sheetIdResult = await db.query(
-                        "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id' AND merchant_id = $1",
-                        [merchantId]
-                    );
-
-                    if (sheetIdResult.rows.length > 0 && sheetIdResult.rows[0].setting_value) {
-                        const spreadsheetId = sheetIdResult.rows[0].setting_value;
-                        const { products } = await gmcFeedModule.generateFeedData({ merchantId });
-
-                        googleSheetResult = await googleSheetsModule.writeFeedToSheet(spreadsheetId, products, {
-                            sheetName: 'GMC Feed',
-                            clearFirst: true
-                        });
-
-                        logger.info('GMC feed synced to Google Sheets', {
-                            spreadsheetUrl: googleSheetResult.spreadsheetUrl,
-                            updatedRows: googleSheetResult.updatedRows
-                        });
-                    } else {
-                        logger.info('Google Sheets sync skipped: no spreadsheet ID configured');
-                    }
-                } else {
-                    logger.info('Google Sheets sync skipped: not authenticated');
-                }
-            } catch (sheetError) {
-                logger.error('Google Sheets sync failed (non-blocking)', {
-                    error: sheetError.message
-                });
-                googleSheetResult = { error: sheetError.message };
-            }
         } catch (gmcError) {
             logger.error('GMC feed generation failed (non-blocking)', {
                 error: gmcError.message
@@ -1282,11 +1243,6 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
                     products: gmcFeedResult.stats?.total || 0,
                     feedUrl: gmcFeedResult.feedUrl,
                     error: gmcFeedResult.error
-                } : null,
-                google_sheet: googleSheetResult ? {
-                    spreadsheetUrl: googleSheetResult.spreadsheetUrl,
-                    updatedRows: googleSheetResult.updatedRows,
-                    error: googleSheetResult.error
                 } : null
             },
             errors: summary.errors
@@ -3780,133 +3736,6 @@ app.post('/api/google/disconnect', requireAuth, requireMerchant, async (req, res
         res.json({ success: true, message: 'Google account disconnected' });
     } catch (error) {
         logger.error('Google disconnect error', { error: error.message });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * POST /api/gmc/sync-sheet
- * Write GMC feed to merchant's Google Sheets
- */
-app.post('/api/gmc/sync-sheet', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const { spreadsheet_id, sheet_name } = req.body;
-        const merchantId = req.merchantContext.id;
-
-        if (!spreadsheet_id) {
-            return res.status(400).json({ error: 'spreadsheet_id is required' });
-        }
-
-        // Check if merchant is authenticated with Google
-        const authenticated = await googleSheets.isAuthenticated(merchantId);
-        if (!authenticated) {
-            return res.status(401).json({
-                error: 'Not authenticated with Google',
-                authRequired: true
-            });
-        }
-
-        // Generate feed data for this merchant
-        const { products, stats } = await gmcFeed.generateFeedData({ merchantId });
-
-        // Write to merchant's Google Sheet
-        const result = await googleSheets.writeFeedToSheet(merchantId, spreadsheet_id, products, {
-            sheetName: sheet_name || 'GMC Feed',
-            clearFirst: true
-        });
-
-        // Update gmc_settings with spreadsheet ID for this merchant
-        await db.query(`
-            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
-            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
-            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
-        `, [spreadsheet_id, merchantId]);
-
-        res.json({
-            success: true,
-            stats,
-            spreadsheetUrl: result.spreadsheetUrl,
-            updatedRows: result.updatedRows
-        });
-    } catch (error) {
-        logger.error('GMC sheet sync error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * POST /api/google/create-spreadsheet
- * Create a new spreadsheet in merchant's Google Drive
- */
-app.post('/api/google/create-spreadsheet', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const { title } = req.body;
-
-        // Check if merchant is authenticated with Google
-        const authenticated = await googleSheets.isAuthenticated(merchantId);
-        if (!authenticated) {
-            return res.status(401).json({
-                error: 'Not authenticated with Google',
-                authRequired: true
-            });
-        }
-
-        const result = await googleSheets.createSpreadsheet(merchantId, title || 'GMC Product Feed');
-
-        // Save the spreadsheet ID to merchant's settings
-        await db.query(`
-            INSERT INTO gmc_settings (setting_key, setting_value, description, merchant_id)
-            VALUES ('google_sheet_id', $1, 'Google Sheets spreadsheet ID for GMC feed', $2)
-            ON CONFLICT (setting_key, merchant_id) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
-        `, [result.spreadsheetId, merchantId]);
-
-        res.json({
-            success: true,
-            ...result
-        });
-    } catch (error) {
-        logger.error('Create spreadsheet error', { error: error.message });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * GET /api/google/spreadsheet/:id
- * Get spreadsheet info (uses merchant's Google credentials)
- */
-app.get('/api/google/spreadsheet/:id', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const info = await googleSheets.getSpreadsheetInfo(merchantId, req.params.id);
-        res.json(info);
-    } catch (error) {
-        logger.error('Get spreadsheet error', { error: error.message });
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * GET /api/google/sheet-config
- * Get merchant's saved Google Sheet configuration
- */
-app.get('/api/google/sheet-config', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-
-        const result = await db.query(
-            "SELECT setting_value FROM gmc_settings WHERE setting_key = 'google_sheet_id' AND merchant_id = $1",
-            [merchantId]
-        );
-
-        const spreadsheetId = result.rows.length > 0 ? result.rows[0].setting_value : null;
-
-        res.json({
-            spreadsheetId,
-            spreadsheetUrl: spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : null
-        });
-    } catch (error) {
-        logger.error('Get sheet config error', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });

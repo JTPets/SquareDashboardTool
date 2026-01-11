@@ -354,8 +354,8 @@
           <!-- Google -->
           <div class="connection-card" id="google-connection">
             <div class="connection-header">
-              <span class="connection-icon">📊</span>
-              <span class="connection-name">Google Sheets</span>
+              <span class="connection-icon">🛒</span>
+              <span class="connection-name">Google Merchant Center</span>
             </div>
             <div class="connection-status" id="google-status">Checking...</div>
             <div id="google-actions"></div>
@@ -953,7 +953,7 @@
     function handleOAuthCallback() {
       const params = new URLSearchParams(window.location.search);
       if (params.get('google_connected')) {
-        alert('Successfully connected to Google!');
+        alert('Successfully connected to Google Merchant Center!');
         window.history.replaceState({}, '', window.location.pathname);
         checkGoogleStatus();
       } else if (params.get('google_error')) {

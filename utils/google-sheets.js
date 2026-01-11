@@ -1,8 +1,9 @@
 /**
- * Google Sheets Integration Module (Multi-Tenant)
- * Handles per-merchant OAuth 2.0 authentication and writing GMC feed data to Google Sheets
+ * Google OAuth Module (Multi-Tenant)
+ * Handles per-merchant OAuth 2.0 authentication for Google Merchant Center
  *
  * Each merchant connects their own Google account - no shared credentials
+ * Used by merchant-center-api.js for product catalog sync to GMC
  */
 
 const { google } = require('googleapis');
@@ -10,11 +11,8 @@ const db = require('./database');
 const logger = require('./logger');
 
 // OAuth2 client configuration
-// Scopes:
-// - drive.file: Access only files user explicitly opens/shares with this app (for Google Sheets)
-// - content: Access to Google Merchant Center Content API (for product/inventory sync)
+// Scope: content - Access to Google Merchant Center Content API
 const SCOPES = [
-    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/content'
 ];
 
@@ -116,7 +114,7 @@ function getAuthUrl(merchantId) {
     logger.info('Generated Google OAuth URL for merchant', {
         merchantId,
         redirectUri: process.env.GOOGLE_REDIRECT_URI,
-        authUrlPrefix: authUrl.substring(0, 80) + '...'
+        scopes: SCOPES
     });
 
     return authUrl;
@@ -230,6 +228,7 @@ async function isAuthenticated(merchantId) {
 
 /**
  * Get authenticated OAuth client for a specific merchant
+ * Used by merchant-center-api.js for GMC API calls
  * @param {number} merchantId - Merchant ID
  * @returns {Promise<Object>} Authenticated OAuth2 client
  */
@@ -245,7 +244,7 @@ async function getAuthenticatedClient(merchantId) {
 
     const tokens = await loadTokens(merchantId);
     if (!tokens) {
-        throw new Error('Not authenticated with Google. Please authorize first.');
+        throw new Error('Not authenticated with Google. Please connect your Google Merchant Center account first.');
     }
 
     client.setCredentials(tokens);
@@ -260,216 +259,6 @@ async function getAuthenticatedClient(merchantId) {
     });
 
     return client;
-}
-
-/**
- * Get Google Sheets API instance for a merchant
- * @param {number} merchantId - Merchant ID
- * @returns {Promise<Object>} Sheets API instance
- */
-async function getSheetsApi(merchantId) {
-    const auth = await getAuthenticatedClient(merchantId);
-    return google.sheets({ version: 'v4', auth });
-}
-
-/**
- * Get Google Drive API instance for a merchant
- * @param {number} merchantId - Merchant ID
- * @returns {Promise<Object>} Drive API instance
- */
-async function getDriveApi(merchantId) {
-    const auth = await getAuthenticatedClient(merchantId);
-    return google.drive({ version: 'v3', auth });
-}
-
-/**
- * Write GMC feed data to Google Sheet
- * @param {number} merchantId - Merchant ID
- * @param {string} spreadsheetId - Google Sheets spreadsheet ID
- * @param {Array} products - Array of product objects
- * @param {Object} options - Options (sheetName, clearFirst)
- * @returns {Promise<Object>} Update result
- */
-async function writeFeedToSheet(merchantId, spreadsheetId, products, options = {}) {
-    const sheetName = options.sheetName || 'GMC Feed';
-    const clearFirst = options.clearFirst !== false;
-
-    logger.info('Writing GMC feed to Google Sheet', {
-        merchantId,
-        spreadsheetId,
-        productCount: products.length,
-        sheetName
-    });
-
-    const sheets = await getSheetsApi(merchantId);
-
-    // Header row matching GMC format
-    const headers = [
-        'id',
-        'title',
-        'link',
-        'description',
-        'gtin',
-        'category',
-        'image_link',
-        'additional_image_link',
-        'additional_image_link',
-        'condition',
-        'availability',
-        'quantity',
-        'brand',
-        'google_product_category',
-        'price',
-        'adult',
-        'is_bundle'
-    ];
-
-    // Convert products to rows
-    const rows = products.map(p => [
-        p.id || '',
-        p.title || '',
-        p.link || '',
-        p.description || '',
-        p.gtin || '',
-        p.category || '',
-        p.image_link || '',
-        p.additional_image_link_1 || '',
-        p.additional_image_link_2 || '',
-        p.condition || '',
-        p.availability || '',
-        p.quantity || 0,
-        p.brand || '',
-        p.google_product_category || '',
-        p.price || '',
-        p.adult || '',
-        p.is_bundle || ''
-    ]);
-
-    // Combine headers and data
-    const values = [headers, ...rows];
-    const range = `${sheetName}!A1`;
-
-    try {
-        // First, ensure the sheet exists
-        await ensureSheetExists(sheets, spreadsheetId, sheetName);
-
-        // Clear existing data if requested
-        if (clearFirst) {
-            try {
-                await sheets.spreadsheets.values.clear({
-                    spreadsheetId,
-                    range: `${sheetName}!A:Z`
-                });
-            } catch (clearError) {
-                logger.warn('Could not clear sheet (may be empty)', { error: clearError.message });
-            }
-        }
-
-        // Write new data
-        const result = await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range,
-            valueInputOption: 'RAW',
-            requestBody: { values }
-        });
-
-        logger.info('GMC feed written to Google Sheet', {
-            merchantId,
-            updatedCells: result.data.updatedCells,
-            updatedRows: result.data.updatedRows
-        });
-
-        return {
-            success: true,
-            updatedCells: result.data.updatedCells,
-            updatedRows: result.data.updatedRows,
-            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
-        };
-    } catch (error) {
-        logger.error('Failed to write to Google Sheet', {
-            merchantId,
-            error: error.message,
-            spreadsheetId
-        });
-        throw error;
-    }
-}
-
-/**
- * Ensure a sheet with the given name exists in the spreadsheet
- */
-async function ensureSheetExists(sheets, spreadsheetId, sheetName) {
-    try {
-        // Get spreadsheet metadata
-        const spreadsheet = await sheets.spreadsheets.get({
-            spreadsheetId,
-            fields: 'sheets.properties.title'
-        });
-
-        // Check if sheet exists
-        const sheetExists = spreadsheet.data.sheets.some(
-            sheet => sheet.properties.title === sheetName
-        );
-
-        if (!sheetExists) {
-            // Create the sheet
-            await sheets.spreadsheets.batchUpdate({
-                spreadsheetId,
-                requestBody: {
-                    requests: [{
-                        addSheet: {
-                            properties: { title: sheetName }
-                        }
-                    }]
-                }
-            });
-            logger.info('Created new sheet in spreadsheet', { sheetName });
-        }
-    } catch (error) {
-        logger.warn('Could not check/create sheet', { error: error.message });
-    }
-}
-
-/**
- * Read data from a Google Sheet
- * @param {number} merchantId - Merchant ID
- * @param {string} spreadsheetId - Spreadsheet ID
- * @param {string} range - Range to read (e.g., 'Sheet1!A1:Z1000')
- * @returns {Promise<Array>} Array of row arrays
- */
-async function readFromSheet(merchantId, spreadsheetId, range) {
-    const sheets = await getSheetsApi(merchantId);
-
-    const result = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range
-    });
-
-    return result.data.values || [];
-}
-
-/**
- * Get spreadsheet metadata
- * @param {number} merchantId - Merchant ID
- * @param {string} spreadsheetId - Spreadsheet ID
- * @returns {Promise<Object>} Spreadsheet metadata
- */
-async function getSpreadsheetInfo(merchantId, spreadsheetId) {
-    const sheets = await getSheetsApi(merchantId);
-
-    const result = await sheets.spreadsheets.get({
-        spreadsheetId,
-        fields: 'properties.title,sheets.properties'
-    });
-
-    return {
-        title: result.data.properties.title,
-        sheets: result.data.sheets.map(s => ({
-            title: s.properties.title,
-            sheetId: s.properties.sheetId,
-            index: s.properties.index
-        }))
-    };
 }
 
 /**
@@ -507,52 +296,12 @@ async function getAuthStatus(merchantId) {
     };
 }
 
-/**
- * Create a new Google Spreadsheet in the merchant's Drive
- * @param {number} merchantId - Merchant ID
- * @param {string} title - Spreadsheet title
- * @returns {Promise<Object>} Created spreadsheet info
- */
-async function createSpreadsheet(merchantId, title) {
-    const sheets = await getSheetsApi(merchantId);
-
-    const result = await sheets.spreadsheets.create({
-        requestBody: {
-            properties: {
-                title: title || 'GMC Product Feed'
-            },
-            sheets: [{
-                properties: {
-                    title: 'GMC Feed'
-                }
-            }]
-        }
-    });
-
-    logger.info('Created new spreadsheet for merchant', {
-        merchantId,
-        spreadsheetId: result.data.spreadsheetId,
-        title: result.data.properties.title
-    });
-
-    return {
-        spreadsheetId: result.data.spreadsheetId,
-        spreadsheetUrl: result.data.spreadsheetUrl,
-        title: result.data.properties.title
-    };
-}
-
 module.exports = {
     getAuthUrl,
     parseAuthState,
     exchangeCodeForTokens,
     isAuthenticated,
     getAuthStatus,
-    writeFeedToSheet,
-    readFromSheet,
-    getSpreadsheetInfo,
-    disconnect,
-    getSheetsApi,
-    getDriveApi,
-    createSpreadsheet
+    getAuthenticatedClient,
+    disconnect
 };
