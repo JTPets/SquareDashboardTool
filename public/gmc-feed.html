@@ -1092,40 +1092,16 @@ Wellness"></textarea>
 
         <!-- Local Inventory Feed Options -->
         <div class="settings-group" style="margin-bottom: 25px;">
-          <h4 style="margin: 0 0 5px 0;">📦 Local Inventory Sync</h4>
+          <h4 style="margin: 0 0 5px 0;">📦 Local Inventory Feed</h4>
           <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
-            Choose how to sync inventory to Google Merchant Center
+            GMC fetches your inventory file automatically. Add this URL in GMC under "Add local inventory from a file".
           </p>
 
-          <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-            <!-- File Feed Option -->
-            <div style="flex: 1; min-width: 300px; padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
-              <h5 style="margin: 0 0 10px 0; color: #1e40af;">📄 File Feed (Recommended)</h5>
-              <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
-                GMC fetches your inventory file automatically every 24 hours. Most reliable method.
-              </p>
-              <div style="margin-bottom: 10px;">
-                <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Local Inventory Feed URL:</label>
-                <div style="display: flex; gap: 8px;">
-                  <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
-                  <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
-                </div>
-              </div>
-              <p style="font-size: 11px; color: #6b7280; margin: 0;">
-                Add this URL in GMC under "Add local inventory from a file"
-              </p>
-            </div>
-
-            <!-- API Sync Option -->
-            <div style="flex: 1; min-width: 300px; padding: 20px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
-              <h5 style="margin: 0 0 10px 0; color: #166534;">⚡ API Sync (Manual)</h5>
-              <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
-                Push inventory updates directly via API. Requires local products in GMC.
-              </p>
-              <button onclick="syncLocalInventoryToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                Sync Inventory Now
-              </button>
-              <div id="inventory-sync-status" style="margin-top: 10px; font-size: 12px;"></div>
+          <div style="padding: 20px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; max-width: 600px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Local Inventory Feed URL:</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
+              <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
             </div>
           </div>
         </div>
@@ -2268,42 +2244,6 @@ Wellness"></textarea>
 
       // Start polling after 5 seconds
       setTimeout(poll, 5000);
-    }
-
-    async function syncLocalInventoryToGmc() {
-      const statusEl = document.getElementById('inventory-sync-status');
-      statusEl.textContent = 'Starting sync...';
-      statusEl.style.color = '#6b7280';
-
-      try {
-        const response = await fetch('/api/gmc/api/sync-local-inventory', { method: 'POST' });
-        const data = await response.json();
-
-        if (data.async) {
-          // Sync is running in background
-          statusEl.style.color = '#2563eb';
-          statusEl.innerHTML = 'Sync running in background... <a href="#" onclick="loadSyncHistory(); return false;" style="color: #2563eb;">Refresh history</a>';
-
-          // Start polling for completion
-          pollSyncStatus('local_inventory_all', statusEl);
-        } else if (data.success) {
-          statusEl.style.color = '#059669';
-          statusEl.textContent = `Synced ${data.totalSynced} items across ${data.locations.filter(l => !l.skipped && !l.error).length} locations`;
-        } else {
-          statusEl.style.color = '#dc2626';
-          statusEl.textContent = `Error: ${data.error || 'Sync failed'}`;
-        }
-
-        if (data.locations) {
-          console.log('Inventory sync results:', data.locations);
-        }
-
-        // Refresh sync history
-        loadSyncHistory();
-      } catch (error) {
-        statusEl.style.color = '#dc2626';
-        statusEl.textContent = `Error: ${error.message}`;
-      }
     }
 
     // ==================== SYNC STATUS ====================
