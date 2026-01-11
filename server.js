@@ -415,7 +415,7 @@ app.get('/api/config', requireAuth, async (req, res) => {
             },
             square_connected: squareConnected,
             square_environment: process.env.SQUARE_ENVIRONMENT || 'sandbox',
-            email_configured: !!(process.env.SMTP_HOST || process.env.EMAIL_HOST),
+            email_configured: process.env.EMAIL_ENABLED === 'true' && !!process.env.EMAIL_USER,
             sync_intervals: {
                 catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL || '60'),
                 inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL || '15'),
