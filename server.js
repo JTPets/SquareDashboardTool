@@ -448,12 +448,9 @@ app.get('/api/config', requireAuth, async (req, res) => {
  * Get merchant-specific settings (reorder rules, cycle count config, etc.)
  * Settings are stored per-merchant and override global env var defaults
  */
-app.get('/api/settings/merchant', requireAuth, async (req, res) => {
+app.get('/api/settings/merchant', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const merchantId = req.session?.merchantId;
-        if (!merchantId) {
-            return res.status(400).json({ error: 'No merchant context. Please select a merchant.' });
-        }
+        const merchantId = req.merchantContext.id;
 
         const settings = await db.getMerchantSettings(merchantId);
 
@@ -474,12 +471,9 @@ app.get('/api/settings/merchant', requireAuth, async (req, res) => {
  * Update merchant-specific settings
  * Only allows updating known setting fields
  */
-app.put('/api/settings/merchant', requireAuth, async (req, res) => {
+app.put('/api/settings/merchant', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const merchantId = req.session?.merchantId;
-        if (!merchantId) {
-            return res.status(400).json({ error: 'No merchant context. Please select a merchant.' });
-        }
+        const merchantId = req.merchantContext.id;
 
         const settings = req.body;
 
