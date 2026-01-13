@@ -400,7 +400,7 @@ app.get('/api/config', requireAuth, async (req, res) => {
 
         // Try to load merchant settings if merchant context available
         let merchantSettings = null;
-        const merchantId = req.session?.merchantId;
+        const merchantId = req.merchantContext?.id;
         if (merchantId) {
             try {
                 merchantSettings = await db.getMerchantSettings(merchantId);
