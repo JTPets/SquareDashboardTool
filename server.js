@@ -5495,12 +5495,18 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
             parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45');
         const supplyDaysParam = supply_days || defaultSupplyDays;
 
+        // Use merchant settings for safety days, fall back to env var
+        const safetyDays = merchantSettings.reorder_safety_days ??
+            parseInt(process.env.REORDER_SAFETY_DAYS || '7');
+
         // Debug logging for reorder issues
         logger.info('Reorder suggestions request', {
             merchantId,
             merchantName: req.merchantContext.businessName,
             vendor_id,
             supply_days: supplyDaysParam,
+            safety_days: safetyDays,
+            reorder_threshold: parseInt(supplyDaysParam) + safetyDays,
             location_id,
             usingMerchantSettings: true
         });
@@ -5523,10 +5529,6 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                 });
             }
         }
-
-        // Use merchant settings for safety days, fall back to env var
-        const safetyDays = merchantSettings.reorder_safety_days ??
-            parseInt(process.env.REORDER_SAFETY_DAYS || '7');
 
         let query = `
             SELECT
@@ -5647,14 +5649,17 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
 
                   OR
 
-                  -- APPLY SUPPLY_DAYS: Items with available stock that will run out within supply_days period
+                  -- APPLY SUPPLY_DAYS + SAFETY_DAYS: Items with available stock that will run out within threshold period
                   -- Only applies to items with active sales velocity (sv91.daily_avg_quantity > 0)
+                  -- $1 is (supply_days + safety_days) to include safety buffer
                   (sv91.daily_avg_quantity > 0
                       AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity < $1)
               )
         `;
 
-        const params = [supplyDaysNum, merchantId];
+        // Combine supply days and safety days for the reorder threshold
+        const reorderThreshold = supplyDaysNum + safetyDays;
+        const params = [reorderThreshold, merchantId];
 
         if (vendor_id === 'none') {
             // Filter for items with NO vendor assigned
@@ -5715,9 +5720,10 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                 // FILTERING LOGIC (must match SQL WHERE clause):
                 // 1. ALWAYS include out-of-available-stock items (available <= 0), regardless of supply_days
                 // 2. ALWAYS include items below alert threshold based on available, regardless of supply_days
-                // 3. Include items that will stockout within supply_days period (only if has velocity)
+                // 3. Include items that will stockout within supply_days + safety_days period (only if has velocity)
                 const isOutOfStock = availableQty <= 0;
-                const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < supplyDaysNum;
+                const reorderThreshold = supplyDaysNum + safetyDays; // Include safety buffer
+                const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < reorderThreshold;
                 if (!needsReorder) {
                     return null;
                 }
@@ -5753,7 +5759,8 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                     reorder_reason = 'Below minimum stock level';
                 }
 
-                // Calculate quantity needed to reach supply_days worth of stock
+                // Calculate quantity needed to reach (supply_days + safety_days) worth of stock
+                // Safety days adds buffer inventory to protect against demand variability
                 let targetQty;
 
                 // For items with no sales velocity, use minimum reorder quantities
@@ -5767,7 +5774,8 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                         targetQty = 1; // Default minimum order of 1 unit
                     }
                 } else {
-                    // Use velocity-based calculation (already rounded up via baseSuggestedQty)
+                    // baseSuggestedQty already includes safety days (from SQL: daily_avg * reorderThreshold)
+                    // where reorderThreshold = supply_days + safety_days
                     targetQty = baseSuggestedQty;
                 }
 
