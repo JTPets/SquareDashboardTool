@@ -1101,11 +1101,8 @@ async function ingestSquareOrder(merchantId, squareOrder) {
 
     if (!address) {
         logger.warn('Square order has no delivery address', { squareOrderId: squareOrder.id });
-        console.log('[INGEST DEBUG] No address found for order', squareOrder.id);
         return null;
     }
-
-    console.log('[INGEST DEBUG] Creating order with address:', address, 'Square state:', squareOrder.state);
 
     // Determine initial status based on Square order state
     // If Square order is already COMPLETED, mark ours as completed too
@@ -1120,8 +1117,6 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         notes: squareOrder.note || null,
         status: initialStatus
     });
-
-    console.log('[INGEST DEBUG] Order created:', order.id, 'status:', initialStatus);
 
     // Attempt geocoding (skip during sync to speed things up - will geocode later)
     // Note: Geocoding is done in batch via the "Geocode Pending" button
