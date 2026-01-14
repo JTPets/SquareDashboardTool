@@ -9301,6 +9301,8 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
         const { status, routeDate, routeId, includeCompleted, limit, offset } = req.query;
         const merchantId = req.merchantContext.id;
 
+        console.log('[ORDERS DEBUG] Fetching orders', { merchantId, status, routeDate, routeId, includeCompleted });
+
         const orders = await deliveryApi.getOrders(merchantId, {
             status: status ? status.split(',') : null,
             routeDate,
@@ -9310,8 +9312,10 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
             offset: parseInt(offset) || 0
         });
 
+        console.log('[ORDERS DEBUG] Found', orders.length, 'orders');
         res.json({ orders });
     } catch (error) {
+        console.log('[ORDERS DEBUG] Error:', error.message, error.stack);
         logger.error('Error fetching delivery orders', { error: error.message });
         res.status(500).json({ error: error.message });
     }
