@@ -1001,6 +1001,15 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // Check if already exists
     const existing = await getOrderBySquareId(merchantId, squareOrder.id);
     if (existing) {
+        // Update status if Square order is now completed but ours isn't
+        if (squareOrder.state === 'COMPLETED' && existing.status !== 'completed') {
+            await updateOrder(merchantId, existing.id, {
+                status: 'completed',
+                squareSyncedAt: new Date()
+            });
+            logger.info('Updated delivery order to completed from Square', { merchantId, orderId: existing.id });
+            return { ...existing, status: 'completed' };
+        }
         logger.debug('Square order already ingested', { merchantId, squareOrderId: squareOrder.id });
         return existing;
     }
@@ -1060,7 +1069,11 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         return null;
     }
 
-    console.log('[INGEST DEBUG] Creating order with address:', address);
+    console.log('[INGEST DEBUG] Creating order with address:', address, 'Square state:', squareOrder.state);
+
+    // Determine initial status based on Square order state
+    // If Square order is already COMPLETED, mark ours as completed too
+    const initialStatus = squareOrder.state === 'COMPLETED' ? 'completed' : 'pending';
 
     // Create delivery order
     const order = await createOrder(merchantId, {
@@ -1068,10 +1081,11 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         customerName,
         address,
         phone,
-        notes: squareOrder.note || null
+        notes: squareOrder.note || null,
+        status: initialStatus
     });
 
-    console.log('[INGEST DEBUG] Order created:', order.id);
+    console.log('[INGEST DEBUG] Order created:', order.id, 'status:', initialStatus);
 
     // Attempt geocoding (skip during sync to speed things up - will geocode later)
     // Note: Geocoding is done in batch via the "Geocode Pending" button
