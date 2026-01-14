@@ -9875,7 +9875,7 @@ app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) =>
         startDate.setDate(startDate.getDate() - daysBack);
 
         // Search for orders with fulfillments
-        const searchResponse = await squareClient.ordersApi.searchOrders({
+        const searchResponse = await squareClient.orders.search({
             locationIds: await getLocationIds(merchantId),
             query: {
                 filter: {
@@ -9899,7 +9899,7 @@ app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) =>
             limit: 100
         });
 
-        const orders = searchResponse.result.orders || [];
+        const orders = searchResponse.orders || [];
         let imported = 0;
         let skipped = 0;
         let errors = [];
