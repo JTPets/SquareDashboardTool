@@ -12,6 +12,7 @@ const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const fs = require('fs').promises;
+const multer = require('multer');
 const cron = require('node-cron');
 const db = require('./utils/database');
 
@@ -27,6 +28,7 @@ const { hashPassword, generateRandomPassword } = require('./utils/password');
 const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
+const deliveryApi = require('./utils/delivery-api');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
@@ -177,6 +179,22 @@ app.use((req, res, next) => {
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/output', express.static(path.join(__dirname, 'output'))); // Serve generated files
+
+// Configure multer for POD photo uploads
+const podUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max
+    },
+    fileFilter: (req, file, cb) => {
+        // Only accept images
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
 
 // Request logging
 app.use((req, res, next) => {
@@ -8963,6 +8981,60 @@ app.post('/api/webhooks/square', async (req, res) => {
                             syncResults.salesVelocity = true;
                             logger.info('Sales velocity sync completed via order.updated (COMPLETED state)');
                         }
+
+                        // DELIVERY SCHEDULER: Auto-ingest orders with delivery/shipment fulfillments
+                        // Check if order has a delivery-type fulfillment that's ready
+                        if (order && order.fulfillments && order.fulfillments.length > 0) {
+                            const deliveryFulfillment = order.fulfillments.find(f =>
+                                (f.type === 'DELIVERY' || f.type === 'SHIPMENT') &&
+                                (f.state === 'PROPOSED' || f.state === 'RESERVED' || f.state === 'PREPARED')
+                            );
+
+                            if (deliveryFulfillment) {
+                                try {
+                                    // Check if delivery settings allow auto-ingestion
+                                    const deliverySettings = await deliveryApi.getSettings(internalMerchantId);
+                                    const autoIngest = deliverySettings?.auto_ingest_ready_orders !== false;
+
+                                    if (autoIngest) {
+                                        const deliveryOrder = await deliveryApi.ingestSquareOrder(internalMerchantId, order);
+                                        if (deliveryOrder) {
+                                            syncResults.deliveryOrder = {
+                                                id: deliveryOrder.id,
+                                                customerName: deliveryOrder.customer_name,
+                                                isNew: !deliveryOrder.square_synced_at
+                                            };
+                                            logger.info('Ingested Square order for delivery', {
+                                                merchantId: internalMerchantId,
+                                                squareOrderId: order.id,
+                                                deliveryOrderId: deliveryOrder.id
+                                            });
+                                        }
+                                    }
+                                } catch (deliveryError) {
+                                    logger.error('Failed to ingest order for delivery', {
+                                        error: deliveryError.message,
+                                        orderId: order.id
+                                    });
+                                    // Don't fail the whole webhook for delivery errors
+                                }
+                            }
+
+                            // Handle order cancellation - remove from delivery queue
+                            if (order.state === 'CANCELED') {
+                                try {
+                                    await deliveryApi.handleSquareOrderUpdate(internalMerchantId, order.id, 'CANCELED');
+                                    logger.info('Removed cancelled order from delivery queue', {
+                                        squareOrderId: order.id
+                                    });
+                                } catch (cancelError) {
+                                    logger.error('Failed to handle order cancellation for delivery', {
+                                        error: cancelError.message,
+                                        orderId: order.id
+                                    });
+                                }
+                            }
+                        }
                     } catch (syncError) {
                         logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
@@ -9214,6 +9286,571 @@ app.post('/api/webhooks/square', async (req, res) => {
             `, [error.message, processingTime, webhookEventId]).catch(() => {});
         }
 
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== DELIVERY SCHEDULER API ====================
+
+/**
+ * GET /api/delivery/orders
+ * List delivery orders with optional filtering
+ */
+app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { status, routeDate, routeId, includeCompleted, limit, offset } = req.query;
+        const merchantId = req.merchantContext.id;
+
+        const orders = await deliveryApi.getOrders(merchantId, {
+            status: status ? status.split(',') : null,
+            routeDate,
+            routeId,
+            includeCompleted: includeCompleted === 'true',
+            limit: parseInt(limit) || 100,
+            offset: parseInt(offset) || 0
+        });
+
+        res.json({ orders });
+    } catch (error) {
+        logger.error('Error fetching delivery orders', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/orders
+ * Create a manual delivery order
+ */
+app.post('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { customerName, address, phone, notes } = req.body;
+        const merchantId = req.merchantContext.id;
+
+        if (!customerName || !address) {
+            return res.status(400).json({ error: 'Customer name and address are required' });
+        }
+
+        const order = await deliveryApi.createOrder(merchantId, {
+            customerName,
+            address,
+            phone,
+            notes
+        });
+
+        // Attempt geocoding
+        const settings = await deliveryApi.getSettings(merchantId);
+        const coords = await deliveryApi.geocodeAddress(address, settings?.openrouteservice_api_key);
+
+        if (coords) {
+            await deliveryApi.updateOrder(merchantId, order.id, {
+                addressLat: coords.lat,
+                addressLng: coords.lng,
+                geocodedAt: new Date()
+            });
+            order.address_lat = coords.lat;
+            order.address_lng = coords.lng;
+            order.geocoded_at = new Date();
+        }
+
+        await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_created', order.id, null, {
+            manual: true,
+            customerName
+        });
+
+        res.status(201).json({ order });
+    } catch (error) {
+        logger.error('Error creating delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/orders/:id
+ * Get a single delivery order
+ */
+app.get('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        res.json({ order });
+    } catch (error) {
+        logger.error('Error fetching delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/delivery/orders/:id
+ * Update a delivery order (notes, status)
+ */
+app.patch('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const updates = {};
+
+        // Only allow updating certain fields
+        if (req.body.notes !== undefined) updates.notes = req.body.notes;
+        if (req.body.phone !== undefined) updates.phone = req.body.phone;
+        if (req.body.customerName !== undefined) updates.customerName = req.body.customerName;
+        if (req.body.address !== undefined) updates.address = req.body.address;
+
+        const order = await deliveryApi.updateOrder(merchantId, req.params.id, updates);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        // Re-geocode if address changed
+        if (req.body.address) {
+            const settings = await deliveryApi.getSettings(merchantId);
+            const coords = await deliveryApi.geocodeAddress(req.body.address, settings?.openrouteservice_api_key);
+
+            if (coords) {
+                await deliveryApi.updateOrder(merchantId, order.id, {
+                    addressLat: coords.lat,
+                    addressLng: coords.lng,
+                    geocodedAt: new Date()
+                });
+            }
+        }
+
+        res.json({ order });
+    } catch (error) {
+        logger.error('Error updating delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/delivery/orders/:id
+ * Delete a manual delivery order (only allowed for manual orders not on route)
+ */
+app.delete('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const deleted = await deliveryApi.deleteOrder(merchantId, req.params.id);
+
+        if (!deleted) {
+            return res.status(400).json({
+                error: 'Cannot delete this order. Only manual orders not yet delivered can be deleted.'
+            });
+        }
+
+        await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_deleted', req.params.id);
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error deleting delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/orders/:id/skip
+ * Mark an order as skipped (driver couldn't deliver)
+ */
+app.post('/api/delivery/orders/:id/skip', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const order = await deliveryApi.skipOrder(merchantId, req.params.id, req.session.user.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        res.json({ order });
+    } catch (error) {
+        logger.error('Error skipping delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/orders/:id/complete
+ * Mark an order as completed and sync to Square
+ */
+app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        // If Square order, sync to Square
+        if (order.square_order_id) {
+            try {
+                // Get Square client for this merchant
+                const squareClient = await getSquareClientForMerchant(merchantId);
+
+                // Update order status in Square to COMPLETED
+                await squareClient.ordersApi.updateOrder(order.square_order_id, {
+                    order: {
+                        state: 'COMPLETED',
+                        version: 1 // Square requires version for updates
+                    },
+                    idempotencyKey: `complete-${order.id}-${Date.now()}`
+                });
+
+                logger.info('Synced delivery completion to Square', {
+                    merchantId,
+                    orderId: order.id,
+                    squareOrderId: order.square_order_id
+                });
+            } catch (squareError) {
+                logger.error('Failed to sync completion to Square', {
+                    error: squareError.message,
+                    orderId: order.id
+                });
+                // Continue anyway - mark as complete locally
+            }
+        }
+
+        const completedOrder = await deliveryApi.completeOrder(merchantId, req.params.id, req.session.user.id);
+
+        res.json({ order: completedOrder });
+    } catch (error) {
+        logger.error('Error completing delivery order', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/orders/:id/pod
+ * Upload proof of delivery photo
+ */
+app.post('/api/delivery/orders/:id/pod', requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        if (!req.file) {
+            return res.status(400).json({ error: 'No photo uploaded' });
+        }
+
+        const pod = await deliveryApi.savePodPhoto(merchantId, req.params.id, req.file.buffer, {
+            originalFilename: req.file.originalname,
+            mimeType: req.file.mimetype,
+            latitude: req.body.latitude ? parseFloat(req.body.latitude) : null,
+            longitude: req.body.longitude ? parseFloat(req.body.longitude) : null
+        });
+
+        await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'pod_uploaded', req.params.id, null, {
+            podId: pod.id,
+            hasGps: !!(req.body.latitude && req.body.longitude)
+        });
+
+        res.status(201).json({ pod });
+    } catch (error) {
+        logger.error('Error uploading POD', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/pod/:id
+ * Serve a POD photo (authenticated)
+ */
+app.get('/api/delivery/pod/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const pod = await deliveryApi.getPodPhoto(merchantId, req.params.id);
+
+        if (!pod) {
+            return res.status(404).json({ error: 'POD not found' });
+        }
+
+        // Serve the file
+        const fsSync = require('fs');
+        if (!fsSync.existsSync(pod.full_path)) {
+            return res.status(404).json({ error: 'POD file not found' });
+        }
+
+        res.setHeader('Content-Type', pod.mime_type || 'image/jpeg');
+        res.setHeader('Content-Disposition', `inline; filename="${pod.original_filename || 'pod.jpg'}"`);
+        res.sendFile(pod.full_path);
+    } catch (error) {
+        logger.error('Error serving POD', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/route/generate
+ * Generate an optimized route for pending orders
+ */
+app.post('/api/delivery/route/generate', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { routeDate, orderIds, force } = req.body;
+
+        const route = await deliveryApi.generateRoute(merchantId, req.session.user.id, {
+            routeDate,
+            orderIds,
+            force
+        });
+
+        res.status(201).json({ route });
+    } catch (error) {
+        logger.error('Error generating route', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/route/active
+ * Get today's active route with orders
+ */
+app.get('/api/delivery/route/active', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { routeDate } = req.query;
+
+        const route = await deliveryApi.getActiveRoute(merchantId, routeDate);
+
+        if (!route) {
+            return res.json({ route: null, orders: [] });
+        }
+
+        const orders = await deliveryApi.getOrders(merchantId, { routeId: route.id });
+
+        res.json({ route, orders });
+    } catch (error) {
+        logger.error('Error fetching active route', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/route/:id
+ * Get a specific route with orders
+ */
+app.get('/api/delivery/route/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const route = await deliveryApi.getRouteWithOrders(merchantId, req.params.id);
+
+        if (!route) {
+            return res.status(404).json({ error: 'Route not found' });
+        }
+
+        res.json({ route });
+    } catch (error) {
+        logger.error('Error fetching route', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/route/finish
+ * Finish the active route and roll skipped orders back to pending
+ */
+app.post('/api/delivery/route/finish', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { routeId } = req.body;
+
+        if (!routeId) {
+            // Get active route for today
+            const activeRoute = await deliveryApi.getActiveRoute(merchantId);
+            if (!activeRoute) {
+                return res.status(400).json({ error: 'No active route found' });
+            }
+            req.body.routeId = activeRoute.id;
+        }
+
+        const result = await deliveryApi.finishRoute(merchantId, req.body.routeId, req.session.user.id);
+
+        res.json({ result });
+    } catch (error) {
+        logger.error('Error finishing route', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/delivery/geocode
+ * Geocode pending orders that don't have coordinates
+ */
+app.post('/api/delivery/geocode', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { limit } = req.body;
+
+        const result = await deliveryApi.geocodePendingOrders(merchantId, limit || 10);
+
+        res.json({ result });
+    } catch (error) {
+        logger.error('Error geocoding orders', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/settings
+ * Get delivery settings for the merchant
+ */
+app.get('/api/delivery/settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        let settings = await deliveryApi.getSettings(merchantId);
+
+        // Return defaults if no settings exist
+        if (!settings) {
+            settings = {
+                merchant_id: merchantId,
+                start_address: null,
+                end_address: null,
+                same_day_cutoff: '17:00',
+                pod_retention_days: 180,
+                auto_ingest_ready_orders: true
+            };
+        }
+
+        res.json({ settings });
+    } catch (error) {
+        logger.error('Error fetching delivery settings', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/delivery/settings
+ * Update delivery settings for the merchant
+ */
+app.put('/api/delivery/settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const {
+            startAddress,
+            endAddress,
+            sameDayCutoff,
+            podRetentionDays,
+            autoIngestReadyOrders,
+            openrouteserviceApiKey
+        } = req.body;
+
+        // Geocode start and end addresses if provided
+        let startLat = null, startLng = null, endLat = null, endLng = null;
+
+        if (startAddress) {
+            const currentSettings = await deliveryApi.getSettings(merchantId);
+            const coords = await deliveryApi.geocodeAddress(startAddress, currentSettings?.openrouteservice_api_key || openrouteserviceApiKey);
+            if (coords) {
+                startLat = coords.lat;
+                startLng = coords.lng;
+            }
+        }
+
+        if (endAddress) {
+            const currentSettings = await deliveryApi.getSettings(merchantId);
+            const coords = await deliveryApi.geocodeAddress(endAddress, currentSettings?.openrouteservice_api_key || openrouteserviceApiKey);
+            if (coords) {
+                endLat = coords.lat;
+                endLng = coords.lng;
+            }
+        }
+
+        const settings = await deliveryApi.updateSettings(merchantId, {
+            startAddress,
+            startAddressLat: startLat,
+            startAddressLng: startLng,
+            endAddress,
+            endAddressLat: endLat,
+            endAddressLng: endLng,
+            sameDayCutoff,
+            podRetentionDays,
+            autoIngestReadyOrders,
+            openrouteserviceApiKey
+        });
+
+        await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'settings_updated', null, null, {
+            startAddress: !!startAddress,
+            endAddress: !!endAddress
+        });
+
+        res.json({ settings });
+    } catch (error) {
+        logger.error('Error updating delivery settings', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/audit
+ * Get delivery audit log
+ */
+app.get('/api/delivery/audit', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { limit, offset, action, orderId, routeId } = req.query;
+
+        const entries = await deliveryApi.getAuditLog(merchantId, {
+            limit: parseInt(limit) || 100,
+            offset: parseInt(offset) || 0,
+            action,
+            orderId,
+            routeId
+        });
+
+        res.json({ entries });
+    } catch (error) {
+        logger.error('Error fetching audit log', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/stats
+ * Get delivery statistics for dashboard
+ */
+app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const today = new Date().toISOString().split('T')[0];
+
+        // Get counts by status
+        const statusCounts = await db.query(`
+            SELECT status, COUNT(*) as count
+            FROM delivery_orders
+            WHERE merchant_id = $1
+            GROUP BY status
+        `, [merchantId]);
+
+        // Get today's route info
+        const activeRoute = await deliveryApi.getActiveRoute(merchantId, today);
+
+        // Get recent completions
+        const recentCompletions = await db.query(`
+            SELECT COUNT(*) as count
+            FROM delivery_orders
+            WHERE merchant_id = $1
+              AND status = 'completed'
+              AND updated_at >= NOW() - INTERVAL '7 days'
+        `, [merchantId]);
+
+        res.json({
+            stats: {
+                byStatus: statusCounts.rows.reduce((acc, row) => {
+                    acc[row.status] = parseInt(row.count);
+                    return acc;
+                }, {}),
+                activeRoute: activeRoute ? {
+                    id: activeRoute.id,
+                    totalStops: activeRoute.order_count,
+                    completedStops: activeRoute.completed_count,
+                    skippedStops: activeRoute.skipped_count
+                } : null,
+                completedLast7Days: parseInt(recentCompletions.rows[0]?.count || 0)
+            }
+        });
+    } catch (error) {
+        logger.error('Error fetching delivery stats', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
