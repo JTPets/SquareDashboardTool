@@ -20,6 +20,21 @@ const POD_STORAGE_DIR = process.env.POD_STORAGE_DIR || 'storage/pod';
 const ORS_BASE_URL = 'https://api.openrouteservice.org';
 const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
 
+// UUID validation regex (for security - validate IDs before use)
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate UUID format
+ * @param {string} id - ID to validate
+ * @param {string} fieldName - Field name for error message
+ * @throws {Error} If ID is not a valid UUID
+ */
+function validateUUID(id, fieldName = 'ID') {
+    if (!id || !UUID_REGEX.test(id)) {
+        throw new Error(`Invalid ${fieldName} format`);
+    }
+}
+
 /**
  * Get delivery orders for a merchant
  * @param {number} merchantId - The merchant ID
@@ -88,6 +103,9 @@ async function getOrders(merchantId, options = {}) {
  * @returns {Promise<Object|null>} Delivery order or null
  */
 async function getOrderById(merchantId, orderId) {
+    // Validate UUID format (security - prevent injection via malformed IDs)
+    validateUUID(orderId, 'order ID');
+
     const result = await db.query(
         `SELECT dord.*,
                 dp.id as pod_id,
@@ -743,6 +761,20 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
         longitude = null
     } = metadata;
 
+    // Validate orderId is a valid UUID format (security)
+    validateUUID(orderId, 'order ID');
+
+    // Validate image magic bytes (prevent MIME type spoofing)
+    const magicBytes = photoBuffer.slice(0, 12);
+    const isJpeg = magicBytes[0] === 0xFF && magicBytes[1] === 0xD8 && magicBytes[2] === 0xFF;
+    const isPng = magicBytes[0] === 0x89 && magicBytes[1] === 0x50 && magicBytes[2] === 0x4E && magicBytes[3] === 0x47;
+    const isGif = magicBytes[0] === 0x47 && magicBytes[1] === 0x49 && magicBytes[2] === 0x46;
+    const isWebp = magicBytes[8] === 0x57 && magicBytes[9] === 0x45 && magicBytes[10] === 0x42 && magicBytes[11] === 0x50;
+
+    if (!isJpeg && !isPng && !isGif && !isWebp) {
+        throw new Error('Invalid image file - file content does not match image format');
+    }
+
     // Verify order belongs to merchant
     const order = await getOrderById(merchantId, orderId);
     if (!order) {
@@ -754,9 +786,10 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
     const retentionDays = settings?.pod_retention_days || 180;
 
     // Generate unique filename with merchant namespace
+    // Use only safe extension based on detected type, not user input
     const fileId = crypto.randomUUID();
-    const ext = path.extname(originalFilename) || '.jpg';
-    const relativePath = `${merchantId}/${orderId}/${fileId}${ext}`;
+    const safeExt = isJpeg ? '.jpg' : isPng ? '.png' : isGif ? '.gif' : '.webp';
+    const relativePath = `${merchantId}/${orderId}/${fileId}${safeExt}`;
     const fullPath = path.join(process.cwd(), POD_STORAGE_DIR, relativePath);
 
     // Ensure directory exists
@@ -798,6 +831,9 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
  * @returns {Promise<Object|null>} POD record with full path
  */
 async function getPodPhoto(merchantId, podId) {
+    // Validate UUID format (security)
+    validateUUID(podId, 'POD ID');
+
     const result = await db.query(
         `SELECT dp.*, dord.merchant_id
          FROM delivery_pod dp
