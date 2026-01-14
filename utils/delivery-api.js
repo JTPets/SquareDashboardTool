@@ -38,42 +38,42 @@ async function getOrders(merchantId, options = {}) {
 
     let query = `
         SELECT
-            do.*,
+            dord.*,
             dp.id as pod_id,
             dp.photo_path as pod_photo_path,
             dp.captured_at as pod_captured_at
-        FROM delivery_orders do
-        LEFT JOIN delivery_pod dp ON dp.delivery_order_id = do.id
-        WHERE do.merchant_id = $1
+        FROM delivery_orders dord
+        LEFT JOIN delivery_pod dp ON dp.delivery_order_id = dord.id
+        WHERE dord.merchant_id = $1
     `;
     const params = [merchantId];
 
     if (status) {
         if (Array.isArray(status)) {
             const placeholders = status.map((_, i) => `$${params.length + i + 1}`).join(', ');
-            query += ` AND do.status IN (${placeholders})`;
+            query += ` AND dord.status IN (${placeholders})`;
             params.push(...status);
         } else {
             params.push(status);
-            query += ` AND do.status = $${params.length}`;
+            query += ` AND dord.status = $${params.length}`;
         }
     }
 
     if (!includeCompleted && !status) {
-        query += ` AND do.status != 'completed'`;
+        query += ` AND dord.status != 'completed'`;
     }
 
     if (routeDate) {
         params.push(routeDate);
-        query += ` AND do.route_date = $${params.length}`;
+        query += ` AND dord.route_date = $${params.length}`;
     }
 
     if (routeId) {
         params.push(routeId);
-        query += ` AND do.route_id = $${params.length}`;
+        query += ` AND dord.route_id = $${params.length}`;
     }
 
-    query += ` ORDER BY do.route_position NULLS LAST, do.created_at ASC`;
+    query += ` ORDER BY dord.route_position NULLS LAST, dord.created_at ASC`;
     query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
@@ -89,13 +89,13 @@ async function getOrders(merchantId, options = {}) {
  */
 async function getOrderById(merchantId, orderId) {
     const result = await db.query(
-        `SELECT do.*,
+        `SELECT dord.*,
                 dp.id as pod_id,
                 dp.photo_path as pod_photo_path,
                 dp.captured_at as pod_captured_at
-         FROM delivery_orders do
-         LEFT JOIN delivery_pod dp ON dp.delivery_order_id = do.id
-         WHERE do.id = $1 AND do.merchant_id = $2`,
+         FROM delivery_orders dord
+         LEFT JOIN delivery_pod dp ON dp.delivery_order_id = dord.id
+         WHERE dord.id = $1 AND dord.merchant_id = $2`,
         [orderId, merchantId]
     );
     return result.rows[0] || null;
@@ -799,10 +799,10 @@ async function savePodPhoto(merchantId, orderId, photoBuffer, metadata = {}) {
  */
 async function getPodPhoto(merchantId, podId) {
     const result = await db.query(
-        `SELECT dp.*, do.merchant_id
+        `SELECT dp.*, dord.merchant_id
          FROM delivery_pod dp
-         JOIN delivery_orders do ON do.id = dp.delivery_order_id
-         WHERE dp.id = $1 AND do.merchant_id = $2`,
+         JOIN delivery_orders dord ON dord.id = dp.delivery_order_id
+         WHERE dp.id = $1 AND dord.merchant_id = $2`,
         [podId, merchantId]
     );
 
@@ -822,9 +822,9 @@ async function getPodPhoto(merchantId, podId) {
  */
 async function cleanupExpiredPods() {
     const expiredResult = await db.query(
-        `SELECT dp.*, do.merchant_id
+        `SELECT dp.*, dord.merchant_id
          FROM delivery_pod dp
-         JOIN delivery_orders do ON do.id = dp.delivery_order_id
+         JOIN delivery_orders dord ON dord.id = dp.delivery_order_id
          WHERE dp.expires_at < NOW()`
     );
 
