@@ -9491,30 +9491,50 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
             return res.status(404).json({ error: 'Order not found' });
         }
 
-        // If Square order, sync to Square
+        // If Square order, sync fulfillment completion to Square
         if (order.square_order_id) {
             try {
-                // Get Square client for this merchant
                 const squareClient = await getSquareClientForMerchant(merchantId);
 
-                // Update order status in Square to COMPLETED
-                await squareClient.ordersApi.updateOrder(order.square_order_id, {
-                    order: {
-                        state: 'COMPLETED',
-                        version: 1 // Square requires version for updates
-                    },
-                    idempotencyKey: `complete-${order.id}-${Date.now()}`
+                // First, get the current order to find fulfillment UID and version
+                const squareOrder = await squareClient.orders.get({
+                    orderId: order.square_order_id
                 });
 
-                logger.info('Synced delivery completion to Square', {
-                    merchantId,
-                    orderId: order.id,
-                    squareOrderId: order.square_order_id
-                });
+                if (squareOrder.order && squareOrder.order.fulfillments) {
+                    // Find the delivery/shipment fulfillment
+                    const fulfillment = squareOrder.order.fulfillments.find(f =>
+                        f.type === 'DELIVERY' || f.type === 'SHIPMENT'
+                    );
+
+                    if (fulfillment && fulfillment.state !== 'COMPLETED') {
+                        // Update the fulfillment to COMPLETED
+                        await squareClient.orders.update({
+                            orderId: order.square_order_id,
+                            order: {
+                                locationId: squareOrder.order.locationId,
+                                version: squareOrder.order.version,
+                                fulfillments: [{
+                                    uid: fulfillment.uid,
+                                    state: 'COMPLETED'
+                                }]
+                            },
+                            idempotencyKey: `complete-${order.id}-${Date.now()}`
+                        });
+
+                        logger.info('Synced delivery completion to Square', {
+                            merchantId,
+                            orderId: order.id,
+                            squareOrderId: order.square_order_id,
+                            fulfillmentUid: fulfillment.uid
+                        });
+                    }
+                }
             } catch (squareError) {
                 logger.error('Failed to sync completion to Square', {
                     error: squareError.message,
-                    orderId: order.id
+                    orderId: order.id,
+                    squareOrderId: order.square_order_id
                 });
                 // Continue anyway - mark as complete locally
             }
