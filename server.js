@@ -5617,6 +5617,7 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                 ), 0) as pending_po_quantity,
                 v.case_pack_quantity,
                 v.reorder_multiple,
+                v.price_money as retail_price_cents,
                 -- Prefer location-specific settings over global
                 COALESCE(vls.stock_alert_min, v.stock_alert_min) as stock_alert_min,
                 COALESCE(vls.stock_alert_max, v.stock_alert_max) as stock_alert_max,
@@ -5830,7 +5831,13 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                 }
 
                 const unitCost = parseInt(row.unit_cost_cents) || 0;
+                const retailPrice = parseInt(row.retail_price_cents) || 0;
                 const pendingPoQty = parseInt(row.pending_po_quantity) || 0;
+
+                // Calculate gross margin percentage: ((retail - cost) / retail) * 100
+                const grossMarginPercent = retailPrice > 0 && unitCost > 0
+                    ? Math.round(((retailPrice - unitCost) / retailPrice) * 1000) / 10  // 1 decimal place
+                    : null;
 
                 // Subtract pending PO quantity from suggested order
                 const adjustedQty = Math.max(0, finalQty - pendingPoQty);
@@ -5868,6 +5875,8 @@ app.get('/api/reorder-suggestions', requireAuth, requireMerchant, async (req, re
                     pending_po_quantity: pendingPoQty,
                     final_suggested_qty: adjustedQty,
                     unit_cost_cents: unitCost,
+                    retail_price_cents: retailPrice,
+                    gross_margin_percent: grossMarginPercent,
                     order_cost: orderCost,
                     vendor_name: row.vendor_name,
                     vendor_code: row.vendor_code || 'N/A',

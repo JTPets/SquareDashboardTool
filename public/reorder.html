@@ -612,6 +612,12 @@
             <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
               Cost <span class="sort-indicator" id="sort-unit_cost_cents"></span>
             </th>
+            <th onclick="sortTable('retail_price_cents')" class="sortable text-right">
+              Retail <span class="sort-indicator" id="sort-retail_price_cents"></span>
+            </th>
+            <th onclick="sortTable('gross_margin_percent')" class="sortable text-right">
+              Margin <span class="sort-indicator" id="sort-gross_margin_percent"></span>
+            </th>
             <th onclick="sortTable('order_cost')" class="sortable text-right">
               Total <span class="sort-indicator" id="sort-order_cost"></span>
             </th>
@@ -625,7 +631,7 @@
         </thead>
         <tbody id="suggestions-body">
           <tr>
-            <td colspan="17" class="loading">Loading suggestions...</td>
+            <td colspan="19" class="loading">Loading suggestions...</td>
           </tr>
         </tbody>
       </table>
@@ -746,7 +752,7 @@
       if (vendorId) url += `&vendor_id=${vendorId}`;
 
       const tbody = document.getElementById('suggestions-body');
-      tbody.innerHTML = '<tr><td colspan="17" class="loading">Loading suggestions...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="19" class="loading">Loading suggestions...</td></tr>';
 
       try {
         const response = await fetch(url);
@@ -762,7 +768,7 @@
         if (allSuggestions.length === 0) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="17" class="empty-state">
+              <td colspan="19" class="empty-state">
                 <h3>No Reorder Suggestions</h3>
                 <p>No items need reordering for the selected vendor and supply days.</p>
                 <p>Try different filters or run a sync to update inventory data.</p>
@@ -1065,6 +1071,8 @@
                      onkeydown="if(event.key==='Enter') this.blur()"
                      style="width: 70px;">
             </td>
+            <td class="text-right">${item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-'}</td>
+            <td class="text-right ${item.gross_margin_percent !== null ? (item.gross_margin_percent >= 40 ? 'velocity-fast' : item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical') : ''}">${item.gross_margin_percent !== null ? item.gross_margin_percent.toFixed(1) + '%' : '-'}</td>
             <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
             <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
@@ -1351,6 +1359,8 @@
           case 'final_suggested_qty':
           case 'case_pack_quantity':
           case 'unit_cost_cents':
+          case 'retail_price_cents':
+          case 'gross_margin_percent':
           case 'order_cost':
             // Numeric comparison (handle null/undefined, put nulls at end)
             aVal = aVal !== null && aVal !== undefined ? parseFloat(aVal) : Infinity;
