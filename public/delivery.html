@@ -414,6 +414,7 @@
         <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn btn-primary" id="generateRouteBtn" onclick="generateRoute()">Generate Today's Route</button>
           <button class="btn btn-secondary" id="geocodeBtn" onclick="geocodePending()">Geocode Pending Addresses</button>
+          <button class="btn btn-secondary" id="syncBtn" onclick="syncFromSquare()">Sync from Square</button>
         </div>
         <div class="order-list" id="pendingOrders">
           <div class="empty-state">
@@ -832,6 +833,34 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Geocode Pending Addresses';
+      }
+    }
+
+    async function syncFromSquare() {
+      const btn = document.getElementById('syncBtn');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+
+      try {
+        const response = await fetch('/api/delivery/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ daysBack: 7 })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        const data = await response.json();
+        showAlert(`Sync complete: Found ${data.found} orders, imported ${data.imported}, skipped ${data.skipped}`, 'success');
+        loadOrders();
+      } catch (error) {
+        showAlert('Failed to sync: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sync from Square';
       }
     }
 

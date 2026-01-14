@@ -9855,6 +9855,116 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
     }
 });
 
+/**
+ * POST /api/delivery/sync
+ * Sync open orders from Square that have delivery/shipment fulfillments
+ * Use this to backfill orders that were missed while server was offline
+ */
+app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { daysBack = 7 } = req.body;
+
+        logger.info('Starting delivery order sync from Square', { merchantId, daysBack });
+
+        // Get Square client for this merchant
+        const squareClient = await getSquareClientForMerchant(merchantId);
+
+        // Calculate date range
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysBack);
+
+        // Search for orders with fulfillments
+        const searchResponse = await squareClient.ordersApi.searchOrders({
+            locationIds: await getLocationIds(merchantId),
+            query: {
+                filter: {
+                    dateTimeFilter: {
+                        createdAt: {
+                            startAt: startDate.toISOString()
+                        }
+                    },
+                    stateFilter: {
+                        states: ['OPEN', 'COMPLETED']
+                    },
+                    fulfillmentFilter: {
+                        fulfillmentTypes: ['DELIVERY', 'SHIPMENT']
+                    }
+                },
+                sort: {
+                    sortField: 'CREATED_AT',
+                    sortOrder: 'DESC'
+                }
+            },
+            limit: 100
+        });
+
+        const orders = searchResponse.result.orders || [];
+        let imported = 0;
+        let skipped = 0;
+        let errors = [];
+
+        for (const order of orders) {
+            try {
+                // Check if order has delivery-type fulfillment that's ready
+                const deliveryFulfillment = order.fulfillments?.find(f =>
+                    (f.type === 'DELIVERY' || f.type === 'SHIPMENT')
+                );
+
+                if (!deliveryFulfillment) {
+                    skipped++;
+                    continue;
+                }
+
+                // Skip if already completed in Square
+                if (order.state === 'COMPLETED') {
+                    // Check if we have it and it's also completed
+                    const existing = await deliveryApi.getOrderBySquareId(merchantId, order.id);
+                    if (existing && existing.status === 'completed') {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                // Try to ingest
+                const result = await deliveryApi.ingestSquareOrder(merchantId, order);
+                if (result) {
+                    imported++;
+                } else {
+                    skipped++;
+                }
+            } catch (orderError) {
+                errors.push({ orderId: order.id, error: orderError.message });
+            }
+        }
+
+        logger.info('Delivery order sync completed', { merchantId, found: orders.length, imported, skipped, errors: errors.length });
+
+        res.json({
+            success: true,
+            found: orders.length,
+            imported,
+            skipped,
+            errors: errors.length > 0 ? errors : undefined
+        });
+
+    } catch (error) {
+        logger.error('Error syncing delivery orders', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Helper to get location IDs for a merchant
+ */
+async function getLocationIds(merchantId) {
+    const result = await db.query(
+        'SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE',
+        [merchantId]
+    );
+    return result.rows.map(r => r.id);
+}
+
 // ==================== ERROR HANDLING ====================
 
 // 404 handler
