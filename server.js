@@ -31,7 +31,7 @@ const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
 const deliveryApi = require('./utils/delivery-api');
 
 // Security middleware
-const { configureHelmet, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin, requireWriteAccess } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -87,6 +87,10 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
 
 // Rate limiting
 app.use(configureRateLimit());
+
+// Delivery-specific rate limiters (applied to routes below)
+const deliveryRateLimit = configureDeliveryRateLimit();
+const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
 
 // CORS configuration
 app.use(configureCors());
@@ -9301,8 +9305,6 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
         const { status, routeDate, routeId, includeCompleted, limit, offset } = req.query;
         const merchantId = req.merchantContext.id;
 
-        console.log('[ORDERS DEBUG] Fetching orders', { merchantId, status, routeDate, routeId, includeCompleted });
-
         const orders = await deliveryApi.getOrders(merchantId, {
             status: status ? status.split(',') : null,
             routeDate,
@@ -9312,10 +9314,8 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
             offset: parseInt(offset) || 0
         });
 
-        console.log('[ORDERS DEBUG] Found', orders.length, 'orders');
         res.json({ orders });
     } catch (error) {
-        console.log('[ORDERS DEBUG] Error:', error.message, error.stack);
         logger.error('Error fetching delivery orders', { error: error.message });
         res.status(500).json({ error: error.message });
     }
@@ -9325,7 +9325,7 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
  * POST /api/delivery/orders
  * Create a manual delivery order
  */
-app.post('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/orders', deliveryRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const { customerName, address, phone, notes } = req.body;
         const merchantId = req.merchantContext.id;
@@ -9487,30 +9487,50 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
             return res.status(404).json({ error: 'Order not found' });
         }
 
-        // If Square order, sync to Square
+        // If Square order, sync fulfillment completion to Square
         if (order.square_order_id) {
             try {
-                // Get Square client for this merchant
                 const squareClient = await getSquareClientForMerchant(merchantId);
 
-                // Update order status in Square to COMPLETED
-                await squareClient.ordersApi.updateOrder(order.square_order_id, {
-                    order: {
-                        state: 'COMPLETED',
-                        version: 1 // Square requires version for updates
-                    },
-                    idempotencyKey: `complete-${order.id}-${Date.now()}`
+                // First, get the current order to find fulfillment UID and version
+                const squareOrder = await squareClient.orders.get({
+                    orderId: order.square_order_id
                 });
 
-                logger.info('Synced delivery completion to Square', {
-                    merchantId,
-                    orderId: order.id,
-                    squareOrderId: order.square_order_id
-                });
+                if (squareOrder.order && squareOrder.order.fulfillments) {
+                    // Find the delivery/shipment fulfillment
+                    const fulfillment = squareOrder.order.fulfillments.find(f =>
+                        f.type === 'DELIVERY' || f.type === 'SHIPMENT'
+                    );
+
+                    if (fulfillment && fulfillment.state !== 'COMPLETED') {
+                        // Update the fulfillment to COMPLETED
+                        await squareClient.orders.update({
+                            orderId: order.square_order_id,
+                            order: {
+                                locationId: squareOrder.order.locationId,
+                                version: squareOrder.order.version,
+                                fulfillments: [{
+                                    uid: fulfillment.uid,
+                                    state: 'COMPLETED'
+                                }]
+                            },
+                            idempotencyKey: `complete-${order.id}-${Date.now()}`
+                        });
+
+                        logger.info('Synced delivery completion to Square', {
+                            merchantId,
+                            orderId: order.id,
+                            squareOrderId: order.square_order_id,
+                            fulfillmentUid: fulfillment.uid
+                        });
+                    }
+                }
             } catch (squareError) {
                 logger.error('Failed to sync completion to Square', {
                     error: squareError.message,
-                    orderId: order.id
+                    orderId: order.id,
+                    squareOrderId: order.square_order_id
                 });
                 // Continue anyway - mark as complete locally
             }
@@ -9529,7 +9549,7 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
  * POST /api/delivery/orders/:id/pod
  * Upload proof of delivery photo
  */
-app.post('/api/delivery/orders/:id/pod', requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
+app.post('/api/delivery/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -9588,7 +9608,7 @@ app.get('/api/delivery/pod/:id', requireAuth, requireMerchant, async (req, res) 
  * POST /api/delivery/route/generate
  * Generate an optimized route for pending orders
  */
-app.post('/api/delivery/route/generate', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/route/generate', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { routeDate, orderIds, force } = req.body;
@@ -9681,7 +9701,7 @@ app.post('/api/delivery/route/finish', requireAuth, requireMerchant, async (req,
  * POST /api/delivery/geocode
  * Geocode pending orders that don't have coordinates
  */
-app.post('/api/delivery/geocode', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/geocode', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { limit } = req.body;
@@ -9864,23 +9884,20 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
  * Sync open orders from Square that have delivery/shipment fulfillments
  * Use this to backfill orders that were missed while server was offline
  */
-app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { daysBack = 7 } = req.body;
 
         logger.info('Starting delivery order sync from Square', { merchantId, daysBack });
-        console.log('[SYNC DEBUG] Starting sync for merchant', merchantId);
 
         // Get Square client for this merchant
         const squareClient = await getSquareClientForMerchant(merchantId);
-        console.log('[SYNC DEBUG] Got Square client');
 
         // Calculate date range
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysBack);
 
-        console.log('[SYNC DEBUG] Searching orders since', startDate.toISOString());
         // Search for orders with fulfillments
         const searchResponse = await squareClient.orders.search({
             locationIds: await getLocationIds(merchantId),
@@ -9907,57 +9924,44 @@ app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) =>
         });
 
         const orders = searchResponse.orders || [];
-        console.log('[SYNC DEBUG] Found', orders.length, 'orders from Square');
-        console.log('[SYNC DEBUG] First order sample:', orders[0] ? JSON.stringify(orders[0].fulfillments, null, 2) : 'none');
-
         let imported = 0;
         let skipped = 0;
         let errors = [];
 
-        for (let i = 0; i < orders.length; i++) {
-            const order = orders[i];
+        for (const order of orders) {
             try {
-                console.log(`[SYNC DEBUG] Processing order ${i + 1}/${orders.length}: ${order.id}`);
-
-                // Check if order has delivery-type fulfillment that's ready
+                // Check if order has delivery-type fulfillment
                 const deliveryFulfillment = order.fulfillments?.find(f =>
                     (f.type === 'DELIVERY' || f.type === 'SHIPMENT')
                 );
 
                 if (!deliveryFulfillment) {
-                    console.log('[SYNC DEBUG] No delivery fulfillment, skipping');
                     skipped++;
                     continue;
                 }
 
-                // Skip if already completed in Square
+                // Skip if already completed in Square and in our system
                 if (order.state === 'COMPLETED') {
-                    // Check if we have it and it's also completed
                     const existing = await deliveryApi.getOrderBySquareId(merchantId, order.id);
                     if (existing && existing.status === 'completed') {
-                        console.log('[SYNC DEBUG] Already completed, skipping');
                         skipped++;
                         continue;
                     }
                 }
 
                 // Try to ingest
-                console.log('[SYNC DEBUG] Ingesting order...');
                 const result = await deliveryApi.ingestSquareOrder(merchantId, order);
-                console.log('[SYNC DEBUG] Ingest result:', result ? 'success' : 'null');
                 if (result) {
                     imported++;
                 } else {
                     skipped++;
                 }
             } catch (orderError) {
-                console.log('[SYNC DEBUG] Error processing order:', orderError.message);
                 errors.push({ orderId: order.id, error: orderError.message });
             }
         }
 
         logger.info('Delivery order sync completed', { merchantId, found: orders.length, imported, skipped, errors: errors.length });
-        console.log('[SYNC DEBUG] Sync complete, sending response:', { found: orders.length, imported, skipped, errors: errors.length });
 
         res.json({
             success: true,
@@ -9968,7 +9972,6 @@ app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) =>
         });
 
     } catch (error) {
-        console.log('[SYNC DEBUG] Sync error:', error.message, error.stack);
         logger.error('Error syncing delivery orders', { error: error.message });
         res.status(500).json({ error: error.message });
     }

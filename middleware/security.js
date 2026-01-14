@@ -97,6 +97,64 @@ function configureLoginRateLimit() {
 }
 
 /**
+ * Configure rate limiting for delivery API endpoints
+ * More restrictive for expensive operations (route generation, sync)
+ */
+function configureDeliveryRateLimit() {
+    return rateLimit({
+        windowMs: 1 * 60 * 1000,  // 1 minute window
+        max: 30,  // 30 requests per minute for general delivery endpoints
+        message: {
+            error: 'Too many delivery API requests, please slow down',
+            code: 'DELIVERY_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Delivery rate limit exceeded', {
+                ip: req.ip,
+                path: req.path,
+                method: req.method,
+                userId: req.session?.user?.id
+            });
+            res.status(429).json(options.message);
+        },
+        // Key by user ID if authenticated, otherwise by IP
+        keyGenerator: (req) => {
+            return req.session?.user?.id ? `user-${req.session.user.id}` : req.ip;
+        }
+    });
+}
+
+/**
+ * Configure strict rate limiting for expensive delivery operations
+ * (route generation, Square sync, bulk geocoding)
+ */
+function configureDeliveryStrictRateLimit() {
+    return rateLimit({
+        windowMs: 5 * 60 * 1000,  // 5 minute window
+        max: 10,  // 10 expensive operations per 5 minutes
+        message: {
+            error: 'Too many route/sync operations, please wait before trying again',
+            code: 'DELIVERY_OPERATION_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Delivery strict rate limit exceeded', {
+                ip: req.ip,
+                path: req.path,
+                userId: req.session?.user?.id
+            });
+            res.status(429).json(options.message);
+        },
+        keyGenerator: (req) => {
+            return req.session?.user?.id ? `user-${req.session.user.id}` : req.ip;
+        }
+    });
+}
+
+/**
  * Configure CORS
  */
 function configureCors() {
@@ -160,6 +218,8 @@ module.exports = {
     configureHelmet,
     configureRateLimit,
     configureLoginRateLimit,
+    configureDeliveryRateLimit,
+    configureDeliveryStrictRateLimit,
     configureCors,
     corsErrorHandler
 };
