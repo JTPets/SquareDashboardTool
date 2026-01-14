@@ -414,6 +414,7 @@
         <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn btn-primary" id="generateRouteBtn" onclick="generateRoute()">Generate Today's Route</button>
           <button class="btn btn-secondary" id="geocodeBtn" onclick="geocodePending()">Geocode Pending Addresses</button>
+          <button class="btn btn-secondary" id="syncBtn" onclick="syncFromSquare()">Sync from Square</button>
         </div>
         <div class="order-list" id="pendingOrders">
           <div class="empty-state">
@@ -537,7 +538,14 @@
         const pendingData = await pendingRes.json();
         const activeData = await activeRes.json();
         const completedData = await completedRes.json();
-        const statsData = await statsRes.json();
+
+        // Handle stats separately to prevent one endpoint failure from breaking the whole page
+        let statsData = { stats: null };
+        try {
+          statsData = await statsRes.json();
+        } catch (e) {
+          console.warn('Failed to parse stats response:', e);
+        }
 
         orders.pending = pendingData.orders || [];
         orders.active = activeData.orders || [];
@@ -630,6 +638,10 @@
     }
 
     function updateStats(stats) {
+      // Handle undefined stats (e.g., if stats endpoint failed)
+      if (!stats) {
+        stats = { byStatus: {}, completedLast7Days: 0 };
+      }
       document.getElementById('statPending').textContent = stats.byStatus?.pending || 0;
       document.getElementById('statActive').textContent = stats.byStatus?.active || 0;
       document.getElementById('statCompleted').textContent = stats.completedLast7Days || 0;
@@ -832,6 +844,34 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Geocode Pending Addresses';
+      }
+    }
+
+    async function syncFromSquare() {
+      const btn = document.getElementById('syncBtn');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+
+      try {
+        const response = await fetch('/api/delivery/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ daysBack: 7 })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        const data = await response.json();
+        showAlert(`Sync complete: Found ${data.found} orders, imported ${data.imported}, skipped ${data.skipped}`, 'success');
+        loadOrders();
+      } catch (error) {
+        showAlert('Failed to sync: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sync from Square';
       }
     }
 
