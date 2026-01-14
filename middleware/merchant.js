@@ -10,7 +10,7 @@
  *   app.get('/api/items', requireAuth, requireMerchant, handler);
  */
 
-const { Client, SquareEnvironment } = require('square');
+const { SquareClient, SquareEnvironment } = require('square');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { decryptToken } = require('../utils/token-encryption');
@@ -235,9 +235,9 @@ async function getSquareClientForMerchant(merchantId) {
         ? SquareEnvironment.Sandbox
         : SquareEnvironment.Production;
 
-    const client = new Client({
+    const client = new SquareClient({
         environment,
-        accessToken
+        token: accessToken
     });
 
     // Cache the client
