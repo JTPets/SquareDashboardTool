@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Settings - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #1f2937;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    .content { padding: 30px; }
+
+    .section {
+      margin-bottom: 30px;
+    }
+    .section-header {
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .section-desc {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-label {
+      display: block;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    .form-label small {
+      font-weight: 400;
+      color: #6b7280;
+      font-size: 12px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+
+    .geocode-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .geocode-status.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .geocode-status.pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .geocode-status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-secondary:hover { background: #4b5563; }
+
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .alert {
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .alert.success {
+      background: #d1fae5;
+      border: 1px solid #6ee7b7;
+      color: #065f46;
+    }
+    .alert.error {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #991b1b;
+    }
+    .alert.info {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      color: #1e40af;
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    @media (max-width: 768px) {
+      .form-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Delivery Settings</h1>
+      <a href="/delivery.html" class="back-button">Back to Delivery</a>
+    </div>
+
+    <div class="content">
+      <div id="message"></div>
+
+      <div id="loading" class="loading">Loading settings...</div>
+
+      <form id="settingsForm" style="display: none;">
+        <!-- Route Addresses -->
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">Route Configuration</div>
+            <div class="section-desc">Set the start and end points for your delivery routes</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Start Address
+              <small>Where routes begin (e.g., your store or warehouse)</small>
+            </label>
+            <input type="text" class="form-input" id="startAddress" placeholder="123 Main St, City, State ZIP">
+            <div id="startAddressStatus"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              End Address
+              <small>Where routes end (leave empty to return to start)</small>
+            </label>
+            <input type="text" class="form-input" id="endAddress" placeholder="Leave empty to return to start address">
+            <div id="endAddressStatus"></div>
+          </div>
+        </div>
+
+        <!-- Cutoff Settings -->
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">Order Cutoff</div>
+            <div class="section-desc">Control when orders are included in today's route</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">
+                Same-Day Cutoff Time
+                <small>Orders after this time go to next day</small>
+              </label>
+              <input type="time" class="form-input" id="sameDayCutoff" value="17:00">
+            </div>
+          </div>
+        </div>
+
+        <!-- Auto-Ingestion -->
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">Automatic Order Import</div>
+            <div class="section-desc">Configure how orders are automatically added to the delivery queue</div>
+          </div>
+
+          <div class="form-group">
+            <div class="checkbox-group">
+              <input type="checkbox" id="autoIngestReadyOrders" checked>
+              <label for="autoIngestReadyOrders">
+                Automatically import Square orders with delivery/shipment fulfillment
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- POD Settings -->
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">Proof of Delivery</div>
+            <div class="section-desc">Settings for photo capture and storage</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">
+                Photo Retention Days
+                <small>How long to keep POD photos (for chargebacks)</small>
+              </label>
+              <input type="number" class="form-input" id="podRetentionDays" min="30" max="365" value="180">
+            </div>
+          </div>
+        </div>
+
+        <!-- API Key -->
+        <div class="section">
+          <div class="section-header">
+            <div class="section-title">Route Optimization</div>
+            <div class="section-desc">OpenRouteService API for geocoding and route optimization</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              OpenRouteService API Key
+              <small>Get a free key at <a href="https://openrouteservice.org/dev/#/signup" target="_blank">openrouteservice.org</a></small>
+            </label>
+            <input type="password" class="form-input" id="openrouteserviceApiKey" placeholder="Your API key (optional - uses system default if empty)">
+          </div>
+
+          <div class="alert info">
+            The free tier includes 2,000 requests/day which is sufficient for most small businesses.
+            Leave empty to use the system default key.
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="saveBtn">Save Settings</button>
+          <button type="button" class="btn btn-secondary" onclick="loadSettings()">Reset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let currentSettings = {};
+
+    async function loadSettings() {
+      try {
+        document.getElementById('loading').style.display = 'flex';
+        document.getElementById('settingsForm').style.display = 'none';
+
+        const response = await fetch('/api/delivery/settings');
+        if (!response.ok) throw new Error('Failed to load settings');
+
+        const data = await response.json();
+        currentSettings = data.settings;
+
+        // Populate form
+        document.getElementById('startAddress').value = currentSettings.start_address || '';
+        document.getElementById('endAddress').value = currentSettings.end_address || '';
+        document.getElementById('sameDayCutoff').value = currentSettings.same_day_cutoff || '17:00';
+        document.getElementById('autoIngestReadyOrders').checked = currentSettings.auto_ingest_ready_orders !== false;
+        document.getElementById('podRetentionDays').value = currentSettings.pod_retention_days || 180;
+        document.getElementById('openrouteserviceApiKey').value = ''; // Don't show existing key
+
+        // Show geocode status
+        updateGeocodeStatus('startAddress', currentSettings.start_address_lat, currentSettings.start_address_lng);
+        updateGeocodeStatus('endAddress', currentSettings.end_address_lat, currentSettings.end_address_lng);
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('settingsForm').style.display = 'block';
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        showMessage('Failed to load settings: ' + error.message, 'error');
+        document.getElementById('loading').style.display = 'none';
+      }
+    }
+
+    function updateGeocodeStatus(field, lat, lng) {
+      const statusEl = document.getElementById(field + 'Status');
+      const inputEl = document.getElementById(field);
+
+      if (!inputEl.value) {
+        statusEl.innerHTML = '';
+        return;
+      }
+
+      if (lat && lng) {
+        statusEl.innerHTML = `<span class="geocode-status success">Geocoded (${lat.toFixed(4)}, ${lng.toFixed(4)})</span>`;
+      } else {
+        statusEl.innerHTML = `<span class="geocode-status pending">Will be geocoded on save</span>`;
+      }
+    }
+
+    async function saveSettings(e) {
+      e.preventDefault();
+
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const settings = {
+          startAddress: document.getElementById('startAddress').value || null,
+          endAddress: document.getElementById('endAddress').value || null,
+          sameDayCutoff: document.getElementById('sameDayCutoff').value,
+          autoIngestReadyOrders: document.getElementById('autoIngestReadyOrders').checked,
+          podRetentionDays: parseInt(document.getElementById('podRetentionDays').value),
+        };
+
+        // Only include API key if a new one was entered
+        const apiKey = document.getElementById('openrouteserviceApiKey').value;
+        if (apiKey) {
+          settings.openrouteserviceApiKey = apiKey;
+        }
+
+        const response = await fetch('/api/delivery/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to save settings');
+        }
+
+        const data = await response.json();
+        currentSettings = data.settings;
+
+        // Update geocode status
+        updateGeocodeStatus('startAddress', currentSettings.start_address_lat, currentSettings.start_address_lng);
+        updateGeocodeStatus('endAddress', currentSettings.end_address_lat, currentSettings.end_address_lng);
+
+        showMessage('Settings saved successfully!', 'success');
+      } catch (error) {
+        console.error('Error saving settings:', error);
+        showMessage('Failed to save settings: ' + error.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Settings';
+      }
+    }
+
+    function showMessage(text, type) {
+      const messageEl = document.getElementById('message');
+      messageEl.innerHTML = `<div class="alert ${type}">${text}</div>`;
+      setTimeout(() => { messageEl.innerHTML = ''; }, 5000);
+    }
+
+    // Event listeners
+    document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+
+    document.getElementById('startAddress').addEventListener('blur', function() {
+      if (this.value !== currentSettings.start_address) {
+        updateGeocodeStatus('startAddress', null, null);
+      }
+    });
+
+    document.getElementById('endAddress').addEventListener('blur', function() {
+      if (this.value !== currentSettings.end_address) {
+        updateGeocodeStatus('endAddress', null, null);
+      }
+    });
+
+    // Load settings on page load
+    loadSettings();
+  </script>
+</body>
+</html>

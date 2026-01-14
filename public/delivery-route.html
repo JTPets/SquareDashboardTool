@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Driver Route - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      line-height: 1.4;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+      color: white;
+      padding: 15px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .back-link {
+      color: rgba(255,255,255,0.8);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    /* Progress Bar */
+    .progress-section {
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .progress-bar {
+      height: 8px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #10b981;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    /* Route Stats */
+    .route-stats {
+      display: flex;
+      gap: 20px;
+      padding: 12px 20px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .route-stats span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Stop List */
+    .stop-list {
+      padding: 15px;
+    }
+    .stop-card {
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .stop-card.completed {
+      opacity: 0.6;
+    }
+    .stop-card.current {
+      border: 2px solid #2563eb;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+    .stop-card.skipped {
+      border-left: 4px solid #f59e0b;
+    }
+
+    .stop-header {
+      display: flex;
+      align-items: center;
+      padding: 15px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .stop-number {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 16px;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+    .stop-card.completed .stop-number {
+      background: #10b981;
+    }
+    .stop-card.skipped .stop-number {
+      background: #f59e0b;
+    }
+    .stop-customer {
+      flex: 1;
+    }
+    .stop-customer h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .stop-status {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+    .status-active { background: #dbeafe; color: #1d4ed8; }
+    .status-completed { background: #d1fae5; color: #065f46; }
+    .status-skipped { background: #fef3c7; color: #92400e; }
+    .status-delivered { background: #d1fae5; color: #065f46; }
+
+    .stop-body {
+      padding: 15px;
+    }
+
+    /* Address with map link */
+    .stop-address {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      padding: 12px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .stop-address:hover {
+      background: #e5e7eb;
+    }
+    .stop-address .icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .stop-address .text {
+      flex: 1;
+      font-size: 15px;
+      color: #374151;
+    }
+    .stop-address .arrow {
+      color: #9ca3af;
+      font-size: 20px;
+    }
+
+    /* Phone link */
+    .stop-phone {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      text-decoration: none;
+      color: #374151;
+    }
+    .stop-phone:hover {
+      background: #e5e7eb;
+    }
+    .stop-phone .icon {
+      font-size: 18px;
+    }
+
+    /* Notes */
+    .stop-notes {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #92400e;
+    }
+    .stop-notes strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* POD Section */
+    .stop-pod {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #d1fae5;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #065f46;
+    }
+    .stop-pod img {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    /* Actions */
+    .stop-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      min-width: 100px;
+      padding: 14px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s, background 0.2s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-warning { background: #f59e0b; color: white; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h2 {
+      font-size: 20px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+    .empty-state a {
+      color: #2563eb;
+    }
+
+    /* POD Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      display: none;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      max-width: 400px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { font-size: 18px; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 28px;
+      cursor: pointer;
+      color: #6b7280;
+      line-height: 1;
+    }
+    .modal-body { padding: 20px; }
+
+    .pod-preview {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    .pod-preview.visible { display: block; }
+
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+    .file-input-wrapper input[type=file] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .upload-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      color: #6b7280;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-area:hover {
+      border-color: #2563eb;
+      background: #f0f9ff;
+    }
+    .upload-area .icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    .modal-footer {
+      padding: 15px 20px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+    }
+    .modal-footer .btn { flex: 1; }
+
+    /* Loading Overlay */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      display: none;
+    }
+    .loading-overlay.active { display: flex; }
+    .loading-spinner {
+      text-align: center;
+    }
+    .loading-spinner .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1f2937;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 3000;
+      display: none;
+    }
+    .toast.visible { display: block; }
+    .toast.success { background: #10b981; }
+    .toast.error { background: #ef4444; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-top">
+      <h1 id="routeTitle">Today's Route</h1>
+      <a href="/delivery.html" class="back-link">Back</a>
+    </div>
+    <div class="progress-section">
+      <div class="progress-text">
+        <span id="progressLabel">Loading...</span>
+        <span id="progressCount">0/0</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="route-stats" id="routeStats" style="display: none;">
+    <span id="distanceDisplay"></span>
+    <span id="durationDisplay"></span>
+  </div>
+
+  <div class="stop-list" id="stopList">
+    <div class="empty-state">
+      <h2>Loading route...</h2>
+    </div>
+  </div>
+
+  <!-- POD Upload Modal -->
+  <div class="modal-overlay" id="podModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Proof of Delivery</h2>
+        <button class="modal-close" onclick="closePodModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <img class="pod-preview" id="podPreview">
+        <div class="file-input-wrapper" id="uploadArea">
+          <div class="upload-area">
+            <div class="icon">📷</div>
+            <div>Tap to take photo or select from gallery</div>
+          </div>
+          <input type="file" accept="image/*" capture="environment" id="podFileInput" onchange="handlePodSelect(event)">
+        </div>
+      </div>
+      <div class="modal-footer" id="podModalFooter" style="display: none;">
+        <button class="btn btn-secondary" onclick="resetPodModal()">Retake</button>
+        <button class="btn btn-success" onclick="uploadPod()">Confirm & Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner">
+      <div class="spinner"></div>
+      <div>Processing...</div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let route = null;
+    let stops = [];
+    let currentPodOrderId = null;
+    let podFile = null;
+
+    async function loadRoute() {
+      try {
+        const response = await fetch('/api/delivery/route/active');
+        if (!response.ok) throw new Error('Failed to load route');
+
+        const data = await response.json();
+
+        if (!data.route) {
+          showEmptyState();
+          return;
+        }
+
+        route = data.route;
+        stops = data.orders || [];
+
+        renderRoute();
+      } catch (error) {
+        console.error('Error loading route:', error);
+        showEmptyState('Error loading route');
+      }
+    }
+
+    function showEmptyState(message = 'No Active Route') {
+      document.getElementById('stopList').innerHTML = `
+        <div class="empty-state">
+          <h2>${message}</h2>
+          <p>Go to <a href="/delivery.html">Delivery Queue</a> to generate a route.</p>
+        </div>
+      `;
+      document.getElementById('progressLabel').textContent = 'No route';
+      document.getElementById('progressCount').textContent = '';
+    }
+
+    function renderRoute() {
+      // Update header
+      document.getElementById('routeTitle').textContent = `Route - ${route.route_date || 'Today'}`;
+
+      // Calculate progress
+      const completed = stops.filter(s => s.status === 'completed').length;
+      const total = stops.length;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      document.getElementById('progressLabel').textContent = completed === total ? 'Route Complete!' : 'In Progress';
+      document.getElementById('progressCount').textContent = `${completed}/${total}`;
+      document.getElementById('progressFill').style.width = percent + '%';
+
+      // Show route stats
+      if (route.total_distance_km || route.estimated_duration_min) {
+        document.getElementById('routeStats').style.display = 'flex';
+        document.getElementById('distanceDisplay').textContent = route.total_distance_km
+          ? `${route.total_distance_km.toFixed(1)} km`
+          : '';
+        document.getElementById('durationDisplay').textContent = route.estimated_duration_min
+          ? `~${route.estimated_duration_min} min`
+          : '';
+      }
+
+      // Find current stop (first non-completed)
+      const currentIndex = stops.findIndex(s => s.status !== 'completed');
+
+      // Render stops
+      document.getElementById('stopList').innerHTML = stops.map((stop, index) => {
+        const isCurrent = index === currentIndex;
+        const isCompleted = stop.status === 'completed';
+        const isSkipped = stop.status === 'skipped';
+
+        return `
+          <div class="stop-card ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''} ${isSkipped ? 'skipped' : ''}">
+            <div class="stop-header">
+              <div class="stop-number">${isCompleted ? '✓' : stop.route_position || index + 1}</div>
+              <div class="stop-customer">
+                <h3>${escapeHtml(stop.customer_name)}</h3>
+              </div>
+              <span class="stop-status status-${stop.status}">${stop.status}</span>
+            </div>
+            <div class="stop-body">
+              <div class="stop-address" onclick="openInMaps('${escapeHtml(stop.address)}')">
+                <span class="icon">📍</span>
+                <span class="text">${escapeHtml(stop.address)}</span>
+                <span class="arrow">›</span>
+              </div>
+
+              ${stop.phone ? `
+                <a href="tel:${stop.phone}" class="stop-phone">
+                  <span class="icon">📞</span>
+                  <span>${escapeHtml(stop.phone)}</span>
+                </a>
+              ` : ''}
+
+              ${stop.notes ? `
+                <div class="stop-notes">
+                  <strong>Notes:</strong>
+                  ${escapeHtml(stop.notes)}
+                </div>
+              ` : ''}
+
+              ${stop.pod_photo_path ? `
+                <div class="stop-pod">
+                  <span>✓ POD captured</span>
+                  <span>${formatTime(stop.pod_captured_at)}</span>
+                </div>
+              ` : ''}
+
+              ${!isCompleted ? `
+                <div class="stop-actions">
+                  ${!stop.pod_photo_path ? `
+                    <button class="btn btn-primary" onclick="openPodModal('${stop.id}')">
+                      📷 Photo
+                    </button>
+                  ` : ''}
+                  <button class="btn btn-success" onclick="completeStop('${stop.id}')">
+                    ✓ Complete
+                  </button>
+                  ${stop.status !== 'skipped' ? `
+                    <button class="btn btn-warning" onclick="skipStop('${stop.id}')">
+                      Skip
+                    </button>
+                  ` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function openInMaps(address) {
+      // Try to detect platform and open in native maps
+      const encodedAddress = encodeURIComponent(address);
+
+      // Check if iOS
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+        // Try Apple Maps first, fall back to Google Maps
+        window.location.href = `maps://maps.apple.com/?q=${encodedAddress}`;
+      } else {
+        // Android and others - use Google Maps
+        window.open(`https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, '_blank');
+      }
+    }
+
+    function openPodModal(orderId) {
+      currentPodOrderId = orderId;
+      podFile = null;
+      document.getElementById('podPreview').classList.remove('visible');
+      document.getElementById('uploadArea').style.display = 'block';
+      document.getElementById('podModalFooter').style.display = 'none';
+      document.getElementById('podFileInput').value = '';
+      document.getElementById('podModal').classList.add('active');
+    }
+
+    function closePodModal() {
+      document.getElementById('podModal').classList.remove('active');
+      currentPodOrderId = null;
+      podFile = null;
+    }
+
+    function resetPodModal() {
+      podFile = null;
+      document.getElementById('podPreview').classList.remove('visible');
+      document.getElementById('uploadArea').style.display = 'block';
+      document.getElementById('podModalFooter').style.display = 'none';
+      document.getElementById('podFileInput').value = '';
+    }
+
+    function handlePodSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      podFile = file;
+
+      // Show preview
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('podPreview').src = e.target.result;
+        document.getElementById('podPreview').classList.add('visible');
+        document.getElementById('uploadArea').style.display = 'none';
+        document.getElementById('podModalFooter').style.display = 'flex';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function uploadPod() {
+      if (!podFile || !currentPodOrderId) return;
+
+      showLoading(true);
+
+      try {
+        const formData = new FormData();
+        formData.append('photo', podFile);
+
+        // Try to get GPS location
+        if (navigator.geolocation) {
+          try {
+            const position = await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+            });
+            formData.append('latitude', position.coords.latitude);
+            formData.append('longitude', position.coords.longitude);
+          } catch (gpsError) {
+            console.log('GPS not available:', gpsError);
+          }
+        }
+
+        const response = await fetch(`/api/delivery/orders/${currentPodOrderId}/pod`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        closePodModal();
+        showToast('Photo saved!', 'success');
+        loadRoute();
+      } catch (error) {
+        showToast('Failed to upload photo: ' + error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function completeStop(orderId) {
+      if (!confirm('Mark this delivery as complete?')) return;
+
+      showLoading(true);
+
+      try {
+        const response = await fetch(`/api/delivery/orders/${orderId}/complete`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        showToast('Delivery completed!', 'success');
+        loadRoute();
+      } catch (error) {
+        showToast('Failed to complete: ' + error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function skipStop(orderId) {
+      if (!confirm('Skip this stop? It will return to the queue for tomorrow.')) return;
+
+      showLoading(true);
+
+      try {
+        const response = await fetch(`/api/delivery/orders/${orderId}/skip`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        showToast('Stop skipped', 'success');
+        loadRoute();
+      } catch (error) {
+        showToast('Failed to skip: ' + error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function showLoading(show) {
+      document.getElementById('loadingOverlay').classList.toggle('active', show);
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast visible ' + type;
+      setTimeout(() => { toast.classList.remove('visible'); }, 3000);
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initial load
+    loadRoute();
+
+    // Refresh every 60 seconds
+    setInterval(loadRoute, 60000);
+  </script>
+</body>
+</html>
