@@ -348,7 +348,7 @@
       }
 
       if (lat && lng) {
-        statusEl.innerHTML = `<span class="geocode-status success">Geocoded (${lat.toFixed(4)}, ${lng.toFixed(4)})</span>`;
+        statusEl.innerHTML = `<span class="geocode-status success">Geocoded (${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)})</span>`;
       } else {
         statusEl.innerHTML = `<span class="geocode-status pending">Will be geocoded on save</span>`;
       }
