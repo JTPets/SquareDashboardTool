@@ -1011,38 +1011,43 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     let phone = null;
 
     // Check fulfillments for delivery info
+    // Note: Square SDK v43 uses camelCase, older versions use snake_case
     if (squareOrder.fulfillments && squareOrder.fulfillments.length > 0) {
         const fulfillment = squareOrder.fulfillments.find(f =>
             f.type === 'DELIVERY' || f.type === 'SHIPMENT'
         ) || squareOrder.fulfillments[0];
 
-        if (fulfillment.delivery_details) {
-            const dd = fulfillment.delivery_details;
-            customerName = dd.recipient?.display_name || customerName;
-            phone = dd.recipient?.phone_number;
+        // Handle both camelCase (v43+) and snake_case (older) property names
+        const deliveryDetails = fulfillment.deliveryDetails || fulfillment.delivery_details;
+        const shipmentDetails = fulfillment.shipmentDetails || fulfillment.shipment_details;
+
+        if (deliveryDetails) {
+            const dd = deliveryDetails;
+            customerName = dd.recipient?.displayName || dd.recipient?.display_name || customerName;
+            phone = dd.recipient?.phoneNumber || dd.recipient?.phone_number;
             if (dd.recipient?.address) {
                 const addr = dd.recipient.address;
                 address = [
-                    addr.address_line_1,
-                    addr.address_line_2,
+                    addr.addressLine1 || addr.address_line_1,
+                    addr.addressLine2 || addr.address_line_2,
                     addr.locality,
-                    addr.administrative_district_level_1,
-                    addr.postal_code,
+                    addr.administrativeDistrictLevel1 || addr.administrative_district_level_1,
+                    addr.postalCode || addr.postal_code,
                     addr.country
                 ].filter(Boolean).join(', ');
             }
-        } else if (fulfillment.shipment_details) {
-            const sd = fulfillment.shipment_details;
-            customerName = sd.recipient?.display_name || customerName;
-            phone = sd.recipient?.phone_number;
+        } else if (shipmentDetails) {
+            const sd = shipmentDetails;
+            customerName = sd.recipient?.displayName || sd.recipient?.display_name || customerName;
+            phone = sd.recipient?.phoneNumber || sd.recipient?.phone_number;
             if (sd.recipient?.address) {
                 const addr = sd.recipient.address;
                 address = [
-                    addr.address_line_1,
-                    addr.address_line_2,
+                    addr.addressLine1 || addr.address_line_1,
+                    addr.addressLine2 || addr.address_line_2,
                     addr.locality,
-                    addr.administrative_district_level_1,
-                    addr.postal_code,
+                    addr.administrativeDistrictLevel1 || addr.administrative_district_level_1,
+                    addr.postalCode || addr.postal_code,
                     addr.country
                 ].filter(Boolean).join(', ');
             }
