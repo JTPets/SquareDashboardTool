@@ -538,7 +538,14 @@
         const pendingData = await pendingRes.json();
         const activeData = await activeRes.json();
         const completedData = await completedRes.json();
-        const statsData = await statsRes.json();
+
+        // Handle stats separately to prevent one endpoint failure from breaking the whole page
+        let statsData = { stats: null };
+        try {
+          statsData = await statsRes.json();
+        } catch (e) {
+          console.warn('Failed to parse stats response:', e);
+        }
 
         orders.pending = pendingData.orders || [];
         orders.active = activeData.orders || [];
@@ -631,6 +638,10 @@
     }
 
     function updateStats(stats) {
+      // Handle undefined stats (e.g., if stats endpoint failed)
+      if (!stats) {
+        stats = { byStatus: {}, completedLast7Days: 0 };
+      }
       document.getElementById('statPending').textContent = stats.byStatus?.pending || 0;
       document.getElementById('statActive').textContent = stats.byStatus?.active || 0;
       document.getElementById('statCompleted').textContent = stats.completedLast7Days || 0;
