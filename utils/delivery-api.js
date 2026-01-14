@@ -1056,8 +1056,11 @@ async function ingestSquareOrder(merchantId, squareOrder) {
 
     if (!address) {
         logger.warn('Square order has no delivery address', { squareOrderId: squareOrder.id });
+        console.log('[INGEST DEBUG] No address found for order', squareOrder.id);
         return null;
     }
+
+    console.log('[INGEST DEBUG] Creating order with address:', address);
 
     // Create delivery order
     const order = await createOrder(merchantId, {
@@ -1068,7 +1071,11 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         notes: squareOrder.note || null
     });
 
-    // Attempt geocoding
+    console.log('[INGEST DEBUG] Order created:', order.id);
+
+    // Attempt geocoding (skip during sync to speed things up - will geocode later)
+    // Note: Geocoding is done in batch via the "Geocode Pending" button
+    /*
     const settings = await getSettings(merchantId);
     const coords = await geocodeAddress(address, settings?.openrouteservice_api_key);
 
@@ -1079,6 +1086,7 @@ async function ingestSquareOrder(merchantId, squareOrder) {
             geocodedAt: new Date()
         });
     }
+    */
 
     return order;
 }
