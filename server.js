@@ -31,7 +31,7 @@ const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
 const deliveryApi = require('./utils/delivery-api');
 
 // Security middleware
-const { configureHelmet, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin, requireWriteAccess } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -87,6 +87,10 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
 
 // Rate limiting
 app.use(configureRateLimit());
+
+// Delivery-specific rate limiters (applied to routes below)
+const deliveryRateLimit = configureDeliveryRateLimit();
+const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
 
 // CORS configuration
 app.use(configureCors());
@@ -9325,7 +9329,7 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
  * POST /api/delivery/orders
  * Create a manual delivery order
  */
-app.post('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/orders', deliveryRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const { customerName, address, phone, notes } = req.body;
         const merchantId = req.merchantContext.id;
@@ -9529,7 +9533,7 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
  * POST /api/delivery/orders/:id/pod
  * Upload proof of delivery photo
  */
-app.post('/api/delivery/orders/:id/pod', requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
+app.post('/api/delivery/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -9588,7 +9592,7 @@ app.get('/api/delivery/pod/:id', requireAuth, requireMerchant, async (req, res) 
  * POST /api/delivery/route/generate
  * Generate an optimized route for pending orders
  */
-app.post('/api/delivery/route/generate', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/route/generate', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { routeDate, orderIds, force } = req.body;
@@ -9681,7 +9685,7 @@ app.post('/api/delivery/route/finish', requireAuth, requireMerchant, async (req,
  * POST /api/delivery/geocode
  * Geocode pending orders that don't have coordinates
  */
-app.post('/api/delivery/geocode', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/geocode', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { limit } = req.body;
@@ -9864,7 +9868,7 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
  * Sync open orders from Square that have delivery/shipment fulfillments
  * Use this to backfill orders that were missed while server was offline
  */
-app.post('/api/delivery/sync', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/delivery/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { daysBack = 7 } = req.body;
