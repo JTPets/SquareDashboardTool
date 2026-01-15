@@ -11163,9 +11163,9 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 
         // Get qualifying variation IDs for comparison
         const qualifyingResult = await db.query(
-            `SELECT DISTINCT lov.variation_id
-             FROM loyalty_offer_variations lov
-             JOIN loyalty_offers lo ON lov.offer_id = lo.id
+            `SELECT DISTINCT qv.variation_id
+             FROM loyalty_qualifying_variations qv
+             JOIN loyalty_offers lo ON qv.offer_id = lo.id
              WHERE lo.merchant_id = $1 AND lo.is_active = TRUE`,
             [merchantId]
         );
