@@ -688,6 +688,22 @@
               <li>After they redeem, the discount is automatically cleaned up</li>
             </ol>
           </div>
+
+          <!-- Sync Pending Rewards -->
+          <div id="sync-pending-section" style="margin-bottom: 20px; padding: 15px; background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong style="color: #854d0e;">Pending Sync</strong>
+                <p style="margin: 5px 0 0 0; color: #a16207; font-size: 14px;">
+                  <span id="pending-count">0</span> earned reward(s) need to be synced to Square POS
+                </p>
+              </div>
+              <button class="btn-primary" onclick="syncRewardsToPOS()" id="sync-btn" style="white-space: nowrap;">
+                Sync to POS
+              </button>
+            </div>
+          </div>
+
           <div class="alert alert-info">
             <strong>No configuration needed!</strong><br>
             <span style="color: #1e40af;">This works automatically for all your loyalty offers. Just ensure customers are attached to sales in Square POS.</span>
@@ -1655,14 +1671,64 @@
 
         // Note: Square POS integration is now automatic via Customer Group Discounts
         // No configuration needed - rewards auto-apply at POS when customer is identified
+
+        // Check for pending rewards that need to be synced to POS
+        loadPendingSyncCount();
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
     }
 
-    // DEPRECATED: loadSquareLoyaltyProgram and saveOfferTierMapping are no longer used.
-    // The new Customer Group Discount approach works automatically without tier mapping.
-    // These functions are kept for backward compatibility but do nothing.
+    // Check for earned rewards that haven't been synced to Square POS yet
+    async function loadPendingSyncCount() {
+      try {
+        const response = await fetch('/api/loyalty/rewards/pending-sync');
+        const data = await response.json();
+
+        const section = document.getElementById('sync-pending-section');
+        const countEl = document.getElementById('pending-count');
+
+        if (data.pendingCount > 0) {
+          countEl.textContent = data.pendingCount;
+          section.style.display = 'block';
+        } else {
+          section.style.display = 'none';
+        }
+      } catch (error) {
+        console.error('Failed to check pending sync:', error);
+      }
+    }
+
+    // Sync all pending earned rewards to Square POS
+    async function syncRewardsToPOS() {
+      const btn = document.getElementById('sync-btn');
+      const originalText = btn.textContent;
+
+      try {
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+
+        const response = await fetch('/api/loyalty/rewards/sync-to-pos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          alert(`Synced ${data.synced} of ${data.total} rewards to Square POS!`);
+          loadPendingSyncCount();  // Refresh the count
+        } else {
+          throw new Error(data.error || 'Sync failed');
+        }
+      } catch (error) {
+        console.error('Failed to sync rewards:', error);
+        alert('Error syncing rewards: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
 
     async function saveSettings() {
       const updates = {

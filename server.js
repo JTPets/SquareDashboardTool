@@ -11065,8 +11065,8 @@ app.put('/api/loyalty/offers/:id/square-tier', requireAuth, requireMerchant, req
 
 /**
  * POST /api/loyalty/rewards/:id/create-square-reward
- * Manually create a Square Loyalty reward for an earned reward
- * This is called when a reward is earned to make it visible in Square POS
+ * Manually create a Square Customer Group Discount for an earned reward
+ * This makes the reward auto-apply at Square POS when customer is identified
  */
 app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
@@ -11075,7 +11075,7 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
 
         // Get the reward details
         const rewardResult = await db.query(
-            `SELECT r.*, o.square_reward_tier_id
+            `SELECT r.*, o.offer_name
              FROM loyalty_rewards r
              JOIN loyalty_offers o ON r.offer_id = o.id
              WHERE r.id = $1 AND r.merchant_id = $2`,
@@ -11089,19 +11089,21 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
         const reward = rewardResult.rows[0];
 
         if (reward.status !== 'earned') {
-            return res.status(400).json({ error: 'Reward must be in "earned" status to create Square reward' });
+            return res.status(400).json({ error: 'Reward must be in "earned" status to sync to POS' });
         }
 
-        if (reward.square_reward_id) {
+        // Check if already synced (has Customer Group Discount created)
+        if (reward.square_group_id && reward.square_discount_id) {
             return res.json({
                 success: true,
-                message: 'Square reward already exists',
-                squareRewardId: reward.square_reward_id
+                message: 'Already synced to Square POS',
+                groupId: reward.square_group_id,
+                discountId: reward.square_discount_id
             });
         }
 
-        // Create the Square Loyalty reward
-        const result = await loyaltyService.createSquareLoyaltyReward({
+        // Create the Square Customer Group Discount
+        const result = await loyaltyService.createSquareCustomerGroupDiscount({
             merchantId,
             squareCustomerId: reward.square_customer_id,
             internalRewardId: rewardId,
@@ -11112,6 +11114,113 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
 
     } catch (error) {
         logger.error('Error creating Square reward', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/rewards/sync-to-pos
+ * Bulk sync all earned rewards that don't have Customer Group Discounts yet
+ * Creates discounts in Square POS for pending earned rewards
+ */
+app.post('/api/loyalty/rewards/sync-to-pos', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Find all earned rewards without Square Group Discount
+        const pendingResult = await db.query(`
+            SELECT r.id, r.square_customer_id, r.offer_id, o.offer_name
+            FROM loyalty_rewards r
+            JOIN loyalty_offers o ON r.offer_id = o.id
+            WHERE r.merchant_id = $1
+              AND r.status = 'earned'
+              AND (r.square_group_id IS NULL OR r.square_discount_id IS NULL)
+        `, [merchantId]);
+
+        const pending = pendingResult.rows;
+
+        if (pending.length === 0) {
+            return res.json({
+                success: true,
+                message: 'All earned rewards are already synced to POS',
+                synced: 0
+            });
+        }
+
+        logger.info('Syncing earned rewards to Square POS', {
+            merchantId,
+            pendingCount: pending.length
+        });
+
+        const results = [];
+        for (const reward of pending) {
+            try {
+                const result = await loyaltyService.createSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId: reward.square_customer_id,
+                    internalRewardId: reward.id,
+                    offerId: reward.offer_id
+                });
+
+                results.push({
+                    rewardId: reward.id,
+                    offerName: reward.offer_name,
+                    success: result.success,
+                    error: result.error || null
+                });
+            } catch (err) {
+                results.push({
+                    rewardId: reward.id,
+                    offerName: reward.offer_name,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        const successCount = results.filter(r => r.success).length;
+        logger.info('Finished syncing rewards to POS', {
+            merchantId,
+            total: pending.length,
+            success: successCount
+        });
+
+        res.json({
+            success: true,
+            message: `Synced ${successCount} of ${pending.length} rewards to Square POS`,
+            synced: successCount,
+            total: pending.length,
+            results
+        });
+
+    } catch (error) {
+        logger.error('Error bulk syncing rewards to POS', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/rewards/pending-sync
+ * Get count of earned rewards that need to be synced to Square POS
+ */
+app.get('/api/loyalty/rewards/pending-sync', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const result = await db.query(`
+            SELECT COUNT(*) as count
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+              AND status = 'earned'
+              AND (square_group_id IS NULL OR square_discount_id IS NULL)
+        `, [merchantId]);
+
+        res.json({
+            pendingCount: parseInt(result.rows[0].count, 10)
+        });
+
+    } catch (error) {
+        logger.error('Error getting pending sync count', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
