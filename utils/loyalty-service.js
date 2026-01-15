@@ -214,6 +214,71 @@ function findCustomerFromPrefetchedEvents(orderId, orderTimestamp, prefetchedDat
 }
 
 /**
+ * Fetch customer details from Square's Customers API
+ * Resolves a customer_id into actual customer info (name, phone, email)
+ *
+ * @param {string} customerId - Square customer ID
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Customer details or null
+ */
+async function getCustomerDetails(customerId, merchantId) {
+    if (!customerId || !merchantId) {
+        return null;
+    }
+
+    try {
+        // Get merchant's access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        const response = await fetch(`https://connect.squareup.com/v2/customers/${customerId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            }
+        });
+
+        if (!response.ok) {
+            logger.debug('Failed to fetch customer details', { customerId, status: response.status });
+            return null;
+        }
+
+        const data = await response.json();
+        const customer = data.customer;
+
+        if (!customer) {
+            return null;
+        }
+
+        return {
+            id: customer.id,
+            givenName: customer.given_name || null,
+            familyName: customer.family_name || null,
+            displayName: [customer.given_name, customer.family_name].filter(Boolean).join(' ') || null,
+            email: customer.email_address || null,
+            phone: customer.phone_number || null,
+            createdAt: customer.created_at,
+            updatedAt: customer.updated_at
+        };
+
+    } catch (error) {
+        logger.error('Error fetching customer details', { error: error.message, customerId });
+        return null;
+    }
+}
+
+/**
  * Try to find customer_id for an order via Square's Loyalty API
  * When an order doesn't have customer_id directly, the customer may have
  * used their phone number for Square's loyalty program, which links to a customer account.
@@ -2157,6 +2222,7 @@ module.exports = {
     // Customer APIs
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
+    getCustomerDetails,
     lookupCustomerFromLoyalty,
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,

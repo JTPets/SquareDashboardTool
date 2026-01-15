@@ -11098,11 +11098,18 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
             return res.status(404).json({ error: 'Order not found in Square' });
         }
 
+        // Fetch customer details if customer_id exists
+        let customerDetails = null;
+        if (order.customer_id) {
+            customerDetails = await loyaltyService.getCustomerDetails(order.customer_id, merchantId);
+        }
+
         // Return diagnostic info about the order
         const diagnostics = {
             orderId: order.id,
             customerId: order.customer_id || null,
             hasCustomer: !!order.customer_id,
+            customerDetails,
             state: order.state,
             createdAt: order.created_at,
             lineItems: (order.line_items || []).map(li => ({
@@ -11133,6 +11140,35 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
 
     } catch (error) {
         logger.error('Error manually processing order for loyalty', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/customer/:customerId
+ * Lookup customer details from Square by customer ID
+ */
+app.get('/api/loyalty/customer/:customerId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const customerId = req.params.customerId;
+
+        const customerDetails = await loyaltyService.getCustomerDetails(customerId, merchantId);
+
+        if (!customerDetails) {
+            return res.status(404).json({ error: 'Customer not found' });
+        }
+
+        // Also get their loyalty status
+        const loyaltyStatus = await loyaltyService.getCustomerLoyaltyStatus(customerId, merchantId);
+
+        res.json({
+            customer: customerDetails,
+            loyalty: loyaltyStatus
+        });
+
+    } catch (error) {
+        logger.error('Error fetching customer details', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
