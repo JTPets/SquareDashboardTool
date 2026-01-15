@@ -11337,10 +11337,10 @@ app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async 
 
         // Get location IDs for this merchant
         const locationResult = await db.query(
-            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE',
+            'SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE',
             [merchantId]
         );
-        const locationIds = locationResult.rows.map(r => r.square_location_id).filter(Boolean);
+        const locationIds = locationResult.rows.map(r => r.id).filter(Boolean);
 
         if (locationIds.length === 0) {
             return res.status(400).json({ error: 'No Square locations configured for this merchant' });
