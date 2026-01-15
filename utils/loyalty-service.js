@@ -1140,16 +1140,20 @@ async function updateRewardProgress(client, data) {
     // Check if reward has been earned
     if (reward && currentQuantity >= offer.required_quantity && reward.status === 'in_progress') {
         // Lock the contributing purchases to this reward
+        // PostgreSQL requires a subquery for UPDATE with ORDER BY and LIMIT
         await client.query(`
             UPDATE loyalty_purchase_events
             SET reward_id = $1, updated_at = NOW()
-            WHERE merchant_id = $2
-              AND offer_id = $3
-              AND square_customer_id = $4
-              AND window_end_date >= CURRENT_DATE
-              AND reward_id IS NULL
-            ORDER BY purchased_at ASC
-            LIMIT $5
+            WHERE id IN (
+                SELECT id FROM loyalty_purchase_events
+                WHERE merchant_id = $2
+                  AND offer_id = $3
+                  AND square_customer_id = $4
+                  AND window_end_date >= CURRENT_DATE
+                  AND reward_id IS NULL
+                ORDER BY purchased_at ASC
+                LIMIT $5
+            )
         `, [reward.id, merchantId, offerId, squareCustomerId, offer.required_quantity]);
 
         // Transition reward to earned status
