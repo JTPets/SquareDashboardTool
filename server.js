@@ -11054,6 +11054,66 @@ app.get('/api/loyalty/debug', requireAuth, requireMerchant, async (req, res) => 
 });
 
 /**
+ * POST /api/loyalty/process-order/:orderId
+ * Manually fetch and process a specific Square order for loyalty
+ * Useful for testing/debugging when webhooks aren't working
+ */
+app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const squareOrderId = req.params.orderId;
+
+        logger.info('Manually processing order for loyalty', { squareOrderId, merchantId });
+
+        // Fetch the order from Square
+        const squareApi = new SquareClient({ accessToken: req.merchantContext.square_access_token });
+        const { result } = await squareApi.ordersApi.retrieveOrder(squareOrderId);
+        const order = result.order;
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found in Square' });
+        }
+
+        // Return diagnostic info about the order
+        const diagnostics = {
+            orderId: order.id,
+            customerId: order.customerId || null,
+            hasCustomer: !!order.customerId,
+            state: order.state,
+            createdAt: order.createdAt,
+            lineItems: (order.lineItems || []).map(li => ({
+                name: li.name,
+                quantity: li.quantity,
+                catalogObjectId: li.catalogObjectId,
+                variationName: li.variationName
+            }))
+        };
+
+        if (!order.customerId) {
+            return res.json({
+                processed: false,
+                reason: 'Order has no customer ID attached',
+                diagnostics,
+                tip: 'The sale must have a customer attached in Square POS before payment'
+            });
+        }
+
+        // Process the order for loyalty
+        const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+
+        res.json({
+            processed: loyaltyResult.processed,
+            result: loyaltyResult,
+            diagnostics
+        });
+
+    } catch (error) {
+        logger.error('Error manually processing order for loyalty', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
  * This removes purchases outside the rolling window
