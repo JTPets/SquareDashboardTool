@@ -2214,81 +2214,53 @@ async function getAuditLogs(merchantId, options = {}) {
 // ============================================================================
 
 // ============================================================================
-// SQUARE LOYALTY INTEGRATION
-// When a customer earns a reward in our system, create a corresponding
-// Square Loyalty Reward so it shows up in Square POS for redemption
+// SQUARE CUSTOMER GROUP DISCOUNT INTEGRATION
+// When a customer earns a reward in our system, create a Customer Group Discount
+// that auto-applies at Square POS when the customer is identified at checkout.
+// This replaces the old Loyalty API approach which required points.
 // ============================================================================
 
 /**
- * Get the merchant's Square Loyalty program and reward tiers
+ * Get Square API access token for a merchant
  * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<Object|null>} Loyalty program with reward tiers, or null if not set up
+ * @returns {Promise<string|null>} Access token or null
  */
-async function getSquareLoyaltyProgram(merchantId) {
-    try {
-        const tokenResult = await db.query(
-            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-            [merchantId]
-        );
+async function getSquareAccessToken(merchantId) {
+    const tokenResult = await db.query(
+        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+        [merchantId]
+    );
 
-        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
-            return null;
-        }
-
-        const rawToken = tokenResult.rows[0].square_access_token;
-        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
-
-        // Get the main loyalty program
-        const response = await fetch('https://connect.squareup.com/v2/loyalty/programs/main', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
-            }
-        });
-
-        if (!response.ok) {
-            if (response.status === 404) {
-                logger.info('No Square Loyalty program found for merchant', { merchantId });
-                return null;
-            }
-            logger.error('Failed to fetch Square Loyalty program', { merchantId, status: response.status });
-            return null;
-        }
-
-        const data = await response.json();
-        return data.program || null;
-
-    } catch (error) {
-        logger.error('Error fetching Square Loyalty program', { error: error.message, merchantId });
+    if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
         return null;
     }
+
+    const rawToken = tokenResult.rows[0].square_access_token;
+    return isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 }
 
 /**
- * Get or create a Square Loyalty account for a customer
- * @param {string} customerId - Square customer ID
- * @param {string} programId - Square Loyalty program ID
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<Object|null>} Loyalty account or null
+ * Create a Customer Group in Square for a specific reward
+ * Each reward gets its own group so we can track/remove individually
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.internalRewardId - Our internal reward ID
+ * @param {string} params.offerName - Name of the offer for display
+ * @param {string} params.customerName - Customer name for group naming
+ * @returns {Promise<Object>} Result with group ID if successful
  */
-async function getOrCreateLoyaltyAccount(customerId, programId, merchantId) {
+async function createRewardCustomerGroup({ merchantId, internalRewardId, offerName, customerName }) {
     try {
-        const tokenResult = await db.query(
-            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-            [merchantId]
-        );
-
-        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
-            return null;
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
         }
 
-        const rawToken = tokenResult.rows[0].square_access_token;
-        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+        // Create a unique group name for this specific reward
+        const groupName = `FBP Reward #${internalRewardId}: ${offerName}`.substring(0, 255);
 
-        // First, search for existing loyalty account
-        const searchResponse = await fetch('https://connect.squareup.com/v2/loyalty/accounts/search', {
+        const response = await fetch('https://connect.squareup.com/v2/customers/groups', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -2296,86 +2268,263 @@ async function getOrCreateLoyaltyAccount(customerId, programId, merchantId) {
                 'Square-Version': '2024-01-18'
             },
             body: JSON.stringify({
-                query: {
-                    customer_ids: [customerId]
-                }
+                group: {
+                    name: groupName
+                },
+                idempotency_key: `fbp-group-${internalRewardId}`
             })
         });
 
-        if (searchResponse.ok) {
-            const searchData = await searchResponse.json();
-            if (searchData.loyalty_accounts && searchData.loyalty_accounts.length > 0) {
-                return searchData.loyalty_accounts[0];
-            }
+        if (!response.ok) {
+            const errText = await response.text();
+            logger.error('Failed to create customer group', {
+                status: response.status,
+                error: errText,
+                merchantId
+            });
+            return { success: false, error: `Square API error: ${response.status}` };
         }
 
-        // If no account exists, we can't create one without a phone number mapping
-        // The customer needs to have enrolled in Square Loyalty via POS
-        logger.info('No Square Loyalty account found for customer', { customerId, programId });
-        return null;
+        const data = await response.json();
+        const groupId = data.group?.id;
+
+        logger.info('Created reward customer group', {
+            merchantId,
+            internalRewardId,
+            groupId,
+            groupName
+        });
+
+        return { success: true, groupId, groupName };
 
     } catch (error) {
-        logger.error('Error getting Square Loyalty account', { error: error.message, customerId });
-        return null;
+        logger.error('Error creating customer group', { error: error.message, merchantId });
+        return { success: false, error: error.message };
     }
 }
 
 /**
- * Create a Square Loyalty Reward when a customer earns a reward in our system
- * This makes the reward visible in Square POS for the cashier to apply
+ * Add a customer to a Customer Group
  *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
  * @param {string} params.squareCustomerId - Square customer ID
- * @param {number} params.internalRewardId - Our internal reward ID (for tracking)
- * @param {number} params.offerId - Our internal offer ID
- * @returns {Promise<Object>} Result with Square reward ID if successful
+ * @param {string} params.groupId - Square customer group ID
+ * @returns {Promise<Object>} Result
  */
-async function createSquareLoyaltyReward({ merchantId, squareCustomerId, internalRewardId, offerId }) {
+async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
     try {
-        // Get the Square Loyalty program
-        const program = await getSquareLoyaltyProgram(merchantId);
-        if (!program) {
-            return {
-                success: false,
-                error: 'No Square Loyalty program configured. Set up Square Loyalty in your Square Dashboard first.'
-            };
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
         }
 
-        // Get our offer to find the mapped reward tier
-        const offerResult = await db.query(
-            'SELECT square_reward_tier_id FROM loyalty_offers WHERE id = $1 AND merchant_id = $2',
-            [offerId, merchantId]
+        const response = await fetch(
+            `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2024-01-18'
+                }
+            }
         );
 
-        if (offerResult.rows.length === 0 || !offerResult.rows[0].square_reward_tier_id) {
-            return {
-                success: false,
-                error: 'This offer is not linked to a Square Loyalty reward tier. Configure the Square Reward Tier in offer settings.'
-            };
+        if (!response.ok) {
+            const errText = await response.text();
+            logger.error('Failed to add customer to group', {
+                status: response.status,
+                error: errText,
+                merchantId,
+                squareCustomerId,
+                groupId
+            });
+            return { success: false, error: `Square API error: ${response.status}` };
         }
 
-        const rewardTierId = offerResult.rows[0].square_reward_tier_id;
+        logger.info('Added customer to reward group', {
+            merchantId,
+            squareCustomerId,
+            groupId
+        });
 
-        // Get customer's loyalty account
-        const loyaltyAccount = await getOrCreateLoyaltyAccount(squareCustomerId, program.id, merchantId);
-        if (!loyaltyAccount) {
-            return {
-                success: false,
-                error: 'Customer does not have a Square Loyalty account. They need to enroll via Square POS first.'
-            };
+        return { success: true };
+
+    } catch (error) {
+        logger.error('Error adding customer to group', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Remove a customer from a Customer Group (after redemption)
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {string} params.groupId - Square customer group ID
+ * @returns {Promise<Object>} Result
+ */
+async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
         }
 
-        // Get access token
-        const tokenResult = await db.query(
-            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-            [merchantId]
+        const response = await fetch(
+            `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2024-01-18'
+                }
+            }
         );
-        const rawToken = tokenResult.rows[0].square_access_token;
-        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
-        // Create the Square Loyalty Reward
-        const createResponse = await fetch('https://connect.squareup.com/v2/loyalty/rewards', {
+        if (!response.ok && response.status !== 404) {
+            const errText = await response.text();
+            logger.error('Failed to remove customer from group', {
+                status: response.status,
+                error: errText,
+                merchantId,
+                squareCustomerId,
+                groupId
+            });
+            return { success: false, error: `Square API error: ${response.status}` };
+        }
+
+        logger.info('Removed customer from reward group', {
+            merchantId,
+            squareCustomerId,
+            groupId
+        });
+
+        return { success: true };
+
+    } catch (error) {
+        logger.error('Error removing customer from group', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Delete a Customer Group (cleanup after redemption)
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.groupId - Square customer group ID
+ * @returns {Promise<Object>} Result
+ */
+async function deleteCustomerGroup({ merchantId, groupId }) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
+        }
+
+        const response = await fetch(
+            `https://connect.squareup.com/v2/customers/groups/${groupId}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2024-01-18'
+                }
+            }
+        );
+
+        if (!response.ok && response.status !== 404) {
+            const errText = await response.text();
+            logger.error('Failed to delete customer group', {
+                status: response.status,
+                error: errText,
+                merchantId,
+                groupId
+            });
+            return { success: false, error: `Square API error: ${response.status}` };
+        }
+
+        logger.info('Deleted reward customer group', { merchantId, groupId });
+
+        return { success: true };
+
+    } catch (error) {
+        logger.error('Error deleting customer group', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Create a Catalog Discount with Pricing Rule for a reward
+ * This creates an auto-applying 100% discount for the customer group on qualifying items
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.internalRewardId - Our internal reward ID
+ * @param {string} params.groupId - Square customer group ID
+ * @param {string} params.offerName - Offer name for discount display
+ * @param {Array<string>} params.variationIds - Square catalog variation IDs that qualify
+ * @returns {Promise<Object>} Result with discount and pricing rule IDs
+ */
+async function createRewardDiscount({ merchantId, internalRewardId, groupId, offerName, variationIds }) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
+        }
+
+        // Generate unique IDs for the catalog objects
+        const discountId = `#fbp-discount-${internalRewardId}`;
+        const productSetId = `#fbp-product-set-${internalRewardId}`;
+        const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
+
+        // Build the catalog batch upsert request
+        const catalogObjects = [
+            // 1. Create the Discount (100% off, limit 1)
+            {
+                type: 'DISCOUNT',
+                id: discountId,
+                discount_data: {
+                    name: `Free Item: ${offerName}`.substring(0, 255),
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100.0',
+                    modify_tax_basis: 'MODIFY_TAX_BASIS',
+                    maximum_amount_money: null
+                }
+            },
+            // 2. Create the Product Set (which items qualify)
+            {
+                type: 'PRODUCT_SET',
+                id: productSetId,
+                product_set_data: {
+                    product_ids_any: variationIds,
+                    quantity_exact: 1  // Limit to 1 free item
+                }
+            },
+            // 3. Create the Pricing Rule (ties discount to product set + customer group)
+            {
+                type: 'PRICING_RULE',
+                id: pricingRuleId,
+                pricing_rule_data: {
+                    name: `FBP Reward #${internalRewardId}`,
+                    discount_id: discountId,
+                    match_products_id: productSetId,
+                    customer_group_ids_any: [groupId],
+                    exclude_products_id: null,
+                    valid_from_date: null,
+                    valid_from_local_time: null,
+                    valid_until_date: null,
+                    valid_until_local_time: null
+                }
+            }
+        ];
+
+        const response = await fetch('https://connect.squareup.com/v2/catalog/batch-upsert', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -2383,57 +2532,402 @@ async function createSquareLoyaltyReward({ merchantId, squareCustomerId, interna
                 'Square-Version': '2024-01-18'
             },
             body: JSON.stringify({
-                reward: {
-                    loyalty_account_id: loyaltyAccount.id,
-                    reward_tier_id: rewardTierId
-                },
-                idempotency_key: `fbp-reward-${internalRewardId}-${Date.now()}`
+                idempotency_key: `fbp-catalog-${internalRewardId}`,
+                batches: [{
+                    objects: catalogObjects
+                }]
             })
         });
 
-        if (!createResponse.ok) {
-            const errText = await createResponse.text();
-            logger.error('Failed to create Square Loyalty reward', {
-                status: createResponse.status,
+        if (!response.ok) {
+            const errText = await response.text();
+            logger.error('Failed to create reward discount', {
+                status: response.status,
                 error: errText,
                 merchantId,
-                customerId: squareCustomerId
+                internalRewardId
             });
-            return {
-                success: false,
-                error: `Square API error: ${createResponse.status}`
-            };
+            return { success: false, error: `Square API error: ${response.status} - ${errText}` };
         }
 
-        const createData = await createResponse.json();
-        const squareReward = createData.reward;
+        const data = await response.json();
+        const objects = data.objects || [];
 
-        // Store the Square reward ID in our reward record
-        await db.query(
-            'UPDATE loyalty_rewards SET square_reward_id = $1, updated_at = NOW() WHERE id = $2',
-            [squareReward.id, internalRewardId]
-        );
+        // Extract the real Square IDs from the response
+        const discountObj = objects.find(o => o.type === 'DISCOUNT');
+        const productSetObj = objects.find(o => o.type === 'PRODUCT_SET');
+        const pricingRuleObj = objects.find(o => o.type === 'PRICING_RULE');
 
-        logger.info('Created Square Loyalty reward', {
+        logger.info('Created reward discount in Square catalog', {
             merchantId,
-            customerId: squareCustomerId,
-            squareRewardId: squareReward.id,
-            internalRewardId
+            internalRewardId,
+            discountId: discountObj?.id,
+            productSetId: productSetObj?.id,
+            pricingRuleId: pricingRuleObj?.id
         });
 
         return {
             success: true,
-            squareRewardId: squareReward.id,
-            loyaltyAccountId: loyaltyAccount.id
+            discountId: discountObj?.id,
+            productSetId: productSetObj?.id,
+            pricingRuleId: pricingRuleObj?.id
         };
 
     } catch (error) {
-        logger.error('Error creating Square Loyalty reward', { error: error.message, merchantId });
-        return {
-            success: false,
-            error: error.message
-        };
+        logger.error('Error creating reward discount', { error: error.message, merchantId });
+        return { success: false, error: error.message };
     }
+}
+
+/**
+ * Delete catalog objects (discount, product set, pricing rule) after redemption
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {Array<string>} params.objectIds - Square catalog object IDs to delete
+ * @returns {Promise<Object>} Result
+ */
+async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
+        }
+
+        // Delete each object (Square doesn't support batch delete for catalog)
+        const results = [];
+        for (const objectId of objectIds) {
+            if (!objectId) continue;
+
+            const response = await fetch(
+                `https://connect.squareup.com/v2/catalog/object/${objectId}`,
+                {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2024-01-18'
+                    }
+                }
+            );
+
+            if (!response.ok && response.status !== 404) {
+                logger.warn('Failed to delete catalog object', {
+                    objectId,
+                    status: response.status
+                });
+            }
+            results.push({ objectId, deleted: response.ok || response.status === 404 });
+        }
+
+        logger.info('Deleted reward discount objects', { merchantId, results });
+
+        return { success: true, results };
+
+    } catch (error) {
+        logger.error('Error deleting reward discount objects', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Create a Square Customer Group Discount when a customer earns a reward
+ * This is the main function that orchestrates the entire flow:
+ * 1. Create a customer group for this reward
+ * 2. Add the customer to the group
+ * 3. Create a catalog discount + pricing rule for the group
+ * 4. Store all IDs in our database for cleanup later
+ *
+ * When the customer checks out at Square POS and is identified (phone lookup),
+ * the discount will auto-apply to qualifying items.
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {number} params.internalRewardId - Our internal reward ID
+ * @param {number} params.offerId - Our internal offer ID
+ * @returns {Promise<Object>} Result with Square object IDs if successful
+ */
+async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId, internalRewardId, offerId }) {
+    try {
+        // Get offer details
+        const offerResult = await db.query(`
+            SELECT o.*, array_agg(qv.variation_id) as variation_ids
+            FROM loyalty_offers o
+            LEFT JOIN loyalty_qualifying_variations qv ON o.id = qv.offer_id AND qv.is_active = TRUE
+            WHERE o.id = $1 AND o.merchant_id = $2
+            GROUP BY o.id
+        `, [offerId, merchantId]);
+
+        if (offerResult.rows.length === 0) {
+            return { success: false, error: 'Offer not found' };
+        }
+
+        const offer = offerResult.rows[0];
+        const variationIds = (offer.variation_ids || []).filter(v => v != null);
+
+        if (variationIds.length === 0) {
+            return {
+                success: false,
+                error: 'No qualifying variations configured for this offer'
+            };
+        }
+
+        // Get customer name for group naming (optional)
+        const customerDetails = await getCustomerDetails(squareCustomerId, merchantId);
+        const customerName = customerDetails?.displayName || squareCustomerId.substring(0, 8);
+
+        // Step 1: Create customer group
+        const groupResult = await createRewardCustomerGroup({
+            merchantId,
+            internalRewardId,
+            offerName: offer.offer_name,
+            customerName
+        });
+
+        if (!groupResult.success) {
+            return groupResult;
+        }
+
+        // Step 2: Add customer to group
+        const addResult = await addCustomerToGroup({
+            merchantId,
+            squareCustomerId,
+            groupId: groupResult.groupId
+        });
+
+        if (!addResult.success) {
+            // Cleanup: delete the group we just created
+            await deleteCustomerGroup({ merchantId, groupId: groupResult.groupId });
+            return addResult;
+        }
+
+        // Step 3: Create discount + pricing rule
+        const discountResult = await createRewardDiscount({
+            merchantId,
+            internalRewardId,
+            groupId: groupResult.groupId,
+            offerName: offer.offer_name,
+            variationIds
+        });
+
+        if (!discountResult.success) {
+            // Cleanup: remove customer from group and delete group
+            await removeCustomerFromGroup({ merchantId, squareCustomerId, groupId: groupResult.groupId });
+            await deleteCustomerGroup({ merchantId, groupId: groupResult.groupId });
+            return discountResult;
+        }
+
+        // Step 4: Store Square object IDs in our reward record for cleanup later
+        await db.query(`
+            UPDATE loyalty_rewards SET
+                square_group_id = $1,
+                square_discount_id = $2,
+                square_product_set_id = $3,
+                square_pricing_rule_id = $4,
+                square_pos_synced_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $5
+        `, [
+            groupResult.groupId,
+            discountResult.discountId,
+            discountResult.productSetId,
+            discountResult.pricingRuleId,
+            internalRewardId
+        ]);
+
+        logger.info('Created Square Customer Group Discount for reward', {
+            merchantId,
+            internalRewardId,
+            squareCustomerId,
+            groupId: groupResult.groupId,
+            discountId: discountResult.discountId,
+            pricingRuleId: discountResult.pricingRuleId
+        });
+
+        return {
+            success: true,
+            groupId: groupResult.groupId,
+            discountId: discountResult.discountId,
+            productSetId: discountResult.productSetId,
+            pricingRuleId: discountResult.pricingRuleId
+        };
+
+    } catch (error) {
+        logger.error('Error creating Square Customer Group Discount', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Cleanup Square Customer Group Discount after a reward is redeemed
+ * Removes the customer from the group and deletes the discount/pricing rule
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {number} params.internalRewardId - Our internal reward ID
+ * @returns {Promise<Object>} Result
+ */
+async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId, internalRewardId }) {
+    try {
+        // Get the Square object IDs from our reward record
+        const rewardResult = await db.query(`
+            SELECT square_group_id, square_discount_id, square_product_set_id, square_pricing_rule_id
+            FROM loyalty_rewards
+            WHERE id = $1 AND merchant_id = $2
+        `, [internalRewardId, merchantId]);
+
+        if (rewardResult.rows.length === 0) {
+            return { success: false, error: 'Reward not found' };
+        }
+
+        const reward = rewardResult.rows[0];
+
+        // If no Square objects were created, nothing to clean up
+        if (!reward.square_group_id && !reward.square_discount_id) {
+            logger.info('No Square objects to clean up for reward', { internalRewardId });
+            return { success: true, message: 'No Square objects to clean up' };
+        }
+
+        // Step 1: Delete the pricing rule first (it references other objects)
+        if (reward.square_pricing_rule_id) {
+            await deleteRewardDiscountObjects({
+                merchantId,
+                objectIds: [reward.square_pricing_rule_id]
+            });
+        }
+
+        // Step 2: Delete the discount and product set
+        if (reward.square_discount_id || reward.square_product_set_id) {
+            await deleteRewardDiscountObjects({
+                merchantId,
+                objectIds: [reward.square_discount_id, reward.square_product_set_id].filter(Boolean)
+            });
+        }
+
+        // Step 3: Remove customer from group
+        if (reward.square_group_id && squareCustomerId) {
+            await removeCustomerFromGroup({
+                merchantId,
+                squareCustomerId,
+                groupId: reward.square_group_id
+            });
+        }
+
+        // Step 4: Delete the customer group
+        if (reward.square_group_id) {
+            await deleteCustomerGroup({
+                merchantId,
+                groupId: reward.square_group_id
+            });
+        }
+
+        // Step 5: Clear the Square IDs from our reward record
+        await db.query(`
+            UPDATE loyalty_rewards SET
+                square_group_id = NULL,
+                square_discount_id = NULL,
+                square_product_set_id = NULL,
+                square_pricing_rule_id = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+        `, [internalRewardId]);
+
+        logger.info('Cleaned up Square Customer Group Discount', {
+            merchantId,
+            internalRewardId,
+            groupId: reward.square_group_id
+        });
+
+        return { success: true };
+
+    } catch (error) {
+        logger.error('Error cleaning up Square Customer Group Discount', { error: error.message, merchantId });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Check if an order used a reward discount and mark it as redeemed
+ * Called from order webhook to detect when customer redeems at POS
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object>} Result with redeemed reward info if found
+ */
+async function detectRewardRedemptionFromOrder(order, merchantId) {
+    try {
+        const discounts = order.discounts || [];
+        if (discounts.length === 0) {
+            return { detected: false };
+        }
+
+        // Look for any of our reward discounts in the order
+        for (const discount of discounts) {
+            const catalogObjectId = discount.catalog_object_id;
+            if (!catalogObjectId) continue;
+
+            // Check if this discount matches any of our earned rewards
+            const rewardResult = await db.query(`
+                SELECT r.*, o.offer_name
+                FROM loyalty_rewards r
+                JOIN loyalty_offers o ON r.offer_id = o.id
+                WHERE r.merchant_id = $1
+                  AND r.square_discount_id = $2
+                  AND r.status = 'earned'
+            `, [merchantId, catalogObjectId]);
+
+            if (rewardResult.rows.length > 0) {
+                const reward = rewardResult.rows[0];
+
+                logger.info('Detected reward redemption from order', {
+                    merchantId,
+                    orderId: order.id,
+                    rewardId: reward.id,
+                    discountId: catalogObjectId
+                });
+
+                // Redeem the reward
+                const redemptionResult = await redeemReward({
+                    merchantId,
+                    rewardId: reward.id,
+                    squareOrderId: order.id,
+                    squareCustomerId: order.customer_id,
+                    redemptionType: RedemptionTypes.AUTO_DETECTED,
+                    redeemedValueCents: discount.applied_money?.amount || 0,
+                    squareLocationId: order.location_id
+                });
+
+                // Cleanup the Square objects
+                await cleanupSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId: reward.square_customer_id,
+                    internalRewardId: reward.id
+                });
+
+                return {
+                    detected: true,
+                    rewardId: reward.id,
+                    offerName: reward.offer_name,
+                    redemption: redemptionResult
+                };
+            }
+        }
+
+        return { detected: false };
+
+    } catch (error) {
+        logger.error('Error detecting reward redemption', { error: error.message, merchantId, orderId: order.id });
+        return { detected: false, error: error.message };
+    }
+}
+
+// Legacy function for backward compatibility - now uses Customer Group Discounts
+// Keep the old name for any existing code references, but redirect to new implementation
+async function createSquareLoyaltyReward({ merchantId, squareCustomerId, internalRewardId, offerId }) {
+    logger.info('createSquareLoyaltyReward called - redirecting to Customer Group Discount approach');
+    return createSquareCustomerGroupDiscount({ merchantId, squareCustomerId, internalRewardId, offerId });
 }
 
 // ============================================================================
@@ -2482,10 +2976,11 @@ module.exports = {
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,
 
-    // Square Loyalty Integration
-    getSquareLoyaltyProgram,
-    getOrCreateLoyaltyAccount,
-    createSquareLoyaltyReward,
+    // Square Customer Group Discount Integration (replaces old Loyalty API)
+    createSquareCustomerGroupDiscount,
+    cleanupSquareCustomerGroupDiscount,
+    detectRewardRedemptionFromOrder,
+    createSquareLoyaltyReward,  // Legacy wrapper, redirects to Customer Group Discount
 
     // Webhook processing
     processOrderForLoyalty,
