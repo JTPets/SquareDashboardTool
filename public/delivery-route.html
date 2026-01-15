@@ -144,6 +144,47 @@
     .status-skipped { background: #fef3c7; color: #92400e; }
     .status-delivered { background: #d1fae5; color: #065f46; }
 
+    /* Customer badges */
+    .customer-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .badge-repeat {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .badge-loyalty {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .badge-paid {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .badge-unpaid {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .badge-partial {
+      background: #ffedd5;
+      color: #9a3412;
+    }
+    .badge-loading {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
     .stop-body {
       padding: 15px;
     }
@@ -619,6 +660,9 @@
               <div class="stop-number">${isCompleted ? '✓' : stop.route_position || index + 1}</div>
               <div class="stop-customer">
                 <h3>${escapeHtml(stop.customer_name)}</h3>
+                <div class="customer-badges" id="badges-${stop.id}">
+                  ${stop.square_customer_id ? '<span class="badge badge-loading">Loading...</span>' : ''}
+                </div>
               </div>
               <span class="stop-status status-${stop.status}">${stop.status}</span>
             </div>
@@ -685,6 +729,67 @@
           </div>
         `;
       }).join('');
+
+      // Fetch customer stats for all stops with Square customer IDs
+      fetchAllCustomerStats();
+    }
+
+    async function fetchAllCustomerStats() {
+      // Get all stops with customer IDs and fetch their stats in parallel
+      const stopsWithCustomers = stops.filter(s => s.square_customer_id);
+
+      // Fetch in batches of 5 to avoid overwhelming the server
+      const batchSize = 5;
+      for (let i = 0; i < stopsWithCustomers.length; i += batchSize) {
+        const batch = stopsWithCustomers.slice(i, i + batchSize);
+        await Promise.all(batch.map(stop => fetchCustomerStats(stop.id)));
+      }
+    }
+
+    async function fetchCustomerStats(orderId) {
+      try {
+        const response = await fetch(`/api/delivery/orders/${orderId}/customer-stats`);
+        if (!response.ok) return;
+
+        const stats = await response.json();
+        updateBadges(orderId, stats);
+      } catch (error) {
+        console.error('Error fetching customer stats:', error);
+        // Remove loading badge on error
+        const badgeContainer = document.getElementById(`badges-${orderId}`);
+        if (badgeContainer) {
+          badgeContainer.innerHTML = '';
+        }
+      }
+    }
+
+    function updateBadges(orderId, stats) {
+      const badgeContainer = document.getElementById(`badges-${orderId}`);
+      if (!badgeContainer) return;
+
+      const badges = [];
+
+      // Repeat customer badge
+      if (stats.is_repeat_customer && stats.order_count > 1) {
+        badges.push(`<span class="badge badge-repeat">🔄 ${stats.order_count} orders</span>`);
+      }
+
+      // Loyalty member badge
+      if (stats.is_loyalty_member) {
+        const balanceText = stats.loyalty_balance !== null ? ` (${stats.loyalty_balance} pts)` : '';
+        badges.push(`<span class="badge badge-loyalty">⭐ VIP${balanceText}</span>`);
+      }
+
+      // Payment status badge
+      if (stats.payment_status === 'paid') {
+        badges.push(`<span class="badge badge-paid">💰 PAID</span>`);
+      } else if (stats.payment_status === 'unpaid') {
+        badges.push(`<span class="badge badge-unpaid">💳 COD</span>`);
+      } else if (stats.payment_status === 'partial') {
+        badges.push(`<span class="badge badge-partial">💳 Partial</span>`);
+      }
+
+      badgeContainer.innerHTML = badges.join('');
     }
 
     function openInMaps(address) {
