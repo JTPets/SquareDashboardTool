@@ -11315,6 +11315,97 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 });
 
 /**
+ * GET /api/loyalty/debug/recent-orders
+ * Debug endpoint to fetch last 5 orders from Square with ALL raw data
+ * Used to inspect where customer information is stored
+ */
+app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Get the access token from the database (not in merchantContext for security)
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return res.status(400).json({ error: 'No Square access token configured for this merchant' });
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Get location IDs for this merchant
+        const locationResult = await db.query(
+            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        const locationIds = locationResult.rows.map(r => r.square_location_id).filter(Boolean);
+
+        if (locationIds.length === 0) {
+            return res.status(400).json({ error: 'No Square locations configured for this merchant' });
+        }
+
+        // Fetch last 5 orders using raw Square API
+        const requestBody = {
+            location_ids: locationIds,
+            limit: 5,
+            sort_field: 'CREATED_AT',
+            sort_order: 'DESC',
+            query: {
+                filter: {
+                    state_filter: {
+                        states: ['COMPLETED']
+                    }
+                }
+            }
+        };
+
+        const response = await fetch('https://connect.squareup.com/v2/orders/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Square API error: ${response.status} - ${errText}`);
+        }
+
+        const data = await response.json();
+        const orders = data.orders || [];
+
+        // Return the complete raw order data
+        res.json({
+            success: true,
+            orderCount: orders.length,
+            orders: orders.map(order => ({
+                // Return everything - don't filter any fields
+                ...order,
+                // Also highlight key fields at top level for easier inspection
+                _debug_summary: {
+                    id: order.id,
+                    created_at: order.created_at,
+                    customer_id: order.customer_id || 'NOT SET',
+                    tenders_customer_ids: (order.tenders || []).map(t => t.customer_id || 'NOT SET'),
+                    line_item_count: (order.line_items || []).length,
+                    has_fulfillments: !!(order.fulfillments && order.fulfillments.length > 0),
+                    total_money: order.total_money
+                }
+            }))
+        });
+
+    } catch (error) {
+        logger.error('Error fetching recent orders for debug', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
  * This removes purchases outside the rolling window
