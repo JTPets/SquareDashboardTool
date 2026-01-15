@@ -11406,6 +11406,72 @@ app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async 
 });
 
 /**
+ * GET /api/loyalty/debug/all-loyalty-events
+ * Debug endpoint to get ALL recent loyalty events (for timestamp matching)
+ */
+app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Get access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return res.status(400).json({ error: 'No Square access token' });
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Get location IDs
+        const locationResult = await db.query(
+            'SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE',
+            [merchantId]
+        );
+        const locationIds = locationResult.rows.map(r => r.id).filter(Boolean);
+
+        // Search ALL recent loyalty events (last 24 hours)
+        const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                query: {
+                    filter: {
+                        location_filter: {
+                            location_ids: locationIds
+                        },
+                        type_filter: {
+                            types: ['ACCUMULATE_POINTS']
+                        }
+                    }
+                },
+                limit: 50
+            })
+        });
+
+        const eventsData = await eventsResponse.json();
+        const events = eventsData.events || [];
+
+        res.json({
+            httpStatus: eventsResponse.status,
+            eventCount: events.length,
+            events: events,
+            rawResponse: eventsData
+        });
+
+    } catch (error) {
+        logger.error('Error fetching all loyalty events', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/loyalty/debug/loyalty-events/:orderId
  * Debug endpoint to check Square's Loyalty Events for a specific order
  */
