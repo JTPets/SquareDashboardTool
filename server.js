@@ -8900,6 +8900,39 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            case 'customer.updated':
+                // Customer updated in Square - sync notes to delivery orders
+                if (data.customer && internalMerchantId) {
+                    try {
+                        const customerId = data.customer.id;
+                        const customerNote = data.customer.note || null;
+
+                        // Update customer_note on all delivery orders for this customer
+                        const updateResult = await db.query(
+                            `UPDATE delivery_orders
+                             SET customer_note = $1, updated_at = NOW()
+                             WHERE merchant_id = $2 AND square_customer_id = $3`,
+                            [customerNote, internalMerchantId, customerId]
+                        );
+
+                        if (updateResult.rowCount > 0) {
+                            logger.info('Customer notes synced via webhook', {
+                                merchantId: internalMerchantId,
+                                customerId,
+                                ordersUpdated: updateResult.rowCount
+                            });
+                            syncResults.customerNotes = {
+                                customerId,
+                                ordersUpdated: updateResult.rowCount
+                            };
+                        }
+                    } catch (syncError) {
+                        logger.error('Customer notes sync failed', { error: syncError.message });
+                        syncResults.error = syncError.message;
+                    }
+                }
+                break;
+
             // ==================== CATALOG & INVENTORY WEBHOOKS ====================
 
             case 'catalog.version.updated':
@@ -9043,6 +9076,22 @@ app.post('/api/webhooks/square', async (req, res) => {
                                 } catch (cancelError) {
                                     logger.error('Failed to handle order cancellation for delivery', {
                                         error: cancelError.message,
+                                        orderId: order.id
+                                    });
+                                }
+                            }
+
+                            // Handle order completion from Square POS/Dashboard
+                            if (order.state === 'COMPLETED') {
+                                try {
+                                    await deliveryApi.handleSquareOrderUpdate(internalMerchantId, order.id, 'COMPLETED');
+                                    syncResults.deliveryCompletion = { squareOrderId: order.id };
+                                    logger.info('Marked delivery order as completed via webhook', {
+                                        squareOrderId: order.id
+                                    });
+                                } catch (completeError) {
+                                    logger.error('Failed to handle order completion for delivery', {
+                                        error: completeError.message,
                                         orderId: order.id
                                     });
                                 }
