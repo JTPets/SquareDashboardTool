@@ -11114,6 +11114,118 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
 });
 
 /**
+ * POST /api/loyalty/backfill
+ * Fetch recent orders from Square and process them for loyalty
+ * Useful for catching up on orders that weren't processed via webhook
+ */
+app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { days = 7 } = req.body; // Default to last 7 days
+
+        logger.info('Starting loyalty backfill', { merchantId, days });
+
+        // Get location IDs
+        const locationsResult = await db.query(
+            'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1',
+            [merchantId]
+        );
+        const locationIds = locationsResult.rows.map(r => r.id);
+
+        if (locationIds.length === 0) {
+            return res.json({ error: 'No active locations found', processed: 0 });
+        }
+
+        // Calculate date range
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        // Fetch orders from Square
+        const squareApi = new SquareClient({ accessToken: req.merchantContext.square_access_token });
+
+        let cursor = null;
+        let ordersProcessed = 0;
+        let loyaltyPurchasesRecorded = 0;
+        const results = [];
+
+        do {
+            const searchRequest = {
+                locationIds: locationIds,
+                query: {
+                    filter: {
+                        stateFilter: {
+                            states: ['COMPLETED']
+                        },
+                        dateTimeFilter: {
+                            closedAt: {
+                                startAt: startDate.toISOString(),
+                                endAt: endDate.toISOString()
+                            }
+                        }
+                    }
+                },
+                limit: 50
+            };
+
+            if (cursor) {
+                searchRequest.cursor = cursor;
+            }
+
+            const { result } = await squareApi.ordersApi.searchOrders(searchRequest);
+            const orders = result.orders || [];
+
+            // Process each order for loyalty
+            for (const order of orders) {
+                ordersProcessed++;
+
+                // Skip orders without customer
+                if (!order.customerId) {
+                    continue;
+                }
+
+                try {
+                    const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+                    if (loyaltyResult.processed && loyaltyResult.purchasesRecorded.length > 0) {
+                        loyaltyPurchasesRecorded += loyaltyResult.purchasesRecorded.length;
+                        results.push({
+                            orderId: order.id,
+                            customerId: order.customerId,
+                            purchasesRecorded: loyaltyResult.purchasesRecorded.length
+                        });
+                    }
+                } catch (err) {
+                    logger.warn('Failed to process order for loyalty during backfill', {
+                        orderId: order.id,
+                        error: err.message
+                    });
+                }
+            }
+
+            cursor = result.cursor;
+        } while (cursor);
+
+        logger.info('Loyalty backfill complete', {
+            merchantId,
+            days,
+            ordersProcessed,
+            loyaltyPurchasesRecorded
+        });
+
+        res.json({
+            success: true,
+            ordersProcessed,
+            loyaltyPurchasesRecorded,
+            results
+        });
+
+    } catch (error) {
+        logger.error('Error during loyalty backfill', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
  * This removes purchases outside the rolling window
