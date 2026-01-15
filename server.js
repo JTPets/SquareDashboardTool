@@ -11010,35 +11010,19 @@ app.get('/api/loyalty/debug', requireAuth, requireMerchant, async (req, res) => 
             LIMIT 10
         `, [merchantId]);
 
-        // Get recent orders from the orders table to compare variation IDs
-        const recentOrders = await db.query(`
+        // Get qualifying variation details for easy viewing
+        const qualifyingVariations = await db.query(`
             SELECT
-                o.id,
-                o.square_order_id,
-                o.customer_id,
-                o.line_items,
-                o.created_at
-            FROM orders o
-            WHERE o.merchant_id = $1
-            ORDER BY o.created_at DESC
-            LIMIT 5
+                qv.variation_id,
+                qv.item_name,
+                qv.variation_name,
+                qv.sku,
+                o.offer_name
+            FROM loyalty_qualifying_variations qv
+            JOIN loyalty_offers o ON qv.offer_id = o.id
+            WHERE qv.merchant_id = $1 AND qv.is_active = TRUE AND o.is_active = TRUE
+            ORDER BY o.offer_name, qv.item_name
         `, [merchantId]);
-
-        // Extract variation IDs from recent orders for comparison
-        const orderVariationIds = [];
-        for (const order of recentOrders.rows) {
-            if (order.line_items && Array.isArray(order.line_items)) {
-                for (const item of order.line_items) {
-                    orderVariationIds.push({
-                        orderId: order.square_order_id,
-                        customerId: order.customer_id,
-                        variationId: item.catalog_object_id,
-                        name: item.name,
-                        quantity: item.quantity
-                    });
-                }
-            }
-        }
 
         res.json({
             debug: {
@@ -11052,13 +11036,14 @@ app.get('/api/loyalty/debug', requireAuth, requireMerchant, async (req, res) => 
                     variationCount: parseInt(o.variation_count),
                     variationIds: o.variation_ids || []
                 })),
+                qualifyingVariations: qualifyingVariations.rows,
                 recentLoyaltyPurchases: recentPurchases.rows,
-                recentOrderLineItems: orderVariationIds,
                 troubleshooting: {
-                    tip1: 'Compare variationIds from offers with variationIds from recentOrderLineItems',
-                    tip2: 'Ensure orders have a customerId - orders without customers cannot earn loyalty',
-                    tip3: 'Check that loyaltyEnabled is true',
-                    tip4: 'Verify variation IDs match exactly (case-sensitive)'
+                    tip1: 'Check loyaltyEnabled is true',
+                    tip2: 'Ensure your offer has variations (variationCount > 0)',
+                    tip3: 'Orders MUST have a Square customer attached at checkout',
+                    tip4: 'The variation_id in the Square order must match one in qualifyingVariations exactly',
+                    tip5: 'Check server logs for "Processing order for loyalty" messages'
                 }
             }
         });
