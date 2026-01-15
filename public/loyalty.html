@@ -278,48 +278,48 @@
     .form-row { display: flex; gap: 15px; }
     .form-row .form-group { flex: 1; }
 
-    /* Variation list - grid with cards */
+    /* Variation list - horizontal rows */
     .variation-list {
-      max-height: 450px;
+      max-height: 500px;
       overflow-y: auto;
       border: 1px solid #e5e7eb;
       border-radius: 4px;
-      padding: 10px;
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 12px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .variation-item {
       display: flex;
-      flex-direction: column;
-      padding: 10px;
+      flex-direction: row;
+      align-items: center;
+      padding: 12px;
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       background: #f9fafb;
       cursor: pointer;
       transition: all 0.2s;
-      position: relative;
+      gap: 15px;
     }
     .variation-item:hover { border-color: #7c3aed; background: #faf5ff; }
-    .variation-item.selected { border-color: #7c3aed; background: #ede9fe; }
+    .variation-item.selected { border-color: #7c3aed; background: #ede9fe; border-width: 2px; }
     .variation-item .item-checkbox {
-      position: absolute;
-      top: 8px;
-      right: 8px;
+      flex-shrink: 0;
       width: 20px;
       height: 20px;
       cursor: pointer;
     }
     .variation-item .image-container {
-      width: 100%;
-      height: 100px;
+      flex-shrink: 0;
+      width: 70px;
+      height: 70px;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 10px;
       background: white;
       border-radius: 4px;
       overflow: hidden;
+      border: 1px solid #e5e7eb;
     }
     .variation-item .image-container img {
       max-width: 100%;
@@ -327,23 +327,19 @@
       object-fit: contain;
     }
     .variation-item .no-image {
-      color: #9ca3af;
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
+      color: #d1d5db;
+      font-size: 10px;
+      text-align: center;
     }
-    .variation-item .no-image svg { width: 32px; height: 32px; opacity: 0.5; }
-    .variation-item .info { flex: 1; }
-    .variation-item .name { font-weight: 600; font-size: 13px; color: #374151; margin-bottom: 4px; }
-    .variation-item .variation-name { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
-    .variation-item .sku-gtin { font-size: 11px; color: #9ca3af; font-family: monospace; }
-    .variation-item .sku-gtin span { display: block; }
+    .variation-item .info { flex: 1; min-width: 0; }
+    .variation-item .name { font-weight: 600; font-size: 14px; color: #374151; margin-bottom: 2px; }
+    .variation-item .variation-name { font-size: 13px; color: #6b7280; margin-bottom: 2px; }
+    .variation-item .sku-gtin { font-size: 12px; color: #9ca3af; font-family: monospace; display: flex; gap: 15px; flex-wrap: wrap; }
 
     /* Large modal for variations */
     .modal-wide .modal-content {
-      max-width: 900px;
+      max-width: 1200px;
+      width: 95%;
     }
 
     /* Alert */
@@ -1040,8 +1036,6 @@
         return;
       }
 
-      const noImageSvg = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
-
       listEl.innerHTML = filtered.map(v => {
         const isSelected = selectedVariations.has(v.variationId);
         const imageUrl = v.imageUrls && v.imageUrls.length > 0 ? v.imageUrls[0] : null;
@@ -1059,8 +1053,8 @@
             >
             <div class="image-container">
               ${imageUrl
-                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(displayName)}" onerror="this.parentElement.innerHTML='<div class=\\'no-image\\'>${noImageSvg}<span>No image</span></div>'">`
-                : `<div class="no-image">${noImageSvg}<span>No image</span></div>`
+                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(displayName)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"><div class="no-image" style="display:none;">No image</div>`
+                : `<div class="no-image">No image</div>`
               }
             </div>
             <div class="info">
