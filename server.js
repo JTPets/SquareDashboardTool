@@ -11141,26 +11141,26 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
 
-        // Fetch orders from Square
-        const squareApi = new SquareClient({ accessToken: req.merchantContext.square_access_token });
+        const accessToken = req.merchantContext.square_access_token;
 
         let cursor = null;
         let ordersProcessed = 0;
         let loyaltyPurchasesRecorded = 0;
         const results = [];
 
+        // Use raw Square API (same approach as sales velocity sync)
         do {
-            const searchRequest = {
-                locationIds: locationIds,
+            const requestBody = {
+                location_ids: locationIds,
                 query: {
                     filter: {
-                        stateFilter: {
+                        state_filter: {
                             states: ['COMPLETED']
                         },
-                        dateTimeFilter: {
-                            closedAt: {
-                                startAt: startDate.toISOString(),
-                                endAt: endDate.toISOString()
+                        date_time_filter: {
+                            closed_at: {
+                                start_at: startDate.toISOString(),
+                                end_at: endDate.toISOString()
                             }
                         }
                     }
@@ -11169,28 +11169,60 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
             };
 
             if (cursor) {
-                searchRequest.cursor = cursor;
+                requestBody.cursor = cursor;
             }
 
-            const { result } = await squareApi.ordersApi.searchOrders(searchRequest);
-            const orders = result.orders || [];
+            const response = await fetch('https://connect.squareup.com/v2/orders/search', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2024-01-18'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Square API error: ${response.status} - ${errText}`);
+            }
+
+            const data = await response.json();
+            const orders = data.orders || [];
 
             // Process each order for loyalty
             for (const order of orders) {
                 ordersProcessed++;
 
-                // Skip orders without customer
-                if (!order.customerId) {
+                // Skip orders without customer (snake_case from raw API)
+                if (!order.customer_id) {
                     continue;
                 }
 
                 try {
-                    const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+                    // Transform to camelCase for loyaltyService
+                    const orderForLoyalty = {
+                        id: order.id,
+                        customer_id: order.customer_id,
+                        customerId: order.customer_id,
+                        state: order.state,
+                        created_at: order.created_at,
+                        location_id: order.location_id,
+                        line_items: order.line_items,
+                        lineItems: (order.line_items || []).map(li => ({
+                            ...li,
+                            catalogObjectId: li.catalog_object_id,
+                            quantity: li.quantity,
+                            name: li.name
+                        }))
+                    };
+
+                    const loyaltyResult = await loyaltyService.processOrderForLoyalty(orderForLoyalty, merchantId);
                     if (loyaltyResult.processed && loyaltyResult.purchasesRecorded.length > 0) {
                         loyaltyPurchasesRecorded += loyaltyResult.purchasesRecorded.length;
                         results.push({
                             orderId: order.id,
-                            customerId: order.customerId,
+                            customerId: order.customer_id,
                             purchasesRecorded: loyaltyResult.purchasesRecorded.length
                         });
                     }
@@ -11202,7 +11234,7 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
                 }
             }
 
-            cursor = result.cursor;
+            cursor = data.cursor;
         } while (cursor);
 
         logger.info('Loyalty backfill complete', {
@@ -11220,7 +11252,7 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         });
 
     } catch (error) {
-        logger.error('Error during loyalty backfill', { error: error.message });
+        logger.error('Error during loyalty backfill', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
