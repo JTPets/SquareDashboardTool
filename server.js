@@ -27,7 +27,7 @@ const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM }
 const { hashPassword, generateRandomPassword } = require('./utils/password');
 const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
-const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
+const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-encryption');
 const deliveryApi = require('./utils/delivery-api');
 const loyaltyService = require('./utils/loyalty-service');
 const loyaltyReports = require('./utils/loyalty-reports');
@@ -11141,7 +11141,12 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
 
-        const accessToken = req.merchantContext.square_access_token;
+        // Get and decrypt access token (same pattern as getMerchantToken in square-api.js)
+        const rawToken = req.merchantContext.square_access_token;
+        if (!rawToken) {
+            return res.status(400).json({ error: 'No Square access token configured for this merchant' });
+        }
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
         let cursor = null;
         let ordersProcessed = 0;
