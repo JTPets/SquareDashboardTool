@@ -9815,6 +9815,136 @@ app.patch('/api/delivery/orders/:id/notes', deliveryRateLimit, requireAuth, requ
 });
 
 /**
+ * GET /api/delivery/orders/:id/customer-stats
+ * Get customer stats: order count, loyalty status, payment status
+ */
+app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        const stats = {
+            order_count: 0,
+            is_repeat_customer: false,
+            is_loyalty_member: false,
+            loyalty_balance: null,
+            payment_status: 'unknown', // 'paid', 'unpaid', 'partial'
+            total_amount: null,
+            amount_paid: null
+        };
+
+        // If no Square customer ID, return basic stats
+        if (!order.square_customer_id) {
+            return res.json(stats);
+        }
+
+        const squareClient = await getSquareClientForMerchant(merchantId);
+        const merchant = await MerchantDB.getMerchantById(merchantId);
+
+        // Fetch order count, loyalty status, and payment info in parallel
+        const [orderCountResult, loyaltyResult, squareOrderResult] = await Promise.allSettled([
+            // Count previous orders by this customer
+            squareClient.orders.search({
+                locationIds: [merchant.square_location_id],
+                query: {
+                    filter: {
+                        customerFilter: {
+                            customerIds: [order.square_customer_id]
+                        },
+                        stateFilter: {
+                            states: ['COMPLETED']
+                        }
+                    }
+                }
+            }),
+
+            // Check loyalty status
+            (async () => {
+                try {
+                    // Use 'main' keyword to retrieve the seller's loyalty program
+                    // (listLoyaltyPrograms is deprecated)
+                    const programResponse = await squareClient.loyalty.programs.retrieve({
+                        programId: 'main'
+                    });
+
+                    if (programResponse.program) {
+                        // Search for loyalty account by customer ID
+                        const accountsResponse = await squareClient.loyalty.accounts.search({
+                            query: {
+                                customerIds: [order.square_customer_id]
+                            }
+                        });
+
+                        if (accountsResponse.loyaltyAccounts && accountsResponse.loyaltyAccounts.length > 0) {
+                            const account = accountsResponse.loyaltyAccounts[0];
+                            return {
+                                isMember: true,
+                                balance: account.balance || 0
+                            };
+                        }
+                    }
+                } catch (loyaltyError) {
+                    // 404 means seller doesn't have a loyalty program - that's fine
+                    if (!loyaltyError.message?.includes('NOT_FOUND')) {
+                        logger.warn('Error checking loyalty status', { error: loyaltyError.message });
+                    }
+                }
+                return { isMember: false, balance: null };
+            })(),
+
+            // Get Square order for payment status
+            order.square_order_id ? squareClient.orders.get({
+                orderId: order.square_order_id
+            }) : Promise.resolve(null)
+        ]);
+
+        // Process order count
+        if (orderCountResult.status === 'fulfilled' && orderCountResult.value.orders) {
+            stats.order_count = orderCountResult.value.orders.length;
+            stats.is_repeat_customer = stats.order_count > 1;
+        }
+
+        // Process loyalty status
+        if (loyaltyResult.status === 'fulfilled') {
+            stats.is_loyalty_member = loyaltyResult.value.isMember;
+            stats.loyalty_balance = loyaltyResult.value.balance;
+        }
+
+        // Process payment status
+        if (squareOrderResult.status === 'fulfilled' && squareOrderResult.value?.order) {
+            const squareOrder = squareOrderResult.value.order;
+            const totalMoney = squareOrder.totalMoney?.amount || squareOrder.total_money?.amount || 0;
+            const tenders = squareOrder.tenders || [];
+
+            let amountPaid = 0;
+            for (const tender of tenders) {
+                amountPaid += tender.amountMoney?.amount || tender.amount_money?.amount || 0;
+            }
+
+            stats.total_amount = totalMoney;
+            stats.amount_paid = amountPaid;
+
+            if (amountPaid >= totalMoney && totalMoney > 0) {
+                stats.payment_status = 'paid';
+            } else if (amountPaid > 0) {
+                stats.payment_status = 'partial';
+            } else {
+                stats.payment_status = 'unpaid';
+            }
+        }
+
+        res.json(stats);
+    } catch (error) {
+        logger.error('Error fetching customer stats', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/delivery/orders/:id/pod
  * Upload proof of delivery photo
  */
