@@ -11406,6 +11406,68 @@ app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async 
 });
 
 /**
+ * GET /api/loyalty/debug/loyalty-events/:orderId
+ * Debug endpoint to check Square's Loyalty Events for a specific order
+ */
+app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { orderId } = req.params;
+
+        // Get access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return res.status(400).json({ error: 'No Square access token' });
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Search loyalty events by order ID
+        const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                query: {
+                    filter: {
+                        order_filter: {
+                            order_id: orderId
+                        }
+                    }
+                },
+                limit: 30
+            })
+        });
+
+        const eventsText = await eventsResponse.text();
+        let eventsData;
+        try {
+            eventsData = JSON.parse(eventsText);
+        } catch (e) {
+            eventsData = { raw: eventsText };
+        }
+
+        res.json({
+            orderId,
+            httpStatus: eventsResponse.status,
+            events: eventsData.events || [],
+            rawResponse: eventsData
+        });
+
+    } catch (error) {
+        logger.error('Error in loyalty events debug', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/manual-entry
  * Manually record a loyalty purchase for orders where customer wasn't attached
  * Used to backfill purchases that couldn't be auto-detected
