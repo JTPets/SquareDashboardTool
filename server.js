@@ -11425,14 +11425,7 @@ app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, a
         const rawToken = tokenResult.rows[0].square_access_token;
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
-        // Get location IDs
-        const locationResult = await db.query(
-            'SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE',
-            [merchantId]
-        );
-        const locationIds = locationResult.rows.map(r => r.id).filter(Boolean);
-
-        // Search ALL recent loyalty events (last 24 hours)
+        // Search ALL recent loyalty events - no filters, just get recent ones
         const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
             method: 'POST',
             headers: {
@@ -11441,17 +11434,7 @@ app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, a
                 'Square-Version': '2024-01-18'
             },
             body: JSON.stringify({
-                query: {
-                    filter: {
-                        location_filter: {
-                            location_ids: locationIds
-                        },
-                        type_filter: {
-                            types: ['ACCUMULATE_POINTS']
-                        }
-                    }
-                },
-                limit: 50
+                limit: 30
             })
         });
 
