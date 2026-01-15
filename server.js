@@ -11067,11 +11067,15 @@ app.put('/api/loyalty/offers/:id/square-tier', requireAuth, requireMerchant, req
  * POST /api/loyalty/rewards/:id/create-square-reward
  * Manually create a Square Customer Group Discount for an earned reward
  * This makes the reward auto-apply at Square POS when customer is identified
+ *
+ * Query params:
+ *   force=true - Delete existing discount and recreate (for fixing broken discounts)
  */
 app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const rewardId = req.params.id;
+        const force = req.query.force === 'true' || req.body.force === true;
 
         // Get the reward details
         const rewardResult = await db.query(
@@ -11094,11 +11098,26 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
 
         // Check if already synced (has Customer Group Discount created)
         if (reward.square_group_id && reward.square_discount_id) {
-            return res.json({
-                success: true,
-                message: 'Already synced to Square POS',
-                groupId: reward.square_group_id,
-                discountId: reward.square_discount_id
+            if (!force) {
+                return res.json({
+                    success: true,
+                    message: 'Already synced to Square POS',
+                    groupId: reward.square_group_id,
+                    discountId: reward.square_discount_id
+                });
+            }
+
+            // Force mode: cleanup existing discount first
+            logger.info('Force re-sync: cleaning up existing Square discount', {
+                rewardId,
+                merchantId,
+                existingGroupId: reward.square_group_id
+            });
+
+            await loyaltyService.cleanupSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId: reward.square_customer_id,
+                internalRewardId: rewardId
             });
         }
 
@@ -11120,41 +11139,70 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
 
 /**
  * POST /api/loyalty/rewards/sync-to-pos
- * Bulk sync all earned rewards that don't have Customer Group Discounts yet
- * Creates discounts in Square POS for pending earned rewards
+ * Bulk sync earned rewards to Square POS
+ * Creates Customer Group Discounts for earned rewards
+ *
+ * Query/Body params:
+ *   force=true - Re-sync ALL earned rewards (delete and recreate discounts)
  */
 app.post('/api/loyalty/rewards/sync-to-pos', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
+        const force = req.query.force === 'true' || req.body.force === true;
 
-        // Find all earned rewards without Square Group Discount
-        const pendingResult = await db.query(`
-            SELECT r.id, r.square_customer_id, r.offer_id, o.offer_name
-            FROM loyalty_rewards r
-            JOIN loyalty_offers o ON r.offer_id = o.id
-            WHERE r.merchant_id = $1
-              AND r.status = 'earned'
-              AND (r.square_group_id IS NULL OR r.square_discount_id IS NULL)
-        `, [merchantId]);
+        // Find earned rewards to sync
+        // If force=true, get ALL earned rewards; otherwise only those not yet synced
+        let query;
+        if (force) {
+            query = `
+                SELECT r.id, r.square_customer_id, r.offer_id, o.offer_name,
+                       r.square_group_id, r.square_discount_id
+                FROM loyalty_rewards r
+                JOIN loyalty_offers o ON r.offer_id = o.id
+                WHERE r.merchant_id = $1
+                  AND r.status = 'earned'
+            `;
+        } else {
+            query = `
+                SELECT r.id, r.square_customer_id, r.offer_id, o.offer_name,
+                       r.square_group_id, r.square_discount_id
+                FROM loyalty_rewards r
+                JOIN loyalty_offers o ON r.offer_id = o.id
+                WHERE r.merchant_id = $1
+                  AND r.status = 'earned'
+                  AND (r.square_group_id IS NULL OR r.square_discount_id IS NULL)
+            `;
+        }
 
+        const pendingResult = await db.query(query, [merchantId]);
         const pending = pendingResult.rows;
 
         if (pending.length === 0) {
             return res.json({
                 success: true,
-                message: 'All earned rewards are already synced to POS',
+                message: force ? 'No earned rewards to re-sync' : 'All earned rewards are already synced to POS',
                 synced: 0
             });
         }
 
         logger.info('Syncing earned rewards to Square POS', {
             merchantId,
-            pendingCount: pending.length
+            pendingCount: pending.length,
+            force
         });
 
         const results = [];
         for (const reward of pending) {
             try {
+                // If force mode and reward has existing Square objects, clean them up first
+                if (force && reward.square_group_id) {
+                    await loyaltyService.cleanupSquareCustomerGroupDiscount({
+                        merchantId,
+                        squareCustomerId: reward.square_customer_id,
+                        internalRewardId: reward.id
+                    });
+                }
+
                 const result = await loyaltyService.createSquareCustomerGroupDiscount({
                     merchantId,
                     squareCustomerId: reward.square_customer_id,
@@ -11182,7 +11230,8 @@ app.post('/api/loyalty/rewards/sync-to-pos', requireAuth, requireMerchant, requi
         logger.info('Finished syncing rewards to POS', {
             merchantId,
             total: pending.length,
-            success: successCount
+            success: successCount,
+            force
         });
 
         res.json({
@@ -11201,13 +11250,14 @@ app.post('/api/loyalty/rewards/sync-to-pos', requireAuth, requireMerchant, requi
 
 /**
  * GET /api/loyalty/rewards/pending-sync
- * Get count of earned rewards that need to be synced to Square POS
+ * Get count of earned rewards - both pending sync and already synced
  */
 app.get('/api/loyalty/rewards/pending-sync', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
-        const result = await db.query(`
+        // Get count of pending (not yet synced) rewards
+        const pendingResult = await db.query(`
             SELECT COUNT(*) as count
             FROM loyalty_rewards
             WHERE merchant_id = $1
@@ -11215,8 +11265,19 @@ app.get('/api/loyalty/rewards/pending-sync', requireAuth, requireMerchant, async
               AND (square_group_id IS NULL OR square_discount_id IS NULL)
         `, [merchantId]);
 
+        // Get count of synced rewards
+        const syncedResult = await db.query(`
+            SELECT COUNT(*) as count
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+              AND status = 'earned'
+              AND square_group_id IS NOT NULL
+              AND square_discount_id IS NOT NULL
+        `, [merchantId]);
+
         res.json({
-            pendingCount: parseInt(result.rows[0].count, 10)
+            pendingCount: parseInt(pendingResult.rows[0].count, 10),
+            syncedCount: parseInt(syncedResult.rows[0].count, 10)
         });
 
     } catch (error) {

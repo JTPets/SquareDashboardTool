@@ -698,10 +698,28 @@
                   <span id="pending-count">0</span> earned reward(s) need to be synced to Square POS
                 </p>
               </div>
-              <button class="btn-primary" onclick="syncRewardsToPOS()" id="sync-btn" style="white-space: nowrap;">
+              <button class="btn-primary" onclick="syncRewardsToPOS(false)" id="sync-btn" style="white-space: nowrap;">
                 Sync to POS
               </button>
             </div>
+          </div>
+
+          <!-- Re-sync Section (always visible if there are earned rewards) -->
+          <div id="resync-section" style="margin-bottom: 20px; padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong style="color: #166534;">Synced Rewards</strong>
+                <p style="margin: 5px 0 0 0; color: #15803d; font-size: 14px;">
+                  <span id="synced-count">0</span> earned reward(s) synced to Square POS
+                </p>
+              </div>
+              <button class="btn-warning" onclick="syncRewardsToPOS(true)" id="resync-btn" style="white-space: nowrap;">
+                Re-sync All
+              </button>
+            </div>
+            <p style="margin: 10px 0 0 0; color: #6b7280; font-size: 12px;">
+              Use Re-sync if discounts aren't working correctly (e.g., applying to multiple items instead of 1)
+            </p>
           </div>
 
           <div class="alert alert-info">
@@ -1679,36 +1697,54 @@
       }
     }
 
-    // Check for earned rewards that haven't been synced to Square POS yet
+    // Check for earned rewards sync status (pending and synced counts)
     async function loadPendingSyncCount() {
       try {
         const response = await fetch('/api/loyalty/rewards/pending-sync');
         const data = await response.json();
 
-        const section = document.getElementById('sync-pending-section');
-        const countEl = document.getElementById('pending-count');
+        const pendingSection = document.getElementById('sync-pending-section');
+        const pendingCountEl = document.getElementById('pending-count');
+        const resyncSection = document.getElementById('resync-section');
+        const syncedCountEl = document.getElementById('synced-count');
 
+        // Show pending section if there are unsynced rewards
         if (data.pendingCount > 0) {
-          countEl.textContent = data.pendingCount;
-          section.style.display = 'block';
+          pendingCountEl.textContent = data.pendingCount;
+          pendingSection.style.display = 'block';
         } else {
-          section.style.display = 'none';
+          pendingSection.style.display = 'none';
+        }
+
+        // Show re-sync section if there are synced rewards
+        if (data.syncedCount > 0) {
+          syncedCountEl.textContent = data.syncedCount;
+          resyncSection.style.display = 'block';
+        } else {
+          resyncSection.style.display = 'none';
         }
       } catch (error) {
         console.error('Failed to check pending sync:', error);
       }
     }
 
-    // Sync all pending earned rewards to Square POS
-    async function syncRewardsToPOS() {
-      const btn = document.getElementById('sync-btn');
+    // Sync earned rewards to Square POS
+    // force=true will re-sync all, force=false will only sync pending
+    async function syncRewardsToPOS(force = false) {
+      const btn = force ? document.getElementById('resync-btn') : document.getElementById('sync-btn');
       const originalText = btn.textContent;
+
+      const confirmMsg = force
+        ? 'Re-sync all earned rewards? This will delete and recreate all discounts in Square.'
+        : 'Sync pending rewards to Square POS?';
+
+      if (!confirm(confirmMsg)) return;
 
       try {
         btn.disabled = true;
-        btn.textContent = 'Syncing...';
+        btn.textContent = force ? 'Re-syncing...' : 'Syncing...';
 
-        const response = await fetch('/api/loyalty/rewards/sync-to-pos', {
+        const response = await fetch('/api/loyalty/rewards/sync-to-pos' + (force ? '?force=true' : ''), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -1717,7 +1753,7 @@
 
         if (data.success) {
           alert(`Synced ${data.synced} of ${data.total} rewards to Square POS!`);
-          loadPendingSyncCount();  // Refresh the count
+          loadPendingSyncCount();  // Refresh the counts
         } else {
           throw new Error(data.error || 'Sync failed');
         }
