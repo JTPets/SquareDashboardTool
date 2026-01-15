@@ -1247,6 +1247,38 @@ async function updateRewardProgress(client, data) {
             squareCustomerId,
             offerName: offer.offer_name
         });
+
+        // Try to create a Square Loyalty reward (non-blocking)
+        // This makes the reward visible in Square POS for the cashier
+        setImmediate(async () => {
+            try {
+                const squareResult = await createSquareLoyaltyReward({
+                    merchantId,
+                    squareCustomerId,
+                    internalRewardId: reward.id,
+                    offerId
+                });
+                if (squareResult.success) {
+                    logger.info('Square Loyalty reward created for earned reward', {
+                        merchantId,
+                        rewardId: reward.id,
+                        squareRewardId: squareResult.squareRewardId
+                    });
+                } else {
+                    logger.warn('Could not create Square Loyalty reward', {
+                        merchantId,
+                        rewardId: reward.id,
+                        reason: squareResult.error
+                    });
+                }
+            } catch (err) {
+                logger.error('Error creating Square Loyalty reward', {
+                    error: err.message,
+                    merchantId,
+                    rewardId: reward.id
+                });
+            }
+        });
     }
 
     // Update customer summary
@@ -2182,6 +2214,229 @@ async function getAuditLogs(merchantId, options = {}) {
 // ============================================================================
 
 // ============================================================================
+// SQUARE LOYALTY INTEGRATION
+// When a customer earns a reward in our system, create a corresponding
+// Square Loyalty Reward so it shows up in Square POS for redemption
+// ============================================================================
+
+/**
+ * Get the merchant's Square Loyalty program and reward tiers
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Loyalty program with reward tiers, or null if not set up
+ */
+async function getSquareLoyaltyProgram(merchantId) {
+    try {
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Get the main loyalty program
+        const response = await fetch('https://connect.squareup.com/v2/loyalty/programs/main', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                logger.info('No Square Loyalty program found for merchant', { merchantId });
+                return null;
+            }
+            logger.error('Failed to fetch Square Loyalty program', { merchantId, status: response.status });
+            return null;
+        }
+
+        const data = await response.json();
+        return data.program || null;
+
+    } catch (error) {
+        logger.error('Error fetching Square Loyalty program', { error: error.message, merchantId });
+        return null;
+    }
+}
+
+/**
+ * Get or create a Square Loyalty account for a customer
+ * @param {string} customerId - Square customer ID
+ * @param {string} programId - Square Loyalty program ID
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Loyalty account or null
+ */
+async function getOrCreateLoyaltyAccount(customerId, programId, merchantId) {
+    try {
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // First, search for existing loyalty account
+        const searchResponse = await fetch('https://connect.squareup.com/v2/loyalty/accounts/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                query: {
+                    customer_ids: [customerId]
+                }
+            })
+        });
+
+        if (searchResponse.ok) {
+            const searchData = await searchResponse.json();
+            if (searchData.loyalty_accounts && searchData.loyalty_accounts.length > 0) {
+                return searchData.loyalty_accounts[0];
+            }
+        }
+
+        // If no account exists, we can't create one without a phone number mapping
+        // The customer needs to have enrolled in Square Loyalty via POS
+        logger.info('No Square Loyalty account found for customer', { customerId, programId });
+        return null;
+
+    } catch (error) {
+        logger.error('Error getting Square Loyalty account', { error: error.message, customerId });
+        return null;
+    }
+}
+
+/**
+ * Create a Square Loyalty Reward when a customer earns a reward in our system
+ * This makes the reward visible in Square POS for the cashier to apply
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {number} params.internalRewardId - Our internal reward ID (for tracking)
+ * @param {number} params.offerId - Our internal offer ID
+ * @returns {Promise<Object>} Result with Square reward ID if successful
+ */
+async function createSquareLoyaltyReward({ merchantId, squareCustomerId, internalRewardId, offerId }) {
+    try {
+        // Get the Square Loyalty program
+        const program = await getSquareLoyaltyProgram(merchantId);
+        if (!program) {
+            return {
+                success: false,
+                error: 'No Square Loyalty program configured. Set up Square Loyalty in your Square Dashboard first.'
+            };
+        }
+
+        // Get our offer to find the mapped reward tier
+        const offerResult = await db.query(
+            'SELECT square_reward_tier_id FROM loyalty_offers WHERE id = $1 AND merchant_id = $2',
+            [offerId, merchantId]
+        );
+
+        if (offerResult.rows.length === 0 || !offerResult.rows[0].square_reward_tier_id) {
+            return {
+                success: false,
+                error: 'This offer is not linked to a Square Loyalty reward tier. Configure the Square Reward Tier in offer settings.'
+            };
+        }
+
+        const rewardTierId = offerResult.rows[0].square_reward_tier_id;
+
+        // Get customer's loyalty account
+        const loyaltyAccount = await getOrCreateLoyaltyAccount(squareCustomerId, program.id, merchantId);
+        if (!loyaltyAccount) {
+            return {
+                success: false,
+                error: 'Customer does not have a Square Loyalty account. They need to enroll via Square POS first.'
+            };
+        }
+
+        // Get access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Create the Square Loyalty Reward
+        const createResponse = await fetch('https://connect.squareup.com/v2/loyalty/rewards', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                reward: {
+                    loyalty_account_id: loyaltyAccount.id,
+                    reward_tier_id: rewardTierId
+                },
+                idempotency_key: `fbp-reward-${internalRewardId}-${Date.now()}`
+            })
+        });
+
+        if (!createResponse.ok) {
+            const errText = await createResponse.text();
+            logger.error('Failed to create Square Loyalty reward', {
+                status: createResponse.status,
+                error: errText,
+                merchantId,
+                customerId: squareCustomerId
+            });
+            return {
+                success: false,
+                error: `Square API error: ${createResponse.status}`
+            };
+        }
+
+        const createData = await createResponse.json();
+        const squareReward = createData.reward;
+
+        // Store the Square reward ID in our reward record
+        await db.query(
+            'UPDATE loyalty_rewards SET square_reward_id = $1, updated_at = NOW() WHERE id = $2',
+            [squareReward.id, internalRewardId]
+        );
+
+        logger.info('Created Square Loyalty reward', {
+            merchantId,
+            customerId: squareCustomerId,
+            squareRewardId: squareReward.id,
+            internalRewardId
+        });
+
+        return {
+            success: true,
+            squareRewardId: squareReward.id,
+            loyaltyAccountId: loyaltyAccount.id
+        };
+
+    } catch (error) {
+        logger.error('Error creating Square Loyalty reward', { error: error.message, merchantId });
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -2226,6 +2481,11 @@ module.exports = {
     lookupCustomerFromLoyalty,
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,
+
+    // Square Loyalty Integration
+    getSquareLoyaltyProgram,
+    getOrCreateLoyaltyAccount,
+    createSquareLoyaltyReward,
 
     // Webhook processing
     processOrderForLoyalty,

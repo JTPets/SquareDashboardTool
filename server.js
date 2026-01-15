@@ -10965,6 +10965,142 @@ app.get('/api/loyalty/stats', requireAuth, requireMerchant, async (req, res) => 
     }
 });
 
+// ============================================================================
+// SQUARE LOYALTY INTEGRATION ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/loyalty/square-program
+ * Get the merchant's Square Loyalty program and available reward tiers
+ */
+app.get('/api/loyalty/square-program', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        const program = await loyaltyService.getSquareLoyaltyProgram(merchantId);
+
+        if (!program) {
+            return res.json({
+                hasProgram: false,
+                message: 'No Square Loyalty program found. Set up Square Loyalty in your Square Dashboard first.',
+                setupUrl: 'https://squareup.com/dashboard/loyalty'
+            });
+        }
+
+        // Extract reward tiers for configuration UI
+        const rewardTiers = (program.reward_tiers || []).map(tier => ({
+            id: tier.id,
+            name: tier.name,
+            points: tier.points,
+            definition: tier.definition
+        }));
+
+        res.json({
+            hasProgram: true,
+            programId: program.id,
+            programName: program.terminology?.one || 'Loyalty',
+            rewardTiers
+        });
+
+    } catch (error) {
+        logger.error('Error fetching Square Loyalty program', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/loyalty/offers/:id/square-tier
+ * Link an offer to a Square Loyalty reward tier
+ */
+app.put('/api/loyalty/offers/:id/square-tier', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const offerId = req.params.id;
+        const { squareRewardTierId } = req.body;
+
+        // Update the offer with the Square reward tier ID
+        const result = await db.query(
+            `UPDATE loyalty_offers
+             SET square_reward_tier_id = $1, updated_at = NOW()
+             WHERE id = $2 AND merchant_id = $3
+             RETURNING id, offer_name, square_reward_tier_id`,
+            [squareRewardTierId || null, offerId, merchantId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Offer not found' });
+        }
+
+        logger.info('Linked offer to Square Loyalty tier', {
+            merchantId,
+            offerId,
+            squareRewardTierId
+        });
+
+        res.json({
+            success: true,
+            offer: result.rows[0]
+        });
+
+    } catch (error) {
+        logger.error('Error linking offer to Square tier', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/rewards/:id/create-square-reward
+ * Manually create a Square Loyalty reward for an earned reward
+ * This is called when a reward is earned to make it visible in Square POS
+ */
+app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const rewardId = req.params.id;
+
+        // Get the reward details
+        const rewardResult = await db.query(
+            `SELECT r.*, o.square_reward_tier_id
+             FROM loyalty_rewards r
+             JOIN loyalty_offers o ON r.offer_id = o.id
+             WHERE r.id = $1 AND r.merchant_id = $2`,
+            [rewardId, merchantId]
+        );
+
+        if (rewardResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Reward not found' });
+        }
+
+        const reward = rewardResult.rows[0];
+
+        if (reward.status !== 'earned') {
+            return res.status(400).json({ error: 'Reward must be in "earned" status to create Square reward' });
+        }
+
+        if (reward.square_reward_id) {
+            return res.json({
+                success: true,
+                message: 'Square reward already exists',
+                squareRewardId: reward.square_reward_id
+            });
+        }
+
+        // Create the Square Loyalty reward
+        const result = await loyaltyService.createSquareLoyaltyReward({
+            merchantId,
+            squareCustomerId: reward.square_customer_id,
+            internalRewardId: rewardId,
+            offerId: reward.offer_id
+        });
+
+        res.json(result);
+
+    } catch (error) {
+        logger.error('Error creating Square reward', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 /**
  * GET /api/loyalty/debug
  * Diagnostic endpoint to help troubleshoot loyalty tracking issues

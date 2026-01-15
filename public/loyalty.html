@@ -369,6 +369,15 @@
       border-radius: 4px;
       margin-bottom: 10px;
     }
+    .offer-progress.reward-available {
+      background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+      border: 2px solid #10b981;
+      animation: pulse-glow 2s infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.3); }
+      50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.6); }
+    }
     .offer-progress .offer-name {
       font-weight: 600;
       display: flex;
@@ -379,6 +388,29 @@
       font-size: 13px;
       color: #6b7280;
       margin-top: 5px;
+    }
+    .btn-redeem-large {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-redeem-large:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    }
+    .btn-redeem-large::before {
+      content: "🎁";
+      font-size: 20px;
     }
 
     /* Action buttons in table */
@@ -1318,9 +1350,10 @@
           const progress = offer.current_quantity / offer.required_quantity;
           const progressPct = Math.min(progress * 100, 100);
           const isComplete = progressPct >= 100;
+          const hasReward = offer.has_earned_reward;
 
           return `
-            <div class="offer-progress">
+            <div class="offer-progress ${hasReward ? 'reward-available' : ''}">
               <div class="offer-name">
                 <span>${escapeHtml(offer.offer_name)}</span>
                 <span>${offer.current_quantity}/${offer.required_quantity}</span>
@@ -1329,17 +1362,17 @@
                 <div class="progress-bar ${isComplete ? 'complete' : ''}" style="width: ${progressPct}%"></div>
               </div>
               <div class="progress-text">
-                ${isComplete
-                  ? '<span style="color: #10b981; font-weight: 600;">Reward Available!</span>'
-                  : `${offer.required_quantity - offer.current_quantity} more to earn reward`}
-                ${offer.window_end_date ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
+                ${hasReward
+                  ? '<span style="color: #065f46; font-weight: 700; font-size: 15px;">🎉 FREE ITEM READY TO REDEEM!</span>'
+                  : isComplete
+                    ? '<span style="color: #10b981; font-weight: 600;">Reward Available!</span>'
+                    : `${offer.required_quantity - offer.current_quantity} more to earn reward`}
+                ${offer.window_end_date && !hasReward ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
               </div>
-              ${offer.has_earned_reward ? `
-                <div style="margin-top: 10px;">
-                  <button class="btn-success" onclick="showRedeemModal('${offer.earned_reward_id}', '${escapeHtml(offer.offer_name)}', '${customerId}')">
-                    Redeem Reward
-                  </button>
-                </div>
+              ${hasReward ? `
+                <button class="btn-redeem-large" onclick="showRedeemModal('${offer.earned_reward_id}', '${escapeHtml(offer.offer_name)}', '${customerId}')">
+                  Redeem Free Item Now
+                </button>
               ` : ''}
             </div>
           `;
