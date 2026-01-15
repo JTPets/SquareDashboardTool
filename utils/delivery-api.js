@@ -1118,20 +1118,25 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         status: initialStatus
     });
 
-    // Attempt geocoding (skip during sync to speed things up - will geocode later)
-    // Note: Geocoding is done in batch via the "Geocode Pending" button
-    /*
-    const settings = await getSettings(merchantId);
-    const coords = await geocodeAddress(address, settings?.openrouteservice_api_key);
+    // Geocode the address immediately so it's ready for routing
+    try {
+        const settings = await getSettings(merchantId);
+        const coords = await geocodeAddress(address, settings?.openrouteservice_api_key);
 
-    if (coords) {
-        await updateOrder(merchantId, order.id, {
-            addressLat: coords.lat,
-            addressLng: coords.lng,
-            geocodedAt: new Date()
-        });
+        if (coords) {
+            await updateOrder(merchantId, order.id, {
+                addressLat: coords.lat,
+                addressLng: coords.lng,
+                geocodedAt: new Date()
+            });
+            logger.info('Geocoded delivery order', { orderId: order.id, address });
+        } else {
+            logger.warn('Failed to geocode address', { orderId: order.id, address });
+        }
+    } catch (geoError) {
+        // Don't fail the order creation if geocoding fails
+        logger.error('Geocoding error', { orderId: order.id, address, error: geoError.message });
     }
-    */
 
     return order;
 }
