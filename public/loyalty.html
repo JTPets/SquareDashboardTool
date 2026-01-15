@@ -638,7 +638,7 @@
 
     <!-- Tab: Settings -->
     <div class="tab-content" id="tab-settings">
-      <div style="max-width: 600px;">
+      <div style="max-width: 800px;">
         <h3 style="margin-bottom: 20px;">Loyalty Program Settings</h3>
 
         <div class="form-group">
@@ -666,6 +666,14 @@
         </div>
 
         <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <!-- Square Loyalty Integration -->
+        <h3 style="margin-bottom: 20px;">Square Loyalty Integration</h3>
+        <div id="square-loyalty-section">
+          <div class="loading"><div class="spinner"></div><br>Checking Square Loyalty status...</div>
+        </div>
 
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
 
@@ -1615,6 +1623,8 @@
     }
 
     // Settings
+    let squareRewardTiers = [];
+
     async function loadSettings() {
       try {
         const response = await fetch('/api/loyalty/settings');
@@ -1623,8 +1633,171 @@
         document.getElementById('setting-loyalty_enabled').checked = data.settings.loyalty_enabled !== 'false';
         document.getElementById('setting-auto_detect_redemptions').checked = data.settings.auto_detect_redemptions === 'true';
         document.getElementById('setting-send_receipt_messages').checked = data.settings.send_receipt_messages === 'true';
+
+        // Also load Square Loyalty program info
+        loadSquareLoyaltyProgram();
       } catch (error) {
         console.error('Failed to load settings:', error);
+      }
+    }
+
+    async function loadSquareLoyaltyProgram() {
+      const container = document.getElementById('square-loyalty-section');
+
+      try {
+        const response = await fetch('/api/loyalty/square-program');
+        const data = await response.json();
+
+        if (!data.hasProgram) {
+          container.innerHTML = `
+            <div class="alert alert-warning">
+              <strong>No Square Loyalty Program Found</strong><br>
+              <p style="margin-top: 8px;">You don't have a Square Loyalty program set up. To enable automatic reward creation in Square POS:</p>
+              <ol style="margin-top: 8px; padding-left: 20px;">
+                <li>Go to Square Dashboard > Loyalty</li>
+                <li>Create a loyalty program with reward tiers</li>
+                <li>Return here to link your offers to Square reward tiers</li>
+              </ol>
+            </div>
+          `;
+          return;
+        }
+
+        squareRewardTiers = data.rewardTiers || [];
+
+        // Also fetch current offers to show mapping
+        const offersResponse = await fetch('/api/loyalty/offers?activeOnly=true');
+        const offersData = await offersResponse.json();
+
+        let tiersHtml = '';
+        if (squareRewardTiers.length === 0) {
+          tiersHtml = '<p style="color: #6b7280;">No reward tiers found in your Square Loyalty program.</p>';
+        } else {
+          tiersHtml = `
+            <div style="margin-bottom: 20px;">
+              <strong>Available Square Reward Tiers:</strong>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+                ${squareRewardTiers.map(t => `
+                  <div style="background: #f3f4f6; padding: 8px 12px; border-radius: 6px; font-size: 13px;">
+                    <strong>${escapeHtml(t.name)}</strong>
+                    <span style="color: #6b7280; margin-left: 8px;">${t.points || 0} pts</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        let mappingHtml = '';
+        if (offersData.offers && offersData.offers.length > 0) {
+          mappingHtml = `
+            <div style="margin-top: 20px;">
+              <strong>Link Offers to Square Reward Tiers:</strong>
+              <p style="color: #6b7280; font-size: 13px; margin: 8px 0;">When a customer earns a reward in your system, a Square Loyalty reward will be automatically created if linked.</p>
+              <table style="margin-top: 15px; font-size: 14px;">
+                <thead>
+                  <tr>
+                    <th>Your Offer</th>
+                    <th>Square Reward Tier</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${offersData.offers.map(offer => {
+                    const tierOptions = squareRewardTiers.map(t =>
+                      `<option value="${escapeHtml(t.id)}" ${offer.square_reward_tier_id === t.id ? 'selected' : ''}>${escapeHtml(t.name)} (${t.points || 0} pts)</option>`
+                    ).join('');
+                    return `
+                      <tr id="offer-tier-row-${offer.id}">
+                        <td>
+                          <strong>${escapeHtml(offer.offer_name)}</strong><br>
+                          <small style="color: #6b7280;">${escapeHtml(offer.brand_name)} - ${escapeHtml(offer.size_group)}</small>
+                        </td>
+                        <td>
+                          <select id="tier-select-${offer.id}" style="min-width: 200px; padding: 8px;">
+                            <option value="">-- Not linked --</option>
+                            ${tierOptions}
+                          </select>
+                        </td>
+                        <td>
+                          <button class="btn-primary" onclick="saveOfferTierMapping('${offer.id}')" style="padding: 6px 12px; font-size: 13px;">
+                            Save
+                          </button>
+                          ${offer.square_reward_tier_id ? `
+                            <span style="color: #10b981; margin-left: 8px;" id="tier-status-${offer.id}">Linked</span>
+                          ` : `
+                            <span style="color: #6b7280; margin-left: 8px;" id="tier-status-${offer.id}">Not linked</span>
+                          `}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        } else {
+          mappingHtml = `
+            <div class="alert alert-info" style="margin-top: 15px;">
+              Create loyalty offers first, then return here to link them to Square reward tiers.
+            </div>
+          `;
+        }
+
+        container.innerHTML = `
+          <div class="alert alert-success" style="margin-bottom: 20px;">
+            <strong>Square Loyalty Program Connected</strong><br>
+            <span style="color: #065f46;">Program: ${escapeHtml(data.programName)}</span>
+          </div>
+          ${tiersHtml}
+          ${mappingHtml}
+        `;
+
+      } catch (error) {
+        console.error('Failed to load Square Loyalty program:', error);
+        container.innerHTML = `
+          <div class="alert alert-danger">
+            <strong>Failed to load Square Loyalty program</strong><br>
+            ${escapeHtml(error.message)}
+          </div>
+        `;
+      }
+    }
+
+    async function saveOfferTierMapping(offerId) {
+      const tierId = document.getElementById(`tier-select-${offerId}`).value;
+      const statusEl = document.getElementById(`tier-status-${offerId}`);
+
+      try {
+        const response = await fetch(`/api/loyalty/offers/${offerId}/square-tier`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ squareRewardTierId: tierId || null })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to save mapping');
+        }
+
+        // Update status indicator
+        if (tierId) {
+          statusEl.textContent = 'Linked';
+          statusEl.style.color = '#10b981';
+        } else {
+          statusEl.textContent = 'Not linked';
+          statusEl.style.color = '#6b7280';
+        }
+
+        // Brief success flash
+        statusEl.textContent = 'Saved!';
+        setTimeout(() => {
+          statusEl.textContent = tierId ? 'Linked' : 'Not linked';
+        }, 1500);
+
+      } catch (error) {
+        console.error('Failed to save tier mapping:', error);
+        alert('Error: ' + error.message);
       }
     }
 
