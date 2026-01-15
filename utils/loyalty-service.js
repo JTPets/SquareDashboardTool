@@ -355,6 +355,77 @@ async function updateOffer(offerId, updates, merchantId, userId = null) {
     return result.rows[0];
 }
 
+/**
+ * Delete a loyalty offer
+ * This will also remove all qualifying variations for the offer
+ * Note: Does NOT delete historical rewards/redemptions for audit purposes
+ * @param {string} offerId - Offer UUID
+ * @param {number} merchantId - REQUIRED: Merchant ID for tenant isolation
+ * @param {string} userId - Admin user ID for audit
+ */
+async function deleteOffer(offerId, merchantId, userId = null) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for deleteOffer - tenant isolation required');
+    }
+
+    // First verify the offer exists and belongs to this merchant
+    const offerCheck = await db.query(`
+        SELECT id, offer_name, brand_name, size_group
+        FROM loyalty_offers
+        WHERE id = $1 AND merchant_id = $2
+    `, [offerId, merchantId]);
+
+    if (offerCheck.rows.length === 0) {
+        throw new Error('Offer not found or access denied');
+    }
+
+    const offer = offerCheck.rows[0];
+
+    // Check for any in-progress or earned rewards
+    const activeRewardsCheck = await db.query(`
+        SELECT COUNT(*) as count
+        FROM loyalty_rewards
+        WHERE offer_id = $1 AND merchant_id = $2 AND status IN ('in_progress', 'earned')
+    `, [offerId, merchantId]);
+
+    const activeCount = parseInt(activeRewardsCheck.rows[0].count);
+
+    // Delete qualifying variations first (foreign key constraint)
+    await db.query(`
+        DELETE FROM loyalty_qualifying_variations
+        WHERE offer_id = $1 AND merchant_id = $2
+    `, [offerId, merchantId]);
+
+    // Delete the offer
+    await db.query(`
+        DELETE FROM loyalty_offers
+        WHERE id = $1 AND merchant_id = $2
+    `, [offerId, merchantId]);
+
+    // Log audit event
+    await logAuditEvent({
+        merchantId,
+        action: AuditActions.OFFER_DELETED || 'OFFER_DELETED',
+        offerId,
+        triggeredBy: userId ? 'ADMIN' : 'SYSTEM',
+        userId,
+        details: {
+            deletedOffer: offer.offer_name,
+            brandName: offer.brand_name,
+            sizeGroup: offer.size_group,
+            hadActiveRewards: activeCount > 0,
+            activeRewardsCount: activeCount
+        }
+    });
+
+    return {
+        deleted: true,
+        offerName: offer.offer_name,
+        hadActiveRewards: activeCount > 0,
+        activeRewardsCount: activeCount
+    };
+}
+
 // ============================================================================
 // QUALIFYING VARIATIONS MANAGEMENT
 // ============================================================================
@@ -1702,6 +1773,7 @@ module.exports = {
     getOffers,
     getOfferById,
     updateOffer,
+    deleteOffer,
 
     // Qualifying variations
     addQualifyingVariations,

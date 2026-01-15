@@ -863,6 +863,7 @@
             <td>
               <button class="action-btn view" onclick="showVariationsModal('${offer.id}')">Variations</button>
               <button class="action-btn edit" onclick="editOffer('${offer.id}')">Edit</button>
+              <button class="action-btn danger" onclick="deleteOffer('${offer.id}', '${escapeHtml(offer.offer_name)}')">Delete</button>
             </td>
           </tr>
         `).join('');
@@ -905,6 +906,45 @@
       document.getElementById('offer-window').disabled = true;
 
       showModal('offer-modal');
+    }
+
+    async function deleteOffer(offerId, offerName) {
+      const confirmed = confirm(
+        `Are you sure you want to delete "${offerName}"?\n\n` +
+        `This will:\n` +
+        `- Remove the offer and all its qualifying variations\n` +
+        `- Any customers with in-progress rewards will lose their progress\n\n` +
+        `Historical redemptions will be preserved for audit purposes.\n\n` +
+        `This action cannot be undone.`
+      );
+
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/loyalty/offers/${offerId}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to delete offer');
+        }
+
+        const result = await response.json();
+
+        if (result.hadActiveRewards) {
+          alert(`Offer deleted.\n\nNote: ${result.activeRewardsCount} customer(s) had active rewards in progress that are now orphaned.`);
+        } else {
+          alert('Offer deleted successfully!');
+        }
+
+        loadOffers();
+        loadStats();
+
+      } catch (error) {
+        console.error('Failed to delete offer:', error);
+        alert('Error: ' + error.message);
+      }
     }
 
     async function saveOffer() {
