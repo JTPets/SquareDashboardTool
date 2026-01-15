@@ -10566,6 +10566,34 @@ app.patch('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteA
 });
 
 /**
+ * DELETE /api/loyalty/offers/:id
+ * Delete a loyalty offer (discontinued by vendor)
+ * Note: Historical rewards/redemptions are preserved for audit
+ */
+app.delete('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await loyaltyService.deleteOffer(
+            req.params.id,
+            merchantId,
+            req.session.user.id
+        );
+
+        logger.info('Deleted loyalty offer', {
+            offerId: req.params.id,
+            offerName: result.offerName,
+            hadActiveRewards: result.hadActiveRewards,
+            merchantId
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error deleting loyalty offer', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/offers/:id/variations
  * Add qualifying variations to an offer
  * IMPORTANT: Only explicitly added variations qualify for the offer
