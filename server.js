@@ -9496,6 +9496,9 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
             return res.status(404).json({ error: 'Order not found' });
         }
 
+        let squareSynced = false;
+        let squareSyncError = null;
+
         // If Square order, sync fulfillment completion to Square
         if (order.square_order_id) {
             try {
@@ -9507,10 +9510,10 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
                 });
 
                 if (squareOrder.order && squareOrder.order.fulfillments) {
-                    // Find the delivery/shipment fulfillment
+                    // Find the delivery/shipment fulfillment (check multiple types)
                     const fulfillment = squareOrder.order.fulfillments.find(f =>
-                        f.type === 'DELIVERY' || f.type === 'SHIPMENT'
-                    );
+                        f.type === 'DELIVERY' || f.type === 'SHIPMENT' || f.type === 'PICKUP'
+                    ) || squareOrder.order.fulfillments[0]; // Fall back to first fulfillment
 
                     if (fulfillment && fulfillment.state !== 'COMPLETED') {
                         // Update the fulfillment to COMPLETED
@@ -9527,15 +9530,25 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
                             idempotencyKey: `complete-${order.id}-${Date.now()}`
                         });
 
+                        squareSynced = true;
                         logger.info('Synced delivery completion to Square', {
                             merchantId,
                             orderId: order.id,
                             squareOrderId: order.square_order_id,
-                            fulfillmentUid: fulfillment.uid
+                            fulfillmentUid: fulfillment.uid,
+                            fulfillmentType: fulfillment.type
                         });
+                    } else if (fulfillment && fulfillment.state === 'COMPLETED') {
+                        squareSynced = true; // Already completed in Square
                     }
+                } else {
+                    logger.warn('Square order has no fulfillments', {
+                        orderId: order.id,
+                        squareOrderId: order.square_order_id
+                    });
                 }
             } catch (squareError) {
+                squareSyncError = squareError.message;
                 logger.error('Failed to sync completion to Square', {
                     error: squareError.message,
                     orderId: order.id,
@@ -9547,7 +9560,11 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
 
         const completedOrder = await deliveryApi.completeOrder(merchantId, req.params.id, req.session.user.id);
 
-        res.json({ order: completedOrder });
+        res.json({
+            order: completedOrder,
+            square_synced: squareSynced,
+            square_sync_error: squareSyncError
+        });
     } catch (error) {
         logger.error('Error completing delivery order', { error: error.message });
         res.status(500).json({ error: error.message });
