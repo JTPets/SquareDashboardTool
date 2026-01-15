@@ -11065,10 +11065,34 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
 
         logger.info('Manually processing order for loyalty', { squareOrderId, merchantId });
 
-        // Fetch the order from Square
-        const squareApi = new SquareClient({ accessToken: req.merchantContext.square_access_token });
-        const { result } = await squareApi.ordersApi.retrieveOrder(squareOrderId);
-        const order = result.order;
+        // Get and decrypt access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return res.status(400).json({ error: 'No Square access token configured for this merchant' });
+        }
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Fetch the order from Square using raw API
+        const orderResponse = await fetch(`https://connect.squareup.com/v2/orders/${squareOrderId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            }
+        });
+
+        if (!orderResponse.ok) {
+            const errText = await orderResponse.text();
+            return res.status(orderResponse.status).json({ error: `Square API error: ${errText}` });
+        }
+
+        const orderData = await orderResponse.json();
+        const order = orderData.order;
 
         if (!order) {
             return res.status(404).json({ error: 'Order not found in Square' });
@@ -11077,19 +11101,19 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
         // Return diagnostic info about the order
         const diagnostics = {
             orderId: order.id,
-            customerId: order.customerId || null,
-            hasCustomer: !!order.customerId,
+            customerId: order.customer_id || null,
+            hasCustomer: !!order.customer_id,
             state: order.state,
-            createdAt: order.createdAt,
-            lineItems: (order.lineItems || []).map(li => ({
+            createdAt: order.created_at,
+            lineItems: (order.line_items || []).map(li => ({
                 name: li.name,
                 quantity: li.quantity,
-                catalogObjectId: li.catalogObjectId,
-                variationName: li.variationName
+                catalogObjectId: li.catalog_object_id,
+                variationName: li.variation_name
             }))
         };
 
-        if (!order.customerId) {
+        if (!order.customer_id) {
             return res.json({
                 processed: false,
                 reason: 'Order has no customer ID attached',
@@ -11098,7 +11122,7 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
             });
         }
 
-        // Process the order for loyalty
+        // Process the order for loyalty (use snake_case since we're using raw API response)
         const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
 
         res.json({
