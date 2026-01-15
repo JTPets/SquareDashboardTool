@@ -35,7 +35,9 @@ const REQUIRED_SCOPES = [
     'INVENTORY_READ',
     'INVENTORY_WRITE',
     'ORDERS_READ',
-    'VENDOR_READ'
+    'VENDOR_READ',
+    'LOYALTY_READ',
+    'CUSTOMERS_READ'
 ];
 
 /**
