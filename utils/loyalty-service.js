@@ -1247,6 +1247,38 @@ async function updateRewardProgress(client, data) {
             squareCustomerId,
             offerName: offer.offer_name
         });
+
+        // Try to create a Square Loyalty reward (non-blocking)
+        // This makes the reward visible in Square POS for the cashier
+        setImmediate(async () => {
+            try {
+                const squareResult = await createSquareLoyaltyReward({
+                    merchantId,
+                    squareCustomerId,
+                    internalRewardId: reward.id,
+                    offerId
+                });
+                if (squareResult.success) {
+                    logger.info('Square Loyalty reward created for earned reward', {
+                        merchantId,
+                        rewardId: reward.id,
+                        squareRewardId: squareResult.squareRewardId
+                    });
+                } else {
+                    logger.warn('Could not create Square Loyalty reward', {
+                        merchantId,
+                        rewardId: reward.id,
+                        reason: squareResult.error
+                    });
+                }
+            } catch (err) {
+                logger.error('Error creating Square Loyalty reward', {
+                    error: err.message,
+                    merchantId,
+                    rewardId: reward.id
+                });
+            }
+        });
     }
 
     // Update customer summary
