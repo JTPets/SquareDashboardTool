@@ -10966,6 +10966,109 @@ app.get('/api/loyalty/stats', requireAuth, requireMerchant, async (req, res) => 
 });
 
 /**
+ * GET /api/loyalty/debug
+ * Diagnostic endpoint to help troubleshoot loyalty tracking issues
+ */
+app.get('/api/loyalty/debug', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Check loyalty enabled setting
+        const loyaltyEnabled = await loyaltyService.getSetting('loyalty_enabled', merchantId);
+
+        // Get configured offers with their variation IDs
+        const offersResult = await db.query(`
+            SELECT
+                o.id,
+                o.offer_name,
+                o.brand_name,
+                o.size_group,
+                o.is_active,
+                COUNT(qv.id) as variation_count,
+                ARRAY_AGG(qv.variation_id) FILTER (WHERE qv.variation_id IS NOT NULL) as variation_ids
+            FROM loyalty_offers o
+            LEFT JOIN loyalty_qualifying_variations qv ON o.id = qv.offer_id AND qv.is_active = TRUE
+            WHERE o.merchant_id = $1
+            GROUP BY o.id
+            ORDER BY o.created_at DESC
+        `, [merchantId]);
+
+        // Get recent purchase events (last 10)
+        const recentPurchases = await db.query(`
+            SELECT
+                pe.id,
+                pe.square_order_id,
+                pe.square_customer_id,
+                pe.variation_id,
+                pe.quantity,
+                pe.purchased_at,
+                o.offer_name
+            FROM loyalty_purchase_events pe
+            JOIN loyalty_offers o ON pe.offer_id = o.id
+            WHERE pe.merchant_id = $1
+            ORDER BY pe.purchased_at DESC
+            LIMIT 10
+        `, [merchantId]);
+
+        // Get recent orders from the orders table to compare variation IDs
+        const recentOrders = await db.query(`
+            SELECT
+                o.id,
+                o.square_order_id,
+                o.customer_id,
+                o.line_items,
+                o.created_at
+            FROM orders o
+            WHERE o.merchant_id = $1
+            ORDER BY o.created_at DESC
+            LIMIT 5
+        `, [merchantId]);
+
+        // Extract variation IDs from recent orders for comparison
+        const orderVariationIds = [];
+        for (const order of recentOrders.rows) {
+            if (order.line_items && Array.isArray(order.line_items)) {
+                for (const item of order.line_items) {
+                    orderVariationIds.push({
+                        orderId: order.square_order_id,
+                        customerId: order.customer_id,
+                        variationId: item.catalog_object_id,
+                        name: item.name,
+                        quantity: item.quantity
+                    });
+                }
+            }
+        }
+
+        res.json({
+            debug: {
+                loyaltyEnabled: loyaltyEnabled !== 'false',
+                offers: offersResult.rows.map(o => ({
+                    id: o.id,
+                    name: o.offer_name,
+                    brand: o.brand_name,
+                    sizeGroup: o.size_group,
+                    isActive: o.is_active,
+                    variationCount: parseInt(o.variation_count),
+                    variationIds: o.variation_ids || []
+                })),
+                recentLoyaltyPurchases: recentPurchases.rows,
+                recentOrderLineItems: orderVariationIds,
+                troubleshooting: {
+                    tip1: 'Compare variationIds from offers with variationIds from recentOrderLineItems',
+                    tip2: 'Ensure orders have a customerId - orders without customers cannot earn loyalty',
+                    tip3: 'Check that loyaltyEnabled is true',
+                    tip4: 'Verify variation IDs match exactly (case-sensitive)'
+                }
+            }
+        });
+    } catch (error) {
+        logger.error('Error in loyalty debug endpoint', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
  * This removes purchases outside the rolling window
