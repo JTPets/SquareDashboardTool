@@ -11174,6 +11174,128 @@ app.get('/api/loyalty/customer/:customerId', requireAuth, requireMerchant, async
 });
 
 /**
+ * GET /api/loyalty/customers/search
+ * Search customers by phone number, email, or name
+ */
+app.get('/api/loyalty/customers/search', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const query = req.query.q?.trim();
+
+        if (!query || query.length < 2) {
+            return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+        }
+
+        // Get access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return res.status(400).json({ error: 'No Square access token configured' });
+        }
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Normalize phone number - remove spaces, dashes, parentheses
+        const normalizedQuery = query.replace(/[\s\-\(\)\.]/g, '');
+        const isPhoneSearch = /^\+?\d{7,}$/.test(normalizedQuery);
+
+        let searchFilter = {};
+
+        if (isPhoneSearch) {
+            // Phone number search
+            searchFilter = {
+                phone_number: {
+                    exact: normalizedQuery.startsWith('+') ? normalizedQuery : `+1${normalizedQuery}`
+                }
+            };
+        } else if (query.includes('@')) {
+            // Email search
+            searchFilter = {
+                email_address: {
+                    fuzzy: query
+                }
+            };
+        } else {
+            // Name search (fuzzy)
+            // Square doesn't have a direct name filter, so we use the general query
+        }
+
+        // Search customers using Square API
+        const searchBody = {
+            limit: 20
+        };
+
+        // If we have a specific filter, use it
+        if (Object.keys(searchFilter).length > 0) {
+            searchBody.query = { filter: searchFilter };
+        } else {
+            // For name searches, use the general search which searches across all text fields
+            searchBody.query = {
+                filter: {
+                    // Fuzzy search on display name/company name
+                },
+                sort: {
+                    field: 'CREATED_AT',
+                    order: 'DESC'
+                }
+            };
+        }
+
+        const response = await fetch('https://connect.squareup.com/v2/customers/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify(searchBody)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            logger.error('Square customer search failed', { status: response.status, error: errText });
+            return res.status(response.status).json({ error: 'Square API error' });
+        }
+
+        const data = await response.json();
+        const customers = (data.customers || []).map(c => ({
+            id: c.id,
+            displayName: [c.given_name, c.family_name].filter(Boolean).join(' ') || c.company_name || 'Unknown',
+            givenName: c.given_name || null,
+            familyName: c.family_name || null,
+            phone: c.phone_number || null,
+            email: c.email_address || null,
+            createdAt: c.created_at
+        }));
+
+        // For name searches, filter client-side since Square doesn't have fuzzy name search
+        let filteredCustomers = customers;
+        if (!isPhoneSearch && !query.includes('@')) {
+            const lowerQuery = query.toLowerCase();
+            filteredCustomers = customers.filter(c =>
+                c.displayName?.toLowerCase().includes(lowerQuery) ||
+                c.givenName?.toLowerCase().includes(lowerQuery) ||
+                c.familyName?.toLowerCase().includes(lowerQuery) ||
+                c.phone?.includes(query) ||
+                c.email?.toLowerCase().includes(lowerQuery)
+            );
+        }
+
+        res.json({
+            query,
+            searchType: isPhoneSearch ? 'phone' : (query.includes('@') ? 'email' : 'name'),
+            customers: filteredCustomers
+        });
+
+    } catch (error) {
+        logger.error('Error searching customers', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/backfill
  * Fetch recent orders from Square and process them for loyalty
  * Useful for catching up on orders that weren't processed via webhook

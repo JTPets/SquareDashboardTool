@@ -475,13 +475,14 @@
     <!-- Tab: Customer Lookup -->
     <div class="tab-content" id="tab-customers">
       <div class="controls">
-        <input type="text" id="customer-search" placeholder="Enter Square Customer ID" onkeyup="handleCustomerSearchKeyup(event)">
+        <input type="text" id="customer-search" placeholder="Search by phone, email, or name..." onkeyup="handleCustomerSearchKeyup(event)">
         <button class="btn-primary" onclick="searchCustomer()">Search</button>
       </div>
+      <div id="customer-search-results" style="display: none; margin-bottom: 15px;"></div>
       <div id="customer-result-container">
         <div class="empty-state">
           <h3>Search for a Customer</h3>
-          <p>Enter a Square Customer ID to view their loyalty status and rewards.</p>
+          <p>Enter a phone number, email address, or name to find a customer and view their loyalty status.</p>
         </div>
       </div>
     </div>
@@ -1217,31 +1218,103 @@
     }
 
     async function searchCustomer() {
-      const customerId = document.getElementById('customer-search').value.trim();
+      const query = document.getElementById('customer-search').value.trim();
+      const searchResults = document.getElementById('customer-search-results');
       const container = document.getElementById('customer-result-container');
 
-      if (!customerId) {
-        alert('Please enter a customer ID');
+      if (!query) {
+        alert('Please enter a phone number, email, or name');
         return;
       }
 
+      searchResults.style.display = 'none';
       container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Searching...</div>';
 
       try {
-        const response = await fetch(`/api/loyalty/customer/${customerId}`);
+        // Search for customers by phone/email/name
+        const response = await fetch(`/api/loyalty/customers/search?q=${encodeURIComponent(query)}`);
         const data = await response.json();
 
-        if (!data.offers || data.offers.length === 0) {
+        if (data.error) {
+          container.innerHTML = `<div class="empty-state"><p style="color: #dc2626;">${escapeHtml(data.error)}</p></div>`;
+          return;
+        }
+
+        if (!data.customers || data.customers.length === 0) {
           container.innerHTML = `
-            <div class="customer-result">
-              <h4>Customer: ${escapeHtml(customerId)}</h4>
-              <p style="color: #6b7280;">No loyalty activity found for this customer.</p>
+            <div class="empty-state">
+              <h3>No customers found</h3>
+              <p>No customers match "${escapeHtml(query)}". Try a different search term.</p>
             </div>
           `;
           return;
         }
 
-        const offersHtml = data.offers.map(offer => {
+        // If only one result, show their loyalty status directly
+        if (data.customers.length === 1) {
+          await showCustomerLoyalty(data.customers[0].id, data.customers[0]);
+          return;
+        }
+
+        // Multiple results - show list to pick from
+        searchResults.style.display = 'block';
+        searchResults.innerHTML = `
+          <div style="background: #f9fafb; padding: 12px; border-radius: 8px;">
+            <strong>Found ${data.customers.length} customers:</strong>
+            <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px;">
+              ${data.customers.map(c => `
+                <button class="btn-secondary" onclick="showCustomerLoyalty('${c.id}')" style="text-align: left; padding: 10px 15px;">
+                  <strong>${escapeHtml(c.displayName || 'Unknown')}</strong><br>
+                  <small style="color: #6b7280;">
+                    ${c.phone ? escapeHtml(c.phone) : ''}
+                    ${c.phone && c.email ? ' • ' : ''}
+                    ${c.email ? escapeHtml(c.email) : ''}
+                  </small>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+        container.innerHTML = '<div class="empty-state"><p>Select a customer above to view their loyalty status.</p></div>';
+
+      } catch (error) {
+        console.error('Failed to search customers:', error);
+        container.innerHTML = '<div class="empty-state">Failed to search customers. Please try again.</div>';
+      }
+    }
+
+    async function showCustomerLoyalty(customerId, customerInfo = null) {
+      const searchResults = document.getElementById('customer-search-results');
+      const container = document.getElementById('customer-result-container');
+
+      searchResults.style.display = 'none';
+      container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading loyalty status...</div>';
+
+      try {
+        const response = await fetch(`/api/loyalty/customer/${customerId}`);
+        const data = await response.json();
+
+        // Use customer info from search or from API response
+        const customer = data.customer || customerInfo || { id: customerId };
+        const displayName = customer.displayName || customer.givenName || 'Unknown Customer';
+        const offers = data.loyalty?.offers || data.offers || [];
+
+        if (offers.length === 0) {
+          container.innerHTML = `
+            <div class="customer-result">
+              <h4>${escapeHtml(displayName)}</h4>
+              <p style="color: #6b7280; font-size: 13px;">
+                ${customer.phone ? escapeHtml(customer.phone) : ''}
+                ${customer.phone && customer.email ? ' • ' : ''}
+                ${customer.email ? escapeHtml(customer.email) : ''}
+              </p>
+              <p style="color: #6b7280; margin-top: 10px;">No loyalty activity found for this customer.</p>
+            </div>
+          `;
+          return;
+        }
+
+        const offersHtml = offers.map(offer => {
           const progress = offer.current_quantity / offer.required_quantity;
           const progressPct = Math.min(progress * 100, 100);
           const isComplete = progressPct >= 100;
@@ -1274,7 +1347,12 @@
 
         container.innerHTML = `
           <div class="customer-result">
-            <h4>Customer: ${escapeHtml(customerId)}</h4>
+            <h4>${escapeHtml(displayName)}</h4>
+            <p style="color: #6b7280; font-size: 13px;">
+              ${customer.phone ? escapeHtml(customer.phone) : ''}
+              ${customer.phone && customer.email ? ' • ' : ''}
+              ${customer.email ? escapeHtml(customer.email) : ''}
+            </p>
             <div class="customer-offers">
               ${offersHtml}
             </div>
@@ -1285,7 +1363,7 @@
         `;
 
       } catch (error) {
-        console.error('Failed to search customer:', error);
+        console.error('Failed to load customer loyalty:', error);
         container.innerHTML = '<div class="empty-state">Failed to load customer data. Please try again.</div>';
       }
     }
