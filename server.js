@@ -11142,10 +11142,15 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         startDate.setDate(startDate.getDate() - days);
 
         // Get and decrypt access token (same pattern as getMerchantToken in square-api.js)
-        const rawToken = req.merchantContext.square_access_token;
-        if (!rawToken) {
+        // Token is not included in merchantContext for security - fetch from DB directly
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
             return res.status(400).json({ error: 'No Square access token configured for this merchant' });
         }
+        const rawToken = tokenResult.rows[0].square_access_token;
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
         let cursor = null;
