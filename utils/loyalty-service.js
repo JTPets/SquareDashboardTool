@@ -2480,12 +2480,17 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
 
         // Generate unique IDs for the catalog objects
         const discountId = `#fbp-discount-${internalRewardId}`;
-        const productSetId = `#fbp-product-set-${internalRewardId}`;
+        const matchProductSetId = `#fbp-match-set-${internalRewardId}`;
+        const excludeProductSetId = `#fbp-exclude-set-${internalRewardId}`;
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
+        // To limit discount to exactly 1 item, we use the exclude pattern:
+        // - Match set: all qualifying items (quantity_min: 1)
+        // - Exclude set: all but 1 item (quantity_min: 0, large quantity_max)
+        // - exclude_strategy: LEAST_EXPENSIVE (keep cheapest for discount, exclude rest)
         const catalogObjects = [
-            // 1. Create the Discount (100% off, limit 1)
+            // 1. Create the Discount (100% off)
             {
                 type: 'DISCOUNT',
                 id: discountId,
@@ -2493,33 +2498,39 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `Free Item: ${offerName}`.substring(0, 255),
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100.0',
-                    modify_tax_basis: 'MODIFY_TAX_BASIS',
-                    maximum_amount_money: null
+                    modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Create the Product Set (which items qualify)
+            // 2. Create the Match Product Set (triggers when cart has qualifying items)
             {
                 type: 'PRODUCT_SET',
-                id: productSetId,
+                id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_exact: 1  // Limit to 1 free item
+                    quantity_min: 1  // Triggers if at least 1 qualifying item in cart
                 }
             },
-            // 3. Create the Pricing Rule (ties discount to product set + customer group)
+            // 3. Create the Exclude Product Set (excludes all but 1 from discount)
+            {
+                type: 'PRODUCT_SET',
+                id: excludeProductSetId,
+                product_set_data: {
+                    product_ids_any: variationIds,
+                    quantity_min: 0,      // Can exclude 0 items (if only 1 in cart)
+                    quantity_max: 999999  // Exclude up to this many items
+                }
+            },
+            // 4. Create the Pricing Rule (ties it all together)
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
                 pricing_rule_data: {
                     name: `FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
-                    match_products_id: productSetId,
-                    customer_group_ids_any: [groupId],
-                    exclude_products_id: null,
-                    valid_from_date: null,
-                    valid_from_local_time: null,
-                    valid_until_date: null,
-                    valid_until_local_time: null
+                    match_products_id: matchProductSetId,
+                    exclude_products_id: excludeProductSetId,
+                    exclude_strategy: 'LEAST_EXPENSIVE',  // Exclude cheap items, keep expensive for discount
+                    customer_group_ids_any: [groupId]
                 }
             }
         ];
@@ -2554,22 +2565,26 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const objects = data.objects || [];
 
         // Extract the real Square IDs from the response
+        // There are now 2 product sets (match and exclude), so we need to get both
         const discountObj = objects.find(o => o.type === 'DISCOUNT');
-        const productSetObj = objects.find(o => o.type === 'PRODUCT_SET');
+        const productSetObjs = objects.filter(o => o.type === 'PRODUCT_SET');
         const pricingRuleObj = objects.find(o => o.type === 'PRICING_RULE');
+
+        // Product set IDs (we'll store them comma-separated for cleanup)
+        const productSetIds = productSetObjs.map(o => o.id);
 
         logger.info('Created reward discount in Square catalog', {
             merchantId,
             internalRewardId,
             discountId: discountObj?.id,
-            productSetId: productSetObj?.id,
+            productSetIds,
             pricingRuleId: pricingRuleObj?.id
         });
 
         return {
             success: true,
             discountId: discountObj?.id,
-            productSetId: productSetObj?.id,
+            productSetId: productSetIds.join(','),  // Store both IDs for cleanup
             pricingRuleId: pricingRuleObj?.id
         };
 
@@ -2798,11 +2813,15 @@ async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId
             });
         }
 
-        // Step 2: Delete the discount and product set
-        if (reward.square_discount_id || reward.square_product_set_id) {
+        // Step 2: Delete the discount and product sets (may be comma-separated for multiple sets)
+        const productSetIds = reward.square_product_set_id
+            ? reward.square_product_set_id.split(',').filter(Boolean)
+            : [];
+        const objectsToDelete = [reward.square_discount_id, ...productSetIds].filter(Boolean);
+        if (objectsToDelete.length > 0) {
             await deleteRewardDiscountObjects({
                 merchantId,
-                objectIds: [reward.square_discount_id, reward.square_product_set_id].filter(Boolean)
+                objectIds: objectsToDelete
             });
         }
 
