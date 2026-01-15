@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loyalty Program Manager - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-actions { display: flex; gap: 10px; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    /* Stats cards */
+    .stats-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      padding: 20px;
+      background: #1f2937;
+    }
+    .stat-card {
+      background: #374151;
+      border-radius: 8px;
+      padding: 15px;
+      text-align: center;
+      border-left: 4px solid #7c3aed;
+    }
+    .stat-card.success { border-left-color: #10b981; }
+    .stat-card.warning { border-left-color: #f59e0b; }
+    .stat-card.info { border-left-color: #3b82f6; }
+    .stat-card .count {
+      font-size: 32px;
+      font-weight: 700;
+      color: white;
+    }
+    .stat-card .label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-card .sub {
+      font-size: 13px;
+      color: #10b981;
+      margin-top: 5px;
+    }
+
+    /* Controls */
+    .controls {
+      padding: 15px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .controls input, .controls select, .controls button {
+      padding: 8px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      min-height: 38px;
+    }
+    .controls input { flex: 1; min-width: 200px; }
+    .controls button {
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-primary { background: #2563eb; color: white; border: none; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #059669; color: white; border: none; }
+    .btn-success:hover { background: #047857; }
+    .btn-warning { background: #f59e0b; color: white; border: none; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-danger { background: #dc2626; color: white; border: none; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-secondary { background: #6b7280; color: white; border: none; }
+    .btn-secondary:hover { background: #4b5563; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #e5e7eb;
+      background: #f9fafb;
+      overflow-x: auto;
+    }
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .tab:hover { color: #374151; background: #f3f4f6; }
+    .tab.active { color: #7c3aed; border-bottom-color: #7c3aed; background: white; }
+
+    /* Tab content */
+    .tab-content { display: none; padding: 20px; }
+    .tab-content.active { display: block; }
+
+    /* Table styles */
+    .table-container {
+      overflow-x: auto;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    tr:hover { background: #f9fafb; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    /* Status badges */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .status-badge.in_progress { background: #dbeafe; color: #1e40af; }
+    .status-badge.earned { background: #d1fae5; color: #065f46; }
+    .status-badge.redeemed { background: #fef3c7; color: #92400e; }
+    .status-badge.revoked { background: #fee2e2; color: #991b1b; }
+    .status-badge.active { background: #d1fae5; color: #065f46; }
+    .status-badge.inactive { background: #f3f4f6; color: #6b7280; }
+
+    /* Progress bar */
+    .progress-container {
+      width: 100%;
+      background: #e5e7eb;
+      border-radius: 4px;
+      overflow: hidden;
+      height: 8px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: #7c3aed;
+      transition: width 0.3s;
+    }
+    .progress-bar.complete { background: #10b981; }
+
+    /* Loading state */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    /* Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal.show { display: flex; }
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { font-size: 18px; }
+    .modal-close {
+      background: none; border: none;
+      font-size: 24px; cursor: pointer;
+      color: #6b7280;
+    }
+    .modal-body { padding: 20px; }
+    .modal-footer {
+      padding: 15px 20px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    /* Form styles */
+    .form-group { margin-bottom: 15px; }
+    .form-group label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 5px;
+      color: #374151;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-group small {
+      color: #6b7280;
+      font-size: 12px;
+      margin-top: 4px;
+      display: block;
+    }
+    .form-row { display: flex; gap: 15px; }
+    .form-row .form-group { flex: 1; }
+
+    /* Variation list */
+    .variation-list {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+    }
+    .variation-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #e5e7eb;
+      gap: 10px;
+    }
+    .variation-item:last-child { border-bottom: none; }
+    .variation-item input[type="checkbox"] { flex-shrink: 0; }
+    .variation-item .info { flex: 1; }
+    .variation-item .name { font-weight: 500; }
+    .variation-item .sku { font-size: 12px; color: #6b7280; font-family: monospace; }
+
+    /* Alert */
+    .alert {
+      padding: 12px 20px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+    .alert-success { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .alert-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
+    /* Customer search result */
+    .customer-result {
+      padding: 15px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .customer-result h4 { margin-bottom: 10px; color: #374151; }
+    .customer-offers { margin-top: 15px; }
+    .offer-progress {
+      background: #f9fafb;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    .offer-progress .offer-name {
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .offer-progress .progress-text {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 5px;
+    }
+
+    /* Action buttons in table */
+    .action-btn {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 4px;
+    }
+    .action-btn.view { background: #e0e7ff; color: #3730a3; }
+    .action-btn.edit { background: #fef3c7; color: #92400e; }
+    .action-btn.redeem { background: #d1fae5; color: #065f46; }
+    .action-btn.danger { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Loyalty Program Manager</h1>
+      <div class="header-actions">
+        <a href="/dashboard.html" class="back-button">Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Stats Summary -->
+    <div class="stats-summary">
+      <div class="stat-card">
+        <div class="count" id="stat-offers">-</div>
+        <div class="label">Active Offers</div>
+      </div>
+      <div class="stat-card success">
+        <div class="count" id="stat-earned">-</div>
+        <div class="label">Pending Rewards</div>
+        <div class="sub">Available to redeem</div>
+      </div>
+      <div class="stat-card warning">
+        <div class="count" id="stat-redeemed">-</div>
+        <div class="label">Redeemed (30 days)</div>
+      </div>
+      <div class="stat-card info">
+        <div class="count" id="stat-value">$0</div>
+        <div class="label">Total Value</div>
+        <div class="sub">Lifetime redemptions</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="offers" onclick="switchTab('offers')">Offers</div>
+      <div class="tab" data-tab="customers" onclick="switchTab('customers')">Customer Lookup</div>
+      <div class="tab" data-tab="rewards" onclick="switchTab('rewards')">Rewards</div>
+      <div class="tab" data-tab="redemptions" onclick="switchTab('redemptions')">Redemptions</div>
+      <div class="tab" data-tab="reports" onclick="switchTab('reports')">Reports</div>
+      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+    </div>
+
+    <!-- Tab: Offers -->
+    <div class="tab-content active" id="tab-offers">
+      <div class="controls">
+        <button class="btn-primary" onclick="showCreateOfferModal()">+ Create Offer</button>
+        <select id="offer-filter-brand" onchange="loadOffers()">
+          <option value="">All Brands</option>
+        </select>
+        <label style="margin-left: auto;">
+          <input type="checkbox" id="offer-filter-active" checked onchange="loadOffers()">
+          Active Only
+        </label>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Offer Name</th>
+              <th>Brand</th>
+              <th>Size Group</th>
+              <th>Program</th>
+              <th>Window</th>
+              <th class="text-center">Variations</th>
+              <th class="text-center">Pending</th>
+              <th class="text-center">Redeemed</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="offers-table-body">
+            <tr><td colspan="10" class="loading"><div class="spinner"></div><br>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Customer Lookup -->
+    <div class="tab-content" id="tab-customers">
+      <div class="controls">
+        <input type="text" id="customer-search" placeholder="Enter Square Customer ID" onkeyup="handleCustomerSearchKeyup(event)">
+        <button class="btn-primary" onclick="searchCustomer()">Search</button>
+      </div>
+      <div id="customer-result-container">
+        <div class="empty-state">
+          <h3>Search for a Customer</h3>
+          <p>Enter a Square Customer ID to view their loyalty status and rewards.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Rewards -->
+    <div class="tab-content" id="tab-rewards">
+      <div class="controls">
+        <select id="reward-filter-status" onchange="loadRewards()">
+          <option value="">All Statuses</option>
+          <option value="in_progress">In Progress</option>
+          <option value="earned">Earned (Available)</option>
+          <option value="redeemed">Redeemed</option>
+          <option value="revoked">Revoked</option>
+        </select>
+        <select id="reward-filter-offer" onchange="loadRewards()">
+          <option value="">All Offers</option>
+        </select>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Customer ID</th>
+              <th>Offer</th>
+              <th>Progress</th>
+              <th>Window</th>
+              <th>Status</th>
+              <th>Earned</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rewards-table-body">
+            <tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Redemptions -->
+    <div class="tab-content" id="tab-redemptions">
+      <div class="controls">
+        <input type="date" id="redemption-start-date" onchange="loadRedemptions()">
+        <span>to</span>
+        <input type="date" id="redemption-end-date" onchange="loadRedemptions()">
+        <select id="redemption-filter-offer" onchange="loadRedemptions()">
+          <option value="">All Offers</option>
+        </select>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Redeemed At</th>
+              <th>Customer ID</th>
+              <th>Offer</th>
+              <th>Item Redeemed</th>
+              <th>Value</th>
+              <th>Type</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="redemptions-table-body">
+            <tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Reports -->
+    <div class="tab-content" id="tab-reports">
+      <div class="alert alert-info">
+        Generate reports for vendor reimbursement and audit purposes. All reports are filtered by your merchant account.
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+        <div class="customer-result">
+          <h4>Redemptions Export</h4>
+          <p style="color: #6b7280; margin-bottom: 15px;">Export all redemptions with full details for vendor reimbursement.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Start Date</label>
+              <input type="date" id="report-redemption-start">
+            </div>
+            <div class="form-group">
+              <label>End Date</label>
+              <input type="date" id="report-redemption-end">
+            </div>
+          </div>
+          <button class="btn-primary" onclick="downloadReport('redemptions')">Download CSV</button>
+        </div>
+
+        <div class="customer-result">
+          <h4>Audit Log Export</h4>
+          <p style="color: #6b7280; margin-bottom: 15px;">Complete audit trail of all purchase events and adjustments.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Start Date</label>
+              <input type="date" id="report-audit-start">
+            </div>
+            <div class="form-group">
+              <label>End Date</label>
+              <input type="date" id="report-audit-end">
+            </div>
+          </div>
+          <button class="btn-primary" onclick="downloadReport('audit')">Download CSV</button>
+        </div>
+
+        <div class="customer-result">
+          <h4>Summary by Brand/Offer</h4>
+          <p style="color: #6b7280; margin-bottom: 15px;">Summary statistics grouped by brand and offer.</p>
+          <button class="btn-primary" onclick="downloadReport('summary')">Download CSV</button>
+        </div>
+
+        <div class="customer-result">
+          <h4>Customer Activity</h4>
+          <p style="color: #6b7280; margin-bottom: 15px;">All customer loyalty activity and progress.</p>
+          <button class="btn-primary" onclick="downloadReport('customers')">Download CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div class="tab-content" id="tab-settings">
+      <div style="max-width: 600px;">
+        <h3 style="margin-bottom: 20px;">Loyalty Program Settings</h3>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="setting-loyalty_enabled" checked>
+            Enable Loyalty Processing
+          </label>
+          <small>When disabled, order webhooks will not process loyalty purchases.</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="setting-auto_detect_redemptions">
+            Auto-detect Redemptions
+          </label>
+          <small>Automatically detect when a free item is given (based on $0 line items).</small>
+        </div>
+
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="setting-send_receipt_messages">
+            Send Receipt Messages
+          </label>
+          <small>Include loyalty status messages on Square digital receipts.</small>
+        </div>
+
+        <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <h3 style="margin-bottom: 20px;">Maintenance</h3>
+
+        <div class="form-group">
+          <button class="btn-warning" onclick="processExpired()">Process Expired Window Entries</button>
+          <small style="margin-top: 10px; display: block;">
+            Remove purchases that have fallen outside the rolling time window. This runs automatically but can be triggered manually.
+          </small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create/Edit Offer Modal -->
+  <div class="modal" id="offer-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="offer-modal-title">Create Loyalty Offer</h2>
+        <button class="modal-close" onclick="closeModal('offer-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="offer-edit-id">
+
+        <div class="form-group">
+          <label>Offer Name</label>
+          <input type="text" id="offer-name" placeholder="e.g., Coffee Beans 12oz - Buy 12 Get 1 Free">
+          <small>Display name for this loyalty program</small>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Brand Name *</label>
+            <input type="text" id="offer-brand" placeholder="e.g., Astro Coffee">
+          </div>
+          <div class="form-group">
+            <label>Size Group *</label>
+            <input type="text" id="offer-size" placeholder="e.g., 12oz, 1lb, Small">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Required Quantity *</label>
+            <input type="number" id="offer-quantity" min="1" value="12">
+            <small>Buy X items to earn reward</small>
+          </div>
+          <div class="form-group">
+            <label>Window (Months)</label>
+            <input type="number" id="offer-window" min="1" value="12">
+            <small>Rolling time window</small>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="offer-description" rows="2" placeholder="Optional description..."></textarea>
+        </div>
+
+        <div class="alert alert-warning">
+          <strong>Important:</strong> One offer per brand + size group combination. Customers earn by purchasing only the explicitly configured variations.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('offer-modal')">Cancel</button>
+        <button class="btn-primary" onclick="saveOffer()">Save Offer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Variations Modal -->
+  <div class="modal" id="variations-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Manage Qualifying Variations</h2>
+        <button class="modal-close" onclick="closeModal('variations-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="variations-offer-id">
+
+        <div class="alert alert-info">
+          Only variations explicitly added here will qualify for this loyalty offer. Customers must purchase these specific items to earn towards their reward.
+        </div>
+
+        <div class="form-group">
+          <label>Search Variations</label>
+          <input type="text" id="variation-search" placeholder="Search by name or SKU..." onkeyup="searchVariations()">
+        </div>
+
+        <div class="variation-list" id="variation-list">
+          <div class="loading">Loading variations...</div>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <strong>Currently Qualifying:</strong>
+          <div id="current-variations" style="margin-top: 10px;">
+            <span style="color: #6b7280;">None selected</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('variations-modal')">Close</button>
+        <button class="btn-primary" onclick="saveVariations()">Save Variations</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Redeem Reward Modal -->
+  <div class="modal" id="redeem-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Redeem Reward</h2>
+        <button class="modal-close" onclick="closeModal('redeem-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="redeem-reward-id">
+
+        <div id="redeem-reward-details"></div>
+
+        <div class="form-group">
+          <label>Square Order ID (Optional)</label>
+          <input type="text" id="redeem-order-id" placeholder="Enter if linked to a specific order">
+        </div>
+
+        <div class="form-group">
+          <label>Redeemed Value (cents)</label>
+          <input type="number" id="redeem-value" min="0" placeholder="Value of the free item">
+        </div>
+
+        <div class="form-group">
+          <label>Admin Notes</label>
+          <textarea id="redeem-notes" rows="2" placeholder="Optional notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('redeem-modal')">Cancel</button>
+        <button class="btn-success" onclick="submitRedemption()">Confirm Redemption</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allOffers = [];
+    let allVariations = [];
+    let selectedVariations = new Set();
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStats();
+      loadOffers();
+    });
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+
+      if (tabName === 'rewards') loadRewards();
+      if (tabName === 'redemptions') loadRedemptions();
+      if (tabName === 'settings') loadSettings();
+    }
+
+    // Stats
+    async function loadStats() {
+      try {
+        const response = await fetch('/api/loyalty/stats');
+        const data = await response.json();
+        const stats = data.stats;
+
+        document.getElementById('stat-offers').textContent = stats.offers?.active || 0;
+        document.getElementById('stat-earned').textContent = stats.rewards?.earned || 0;
+        document.getElementById('stat-redeemed').textContent = stats.last30Days?.redeemed || 0;
+        document.getElementById('stat-value').textContent = '$' + ((stats.totalRedemptionValueCents || 0) / 100).toFixed(2);
+      } catch (error) {
+        console.error('Failed to load stats:', error);
+      }
+    }
+
+    // Offers
+    async function loadOffers() {
+      const tbody = document.getElementById('offers-table-body');
+      tbody.innerHTML = '<tr><td colspan="10" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
+
+      try {
+        const activeOnly = document.getElementById('offer-filter-active').checked;
+        const response = await fetch(`/api/loyalty/offers?activeOnly=${activeOnly}`);
+        const data = await response.json();
+        allOffers = data.offers;
+
+        // Populate brand filter
+        const brands = [...new Set(allOffers.map(o => o.brand_name))];
+        const brandFilter = document.getElementById('offer-filter-brand');
+        brandFilter.innerHTML = '<option value="">All Brands</option>' +
+          brands.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join('');
+
+        // Also populate reward filter
+        const rewardFilter = document.getElementById('reward-filter-offer');
+        const redemptionFilter = document.getElementById('redemption-filter-offer');
+        const offerOptions = '<option value="">All Offers</option>' +
+          allOffers.map(o => `<option value="${o.id}">${escapeHtml(o.offer_name)}</option>`).join('');
+        rewardFilter.innerHTML = offerOptions;
+        redemptionFilter.innerHTML = offerOptions;
+
+        if (allOffers.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="10" class="empty-state"><h3>No Offers Yet</h3><p>Create your first loyalty offer to get started.</p></td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = allOffers.map(offer => `
+          <tr>
+            <td><strong>${escapeHtml(offer.offer_name)}</strong></td>
+            <td>${escapeHtml(offer.brand_name)}</td>
+            <td>${escapeHtml(offer.size_group)}</td>
+            <td>Buy ${offer.required_quantity} Get 1</td>
+            <td>${offer.window_months} months</td>
+            <td class="text-center">${offer.variation_count || 0}</td>
+            <td class="text-center">${offer.pending_rewards || 0}</td>
+            <td class="text-center">${offer.total_redeemed || 0}</td>
+            <td><span class="status-badge ${offer.is_active ? 'active' : 'inactive'}">${offer.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td>
+              <button class="action-btn view" onclick="showVariationsModal('${offer.id}')">Variations</button>
+              <button class="action-btn edit" onclick="editOffer('${offer.id}')">Edit</button>
+            </td>
+          </tr>
+        `).join('');
+
+      } catch (error) {
+        console.error('Failed to load offers:', error);
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">Failed to load offers. Please try again.</td></tr>';
+      }
+    }
+
+    function showCreateOfferModal() {
+      document.getElementById('offer-modal-title').textContent = 'Create Loyalty Offer';
+      document.getElementById('offer-edit-id').value = '';
+      document.getElementById('offer-name').value = '';
+      document.getElementById('offer-brand').value = '';
+      document.getElementById('offer-size').value = '';
+      document.getElementById('offer-quantity').value = '12';
+      document.getElementById('offer-window').value = '12';
+      document.getElementById('offer-description').value = '';
+      showModal('offer-modal');
+    }
+
+    function editOffer(offerId) {
+      const offer = allOffers.find(o => o.id === offerId);
+      if (!offer) return;
+
+      document.getElementById('offer-modal-title').textContent = 'Edit Loyalty Offer';
+      document.getElementById('offer-edit-id').value = offer.id;
+      document.getElementById('offer-name').value = offer.offer_name;
+      document.getElementById('offer-brand').value = offer.brand_name;
+      document.getElementById('offer-size').value = offer.size_group;
+      document.getElementById('offer-quantity').value = offer.required_quantity;
+      document.getElementById('offer-window').value = offer.window_months;
+      document.getElementById('offer-description').value = offer.description || '';
+
+      // Disable brand/size/quantity for existing offers
+      document.getElementById('offer-brand').disabled = true;
+      document.getElementById('offer-size').disabled = true;
+      document.getElementById('offer-quantity').disabled = true;
+      document.getElementById('offer-window').disabled = true;
+
+      showModal('offer-modal');
+    }
+
+    async function saveOffer() {
+      const editId = document.getElementById('offer-edit-id').value;
+      const data = {
+        offerName: document.getElementById('offer-name').value,
+        brandName: document.getElementById('offer-brand').value,
+        sizeGroup: document.getElementById('offer-size').value,
+        requiredQuantity: parseInt(document.getElementById('offer-quantity').value),
+        windowMonths: parseInt(document.getElementById('offer-window').value),
+        description: document.getElementById('offer-description').value
+      };
+
+      if (!data.brandName || !data.sizeGroup || !data.requiredQuantity) {
+        alert('Please fill in all required fields (Brand, Size Group, Required Quantity)');
+        return;
+      }
+
+      try {
+        let response;
+        if (editId) {
+          response = await fetch(`/api/loyalty/offers/${editId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              offer_name: data.offerName,
+              description: data.description
+            })
+          });
+        } else {
+          response = await fetch('/api/loyalty/offers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+        }
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to save offer');
+        }
+
+        closeModal('offer-modal');
+        loadOffers();
+        loadStats();
+        alert(editId ? 'Offer updated successfully!' : 'Offer created successfully!');
+
+      } catch (error) {
+        console.error('Failed to save offer:', error);
+        alert('Error: ' + error.message);
+      }
+
+      // Re-enable fields
+      document.getElementById('offer-brand').disabled = false;
+      document.getElementById('offer-size').disabled = false;
+      document.getElementById('offer-quantity').disabled = false;
+      document.getElementById('offer-window').disabled = false;
+    }
+
+    // Variations
+    async function showVariationsModal(offerId) {
+      document.getElementById('variations-offer-id').value = offerId;
+      selectedVariations.clear();
+      showModal('variations-modal');
+
+      // Load current variations
+      try {
+        const response = await fetch(`/api/loyalty/offers/${offerId}/variations`);
+        const data = await response.json();
+
+        data.variations.forEach(v => selectedVariations.add(v.variation_id));
+        updateCurrentVariationsDisplay(data.variations);
+      } catch (error) {
+        console.error('Failed to load variations:', error);
+      }
+
+      // Load all variations for selection
+      await loadAllVariations();
+    }
+
+    async function loadAllVariations() {
+      const listEl = document.getElementById('variation-list');
+      listEl.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading...</div>';
+
+      try {
+        const response = await fetch('/api/items?limit=500');
+        const data = await response.json();
+
+        allVariations = [];
+        data.items.forEach(item => {
+          if (item.variations) {
+            item.variations.forEach(v => {
+              allVariations.push({
+                variationId: v.id,
+                itemId: item.id,
+                itemName: item.name,
+                variationName: v.name,
+                sku: v.sku
+              });
+            });
+          }
+        });
+
+        renderVariationList();
+
+      } catch (error) {
+        console.error('Failed to load variations:', error);
+        listEl.innerHTML = '<div class="empty-state">Failed to load variations</div>';
+      }
+    }
+
+    function searchVariations() {
+      renderVariationList();
+    }
+
+    function renderVariationList() {
+      const listEl = document.getElementById('variation-list');
+      const search = document.getElementById('variation-search').value.toLowerCase();
+
+      const filtered = allVariations.filter(v =>
+        !search ||
+        v.itemName?.toLowerCase().includes(search) ||
+        v.variationName?.toLowerCase().includes(search) ||
+        v.sku?.toLowerCase().includes(search)
+      ).slice(0, 100); // Limit to 100 results
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">No variations found</div>';
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(v => `
+        <div class="variation-item">
+          <input type="checkbox"
+            id="var-${v.variationId}"
+            ${selectedVariations.has(v.variationId) ? 'checked' : ''}
+            onchange="toggleVariation('${v.variationId}', '${escapeHtml(v.itemName)}', '${escapeHtml(v.variationName || '')}', '${escapeHtml(v.sku || '')}', '${v.itemId}')"
+          >
+          <div class="info">
+            <div class="name">${escapeHtml(v.itemName)} ${v.variationName ? '- ' + escapeHtml(v.variationName) : ''}</div>
+            <div class="sku">${v.sku || 'No SKU'}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function toggleVariation(variationId, itemName, variationName, sku, itemId) {
+      if (selectedVariations.has(variationId)) {
+        selectedVariations.delete(variationId);
+      } else {
+        selectedVariations.add(variationId);
+      }
+    }
+
+    function updateCurrentVariationsDisplay(variations) {
+      const el = document.getElementById('current-variations');
+      if (variations.length === 0) {
+        el.innerHTML = '<span style="color: #6b7280;">None selected</span>';
+        return;
+      }
+
+      el.innerHTML = variations.map(v => `
+        <span style="display: inline-block; background: #e0e7ff; padding: 4px 8px; border-radius: 4px; margin: 2px; font-size: 12px;">
+          ${escapeHtml(v.item_name || '')} - ${escapeHtml(v.variation_name || v.variation_id)}
+        </span>
+      `).join('');
+    }
+
+    async function saveVariations() {
+      const offerId = document.getElementById('variations-offer-id').value;
+
+      const variations = Array.from(selectedVariations).map(varId => {
+        const v = allVariations.find(av => av.variationId === varId);
+        return {
+          variationId: varId,
+          itemId: v?.itemId,
+          itemName: v?.itemName,
+          variationName: v?.variationName,
+          sku: v?.sku
+        };
+      });
+
+      try {
+        const response = await fetch(`/api/loyalty/offers/${offerId}/variations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variations })
+        });
+
+        if (!response.ok) throw new Error('Failed to save variations');
+
+        closeModal('variations-modal');
+        loadOffers();
+        alert('Variations saved successfully!');
+
+      } catch (error) {
+        console.error('Failed to save variations:', error);
+        alert('Error saving variations: ' + error.message);
+      }
+    }
+
+    // Customer Search
+    function handleCustomerSearchKeyup(event) {
+      if (event.key === 'Enter') searchCustomer();
+    }
+
+    async function searchCustomer() {
+      const customerId = document.getElementById('customer-search').value.trim();
+      const container = document.getElementById('customer-result-container');
+
+      if (!customerId) {
+        alert('Please enter a customer ID');
+        return;
+      }
+
+      container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Searching...</div>';
+
+      try {
+        const response = await fetch(`/api/loyalty/customer/${customerId}`);
+        const data = await response.json();
+
+        if (!data.offers || data.offers.length === 0) {
+          container.innerHTML = `
+            <div class="customer-result">
+              <h4>Customer: ${escapeHtml(customerId)}</h4>
+              <p style="color: #6b7280;">No loyalty activity found for this customer.</p>
+            </div>
+          `;
+          return;
+        }
+
+        const offersHtml = data.offers.map(offer => {
+          const progress = offer.current_quantity / offer.required_quantity;
+          const progressPct = Math.min(progress * 100, 100);
+          const isComplete = progressPct >= 100;
+
+          return `
+            <div class="offer-progress">
+              <div class="offer-name">
+                <span>${escapeHtml(offer.offer_name)}</span>
+                <span>${offer.current_quantity}/${offer.required_quantity}</span>
+              </div>
+              <div class="progress-container">
+                <div class="progress-bar ${isComplete ? 'complete' : ''}" style="width: ${progressPct}%"></div>
+              </div>
+              <div class="progress-text">
+                ${isComplete
+                  ? '<span style="color: #10b981; font-weight: 600;">Reward Available!</span>'
+                  : `${offer.required_quantity - offer.current_quantity} more to earn reward`}
+                ${offer.window_end_date ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
+              </div>
+              ${offer.has_earned_reward ? `
+                <div style="margin-top: 10px;">
+                  <button class="btn-success" onclick="showRedeemModal('${offer.earned_reward_id}', '${escapeHtml(offer.offer_name)}', '${customerId}')">
+                    Redeem Reward
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <div class="customer-result">
+            <h4>Customer: ${escapeHtml(customerId)}</h4>
+            <div class="customer-offers">
+              ${offersHtml}
+            </div>
+            <div style="margin-top: 20px;">
+              <button class="btn-secondary" onclick="viewCustomerHistory('${customerId}')">View Full History</button>
+            </div>
+          </div>
+        `;
+
+      } catch (error) {
+        console.error('Failed to search customer:', error);
+        container.innerHTML = '<div class="empty-state">Failed to load customer data. Please try again.</div>';
+      }
+    }
+
+    async function viewCustomerHistory(customerId) {
+      try {
+        const response = await fetch(`/api/loyalty/customer/${customerId}/history`);
+        const data = await response.json();
+
+        let historyHtml = '<h4 style="margin-bottom: 15px;">Purchase History</h4>';
+
+        if (data.purchases.length === 0) {
+          historyHtml += '<p style="color: #6b7280;">No purchase history.</p>';
+        } else {
+          historyHtml += '<table style="font-size: 12px;"><thead><tr><th>Date</th><th>Offer</th><th>Qty</th><th>Order ID</th></tr></thead><tbody>';
+          historyHtml += data.purchases.map(p => `
+            <tr${p.is_refund ? ' style="color: #dc2626;"' : ''}>
+              <td>${new Date(p.purchased_at).toLocaleDateString()}</td>
+              <td>${escapeHtml(p.offer_name)}</td>
+              <td>${p.quantity}</td>
+              <td style="font-family: monospace; font-size: 10px;">${p.square_order_id?.slice(0,8) || '-'}...</td>
+            </tr>
+          `).join('');
+          historyHtml += '</tbody></table>';
+        }
+
+        const container = document.getElementById('customer-result-container');
+        container.innerHTML += `
+          <div class="customer-result" style="margin-top: 15px;">
+            ${historyHtml}
+          </div>
+        `;
+
+      } catch (error) {
+        console.error('Failed to load history:', error);
+        alert('Failed to load customer history');
+      }
+    }
+
+    // Rewards
+    async function loadRewards() {
+      const tbody = document.getElementById('rewards-table-body');
+      tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
+
+      try {
+        const status = document.getElementById('reward-filter-status').value;
+        const offerId = document.getElementById('reward-filter-offer').value;
+
+        let url = '/api/loyalty/rewards?limit=100';
+        if (status) url += `&status=${status}`;
+        if (offerId) url += `&offerId=${offerId}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.rewards.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No rewards found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.rewards.map(reward => {
+          const progress = reward.current_quantity / reward.required_quantity;
+          const progressPct = Math.min(progress * 100, 100);
+
+          return `
+            <tr>
+              <td style="font-family: monospace; font-size: 12px;">${reward.square_customer_id?.slice(0,12)}...</td>
+              <td>${escapeHtml(reward.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(reward.brand_name)} - ${escapeHtml(reward.size_group)}</small></td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div class="progress-container" style="width: 80px;">
+                    <div class="progress-bar ${progressPct >= 100 ? 'complete' : ''}" style="width: ${progressPct}%"></div>
+                  </div>
+                  <span>${reward.current_quantity}/${reward.required_quantity}</span>
+                </div>
+              </td>
+              <td>${reward.window_start_date ? new Date(reward.window_start_date).toLocaleDateString() : '-'} - ${reward.window_end_date ? new Date(reward.window_end_date).toLocaleDateString() : '-'}</td>
+              <td><span class="status-badge ${reward.status}">${reward.status}</span></td>
+              <td>${reward.earned_at ? new Date(reward.earned_at).toLocaleDateString() : '-'}</td>
+              <td>
+                ${reward.status === 'earned' ? `
+                  <button class="action-btn redeem" onclick="showRedeemModal('${reward.id}', '${escapeHtml(reward.offer_name)}', '${reward.square_customer_id}')">Redeem</button>
+                ` : '-'}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (error) {
+        console.error('Failed to load rewards:', error);
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load rewards.</td></tr>';
+      }
+    }
+
+    function showRedeemModal(rewardId, offerName, customerId) {
+      document.getElementById('redeem-reward-id').value = rewardId;
+      document.getElementById('redeem-reward-details').innerHTML = `
+        <div class="alert alert-info">
+          <strong>Offer:</strong> ${escapeHtml(offerName)}<br>
+          <strong>Customer:</strong> ${escapeHtml(customerId)}
+        </div>
+      `;
+      document.getElementById('redeem-order-id').value = '';
+      document.getElementById('redeem-value').value = '';
+      document.getElementById('redeem-notes').value = '';
+      showModal('redeem-modal');
+    }
+
+    async function submitRedemption() {
+      const rewardId = document.getElementById('redeem-reward-id').value;
+      const data = {
+        squareOrderId: document.getElementById('redeem-order-id').value || null,
+        redeemedValueCents: document.getElementById('redeem-value').value || null,
+        adminNotes: document.getElementById('redeem-notes').value || null,
+        redemptionType: 'manual_admin'
+      };
+
+      try {
+        const response = await fetch(`/api/loyalty/rewards/${rewardId}/redeem`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to redeem reward');
+        }
+
+        closeModal('redeem-modal');
+        loadRewards();
+        loadStats();
+        alert('Reward redeemed successfully!');
+
+      } catch (error) {
+        console.error('Failed to redeem:', error);
+        alert('Error: ' + error.message);
+      }
+    }
+
+    // Redemptions
+    async function loadRedemptions() {
+      const tbody = document.getElementById('redemptions-table-body');
+      tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
+
+      try {
+        const startDate = document.getElementById('redemption-start-date').value;
+        const endDate = document.getElementById('redemption-end-date').value;
+        const offerId = document.getElementById('redemption-filter-offer').value;
+
+        let url = '/api/loyalty/redemptions?limit=100';
+        if (startDate) url += `&startDate=${startDate}`;
+        if (endDate) url += `&endDate=${endDate}`;
+        if (offerId) url += `&offerId=${offerId}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.redemptions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No redemptions found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.redemptions.map(r => `
+          <tr>
+            <td>${new Date(r.redeemed_at).toLocaleString()}</td>
+            <td style="font-family: monospace; font-size: 12px;">${r.square_customer_id?.slice(0,12)}...</td>
+            <td>${escapeHtml(r.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(r.brand_name)} - ${escapeHtml(r.size_group)}</small></td>
+            <td>${r.redeemed_item_name ? escapeHtml(r.redeemed_item_name) : '-'}</td>
+            <td>${r.redeemed_value_cents ? '$' + (r.redeemed_value_cents / 100).toFixed(2) : '-'}</td>
+            <td><span class="status-badge ${r.redemption_type}">${r.redemption_type.replace(/_/g, ' ')}</span></td>
+            <td>
+              <button class="action-btn view" onclick="viewVendorReceipt('${r.id}')">Receipt</button>
+            </td>
+          </tr>
+        `).join('');
+
+      } catch (error) {
+        console.error('Failed to load redemptions:', error);
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load redemptions.</td></tr>';
+      }
+    }
+
+    function viewVendorReceipt(redemptionId) {
+      window.open(`/api/loyalty/reports/vendor-receipt/${redemptionId}?format=html`, '_blank');
+    }
+
+    // Reports
+    function downloadReport(type) {
+      let url = '/api/loyalty/reports/';
+
+      switch (type) {
+        case 'redemptions':
+          url += 'redemptions/csv';
+          const rStart = document.getElementById('report-redemption-start').value;
+          const rEnd = document.getElementById('report-redemption-end').value;
+          if (rStart) url += `?startDate=${rStart}`;
+          if (rEnd) url += (rStart ? '&' : '?') + `endDate=${rEnd}`;
+          break;
+        case 'audit':
+          url += 'audit/csv';
+          const aStart = document.getElementById('report-audit-start').value;
+          const aEnd = document.getElementById('report-audit-end').value;
+          if (aStart) url += `?startDate=${aStart}`;
+          if (aEnd) url += (aStart ? '&' : '?') + `endDate=${aEnd}`;
+          break;
+        case 'summary':
+          url += 'summary/csv';
+          break;
+        case 'customers':
+          url += 'customers/csv';
+          break;
+      }
+
+      window.location.href = url;
+    }
+
+    // Settings
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/loyalty/settings');
+        const data = await response.json();
+
+        document.getElementById('setting-loyalty_enabled').checked = data.settings.loyalty_enabled !== 'false';
+        document.getElementById('setting-auto_detect_redemptions').checked = data.settings.auto_detect_redemptions === 'true';
+        document.getElementById('setting-send_receipt_messages').checked = data.settings.send_receipt_messages === 'true';
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    }
+
+    async function saveSettings() {
+      const updates = {
+        loyalty_enabled: document.getElementById('setting-loyalty_enabled').checked ? 'true' : 'false',
+        auto_detect_redemptions: document.getElementById('setting-auto_detect_redemptions').checked ? 'true' : 'false',
+        send_receipt_messages: document.getElementById('setting-send_receipt_messages').checked ? 'true' : 'false'
+      };
+
+      try {
+        const response = await fetch('/api/loyalty/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        });
+
+        if (response.ok) {
+          alert('Settings saved successfully!');
+        } else {
+          throw new Error('Failed to save');
+        }
+      } catch (error) {
+        console.error('Failed to save settings:', error);
+        alert('Failed to save settings.');
+      }
+    }
+
+    async function processExpired() {
+      if (!confirm('Process expired window entries?\n\nThis will remove purchases that have fallen outside the rolling time window.')) {
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/loyalty/process-expired', { method: 'POST' });
+        const result = await response.json();
+        alert(`Processed ${result.processedCount} expired entries.`);
+      } catch (error) {
+        console.error('Failed to process expired:', error);
+        alert('Failed to process expired entries.');
+      }
+    }
+
+    // Modal helpers
+    function showModal(id) {
+      document.getElementById(id).classList.add('show');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('show');
+    }
+
+    // Escape HTML
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
