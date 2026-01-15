@@ -29,6 +29,8 @@ const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, isEncryptedToken } = require('./utils/token-encryption');
 const deliveryApi = require('./utils/delivery-api');
+const loyaltyService = require('./utils/loyalty-service');
+const loyaltyReports = require('./utils/loyalty-reports');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
@@ -9097,6 +9099,59 @@ app.post('/api/webhooks/square', async (req, res) => {
                                 }
                             }
                         }
+
+                        // LOYALTY ADDON: Process qualifying purchases for frequent buyer program
+                        // Only process COMPLETED orders to ensure payment was successful
+                        if (order && order.state === 'COMPLETED') {
+                            try {
+                                const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, internalMerchantId);
+                                if (loyaltyResult.processed) {
+                                    syncResults.loyalty = {
+                                        purchasesRecorded: loyaltyResult.purchasesRecorded.length,
+                                        customerId: loyaltyResult.customerId
+                                    };
+                                    logger.info('Loyalty purchases processed via webhook', {
+                                        orderId: order.id,
+                                        purchaseCount: loyaltyResult.purchasesRecorded.length,
+                                        merchantId: internalMerchantId
+                                    });
+
+                                    // Check if any rewards were earned and trigger notification
+                                    for (const purchase of loyaltyResult.purchasesRecorded) {
+                                        if (purchase.reward && purchase.reward.status === 'earned') {
+                                            logger.info('Customer earned a loyalty reward!', {
+                                                orderId: order.id,
+                                                customerId: loyaltyResult.customerId,
+                                                rewardId: purchase.reward.rewardId
+                                            });
+                                            // TODO (vNext): Trigger Square receipt message for reward earned
+                                        }
+                                    }
+                                }
+
+                                // Process any refunds in the order
+                                if (order.refunds && order.refunds.length > 0) {
+                                    const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, internalMerchantId);
+                                    if (refundResult.processed) {
+                                        syncResults.loyaltyRefunds = {
+                                            refundsProcessed: refundResult.refundsProcessed.length
+                                        };
+                                        logger.info('Loyalty refunds processed via webhook', {
+                                            orderId: order.id,
+                                            refundCount: refundResult.refundsProcessed.length
+                                        });
+                                    }
+                                }
+                            } catch (loyaltyError) {
+                                logger.error('Failed to process order for loyalty', {
+                                    error: loyaltyError.message,
+                                    orderId: order.id,
+                                    merchantId: internalMerchantId
+                                });
+                                // Don't fail the whole webhook for loyalty errors
+                                syncResults.loyaltyError = loyaltyError.message;
+                            }
+                        }
                     } catch (syncError) {
                         logger.error('Committed inventory sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
@@ -10386,6 +10441,726 @@ async function getLocationIds(merchantId) {
     );
     return result.rows.map(r => r.id);
 }
+
+// ==================== LOYALTY ADDON API ====================
+// Frequent Buyer Program - Digitizes brand-defined loyalty programs
+// BUSINESS RULES: One offer = one brand + size group, never mix sizes, full redemption only
+
+/**
+ * GET /api/loyalty/offers
+ * List all loyalty offers for the merchant
+ */
+app.get('/api/loyalty/offers', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { activeOnly, brandName } = req.query;
+
+        const offers = await loyaltyService.getOffers(merchantId, {
+            activeOnly: activeOnly === 'true',
+            brandName
+        });
+
+        res.json({ offers });
+    } catch (error) {
+        logger.error('Error fetching loyalty offers', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/offers
+ * Create a new loyalty offer (frequent buyer program)
+ * Requires admin role
+ */
+app.post('/api/loyalty/offers', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { offerName, brandName, sizeGroup, requiredQuantity, windowMonths, description } = req.body;
+
+        if (!brandName || !sizeGroup || !requiredQuantity) {
+            return res.status(400).json({
+                error: 'brandName, sizeGroup, and requiredQuantity are required'
+            });
+        }
+
+        const offer = await loyaltyService.createOffer({
+            merchantId,
+            offerName,
+            brandName,
+            sizeGroup,
+            requiredQuantity: parseInt(requiredQuantity),
+            windowMonths: windowMonths ? parseInt(windowMonths) : 12,
+            description,
+            createdBy: req.session.user.id
+        });
+
+        logger.info('Created loyalty offer', {
+            offerId: offer.id,
+            brandName,
+            sizeGroup,
+            merchantId
+        });
+
+        res.status(201).json({ offer });
+    } catch (error) {
+        logger.error('Error creating loyalty offer', { error: error.message });
+        if (error.message.includes('unique') || error.message.includes('duplicate')) {
+            return res.status(409).json({
+                error: 'An offer for this brand and size group already exists'
+            });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/offers/:id
+ * Get a single loyalty offer with details
+ */
+app.get('/api/loyalty/offers/:id', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const offer = await loyaltyService.getOfferById(req.params.id, merchantId);
+
+        if (!offer) {
+            return res.status(404).json({ error: 'Offer not found' });
+        }
+
+        // Get qualifying variations
+        const variations = await loyaltyService.getQualifyingVariations(req.params.id, merchantId);
+
+        res.json({ offer, variations });
+    } catch (error) {
+        logger.error('Error fetching loyalty offer', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/loyalty/offers/:id
+ * Update a loyalty offer
+ * Note: requiredQuantity and windowMonths cannot be changed to preserve integrity
+ */
+app.patch('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { offer_name, description, is_active } = req.body;
+
+        const updates = {};
+        if (offer_name !== undefined) updates.offer_name = offer_name;
+        if (description !== undefined) updates.description = description;
+        if (is_active !== undefined) updates.is_active = is_active;
+
+        const offer = await loyaltyService.updateOffer(
+            req.params.id,
+            updates,
+            merchantId,
+            req.session.user.id
+        );
+
+        res.json({ offer });
+    } catch (error) {
+        logger.error('Error updating loyalty offer', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/offers/:id/variations
+ * Add qualifying variations to an offer
+ * IMPORTANT: Only explicitly added variations qualify for the offer
+ */
+app.post('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { variations } = req.body;
+
+        if (!variations || !Array.isArray(variations) || variations.length === 0) {
+            return res.status(400).json({ error: 'variations array is required' });
+        }
+
+        const added = await loyaltyService.addQualifyingVariations(
+            req.params.id,
+            variations,
+            merchantId,
+            req.session.user.id
+        );
+
+        logger.info('Added qualifying variations to offer', {
+            offerId: req.params.id,
+            addedCount: added.length,
+            merchantId
+        });
+
+        res.json({ added });
+    } catch (error) {
+        logger.error('Error adding qualifying variations', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/offers/:id/variations
+ * Get qualifying variations for an offer
+ */
+app.get('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const variations = await loyaltyService.getQualifyingVariations(req.params.id, merchantId);
+        res.json({ variations });
+    } catch (error) {
+        logger.error('Error fetching qualifying variations', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/loyalty/offers/:offerId/variations/:variationId
+ * Remove a qualifying variation from an offer
+ */
+app.delete('/api/loyalty/offers/:offerId/variations/:variationId', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { offerId, variationId } = req.params;
+
+        const result = await db.query(`
+            UPDATE loyalty_qualifying_variations
+            SET is_active = FALSE, updated_at = NOW()
+            WHERE offer_id = $1 AND variation_id = $2 AND merchant_id = $3
+            RETURNING *
+        `, [offerId, variationId, merchantId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Variation not found in offer' });
+        }
+
+        await loyaltyService.logAuditEvent({
+            merchantId,
+            action: 'VARIATION_REMOVED',
+            offerId,
+            triggeredBy: 'ADMIN',
+            userId: req.session.user.id,
+            details: { variationId }
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error removing qualifying variation', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/customer/:customerId
+ * Get loyalty status for a specific customer
+ */
+app.get('/api/loyalty/customer/:customerId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const status = await loyaltyService.getCustomerLoyaltyStatus(req.params.customerId, merchantId);
+        res.json(status);
+    } catch (error) {
+        logger.error('Error fetching customer loyalty status', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/customer/:customerId/history
+ * Get full loyalty history for a customer
+ */
+app.get('/api/loyalty/customer/:customerId/history', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { limit, offerId } = req.query;
+
+        const history = await loyaltyService.getCustomerLoyaltyHistory(
+            req.params.customerId,
+            merchantId,
+            { limit: parseInt(limit) || 50, offerId }
+        );
+
+        res.json(history);
+    } catch (error) {
+        logger.error('Error fetching customer loyalty history', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/customer/:customerId/rewards
+ * Get earned (available) rewards for a customer
+ */
+app.get('/api/loyalty/customer/:customerId/rewards', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const rewards = await loyaltyService.getCustomerEarnedRewards(req.params.customerId, merchantId);
+        res.json({ rewards });
+    } catch (error) {
+        logger.error('Error fetching customer rewards', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/rewards/:rewardId/redeem
+ * Redeem a loyalty reward
+ * BUSINESS RULE: Full redemption only - one reward = one free unit
+ */
+app.post('/api/loyalty/rewards/:rewardId/redeem', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { squareOrderId, redeemedVariationId, redeemedValueCents, adminNotes } = req.body;
+
+        const result = await loyaltyService.redeemReward({
+            merchantId,
+            rewardId: req.params.rewardId,
+            squareOrderId,
+            redemptionType: req.body.redemptionType || 'manual_admin',
+            redeemedVariationId,
+            redeemedValueCents: redeemedValueCents ? parseInt(redeemedValueCents) : null,
+            redeemedByUserId: req.session.user.id,
+            adminNotes
+        });
+
+        logger.info('Loyalty reward redeemed', {
+            rewardId: req.params.rewardId,
+            redemptionId: result.redemption.id,
+            merchantId
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error redeeming reward', { error: error.message });
+        if (error.message.includes('Cannot redeem')) {
+            return res.status(400).json({ error: error.message });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/rewards
+ * Get rewards with filtering (earned, redeemed, etc.)
+ */
+app.get('/api/loyalty/rewards', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { status, offerId, customerId, limit, offset } = req.query;
+
+        let query = `
+            SELECT r.*, o.offer_name, o.brand_name, o.size_group
+            FROM loyalty_rewards r
+            JOIN loyalty_offers o ON r.offer_id = o.id
+            WHERE r.merchant_id = $1
+        `;
+        const params = [merchantId];
+
+        if (status) {
+            params.push(status);
+            query += ` AND r.status = $${params.length}`;
+        }
+
+        if (offerId) {
+            params.push(offerId);
+            query += ` AND r.offer_id = $${params.length}`;
+        }
+
+        if (customerId) {
+            params.push(customerId);
+            query += ` AND r.square_customer_id = $${params.length}`;
+        }
+
+        query += ` ORDER BY r.created_at DESC`;
+
+        params.push(parseInt(limit) || 100);
+        query += ` LIMIT $${params.length}`;
+
+        params.push(parseInt(offset) || 0);
+        query += ` OFFSET $${params.length}`;
+
+        const result = await db.query(query, params);
+
+        res.json({ rewards: result.rows });
+    } catch (error) {
+        logger.error('Error fetching rewards', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/redemptions
+ * Get redemption history with filtering
+ */
+app.get('/api/loyalty/redemptions', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { offerId, customerId, startDate, endDate, limit, offset } = req.query;
+
+        let query = `
+            SELECT rd.*, o.offer_name, o.brand_name, o.size_group
+            FROM loyalty_redemptions rd
+            JOIN loyalty_offers o ON rd.offer_id = o.id
+            WHERE rd.merchant_id = $1
+        `;
+        const params = [merchantId];
+
+        if (offerId) {
+            params.push(offerId);
+            query += ` AND rd.offer_id = $${params.length}`;
+        }
+
+        if (customerId) {
+            params.push(customerId);
+            query += ` AND rd.square_customer_id = $${params.length}`;
+        }
+
+        if (startDate) {
+            params.push(startDate);
+            query += ` AND rd.redeemed_at >= $${params.length}`;
+        }
+
+        if (endDate) {
+            params.push(endDate);
+            query += ` AND rd.redeemed_at <= $${params.length}`;
+        }
+
+        query += ` ORDER BY rd.redeemed_at DESC`;
+
+        params.push(parseInt(limit) || 100);
+        query += ` LIMIT $${params.length}`;
+
+        params.push(parseInt(offset) || 0);
+        query += ` OFFSET $${params.length}`;
+
+        const result = await db.query(query, params);
+
+        res.json({ redemptions: result.rows });
+    } catch (error) {
+        logger.error('Error fetching redemptions', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/audit
+ * Get loyalty audit log entries
+ */
+app.get('/api/loyalty/audit', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { action, squareCustomerId, offerId, limit, offset } = req.query;
+
+        const entries = await loyaltyService.getAuditLogs(merchantId, {
+            action,
+            squareCustomerId,
+            offerId,
+            limit: parseInt(limit) || 100,
+            offset: parseInt(offset) || 0
+        });
+
+        res.json({ entries });
+    } catch (error) {
+        logger.error('Error fetching loyalty audit log', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/stats
+ * Get loyalty program statistics for dashboard
+ */
+app.get('/api/loyalty/stats', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Get offer counts
+        const offerStats = await db.query(`
+            SELECT
+                COUNT(*) FILTER (WHERE is_active = TRUE) as active_offers,
+                COUNT(*) as total_offers
+            FROM loyalty_offers
+            WHERE merchant_id = $1
+        `, [merchantId]);
+
+        // Get reward counts by status
+        const rewardStats = await db.query(`
+            SELECT status, COUNT(*) as count
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+            GROUP BY status
+        `, [merchantId]);
+
+        // Get recent activity
+        const recentEarned = await db.query(`
+            SELECT COUNT(*) as count
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+              AND status IN ('earned', 'redeemed')
+              AND earned_at >= NOW() - INTERVAL '30 days'
+        `, [merchantId]);
+
+        const recentRedeemed = await db.query(`
+            SELECT COUNT(*) as count
+            FROM loyalty_redemptions
+            WHERE merchant_id = $1
+              AND redeemed_at >= NOW() - INTERVAL '30 days'
+        `, [merchantId]);
+
+        // Get total redemption value
+        const totalValue = await db.query(`
+            SELECT COALESCE(SUM(redeemed_value_cents), 0) as total_cents
+            FROM loyalty_redemptions
+            WHERE merchant_id = $1
+        `, [merchantId]);
+
+        res.json({
+            stats: {
+                offers: {
+                    active: parseInt(offerStats.rows[0]?.active_offers || 0),
+                    total: parseInt(offerStats.rows[0]?.total_offers || 0)
+                },
+                rewards: rewardStats.rows.reduce((acc, row) => {
+                    acc[row.status] = parseInt(row.count);
+                    return acc;
+                }, {}),
+                last30Days: {
+                    earned: parseInt(recentEarned.rows[0]?.count || 0),
+                    redeemed: parseInt(recentRedeemed.rows[0]?.count || 0)
+                },
+                totalRedemptionValueCents: parseInt(totalValue.rows[0]?.total_cents || 0)
+            }
+        });
+    } catch (error) {
+        logger.error('Error fetching loyalty stats', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/process-expired
+ * Process expired window entries (run periodically or on-demand)
+ * This removes purchases outside the rolling window
+ */
+app.post('/api/loyalty/process-expired', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await loyaltyService.processExpiredWindowEntries(merchantId);
+
+        logger.info('Processed expired loyalty window entries', {
+            merchantId,
+            processedCount: result.processedCount
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error processing expired entries', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/settings
+ * Get loyalty settings for the merchant
+ */
+app.get('/api/loyalty/settings', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+
+        // Ensure default settings exist
+        await loyaltyService.initializeDefaultSettings(merchantId);
+
+        const result = await db.query(`
+            SELECT setting_key, setting_value, description
+            FROM loyalty_settings
+            WHERE merchant_id = $1
+        `, [merchantId]);
+
+        const settings = result.rows.reduce((acc, row) => {
+            acc[row.setting_key] = row.setting_value;
+            return acc;
+        }, {});
+
+        res.json({ settings });
+    } catch (error) {
+        logger.error('Error fetching loyalty settings', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/loyalty/settings
+ * Update loyalty settings
+ */
+app.put('/api/loyalty/settings', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const updates = req.body;
+
+        for (const [key, value] of Object.entries(updates)) {
+            await loyaltyService.updateSetting(key, String(value), merchantId);
+        }
+
+        logger.info('Updated loyalty settings', { merchantId, keys: Object.keys(updates) });
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error updating loyalty settings', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== LOYALTY REPORT EXPORTS ====================
+// Vendor receipts and audit exports for reimbursement compliance
+// This is a FIRST-CLASS FEATURE, not an afterthought
+
+/**
+ * GET /api/loyalty/reports/vendor-receipt/:redemptionId
+ * Generate vendor receipt for a specific redemption (HTML/PDF)
+ */
+app.get('/api/loyalty/reports/vendor-receipt/:redemptionId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { format = 'html' } = req.query;
+
+        const receipt = await loyaltyReports.generateVendorReceipt(req.params.redemptionId, merchantId);
+
+        if (format === 'html') {
+            res.setHeader('Content-Type', 'text/html');
+            res.setHeader('Content-Disposition', `inline; filename="${receipt.filename}"`);
+            return res.send(receipt.html);
+        }
+
+        // Return data for client-side PDF generation or other processing
+        res.json({
+            html: receipt.html,
+            data: receipt.data,
+            filename: receipt.filename
+        });
+    } catch (error) {
+        logger.error('Error generating vendor receipt', { error: error.message });
+        if (error.message === 'Redemption not found') {
+            return res.status(404).json({ error: 'Redemption not found' });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/reports/redemptions/csv
+ * Export redemptions as CSV
+ */
+app.get('/api/loyalty/reports/redemptions/csv', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { startDate, endDate, offerId, brandName } = req.query;
+
+        const result = await loyaltyReports.generateRedemptionsCSV(merchantId, {
+            startDate,
+            endDate,
+            offerId,
+            brandName
+        });
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.send(result.csv);
+    } catch (error) {
+        logger.error('Error generating redemptions CSV', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/reports/audit/csv
+ * Export detailed audit log as CSV
+ */
+app.get('/api/loyalty/reports/audit/csv', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { startDate, endDate, offerId, squareCustomerId } = req.query;
+
+        const result = await loyaltyReports.generateAuditCSV(merchantId, {
+            startDate,
+            endDate,
+            offerId,
+            squareCustomerId
+        });
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.send(result.csv);
+    } catch (error) {
+        logger.error('Error generating audit CSV', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/reports/summary/csv
+ * Export summary by brand/offer as CSV
+ */
+app.get('/api/loyalty/reports/summary/csv', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { startDate, endDate } = req.query;
+
+        const result = await loyaltyReports.generateSummaryCSV(merchantId, {
+            startDate,
+            endDate
+        });
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.send(result.csv);
+    } catch (error) {
+        logger.error('Error generating summary CSV', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/reports/customers/csv
+ * Export customer activity as CSV
+ */
+app.get('/api/loyalty/reports/customers/csv', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { offerId, minPurchases } = req.query;
+
+        const result = await loyaltyReports.generateCustomerActivityCSV(merchantId, {
+            offerId,
+            minPurchases: minPurchases ? parseInt(minPurchases) : 1
+        });
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.send(result.csv);
+    } catch (error) {
+        logger.error('Error generating customers CSV', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/reports/redemption/:redemptionId
+ * Get full redemption details with all contributing transactions
+ */
+app.get('/api/loyalty/reports/redemption/:redemptionId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const details = await loyaltyReports.getRedemptionDetails(req.params.redemptionId, merchantId);
+
+        if (!details) {
+            return res.status(404).json({ error: 'Redemption not found' });
+        }
+
+        res.json({ redemption: details });
+    } catch (error) {
+        logger.error('Error fetching redemption details', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // ==================== ERROR HANDLING ====================
 
