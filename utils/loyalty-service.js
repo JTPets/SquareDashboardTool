@@ -36,11 +36,17 @@ function getSquareApi() {
  * When an order doesn't have customer_id directly, the customer may have
  * used their phone number for Square's loyalty program, which links to a customer account.
  *
+ * DUAL APPROACH:
+ * 1. First try to find loyalty events by order_id (works when loyalty was linked before payment)
+ * 2. If not found, search recent loyalty events and match by timestamp (±5 min)
+ *    This handles cases where phone number was entered AFTER payment
+ *
  * @param {string} orderId - Square order ID
  * @param {number} merchantId - Internal merchant ID
+ * @param {string} orderTimestamp - ISO timestamp of the order (for timestamp matching fallback)
  * @returns {Promise<string|null>} customer_id if found, null otherwise
  */
-async function lookupCustomerFromLoyalty(orderId, merchantId) {
+async function lookupCustomerFromLoyalty(orderId, merchantId, orderTimestamp = null) {
     try {
         // Get merchant's access token
         const tokenResult = await db.query(
@@ -55,8 +61,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
         const rawToken = tokenResult.rows[0].square_access_token;
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
-        // Search for loyalty events associated with this order
-        // Square Loyalty accumulate events include the order_id
+        // APPROACH 1: Search for loyalty events by order_id
         const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
             method: 'POST',
             headers: {
@@ -76,23 +81,71 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
             })
         });
 
-        if (!eventsResponse.ok) {
-            const errText = await eventsResponse.text();
-            logger.debug('Loyalty events search failed', { orderId, error: errText });
-            return null;
+        let loyaltyAccountId = null;
+
+        if (eventsResponse.ok) {
+            const eventsData = await eventsResponse.json();
+            const events = eventsData.events || [];
+
+            if (events.length > 0) {
+                loyaltyAccountId = events[0].loyalty_account_id;
+                logger.debug('Found loyalty event by order_id', { orderId, loyaltyAccountId });
+            }
         }
 
-        const eventsData = await eventsResponse.json();
-        const events = eventsData.events || [];
+        // APPROACH 2: If no events found by order_id, try timestamp matching
+        if (!loyaltyAccountId && orderTimestamp) {
+            logger.debug('No loyalty event by order_id, trying timestamp match', { orderId, orderTimestamp });
 
-        if (events.length === 0) {
-            logger.debug('No loyalty events found for order', { orderId });
-            return null;
+            const orderTime = new Date(orderTimestamp).getTime();
+            const MATCH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+            // Search all recent loyalty events (no order filter)
+            const allEventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2024-01-18'
+                },
+                body: JSON.stringify({
+                    query: {
+                        filter: {
+                            type_filter: {
+                                types: ['ACCUMULATE_POINTS']
+                            }
+                        }
+                    },
+                    limit: 30
+                })
+            });
+
+            if (allEventsResponse.ok) {
+                const allEventsData = await allEventsResponse.json();
+                const allEvents = allEventsData.events || [];
+
+                // Find an event within ±5 minutes of the order timestamp
+                for (const event of allEvents) {
+                    const eventTime = new Date(event.created_at).getTime();
+                    const timeDiff = Math.abs(eventTime - orderTime);
+
+                    if (timeDiff <= MATCH_WINDOW_MS) {
+                        loyaltyAccountId = event.loyalty_account_id;
+                        logger.info('Matched loyalty event by timestamp', {
+                            orderId,
+                            loyaltyAccountId,
+                            orderTime: orderTimestamp,
+                            eventTime: event.created_at,
+                            timeDiffSeconds: Math.round(timeDiff / 1000)
+                        });
+                        break;
+                    }
+                }
+            }
         }
 
-        // Get the loyalty account ID from the first event
-        const loyaltyAccountId = events[0].loyalty_account_id;
         if (!loyaltyAccountId) {
+            logger.debug('No loyalty events found for order', { orderId });
             return null;
         }
 
@@ -1621,8 +1674,9 @@ async function processOrderForLoyalty(order, merchantId) {
         // Try to find customer via Square's Loyalty API
         // This handles cases where customer used phone number at checkout
         // but wasn't explicitly added to the sale
-        logger.debug('No customer_id on order, trying loyalty lookup', { orderId: order.id });
-        squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId);
+        const orderTimestamp = order.created_at || order.createdAt;
+        logger.debug('No customer_id on order, trying loyalty lookup', { orderId: order.id, orderTimestamp });
+        squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId, orderTimestamp);
         customerSource = 'loyalty_lookup';
 
         if (!squareCustomerId) {
