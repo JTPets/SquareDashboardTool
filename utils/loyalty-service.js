@@ -20,6 +20,7 @@
 
 const db = require('./database');
 const logger = require('./logger');
+const { decryptToken, isEncryptedToken } = require('./token-encryption');
 
 // Lazy-load square-api to avoid circular dependency
 let squareApi = null;
@@ -28,6 +29,109 @@ function getSquareApi() {
         squareApi = require('./square-api');
     }
     return squareApi;
+}
+
+/**
+ * Try to find customer_id for an order via Square's Loyalty API
+ * When an order doesn't have customer_id directly, the customer may have
+ * used their phone number for Square's loyalty program, which links to a customer account.
+ *
+ * @param {string} orderId - Square order ID
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<string|null>} customer_id if found, null otherwise
+ */
+async function lookupCustomerFromLoyalty(orderId, merchantId) {
+    try {
+        // Get merchant's access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Search for loyalty events associated with this order
+        // Square Loyalty accumulate events include the order_id
+        const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                query: {
+                    filter: {
+                        order_filter: {
+                            order_id: orderId
+                        }
+                    }
+                },
+                limit: 10
+            })
+        });
+
+        if (!eventsResponse.ok) {
+            const errText = await eventsResponse.text();
+            logger.debug('Loyalty events search failed', { orderId, error: errText });
+            return null;
+        }
+
+        const eventsData = await eventsResponse.json();
+        const events = eventsData.events || [];
+
+        if (events.length === 0) {
+            logger.debug('No loyalty events found for order', { orderId });
+            return null;
+        }
+
+        // Get the loyalty account ID from the first event
+        const loyaltyAccountId = events[0].loyalty_account_id;
+        if (!loyaltyAccountId) {
+            return null;
+        }
+
+        // Fetch the loyalty account to get the customer_id
+        const accountResponse = await fetch(`https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            }
+        });
+
+        if (!accountResponse.ok) {
+            logger.debug('Failed to fetch loyalty account', { loyaltyAccountId });
+            return null;
+        }
+
+        const accountData = await accountResponse.json();
+        const customerId = accountData.loyalty_account?.customer_id;
+
+        if (customerId) {
+            logger.info('Found customer via loyalty lookup', {
+                orderId,
+                loyaltyAccountId,
+                customerId
+            });
+        }
+
+        return customerId || null;
+
+    } catch (error) {
+        logger.error('Error in loyalty customer lookup', {
+            error: error.message,
+            orderId,
+            merchantId
+        });
+        return null;
+    }
 }
 
 // ============================================================================
@@ -1509,10 +1613,27 @@ async function processOrderForLoyalty(order, merchantId) {
         return { processed: false, reason: 'loyalty_disabled' };
     }
 
-    const squareCustomerId = order.customer_id;
+    // DUAL APPROACH: First try order.customer_id, then fallback to Square Loyalty API lookup
+    let squareCustomerId = order.customer_id;
+    let customerSource = 'order';
+
     if (!squareCustomerId) {
-        logger.debug('Order has no customer ID, skipping loyalty', { orderId: order.id });
-        return { processed: false, reason: 'no_customer' };
+        // Try to find customer via Square's Loyalty API
+        // This handles cases where customer used phone number at checkout
+        // but wasn't explicitly added to the sale
+        logger.debug('No customer_id on order, trying loyalty lookup', { orderId: order.id });
+        squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId);
+        customerSource = 'loyalty_lookup';
+
+        if (!squareCustomerId) {
+            logger.debug('Order has no customer ID and loyalty lookup failed', { orderId: order.id });
+            return { processed: false, reason: 'no_customer' };
+        }
+
+        logger.info('Found customer via loyalty API fallback', {
+            orderId: order.id,
+            customerId: squareCustomerId
+        });
     }
 
     const lineItems = order.line_items || [];
@@ -1524,6 +1645,7 @@ async function processOrderForLoyalty(order, merchantId) {
         merchantId,
         orderId: order.id,
         customerId: squareCustomerId,
+        customerSource,
         lineItemCount: lineItems.length
     });
 
@@ -1531,6 +1653,7 @@ async function processOrderForLoyalty(order, merchantId) {
         processed: true,
         orderId: order.id,
         customerId: squareCustomerId,
+        customerSource,  // 'order' or 'loyalty_lookup'
         purchasesRecorded: [],
         errors: []
     };
@@ -1794,6 +1917,7 @@ module.exports = {
     // Customer APIs
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
+    lookupCustomerFromLoyalty,
 
     // Webhook processing
     processOrderForLoyalty,
