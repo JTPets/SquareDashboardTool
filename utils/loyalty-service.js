@@ -178,7 +178,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
  */
 function findCustomerFromPrefetchedEvents(orderId, orderTimestamp, prefetchedData) {
     const { byOrderId, byTimestamp, loyaltyAccounts } = prefetchedData;
-    const MATCH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+    const MATCH_WINDOW_MS = 20 * 60 * 1000; // 20 minutes - customers often enter phone after paying
 
     // APPROACH 1: Direct lookup by order_id
     if (byOrderId[orderId]) {
@@ -280,7 +280,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId, orderTimestamp = n
             logger.debug('No loyalty event by order_id, trying timestamp match', { orderId, orderTimestamp });
 
             const orderTime = new Date(orderTimestamp).getTime();
-            const MATCH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+            const MATCH_WINDOW_MS = 20 * 60 * 1000; // 20 minutes - customers often enter phone after paying
 
             // Search all recent loyalty events (no order filter)
             const allEventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
