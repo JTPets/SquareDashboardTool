@@ -11558,6 +11558,157 @@ app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMercha
 });
 
 /**
+ * GET /api/loyalty/debug/matching
+ * Debug endpoint to see why prefetch matching might fail
+ * Shows loyalty events and qualifying orders side by side with timestamps
+ */
+app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const days = parseInt(req.query.days) || 1;
+
+        // Prefetch loyalty events
+        const prefetchedData = await loyaltyService.prefetchRecentLoyaltyEvents(merchantId, days);
+
+        // Get qualifying variation IDs
+        const qualifyingResult = await db.query(
+            `SELECT DISTINCT qv.variation_id, qv.item_name, qv.variation_name
+             FROM loyalty_qualifying_variations qv
+             JOIN loyalty_offers lo ON qv.offer_id = lo.id
+             WHERE lo.merchant_id = $1 AND lo.is_active = TRUE`,
+            [merchantId]
+        );
+        const qualifyingVariations = qualifyingResult.rows;
+        const qualifyingVariationIds = new Set(qualifyingVariations.map(r => r.variation_id));
+
+        // Get recent orders with qualifying items
+        const locationsResult = await db.query(
+            'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1',
+            [merchantId]
+        );
+        const locationIds = locationsResult.rows.map(r => r.id);
+
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        const ordersResponse = await fetch('https://connect.squareup.com/v2/orders/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                location_ids: locationIds,
+                query: {
+                    filter: {
+                        state_filter: { states: ['COMPLETED'] },
+                        date_time_filter: {
+                            closed_at: { start_at: startDate.toISOString() }
+                        }
+                    }
+                },
+                limit: 50
+            })
+        });
+
+        const ordersData = await ordersResponse.json();
+        const allOrders = ordersData.orders || [];
+
+        // Find orders with qualifying items
+        const qualifyingOrders = [];
+        for (const order of allOrders) {
+            const lineItems = order.line_items || [];
+            const qualifyingItems = lineItems.filter(li => qualifyingVariationIds.has(li.catalog_object_id));
+
+            if (qualifyingItems.length > 0) {
+                // Try matching
+                const foundCustomer = loyaltyService.findCustomerFromPrefetchedEvents(
+                    order.id,
+                    order.created_at,
+                    prefetchedData
+                );
+
+                qualifyingOrders.push({
+                    orderId: order.id,
+                    hasCustomerId: !!order.customer_id,
+                    customerId: order.customer_id,
+                    createdAt: order.created_at,
+                    closedAt: order.closed_at,
+                    createdAtMs: new Date(order.created_at).getTime(),
+                    closedAtMs: order.closed_at ? new Date(order.closed_at).getTime() : null,
+                    qualifyingItems: qualifyingItems.map(li => ({
+                        name: li.name,
+                        variationId: li.catalog_object_id,
+                        quantity: li.quantity
+                    })),
+                    matchedCustomerFromPrefetch: foundCustomer
+                });
+            }
+        }
+
+        // Format loyalty events for comparison
+        const loyaltyEventsFormatted = prefetchedData.byTimestamp.map(e => ({
+            loyaltyAccountId: e.loyaltyAccountId,
+            orderId: e.orderId,
+            createdAtMs: e.createdAt,
+            createdAt: new Date(e.createdAt).toISOString(),
+            customerId: prefetchedData.loyaltyAccounts[e.loyaltyAccountId]
+        }));
+
+        // Calculate time differences for debugging
+        const MATCH_WINDOW_MS = 5 * 60 * 1000;
+        const matchAttempts = [];
+        for (const order of qualifyingOrders) {
+            if (!order.hasCustomerId) {
+                for (const event of loyaltyEventsFormatted) {
+                    const timeDiffCreated = Math.abs(event.createdAtMs - order.createdAtMs);
+                    const timeDiffClosed = order.closedAtMs ? Math.abs(event.createdAtMs - order.closedAtMs) : null;
+
+                    matchAttempts.push({
+                        orderId: order.orderId,
+                        orderCreatedAt: order.createdAt,
+                        orderClosedAt: order.closedAt,
+                        loyaltyEventAt: event.createdAt,
+                        loyaltyAccountId: event.loyaltyAccountId,
+                        customerId: event.customerId,
+                        timeDiffFromCreatedSeconds: Math.round(timeDiffCreated / 1000),
+                        timeDiffFromClosedSeconds: timeDiffClosed ? Math.round(timeDiffClosed / 1000) : null,
+                        wouldMatchCreated: timeDiffCreated <= MATCH_WINDOW_MS,
+                        wouldMatchClosed: timeDiffClosed ? timeDiffClosed <= MATCH_WINDOW_MS : null
+                    });
+                }
+            }
+        }
+
+        res.json({
+            summary: {
+                days,
+                totalOrders: allOrders.length,
+                qualifyingOrders: qualifyingOrders.length,
+                loyaltyEvents: prefetchedData.events.length,
+                loyaltyAccounts: Object.keys(prefetchedData.loyaltyAccounts).length,
+                matchWindowMinutes: 5
+            },
+            qualifyingOrders,
+            loyaltyEvents: loyaltyEventsFormatted,
+            matchAttempts: matchAttempts.slice(0, 50) // Limit output
+        });
+
+    } catch (error) {
+        logger.error('Error in matching debug', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/manual-entry
  * Manually record a loyalty purchase for orders where customer wasn't attached
  * Used to backfill purchases that couldn't be auto-detected
