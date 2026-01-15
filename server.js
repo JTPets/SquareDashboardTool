@@ -11171,6 +11171,18 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         );
         const qualifyingVariationIds = new Set(qualifyingResult.rows.map(r => r.variation_id));
 
+        // OPTIMIZATION: Pre-fetch ALL loyalty events once at the start
+        // This reduces 100s of API calls to just 1-2 paginated calls
+        logger.info('Pre-fetching loyalty events for batch processing', { merchantId, days });
+        const prefetchedLoyalty = await loyaltyService.prefetchRecentLoyaltyEvents(merchantId, days);
+        logger.info('Pre-fetch complete', {
+            merchantId,
+            eventsFound: prefetchedLoyalty.events.length,
+            accountsMapped: Object.keys(prefetchedLoyalty.loyaltyAccounts).length
+        });
+
+        let customersFoundViaPrefetch = 0;
+
         // Use raw Square API (same approach as sales velocity sync)
         do {
             const requestBody = {
@@ -11240,14 +11252,44 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
                     ordersWithCustomer++;
                 }
 
+                // OPTIMIZATION: Skip orders without qualifying items
+                // No point doing loyalty lookup if there's nothing to track
+                if (!hasQualifyingItem) {
+                    continue;
+                }
+
                 try {
+                    // If order has no customer_id, try to find one from prefetched loyalty data
+                    let customerId = order.customer_id;
+                    if (!customerId) {
+                        customerId = loyaltyService.findCustomerFromPrefetchedEvents(
+                            order.id,
+                            order.created_at,
+                            prefetchedLoyalty
+                        );
+                        if (customerId) {
+                            customersFoundViaPrefetch++;
+                        }
+                    }
+
+                    // Skip if still no customer after prefetch lookup
+                    if (!customerId) {
+                        if (diagnostics.sampleOrdersWithoutCustomer.length < 3) {
+                            diagnostics.sampleOrdersWithoutCustomer.push({
+                                orderId: order.id,
+                                createdAt: order.created_at,
+                                hasQualifyingItem
+                            });
+                        }
+                        continue;
+                    }
+
                     // Transform to camelCase for loyaltyService
-                    // NOTE: We pass ALL orders (even without customer_id) because
-                    // processOrderForLoyalty will try to find customer via loyalty API lookup
+                    // Now we pass the customer_id we found (either from order or prefetch)
                     const orderForLoyalty = {
                         id: order.id,
-                        customer_id: order.customer_id,
-                        customerId: order.customer_id,
+                        customer_id: customerId,
+                        customerId: customerId,
                         state: order.state,
                         created_at: order.created_at,
                         location_id: order.location_id,
@@ -11266,18 +11308,9 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
                         results.push({
                             orderId: order.id,
                             customerId: loyaltyResult.customerId,
-                            customerSource: loyaltyResult.customerSource,
+                            customerSource: order.customer_id ? 'order' : 'loyalty_prefetch',
                             purchasesRecorded: loyaltyResult.purchasesRecorded.length
                         });
-                    } else if (!loyaltyResult.processed && loyaltyResult.reason === 'no_customer') {
-                        // Track orders where we couldn't find a customer
-                        if (diagnostics.sampleOrdersWithoutCustomer.length < 3) {
-                            diagnostics.sampleOrdersWithoutCustomer.push({
-                                orderId: order.id,
-                                createdAt: order.created_at,
-                                hasQualifyingItem
-                            });
-                        }
                     }
                 } catch (err) {
                     logger.warn('Failed to process order for loyalty during backfill', {
@@ -11294,6 +11327,8 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
             merchantId,
             days,
             ordersProcessed,
+            ordersWithQualifyingItems,
+            customersFoundViaPrefetch,
             loyaltyPurchasesRecorded
         });
 
@@ -11302,12 +11337,15 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
             ordersProcessed,
             ordersWithCustomer,
             ordersWithQualifyingItems,
+            customersFoundViaPrefetch,
             loyaltyPurchasesRecorded,
             results,
             diagnostics: {
                 qualifyingVariationIdsConfigured: Array.from(qualifyingVariationIds),
                 sampleVariationIdsInOrders: diagnostics.sampleVariationIds,
-                sampleOrdersWithoutCustomer: diagnostics.sampleOrdersWithoutCustomer
+                sampleOrdersWithoutCustomer: diagnostics.sampleOrdersWithoutCustomer,
+                prefetchedLoyaltyEvents: prefetchedLoyalty.events.length,
+                prefetchedLoyaltyAccounts: Object.keys(prefetchedLoyalty.loyaltyAccounts).length
             }
         });
 
