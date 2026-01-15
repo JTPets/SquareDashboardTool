@@ -9496,46 +9496,104 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
             return res.status(404).json({ error: 'Order not found' });
         }
 
+        let squareSynced = false;
+        let squareSyncError = null;
+
         // If Square order, sync fulfillment completion to Square
         if (order.square_order_id) {
             try {
                 const squareClient = await getSquareClientForMerchant(merchantId);
 
                 // First, get the current order to find fulfillment UID and version
-                const squareOrder = await squareClient.orders.get({
+                let squareOrder = await squareClient.orders.get({
                     orderId: order.square_order_id
                 });
 
                 if (squareOrder.order && squareOrder.order.fulfillments) {
-                    // Find the delivery/shipment fulfillment
-                    const fulfillment = squareOrder.order.fulfillments.find(f =>
-                        f.type === 'DELIVERY' || f.type === 'SHIPMENT'
-                    );
+                    // Find the delivery/shipment fulfillment (check multiple types)
+                    let fulfillment = squareOrder.order.fulfillments.find(f =>
+                        f.type === 'DELIVERY' || f.type === 'SHIPMENT' || f.type === 'PICKUP'
+                    ) || squareOrder.order.fulfillments[0]; // Fall back to first fulfillment
 
-                    if (fulfillment && fulfillment.state !== 'COMPLETED') {
-                        // Update the fulfillment to COMPLETED
-                        await squareClient.orders.update({
-                            orderId: order.square_order_id,
-                            order: {
-                                locationId: squareOrder.order.locationId,
-                                version: squareOrder.order.version,
-                                fulfillments: [{
-                                    uid: fulfillment.uid,
-                                    state: 'COMPLETED'
-                                }]
-                            },
-                            idempotencyKey: `complete-${order.id}-${Date.now()}`
-                        });
-
-                        logger.info('Synced delivery completion to Square', {
-                            merchantId,
+                    if (fulfillment) {
+                        logger.info('Current fulfillment state', {
                             orderId: order.id,
                             squareOrderId: order.square_order_id,
-                            fulfillmentUid: fulfillment.uid
+                            fulfillmentUid: fulfillment.uid,
+                            fulfillmentType: fulfillment.type,
+                            currentState: fulfillment.state
                         });
+
+                        // Define the state transition order
+                        // Square requires stepping through states: PROPOSED → RESERVED → PREPARED → COMPLETED
+                        const stateOrder = ['PROPOSED', 'RESERVED', 'PREPARED', 'COMPLETED'];
+                        const currentStateIndex = stateOrder.indexOf(fulfillment.state);
+
+                        if (fulfillment.state === 'COMPLETED') {
+                            squareSynced = true; // Already completed
+                        } else if (currentStateIndex >= 0) {
+                            // Need to transition through each state to reach COMPLETED
+                            for (let i = currentStateIndex + 1; i < stateOrder.length; i++) {
+                                const nextState = stateOrder[i];
+
+                                // Re-fetch to get current version (required for optimistic concurrency)
+                                squareOrder = await squareClient.orders.get({
+                                    orderId: order.square_order_id
+                                });
+
+                                // Re-find fulfillment (version may have changed)
+                                fulfillment = squareOrder.order.fulfillments.find(f => f.uid === fulfillment.uid);
+
+                                if (!fulfillment) {
+                                    throw new Error('Fulfillment not found after re-fetch');
+                                }
+
+                                logger.info('Transitioning fulfillment state', {
+                                    orderId: order.id,
+                                    from: fulfillment.state,
+                                    to: nextState
+                                });
+
+                                await squareClient.orders.update({
+                                    orderId: order.square_order_id,
+                                    order: {
+                                        locationId: squareOrder.order.locationId,
+                                        version: squareOrder.order.version,
+                                        fulfillments: [{
+                                            uid: fulfillment.uid,
+                                            state: nextState
+                                        }]
+                                    },
+                                    idempotencyKey: `complete-${order.id}-${nextState}-${Date.now()}`
+                                });
+                            }
+
+                            squareSynced = true;
+                            logger.info('Synced delivery completion to Square', {
+                                merchantId,
+                                orderId: order.id,
+                                squareOrderId: order.square_order_id,
+                                fulfillmentUid: fulfillment.uid,
+                                fulfillmentType: fulfillment.type,
+                                originalState: stateOrder[currentStateIndex]
+                            });
+                        } else {
+                            // Unknown state (CANCELED, FAILED, etc.)
+                            logger.warn('Fulfillment in unexpected state', {
+                                orderId: order.id,
+                                state: fulfillment.state
+                            });
+                            squareSyncError = `Fulfillment in ${fulfillment.state} state`;
+                        }
                     }
+                } else {
+                    logger.warn('Square order has no fulfillments', {
+                        orderId: order.id,
+                        squareOrderId: order.square_order_id
+                    });
                 }
             } catch (squareError) {
+                squareSyncError = squareError.message;
                 logger.error('Failed to sync completion to Square', {
                     error: squareError.message,
                     orderId: order.id,
@@ -9547,7 +9605,11 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
 
         const completedOrder = await deliveryApi.completeOrder(merchantId, req.params.id, req.session.user.id);
 
-        res.json({ order: completedOrder });
+        res.json({
+            order: completedOrder,
+            square_synced: squareSynced,
+            square_sync_error: squareSyncError
+        });
     } catch (error) {
         logger.error('Error completing delivery order', { error: error.message });
         res.status(500).json({ error: error.message });

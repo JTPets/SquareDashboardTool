@@ -491,6 +491,13 @@
     async function loadRoute() {
       try {
         const response = await fetch('/api/delivery/route/active');
+
+        // Handle auth/session errors
+        if (response.status === 401 || response.status === 403) {
+          showEmptyState('Session expired. <a href="/login.html">Login again</a>');
+          return;
+        }
+
         if (!response.ok) throw new Error('Failed to load route');
 
         const data = await response.json();
@@ -506,7 +513,13 @@
         renderRoute();
       } catch (error) {
         console.error('Error loading route:', error);
-        showEmptyState('Error loading route');
+        // Only show error state if we don't have existing data
+        // This prevents flickering on temporary network issues
+        if (!route) {
+          showEmptyState('Unable to load route. Check connection.');
+        } else {
+          showToast('Connection issue. Data may be stale.', 'error');
+        }
       }
     }
 
@@ -726,7 +739,17 @@
           throw new Error(err.error);
         }
 
-        showToast('Delivery completed!', 'success');
+        const result = await response.json();
+
+        // Show appropriate toast based on Square sync status
+        if (result.square_synced) {
+          showToast('Delivery completed & synced to Square!', 'success');
+        } else if (result.square_sync_error) {
+          showToast('Completed locally. Square sync failed: ' + result.square_sync_error, 'error');
+        } else {
+          showToast('Delivery completed!', 'success');
+        }
+
         loadRoute();
       } catch (error) {
         showToast('Failed to complete: ' + error.message, 'error');
@@ -786,8 +809,33 @@
     // Initial load
     loadRoute();
 
-    // Refresh every 60 seconds
-    setInterval(loadRoute, 60000);
+    // Refresh every 60 seconds (only when page is visible)
+    let refreshInterval = setInterval(loadRoute, 60000);
+
+    // Handle screen unlock / tab visibility changes
+    document.addEventListener('visibilitychange', async function() {
+      if (document.visibilityState === 'visible') {
+        // Page became visible (e.g., screen unlocked, tab switched back)
+        // Reload the route data silently
+        try {
+          await loadRoute();
+        } catch (error) {
+          // If session expired or network error, show friendly message
+          console.error('Failed to reload route on visibility change:', error);
+          showToast('Connection issue. Pull down to refresh.', 'error');
+        }
+      }
+    });
+
+    // Also handle page focus (belt and suspenders)
+    window.addEventListener('focus', function() {
+      // Debounce - don't reload if we just loaded
+      if (route) {
+        loadRoute().catch(err => {
+          console.error('Failed to reload on focus:', err);
+        });
+      }
+    });
   </script>
 </body>
 </html>
