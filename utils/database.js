@@ -2045,6 +2045,225 @@ async function ensureSchema() {
         logger.error('Failed to create gmc_sync_logs table:', error.message);
     }
 
+    // ==================== LOYALTY PROGRAM TABLES ====================
+    // Create loyalty program tables for frequent buyer programs
+    try {
+        const loyaltyOffersCheck = await query(`
+            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'loyalty_offers')
+        `);
+
+        if (!loyaltyOffersCheck.rows[0].exists) {
+            logger.info('Creating loyalty program tables...');
+
+            // 1. loyalty_offers - Defines frequent buyer programs
+            await query(`
+                CREATE TABLE loyalty_offers (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    offer_name VARCHAR(255) NOT NULL,
+                    brand_name VARCHAR(255) NOT NULL,
+                    size_group VARCHAR(100) NOT NULL,
+                    required_quantity INTEGER NOT NULL CHECK (required_quantity > 0),
+                    reward_quantity INTEGER NOT NULL DEFAULT 1 CHECK (reward_quantity = 1),
+                    window_months INTEGER NOT NULL DEFAULT 12 CHECK (window_months > 0),
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    description TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    created_by INTEGER REFERENCES users(id),
+                    CONSTRAINT loyalty_offers_unique_brand_size UNIQUE(merchant_id, brand_name, size_group)
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_offers_merchant ON loyalty_offers(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_offers_brand ON loyalty_offers(merchant_id, brand_name)');
+            await query('CREATE INDEX idx_loyalty_offers_active ON loyalty_offers(merchant_id, is_active) WHERE is_active = TRUE');
+
+            // 2. loyalty_qualifying_variations - Maps Square variations to offers
+            await query(`
+                CREATE TABLE loyalty_qualifying_variations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+                    variation_id TEXT NOT NULL,
+                    item_id TEXT,
+                    item_name TEXT,
+                    variation_name TEXT,
+                    sku TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT loyalty_qualifying_vars_unique UNIQUE(merchant_id, offer_id, variation_id)
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_qual_vars_merchant ON loyalty_qualifying_variations(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_qual_vars_offer ON loyalty_qualifying_variations(offer_id)');
+            await query('CREATE INDEX idx_loyalty_qual_vars_variation ON loyalty_qualifying_variations(merchant_id, variation_id)');
+
+            // 3. loyalty_purchase_events - Records qualifying purchases
+            await query(`
+                CREATE TABLE loyalty_purchase_events (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+                    square_customer_id TEXT NOT NULL,
+                    square_order_id TEXT NOT NULL,
+                    square_location_id TEXT,
+                    variation_id TEXT NOT NULL,
+                    quantity INTEGER NOT NULL CHECK (quantity != 0),
+                    unit_price_cents INTEGER,
+                    purchased_at TIMESTAMPTZ NOT NULL,
+                    window_start_date DATE,
+                    window_end_date DATE,
+                    reward_id UUID,
+                    is_refund BOOLEAN NOT NULL DEFAULT FALSE,
+                    original_event_id UUID REFERENCES loyalty_purchase_events(id),
+                    idempotency_key TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT loyalty_purchase_events_idempotent UNIQUE(merchant_id, idempotency_key)
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_purchase_events_merchant ON loyalty_purchase_events(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_purchase_events_offer ON loyalty_purchase_events(offer_id)');
+            await query('CREATE INDEX idx_loyalty_purchase_events_customer ON loyalty_purchase_events(merchant_id, square_customer_id)');
+            await query('CREATE INDEX idx_loyalty_purchase_events_customer_offer ON loyalty_purchase_events(merchant_id, square_customer_id, offer_id)');
+            await query('CREATE INDEX idx_loyalty_purchase_events_order ON loyalty_purchase_events(merchant_id, square_order_id)');
+
+            // 4. loyalty_rewards - Tracks reward state machine
+            await query(`
+                CREATE TABLE loyalty_rewards (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+                    square_customer_id TEXT NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'earned', 'redeemed', 'revoked')),
+                    current_quantity INTEGER NOT NULL DEFAULT 0,
+                    required_quantity INTEGER NOT NULL,
+                    window_start_date DATE NOT NULL,
+                    window_end_date DATE NOT NULL,
+                    earned_at TIMESTAMPTZ,
+                    redeemed_at TIMESTAMPTZ,
+                    revoked_at TIMESTAMPTZ,
+                    redemption_id UUID,
+                    redemption_order_id TEXT,
+                    revocation_reason TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_rewards_merchant ON loyalty_rewards(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_rewards_offer ON loyalty_rewards(offer_id)');
+            await query('CREATE INDEX idx_loyalty_rewards_customer ON loyalty_rewards(merchant_id, square_customer_id)');
+            await query('CREATE INDEX idx_loyalty_rewards_status ON loyalty_rewards(merchant_id, status)');
+            await query('CREATE INDEX idx_loyalty_rewards_earned ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = \'earned\'');
+
+            // 5. loyalty_redemptions - Records redemption details
+            await query(`
+                CREATE TABLE loyalty_redemptions (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    reward_id UUID NOT NULL REFERENCES loyalty_rewards(id) ON DELETE RESTRICT,
+                    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE RESTRICT,
+                    square_customer_id TEXT NOT NULL,
+                    redemption_type VARCHAR(50) NOT NULL CHECK (redemption_type IN ('order_discount', 'manual_admin', 'auto_detected')),
+                    square_order_id TEXT,
+                    square_location_id TEXT,
+                    redeemed_variation_id TEXT,
+                    redeemed_item_name TEXT,
+                    redeemed_variation_name TEXT,
+                    redeemed_value_cents INTEGER,
+                    square_discount_id TEXT,
+                    redeemed_by_user_id INTEGER REFERENCES users(id),
+                    admin_notes TEXT,
+                    redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_redemptions_merchant ON loyalty_redemptions(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_redemptions_reward ON loyalty_redemptions(reward_id)');
+            await query('CREATE INDEX idx_loyalty_redemptions_customer ON loyalty_redemptions(merchant_id, square_customer_id)');
+            await query('CREATE INDEX idx_loyalty_redemptions_date ON loyalty_redemptions(merchant_id, redeemed_at)');
+
+            // 6. loyalty_audit_logs - Complete audit trail
+            await query(`
+                CREATE TABLE loyalty_audit_logs (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    action VARCHAR(100) NOT NULL,
+                    offer_id UUID REFERENCES loyalty_offers(id) ON DELETE SET NULL,
+                    reward_id UUID REFERENCES loyalty_rewards(id) ON DELETE SET NULL,
+                    purchase_event_id UUID REFERENCES loyalty_purchase_events(id) ON DELETE SET NULL,
+                    redemption_id UUID REFERENCES loyalty_redemptions(id) ON DELETE SET NULL,
+                    square_customer_id TEXT,
+                    square_order_id TEXT,
+                    old_state VARCHAR(50),
+                    new_state VARCHAR(50),
+                    old_quantity INTEGER,
+                    new_quantity INTEGER,
+                    triggered_by VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+                    user_id INTEGER REFERENCES users(id),
+                    details JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_audit_merchant ON loyalty_audit_logs(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_audit_customer ON loyalty_audit_logs(merchant_id, square_customer_id)');
+            await query('CREATE INDEX idx_loyalty_audit_action ON loyalty_audit_logs(merchant_id, action)');
+            await query('CREATE INDEX idx_loyalty_audit_created ON loyalty_audit_logs(merchant_id, created_at DESC)');
+
+            // 7. loyalty_settings - Per-merchant configuration
+            await query(`
+                CREATE TABLE loyalty_settings (
+                    id SERIAL PRIMARY KEY,
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    setting_key VARCHAR(100) NOT NULL,
+                    setting_value TEXT,
+                    description TEXT,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT loyalty_settings_unique UNIQUE(merchant_id, setting_key)
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_settings_merchant ON loyalty_settings(merchant_id)');
+
+            // 8. loyalty_customer_summary - Denormalized customer status for quick lookups
+            await query(`
+                CREATE TABLE loyalty_customer_summary (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+                    square_customer_id TEXT NOT NULL,
+                    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+                    current_quantity INTEGER NOT NULL DEFAULT 0,
+                    required_quantity INTEGER NOT NULL,
+                    window_start_date DATE,
+                    window_end_date DATE,
+                    has_earned_reward BOOLEAN NOT NULL DEFAULT FALSE,
+                    earned_reward_id UUID REFERENCES loyalty_rewards(id),
+                    total_lifetime_purchases INTEGER NOT NULL DEFAULT 0,
+                    total_rewards_earned INTEGER NOT NULL DEFAULT 0,
+                    total_rewards_redeemed INTEGER NOT NULL DEFAULT 0,
+                    last_purchase_at TIMESTAMPTZ,
+                    last_reward_earned_at TIMESTAMPTZ,
+                    last_reward_redeemed_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT loyalty_customer_summary_unique UNIQUE(merchant_id, square_customer_id, offer_id)
+                )
+            `);
+            await query('CREATE INDEX idx_loyalty_cust_summary_merchant ON loyalty_customer_summary(merchant_id)');
+            await query('CREATE INDEX idx_loyalty_cust_summary_customer ON loyalty_customer_summary(merchant_id, square_customer_id)');
+            await query('CREATE INDEX idx_loyalty_cust_summary_offer ON loyalty_customer_summary(offer_id)');
+            await query('CREATE INDEX idx_loyalty_cust_summary_earned ON loyalty_customer_summary(merchant_id, has_earned_reward) WHERE has_earned_reward = TRUE');
+
+            // Add foreign key for reward_id in purchase_events (deferred to avoid circular reference)
+            await query('ALTER TABLE loyalty_purchase_events ADD CONSTRAINT fk_purchase_events_reward FOREIGN KEY (reward_id) REFERENCES loyalty_rewards(id) ON DELETE SET NULL');
+
+            logger.info('Created all loyalty program tables');
+            appliedCount++;
+        }
+    } catch (error) {
+        logger.error('Failed to create loyalty program tables:', error.message);
+    }
+
     if (appliedCount > 0) {
         logger.info(`Schema check complete: ${appliedCount} migrations applied`);
     } else {
