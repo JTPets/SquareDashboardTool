@@ -143,25 +143,27 @@ async function getOrderBySquareId(merchantId, squareOrderId) {
 async function createOrder(merchantId, orderData) {
     const {
         squareOrderId = null,
+        squareCustomerId = null,
         customerName,
         address,
         addressLat = null,
         addressLng = null,
         phone = null,
         notes = null,
+        customerNote = null,
         status = 'pending'
     } = orderData;
 
     const result = await db.query(
         `INSERT INTO delivery_orders (
-            merchant_id, square_order_id, customer_name, address,
-            address_lat, address_lng, phone, notes, status,
+            merchant_id, square_order_id, square_customer_id, customer_name, address,
+            address_lat, address_lng, phone, notes, customer_note, status,
             geocoded_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *`,
         [
-            merchantId, squareOrderId, customerName, address,
-            addressLat, addressLng, phone, notes, status,
+            merchantId, squareOrderId, squareCustomerId, customerName, address,
+            addressLat, addressLng, phone, notes, customerNote, status,
             addressLat && addressLng ? new Date() : null
         ]
     );
@@ -169,7 +171,8 @@ async function createOrder(merchantId, orderData) {
     logger.info('Created delivery order', {
         merchantId,
         orderId: result.rows[0].id,
-        squareOrderId
+        squareOrderId,
+        squareCustomerId
     });
 
     return result.rows[0];
@@ -185,8 +188,8 @@ async function createOrder(merchantId, orderData) {
 async function updateOrder(merchantId, orderId, updates) {
     const allowedFields = [
         'customer_name', 'address', 'address_lat', 'address_lng',
-        'geocoded_at', 'phone', 'notes', 'status', 'route_id',
-        'route_position', 'route_date', 'square_synced_at'
+        'geocoded_at', 'phone', 'notes', 'customer_note', 'status', 'route_id',
+        'route_position', 'route_date', 'square_synced_at', 'square_customer_id'
     ];
 
     const setClauses = [];
@@ -1108,13 +1111,17 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // If Square order is already COMPLETED, mark ours as completed too
     const initialStatus = squareOrder.state === 'COMPLETED' ? 'completed' : 'pending';
 
+    // Extract customer ID from Square order (camelCase for SDK v43+)
+    const squareCustomerId = squareOrder.customerId || squareOrder.customer_id || null;
+
     // Create delivery order
     const order = await createOrder(merchantId, {
         squareOrderId: squareOrder.id,
+        squareCustomerId,
         customerName,
         address,
         phone,
-        notes: squareOrder.note || null,
+        notes: squareOrder.note || null,  // Order-specific notes
         status: initialStatus
     });
 

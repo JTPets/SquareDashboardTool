@@ -9617,6 +9617,155 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
 });
 
 /**
+ * GET /api/delivery/orders/:id/customer
+ * Get customer info and notes from Square
+ */
+app.get('/api/delivery/orders/:id/customer', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        let customerData = {
+            order_notes: order.notes,        // Order-specific notes from Square
+            customer_note: order.customer_note,  // Cached customer note
+            square_customer_id: order.square_customer_id
+        };
+
+        // If we have a Square customer ID, fetch fresh data from Square
+        if (order.square_customer_id) {
+            try {
+                const squareClient = await getSquareClientForMerchant(merchantId);
+                const customerResponse = await squareClient.customers.get({
+                    customerId: order.square_customer_id
+                });
+
+                if (customerResponse.customer) {
+                    const customer = customerResponse.customer;
+                    customerData = {
+                        ...customerData,
+                        customer_note: customer.note || null,
+                        customer_email: customer.emailAddress || customer.email_address,
+                        customer_phone: customer.phoneNumber || customer.phone_number,
+                        customer_name: [customer.givenName || customer.given_name, customer.familyName || customer.family_name].filter(Boolean).join(' '),
+                        customer_company: customer.companyName || customer.company_name
+                    };
+
+                    // Update cached customer note if different
+                    if (customer.note !== order.customer_note) {
+                        await deliveryApi.updateOrder(merchantId, order.id, {
+                            customerNote: customer.note || null
+                        });
+                    }
+                }
+            } catch (squareError) {
+                logger.warn('Failed to fetch customer from Square', {
+                    error: squareError.message,
+                    customerId: order.square_customer_id
+                });
+                // Return cached data if Square fetch fails
+            }
+        }
+
+        res.json(customerData);
+    } catch (error) {
+        logger.error('Error fetching customer info', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/delivery/orders/:id/customer-note
+ * Update customer note (syncs to Square)
+ */
+app.patch('/api/delivery/orders/:id/customer-note', deliveryRateLimit, requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { note } = req.body;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        if (!order.square_customer_id) {
+            return res.status(400).json({ error: 'No Square customer linked to this order' });
+        }
+
+        let squareSynced = false;
+
+        // Update customer note in Square
+        try {
+            const squareClient = await getSquareClientForMerchant(merchantId);
+
+            // First get current customer to get version
+            const customerResponse = await squareClient.customers.get({
+                customerId: order.square_customer_id
+            });
+
+            if (customerResponse.customer) {
+                await squareClient.customers.update({
+                    customerId: order.square_customer_id,
+                    note: note || null,
+                    version: customerResponse.customer.version
+                });
+                squareSynced = true;
+            }
+        } catch (squareError) {
+            logger.error('Failed to update customer note in Square', {
+                error: squareError.message,
+                customerId: order.square_customer_id
+            });
+        }
+
+        // Update cached note locally
+        await deliveryApi.updateOrder(merchantId, order.id, {
+            customerNote: note || null
+        });
+
+        res.json({
+            success: true,
+            square_synced: squareSynced,
+            customer_note: note
+        });
+    } catch (error) {
+        logger.error('Error updating customer note', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PATCH /api/delivery/orders/:id/notes
+ * Update order notes (local only - order-specific instructions)
+ */
+app.patch('/api/delivery/orders/:id/notes', deliveryRateLimit, requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { notes } = req.body;
+        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+
+        if (!order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        await deliveryApi.updateOrder(merchantId, order.id, {
+            notes: notes || null
+        });
+
+        res.json({
+            success: true,
+            notes: notes
+        });
+    } catch (error) {
+        logger.error('Error updating order notes', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/delivery/orders/:id/pod
  * Upload proof of delivery photo
  */

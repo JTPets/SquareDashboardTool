@@ -196,7 +196,7 @@
       font-size: 18px;
     }
 
-    /* Notes */
+    /* Order Notes (yellow - order-specific instructions) */
     .stop-notes {
       background: #fffbeb;
       border: 1px solid #fde68a;
@@ -209,6 +209,30 @@
     .stop-notes strong {
       display: block;
       margin-bottom: 4px;
+    }
+
+    /* Customer Notes (blue - persistent customer info like buzzer codes) */
+    .stop-customer-notes {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    .stop-customer-notes strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .stop-customer-notes .edit-btn {
+      float: right;
+      background: none;
+      border: none;
+      color: #3b82f6;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
     }
 
     /* POD Section */
@@ -471,6 +495,27 @@
     </div>
   </div>
 
+  <!-- Customer Note Edit Modal -->
+  <div class="modal-overlay" id="noteModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Customer Info</h2>
+        <button class="modal-close" onclick="closeNoteModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
+          This info is saved to the customer profile and will appear on all their future orders.
+        </p>
+        <textarea id="customerNoteInput" placeholder="Buzzer code, gate code, delivery instructions..."
+          style="width: 100%; height: 120px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; resize: none;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeNoteModal()">Cancel</button>
+        <button class="btn btn-success" onclick="saveCustomerNote()">Save to Customer</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Loading Overlay -->
   <div class="loading-overlay" id="loadingOverlay">
     <div class="loading-spinner">
@@ -487,6 +532,7 @@
     let stops = [];
     let currentPodOrderId = null;
     let podFile = null;
+    let currentNoteOrderId = null;
 
     async function loadRoute() {
       try {
@@ -590,9 +636,23 @@
                 </a>
               ` : ''}
 
+              ${stop.customer_note ? `
+                <div class="stop-customer-notes">
+                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '${escapeHtml(stop.customer_note || '')}')">Edit</button>
+                  <strong>🏠 Customer Info:</strong>
+                  ${escapeHtml(stop.customer_note)}
+                </div>
+              ` : (stop.square_customer_id ? `
+                <div class="stop-customer-notes" style="opacity: 0.7;">
+                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '')">+ Add</button>
+                  <strong>🏠 Customer Info:</strong>
+                  <em>No notes saved for this customer</em>
+                </div>
+              ` : '')}
+
               ${stop.notes ? `
                 <div class="stop-notes">
-                  <strong>Notes:</strong>
+                  <strong>📝 Order Notes:</strong>
                   ${escapeHtml(stop.notes)}
                 </div>
               ` : ''}
@@ -777,6 +837,53 @@
         loadRoute();
       } catch (error) {
         showToast('Failed to skip: ' + error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function editCustomerNote(orderId, currentNote) {
+      currentNoteOrderId = orderId;
+      document.getElementById('customerNoteInput').value = currentNote || '';
+      document.getElementById('noteModal').classList.add('active');
+    }
+
+    function closeNoteModal() {
+      document.getElementById('noteModal').classList.remove('active');
+      currentNoteOrderId = null;
+    }
+
+    async function saveCustomerNote() {
+      if (!currentNoteOrderId) return;
+
+      const note = document.getElementById('customerNoteInput').value.trim();
+      showLoading(true);
+
+      try {
+        const response = await fetch(`/api/delivery/orders/${currentNoteOrderId}/customer-note`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error);
+        }
+
+        const result = await response.json();
+
+        closeNoteModal();
+
+        if (result.square_synced) {
+          showToast('Customer info saved to Square!', 'success');
+        } else {
+          showToast('Customer info saved locally', 'success');
+        }
+
+        loadRoute();
+      } catch (error) {
+        showToast('Failed to save: ' + error.message, 'error');
       } finally {
         showLoading(false);
       }
