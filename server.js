@@ -11235,22 +11235,15 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
                     ordersWithQualifyingItems++;
                 }
 
-                // Skip orders without customer (snake_case from raw API)
-                if (!order.customer_id) {
-                    if (diagnostics.sampleOrdersWithoutCustomer.length < 3) {
-                        diagnostics.sampleOrdersWithoutCustomer.push({
-                            orderId: order.id,
-                            createdAt: order.created_at,
-                            hasQualifyingItem
-                        });
-                    }
-                    continue;
+                // Track orders with direct customer_id
+                if (order.customer_id) {
+                    ordersWithCustomer++;
                 }
-
-                ordersWithCustomer++;
 
                 try {
                     // Transform to camelCase for loyaltyService
+                    // NOTE: We pass ALL orders (even without customer_id) because
+                    // processOrderForLoyalty will try to find customer via loyalty API lookup
                     const orderForLoyalty = {
                         id: order.id,
                         customer_id: order.customer_id,
@@ -11272,9 +11265,19 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
                         loyaltyPurchasesRecorded += loyaltyResult.purchasesRecorded.length;
                         results.push({
                             orderId: order.id,
-                            customerId: order.customer_id,
+                            customerId: loyaltyResult.customerId,
+                            customerSource: loyaltyResult.customerSource,
                             purchasesRecorded: loyaltyResult.purchasesRecorded.length
                         });
+                    } else if (!loyaltyResult.processed && loyaltyResult.reason === 'no_customer') {
+                        // Track orders where we couldn't find a customer
+                        if (diagnostics.sampleOrdersWithoutCustomer.length < 3) {
+                            diagnostics.sampleOrdersWithoutCustomer.push({
+                                orderId: order.id,
+                                createdAt: order.created_at,
+                                hasQualifyingItem
+                            });
+                        }
                     }
                 } catch (err) {
                     logger.warn('Failed to process order for loyalty during backfill', {
