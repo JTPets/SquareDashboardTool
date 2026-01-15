@@ -11406,6 +11406,69 @@ app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async 
 });
 
 /**
+ * POST /api/loyalty/manual-entry
+ * Manually record a loyalty purchase for orders where customer wasn't attached
+ * Used to backfill purchases that couldn't be auto-detected
+ */
+app.post('/api/loyalty/manual-entry', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { squareOrderId, squareCustomerId, variationId, quantity, purchasedAt } = req.body;
+
+        if (!squareOrderId || !squareCustomerId || !variationId) {
+            return res.status(400).json({
+                error: 'Missing required fields: squareOrderId, squareCustomerId, variationId'
+            });
+        }
+
+        const qty = parseInt(quantity) || 1;
+
+        logger.info('Manual loyalty entry', {
+            merchantId,
+            squareOrderId,
+            squareCustomerId,
+            variationId,
+            quantity: qty
+        });
+
+        // Process the purchase using the loyalty service
+        const result = await loyaltyService.processQualifyingPurchase({
+            merchantId,
+            squareOrderId,
+            squareCustomerId,
+            variationId,
+            quantity: qty,
+            unitPriceCents: 0,  // Unknown for manual entry
+            purchasedAt: purchasedAt || new Date(),
+            squareLocationId: null
+        });
+
+        if (!result.processed) {
+            return res.status(400).json({
+                success: false,
+                reason: result.reason,
+                message: result.reason === 'variation_not_qualifying'
+                    ? 'This variation is not configured as a qualifying item for any loyalty offer'
+                    : result.reason === 'already_processed'
+                    ? 'This purchase has already been recorded'
+                    : 'Could not process this purchase'
+            });
+        }
+
+        res.json({
+            success: true,
+            purchaseEvent: result.purchaseEvent,
+            reward: result.reward,
+            message: `Recorded ${qty} purchase(s). Progress: ${result.reward.currentQuantity}/${result.reward.requiredQuantity}`
+        });
+
+    } catch (error) {
+        logger.error('Error in manual loyalty entry', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
  * This removes purchases outside the rolling window
