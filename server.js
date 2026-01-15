@@ -11155,8 +11155,21 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 
         let cursor = null;
         let ordersProcessed = 0;
+        let ordersWithCustomer = 0;
+        let ordersWithQualifyingItems = 0;
         let loyaltyPurchasesRecorded = 0;
         const results = [];
+        const diagnostics = { sampleOrdersWithoutCustomer: [], sampleVariationIds: [] };
+
+        // Get qualifying variation IDs for comparison
+        const qualifyingResult = await db.query(
+            `SELECT DISTINCT lov.variation_id
+             FROM loyalty_offer_variations lov
+             JOIN loyalty_offers lo ON lov.offer_id = lo.id
+             WHERE lo.merchant_id = $1 AND lo.is_active = TRUE`,
+            [merchantId]
+        );
+        const qualifyingVariationIds = new Set(qualifyingResult.rows.map(r => r.variation_id));
 
         // Use raw Square API (same approach as sales velocity sync)
         do {
@@ -11204,10 +11217,37 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
             for (const order of orders) {
                 ordersProcessed++;
 
+                // Collect sample variation IDs from orders for diagnostics
+                const orderVariationIds = (order.line_items || [])
+                    .map(li => li.catalog_object_id)
+                    .filter(Boolean);
+                if (diagnostics.sampleVariationIds.length < 10) {
+                    orderVariationIds.forEach(vid => {
+                        if (!diagnostics.sampleVariationIds.includes(vid)) {
+                            diagnostics.sampleVariationIds.push(vid);
+                        }
+                    });
+                }
+
+                // Check if order has qualifying items (for diagnostics)
+                const hasQualifyingItem = orderVariationIds.some(vid => qualifyingVariationIds.has(vid));
+                if (hasQualifyingItem) {
+                    ordersWithQualifyingItems++;
+                }
+
                 // Skip orders without customer (snake_case from raw API)
                 if (!order.customer_id) {
+                    if (diagnostics.sampleOrdersWithoutCustomer.length < 3) {
+                        diagnostics.sampleOrdersWithoutCustomer.push({
+                            orderId: order.id,
+                            createdAt: order.created_at,
+                            hasQualifyingItem
+                        });
+                    }
                     continue;
                 }
+
+                ordersWithCustomer++;
 
                 try {
                     // Transform to camelCase for loyaltyService
@@ -11257,8 +11297,15 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
         res.json({
             success: true,
             ordersProcessed,
+            ordersWithCustomer,
+            ordersWithQualifyingItems,
             loyaltyPurchasesRecorded,
-            results
+            results,
+            diagnostics: {
+                qualifyingVariationIdsConfigured: Array.from(qualifyingVariationIds),
+                sampleVariationIdsInOrders: diagnostics.sampleVariationIds,
+                sampleOrdersWithoutCustomer: diagnostics.sampleOrdersWithoutCustomer
+            }
         });
 
     } catch (error) {
