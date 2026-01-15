@@ -9129,6 +9129,21 @@ app.post('/api/webhooks/square', async (req, res) => {
                                     }
                                 }
 
+                                // Check if this order used a reward discount (auto-detect redemption)
+                                const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, internalMerchantId);
+                                if (redemptionResult.detected) {
+                                    syncResults.loyaltyRedemption = {
+                                        rewardId: redemptionResult.rewardId,
+                                        offerName: redemptionResult.offerName
+                                    };
+                                    logger.info('Loyalty reward redemption detected and processed', {
+                                        orderId: order.id,
+                                        rewardId: redemptionResult.rewardId,
+                                        offerName: redemptionResult.offerName,
+                                        merchantId: internalMerchantId
+                                    });
+                                }
+
                                 // Process any refunds in the order
                                 if (order.refunds && order.refunds.length > 0) {
                                     const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, internalMerchantId);
