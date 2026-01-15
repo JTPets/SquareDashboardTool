@@ -2271,7 +2271,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
                 group: {
                     name: groupName
                 },
-                idempotency_key: `fbp-group-${internalRewardId}`
+                idempotency_key: `fbp-group-${internalRewardId}-${Date.now()}`
             })
         });
 
@@ -2543,7 +2543,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 'Square-Version': '2024-01-18'
             },
             body: JSON.stringify({
-                idempotency_key: `fbp-catalog-${internalRewardId}`,
+                idempotency_key: `fbp-catalog-${internalRewardId}-${Date.now()}`,
                 batches: [{
                     objects: catalogObjects
                 }]
