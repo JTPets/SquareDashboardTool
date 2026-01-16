@@ -2519,37 +2519,48 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // Generate unique IDs for the catalog objects
         const discountId = `#fbp-discount-${internalRewardId}`;
         const matchProductSetId = `#fbp-match-set-${internalRewardId}`;
+        const excludeProductSetId = `#fbp-exclude-set-${internalRewardId}`;
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // FIXED_AMOUNT discount: exactly $X off when qualifying item in cart
-        // Product set ensures discount only applies when qualifying item is present
+        // Strategy: 100% off with cap, exclude set targets 1 item
+        // Cap ensures max discount = 1 item's worth even if exclude fails
         const catalogObjects = [
-            // 1. Create the Discount (fixed dollar amount off)
-            // Prefix with "zz_" so it sorts to bottom of discount list in Square Dashboard
+            // 1. Create the Discount (100% off, capped at max item price)
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
                     name: `zz_Loyalty: ${offerName}`.substring(0, 255),
-                    discount_type: 'FIXED_AMOUNT',
-                    amount_money: {
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100.0',
+                    maximum_amount_money: {
                         amount: maxPriceCents,
                         currency: currency
                     },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Create the Match Product Set (discount only applies if qualifying item in cart)
+            // 2. Match Product Set (triggers when qualifying item in cart)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 1  // Must have at least 1 qualifying item
+                    quantity_min: 1
                 }
             },
-            // 3. Create the Pricing Rule (ties it all together)
+            // 3. Exclude Product Set (exclude all but 1 from discount)
+            // LEAST_EXPENSIVE: excludes the cheapest items, discounts the most expensive
+            {
+                type: 'PRODUCT_SET',
+                id: excludeProductSetId,
+                product_set_data: {
+                    product_ids_any: variationIds,
+                    quantity_min: 1
+                }
+            },
+            // 4. Pricing Rule with exclude strategy
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
@@ -2557,6 +2568,8 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
+                    exclude_products_id: excludeProductSetId,
+                    exclude_strategy: 'LEAST_EXPENSIVE',
                     customer_group_ids_any: [groupId]
                 }
             }
@@ -2593,14 +2606,17 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
 
         // Extract the real Square IDs from the response
         const discountObj = objects.find(o => o.type === 'DISCOUNT');
-        const productSetObj = objects.find(o => o.type === 'PRODUCT_SET');
+        const productSetObjs = objects.filter(o => o.type === 'PRODUCT_SET');
         const pricingRuleObj = objects.find(o => o.type === 'PRICING_RULE');
+
+        // Store all product set IDs for cleanup
+        const productSetIds = productSetObjs.map(o => o.id).join(',');
 
         logger.info('Created reward discount in Square catalog', {
             merchantId,
             internalRewardId,
             discountId: discountObj?.id,
-            productSetId: productSetObj?.id,
+            productSetIds,
             pricingRuleId: pricingRuleObj?.id,
             maxPriceCap: maxPriceCents
         });
@@ -2608,7 +2624,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         return {
             success: true,
             discountId: discountObj?.id,
-            productSetId: productSetObj?.id,
+            productSetId: productSetIds,  // Comma-separated for cleanup
             pricingRuleId: pricingRuleObj?.id
         };
 
