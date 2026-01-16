@@ -12309,6 +12309,17 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         const requiredScopes = ['LOYALTY_READ', 'ORDERS_READ', 'CUSTOMERS_READ'];
         const missingScopes = requiredScopes.filter(s => !scopes.includes(s));
 
+        // Get merchant's locations for the search
+        const locationsResult = await db.query(
+            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+        const locationIds = locationsResult.rows.map(r => r.square_location_id).filter(Boolean);
+
+        if (locationIds.length === 0) {
+            return res.status(400).json({ error: 'No active locations found for merchant' });
+        }
+
         // Fetch recent orders from Square
         const startTime = new Date(Date.now() - minutes * 60 * 1000).toISOString();
         const ordersResponse = await fetch('https://connect.squareup.com/v2/orders/search', {
@@ -12319,6 +12330,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
                 'Square-Version': '2024-01-18'
             },
             body: JSON.stringify({
+                location_ids: locationIds,
                 query: {
                     filter: {
                         date_time_filter: {
