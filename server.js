@@ -11824,11 +11824,19 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 
                 try {
                     // If order has no customer_id, try to find one from prefetched loyalty data
+                    // Also check tenders for customer_id
                     let customerId = order.customer_id;
+                    if (!customerId && order.tenders) {
+                        for (const tender of order.tenders) {
+                            if (tender.customer_id) {
+                                customerId = tender.customer_id;
+                                break;
+                            }
+                        }
+                    }
                     if (!customerId) {
                         customerId = loyaltyService.findCustomerFromPrefetchedEvents(
                             order.id,
-                            order.created_at,
                             prefetchedLoyalty
                         );
                         if (customerId) {
@@ -12193,10 +12201,9 @@ app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, async (req,
             const qualifyingItems = lineItems.filter(li => qualifyingVariationIds.has(li.catalog_object_id));
 
             if (qualifyingItems.length > 0) {
-                // Try matching
+                // Try matching by order_id only (reliable)
                 const foundCustomer = loyaltyService.findCustomerFromPrefetchedEvents(
                     order.id,
-                    order.created_at,
                     prefetchedData
                 );
 
