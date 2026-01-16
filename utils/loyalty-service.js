@@ -2569,15 +2569,17 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     quantity_min: 1
                 }
             },
-            // 3. Exclude Product Set - same items, used with LEAST_EXPENSIVE strategy
-            // Per docs: "An exclude rule can only match once in the match set"
-            // LEAST_EXPENSIVE should exclude cheaper items, leaving 1 most expensive for discount
+            // 3. Exclude Product Set - only activates when 2+ items in cart
+            // With quantity_min: 2, exclude rule won't trigger for single item purchases
+            // 1 item: no exclusion → 1 FREE
+            // 2 items: exclude 1 cheaper → 1 FREE
+            // 3+ items: exclude 1 cheaper → multiple FREE (limitation)
             {
                 type: 'PRODUCT_SET',
                 id: excludeProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 1
+                    quantity_min: 2
                 }
             },
             // 4. Pricing Rule with exclude strategy
