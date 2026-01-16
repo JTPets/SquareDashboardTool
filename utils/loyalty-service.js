@@ -2541,15 +2541,13 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // Generate unique IDs for the catalog objects
         const discountId = `#fbp-discount-${internalRewardId}`;
         const matchProductSetId = `#fbp-match-set-${internalRewardId}`;
-        const excludeProductSetId = `#fbp-exclude-set-${internalRewardId}`;
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: Use LEAST_EXPENSIVE exclude to discount only the MOST EXPENSIVE item
-        // Per Square docs: "The least expensive matched products are excluded from the pricing"
-        // This should exclude all cheaper items, leaving only the most expensive 1 to get 100% off
+        // Strategy: Use maximum_amount_money to cap the discount to 1 item's worth
+        // No exclude set needed - the cap ensures only max item value is discounted
         const catalogObjects = [
-            // 1. Create the Discount (100% off - full item free)
+            // 1. Create the Discount (100% off, capped at max item price)
             {
                 type: 'DISCOUNT',
                 id: discountId,
@@ -2557,6 +2555,10 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_Loyalty: FREE ${offerName}`.substring(0, 255),
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100.0',
+                    maximum_amount_money: {
+                        amount: maxPriceCents,
+                        currency: currency
+                    },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
@@ -2569,20 +2571,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     quantity_min: 1
                 }
             },
-            // 3. Exclude Product Set - only activates when 2+ items in cart
-            // With quantity_min: 2, exclude rule won't trigger for single item purchases
-            // 1 item: no exclusion → 1 FREE
-            // 2 items: exclude 1 cheaper → 1 FREE
-            // 3+ items: exclude 1 cheaper → multiple FREE (limitation)
-            {
-                type: 'PRODUCT_SET',
-                id: excludeProductSetId,
-                product_set_data: {
-                    product_ids_any: variationIds,
-                    quantity_min: 2
-                }
-            },
-            // 4. Pricing Rule with exclude strategy
+            // 3. Pricing Rule - simple match, no exclude
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
@@ -2590,8 +2579,6 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
-                    exclude_products_id: excludeProductSetId,
-                    exclude_strategy: 'LEAST_EXPENSIVE',
                     customer_group_ids_any: [groupId]
                 }
             }
@@ -2634,13 +2621,14 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // Store all product set IDs for cleanup
         const productSetIds = productSetObjs.map(o => o.id).join(',');
 
-        logger.info('Created reward discount in Square catalog (1 FREE item)', {
+        logger.info('Created reward discount in Square catalog (1 FREE item, capped amount)', {
             merchantId,
             internalRewardId,
             discountId: discountObj?.id,
             productSetId: productSetIds,
             pricingRuleId: pricingRuleObj?.id,
-            freeItemValue: maxPriceCents
+            maxDiscountCents: maxPriceCents,
+            currency
         });
 
         return {
