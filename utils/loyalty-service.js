@@ -2430,47 +2430,74 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Query catalog to find the maximum price among qualifying items
-        // This will be used to cap the discount at "1 item free" worth
+        // Query the max price from the customer's ACTUAL purchases that earned this reward
+        // This ensures the discount cap reflects what they actually bought, not catalog max
         let maxPriceCents = 0;
+        let priceSource = 'unknown';
         try {
-            const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
-                },
-                body: JSON.stringify({
-                    object_ids: variationIds,
-                    include_related_objects: false
-                })
-            });
+            const priceResult = await db.query(`
+                SELECT MAX(unit_price_cents) as max_price
+                FROM loyalty_purchase_events
+                WHERE reward_id = $1
+                  AND unit_price_cents IS NOT NULL
+                  AND quantity > 0
+            `, [internalRewardId]);
 
-            if (catalogResponse.ok) {
-                const catalogData = await catalogResponse.json();
-                for (const obj of catalogData.objects || []) {
-                    if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data?.price_money?.amount) {
-                        const price = obj.item_variation_data.price_money.amount;
-                        if (price > maxPriceCents) {
-                            maxPriceCents = price;
+            maxPriceCents = parseInt(priceResult.rows[0]?.max_price) || 0;
+            if (maxPriceCents > 0) {
+                priceSource = 'purchase_events';
+            }
+        } catch (priceErr) {
+            logger.warn('Could not fetch purchase prices for discount cap', { error: priceErr.message });
+        }
+
+        // Fallback to catalog prices if no purchase data available
+        if (maxPriceCents === 0) {
+            try {
+                const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2024-01-18'
+                    },
+                    body: JSON.stringify({
+                        object_ids: variationIds,
+                        include_related_objects: false
+                    })
+                });
+
+                if (catalogResponse.ok) {
+                    const catalogData = await catalogResponse.json();
+                    for (const obj of catalogData.objects || []) {
+                        if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data?.price_money?.amount) {
+                            const price = obj.item_variation_data.price_money.amount;
+                            if (price > maxPriceCents) {
+                                maxPriceCents = price;
+                            }
                         }
                     }
                 }
+                if (maxPriceCents > 0) {
+                    priceSource = 'catalog_fallback';
+                }
+            } catch (catalogErr) {
+                logger.warn('Could not fetch catalog prices for discount cap', { error: catalogErr.message });
             }
-        } catch (priceErr) {
-            logger.warn('Could not fetch item prices for discount cap', { error: priceErr.message });
         }
 
-        // Default to $50 if we couldn't determine max price
+        // Default to $50 if we still couldn't determine max price
         if (maxPriceCents === 0) {
             maxPriceCents = 5000; // $50.00
+            priceSource = 'default_fallback';
+            logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
         logger.info('Creating reward discount with price cap', {
             merchantId,
             internalRewardId,
             maxPriceCents,
+            priceSource,
             currency,
             variationCount: variationIds.length
         });
