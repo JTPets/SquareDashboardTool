@@ -2891,12 +2891,14 @@ async function detectRewardRedemptionFromOrder(order, merchantId) {
             if (!catalogObjectId) continue;
 
             // Check if this discount matches any of our earned rewards
+            // Check BOTH square_discount_id AND square_pricing_rule_id because Square
+            // may reference either one in the order discount depending on how it was applied
             const rewardResult = await db.query(`
                 SELECT r.*, o.offer_name
                 FROM loyalty_rewards r
                 JOIN loyalty_offers o ON r.offer_id = o.id
                 WHERE r.merchant_id = $1
-                  AND r.square_discount_id = $2
+                  AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
                   AND r.status = 'earned'
             `, [merchantId, catalogObjectId]);
 
@@ -3007,6 +3009,9 @@ module.exports = {
     // Webhook processing
     processOrderForLoyalty,
     processOrderRefundsForLoyalty,
+
+    // Utilities
+    getSquareAccessToken,
 
     // Audit
     logAuditEvent,
