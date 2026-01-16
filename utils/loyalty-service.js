@@ -2522,33 +2522,31 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Simple approach: 100% discount on qualifying items, capped at max item price
-        // This gives exactly 1 item's worth of discount regardless of quantity in cart
+        // FIXED_AMOUNT discount: exactly $X off when qualifying item in cart
+        // Product set ensures discount only applies when qualifying item is present
         const catalogObjects = [
-            // 1. Create the Discount (100% off, capped at max item price)
+            // 1. Create the Discount (fixed dollar amount off)
             // Prefix with "zz_" so it sorts to bottom of discount list in Square Dashboard
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
                     name: `zz_Loyalty: ${offerName}`.substring(0, 255),
-                    discount_type: 'FIXED_PERCENTAGE',
-                    percentage: '100.0',
-                    modify_tax_basis: 'MODIFY_TAX_BASIS',
-                    // Cap goes HERE on the discount, not on pricing rule
-                    maximum_amount_money: {
+                    discount_type: 'FIXED_AMOUNT',
+                    amount_money: {
                         amount: maxPriceCents,
                         currency: currency
-                    }
+                    },
+                    modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Create the Match Product Set (triggers when cart has qualifying items)
+            // 2. Create the Match Product Set (discount only applies if qualifying item in cart)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 1  // Triggers if at least 1 qualifying item in cart
+                    quantity_min: 1  // Must have at least 1 qualifying item
                 }
             },
             // 3. Create the Pricing Rule (ties it all together)
