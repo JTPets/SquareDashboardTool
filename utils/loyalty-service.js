@@ -2438,11 +2438,12 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // - exclude_strategy: MOST_EXPENSIVE (exclude pricey items, cheapest gets 100% off)
         const catalogObjects = [
             // 1. Create the Discount (100% off)
+            // Prefix with "zz_" so it sorts to bottom of discount list in Square Dashboard
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
-                    name: `Free Item: ${offerName}`.substring(0, 255),
+                    name: `zz_Loyalty: ${offerName}`.substring(0, 255),
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100.0',
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
