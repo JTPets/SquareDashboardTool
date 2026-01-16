@@ -2525,7 +2525,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // Simple approach: 100% discount on qualifying items, capped at max item price
         // This gives exactly 1 item's worth of discount regardless of quantity in cart
         const catalogObjects = [
-            // 1. Create the Discount (100% off)
+            // 1. Create the Discount (100% off, capped at max item price)
             // Prefix with "zz_" so it sorts to bottom of discount list in Square Dashboard
             {
                 type: 'DISCOUNT',
@@ -2534,7 +2534,12 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_Loyalty: ${offerName}`.substring(0, 255),
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100.0',
-                    modify_tax_basis: 'MODIFY_TAX_BASIS'
+                    modify_tax_basis: 'MODIFY_TAX_BASIS',
+                    // Cap goes HERE on the discount, not on pricing rule
+                    maximum_amount_money: {
+                        amount: maxPriceCents,
+                        currency: currency
+                    }
                 }
             },
             // 2. Create the Match Product Set (triggers when cart has qualifying items)
@@ -2547,7 +2552,6 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 }
             },
             // 3. Create the Pricing Rule (ties it all together)
-            // NO EXCLUDE - just cap the total discount at 1 item's value
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
@@ -2555,11 +2559,6 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
-                    // Cap discount at max item price = exactly 1 item free worth
-                    maximum_amount_money: {
-                        amount: maxPriceCents,
-                        currency: currency
-                    },
                     customer_group_ids_any: [groupId]
                 }
             }
