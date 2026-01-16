@@ -12347,6 +12347,15 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         const ordersData = await ordersResponse.json();
         const orders = ordersData.orders || [];
 
+        // Debug info
+        const debugInfo = {
+            locationIds,
+            startTime,
+            ordersApiStatus: ordersResponse.status,
+            ordersApiError: ordersData.errors || null,
+            ordersReturned: orders.length
+        };
+
         // For each order, check all identification methods
         const results = [];
         for (const order of orders) {
@@ -12465,6 +12474,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
             test: 'Customer Identification for Loyalty',
             instructions: 'Make a cash sale, then sign in with points after. Wait 1 min and refresh.',
             timeWindow: `Last ${minutes} minutes`,
+            debug: debugInfo,
             oauthScopes: {
                 current: scopes,
                 required: requiredScopes,
