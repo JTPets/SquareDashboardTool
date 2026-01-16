@@ -2511,12 +2511,15 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 }
             },
             // 3. Create the Exclude Product Set (excludes all but 1 from discount)
+            // Note: Square requires quantity_min >= 1, so if customer has 1 item,
+            // exclude set won't match and nothing is excluded from the discount.
+            // With LEAST_EXPENSIVE strategy, the cheapest 1 item gets the discount.
             {
                 type: 'PRODUCT_SET',
                 id: excludeProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 0,      // Can exclude 0 items (if only 1 in cart)
+                    quantity_min: 1,      // Square requires min 1 (excludes kick in at 2+ items)
                     quantity_max: 999999  // Exclude up to this many items
                 }
             },
