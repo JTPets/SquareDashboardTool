@@ -2461,16 +2461,14 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Query the max price AND actual variations from customer's purchases for this reward
-        // This ensures discount only applies to items they actually bought
+        // Query the max price from customer's purchases for this reward
+        // Discount amount = max price they paid (so they get 1 item's worth free)
+        // Discount applies to ALL items in the offer (not just what they bought)
         let maxPriceCents = 0;
         let priceSource = 'unknown';
-        let purchasedVariationIds = [];
         try {
             const purchaseResult = await db.query(`
-                SELECT
-                    MAX(unit_price_cents) as max_price,
-                    ARRAY_AGG(DISTINCT variation_id) as variation_ids
+                SELECT MAX(unit_price_cents) as max_price
                 FROM loyalty_purchase_events
                 WHERE reward_id = $1
                   AND unit_price_cents IS NOT NULL
@@ -2478,24 +2476,16 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             `, [internalRewardId]);
 
             maxPriceCents = parseInt(purchaseResult.rows[0]?.max_price) || 0;
-            purchasedVariationIds = purchaseResult.rows[0]?.variation_ids?.filter(Boolean) || [];
 
-            if (maxPriceCents > 0 && purchasedVariationIds.length > 0) {
-                priceSource = 'purchase_events';
-                logger.info('Using customer purchase history for discount', {
+            if (maxPriceCents > 0) {
+                priceSource = 'purchase_history';
+                logger.info('Using max price from customer purchases for discount amount', {
                     internalRewardId,
-                    maxPriceCents,
-                    purchasedVariationCount: purchasedVariationIds.length
+                    maxPriceCents
                 });
             }
         } catch (priceErr) {
             logger.warn('Could not fetch purchase data for discount', { error: priceErr.message });
-        }
-
-        // Fallback to all offer variations if no purchase data
-        if (purchasedVariationIds.length === 0) {
-            purchasedVariationIds = variationIds;
-            priceSource = 'all_offer_variations';
         }
 
         // Fallback to catalog prices if no purchase price data
@@ -2540,13 +2530,13 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
-        logger.info('Creating reward discount - 1 FREE item', {
+        logger.info('Creating reward discount - 1 FREE item from any offer variation', {
             merchantId,
             internalRewardId,
             freeItemValue: maxPriceCents,
             priceSource,
             currency,
-            variationCount: purchasedVariationIds.length
+            offerVariationCount: variationIds.length
         });
 
         // Generate unique IDs for the catalog objects
@@ -2573,12 +2563,12 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set (items customer purchased in this offer)
+            // 2. Match Product Set (ALL items in the offer - customer can redeem on any)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
-                    product_ids_any: purchasedVariationIds,
+                    product_ids_any: variationIds,
                     quantity_min: 1
                 }
             },
