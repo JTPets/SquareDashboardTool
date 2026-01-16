@@ -909,12 +909,13 @@ async function getOfferForVariation(variationId, merchantId) {
  * @param {number} [purchaseData.unitPriceCents] - Unit price for audit
  * @param {Date} purchaseData.purchasedAt - Purchase timestamp
  * @param {string} [purchaseData.squareLocationId] - Square location ID
+ * @param {string} [purchaseData.receiptUrl] - Square receipt URL from tender
  * @returns {Promise<Object>} Processing result
  */
 async function processQualifyingPurchase(purchaseData) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
-        quantity, unitPriceCents, purchasedAt, squareLocationId
+        quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl
     } = purchaseData;
 
     if (!merchantId) {
@@ -989,16 +990,16 @@ async function processQualifyingPurchase(purchaseData) {
                 merchant_id, offer_id, square_customer_id, square_order_id,
                 square_location_id, variation_id, quantity, unit_price_cents,
                 purchased_at, window_start_date, window_end_date,
-                is_refund, idempotency_key
+                is_refund, idempotency_key, receipt_url
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
             squareLocationId, variationId, quantity, unitPriceCents,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
-            false, idempotencyKey
+            false, idempotencyKey, receiptUrl || null
         ]);
 
         const purchaseEvent = eventResult.rows[0];
@@ -1925,12 +1926,24 @@ async function processOrderForLoyalty(order, merchantId) {
         return { processed: false, reason: 'no_line_items' };
     }
 
+    // Extract receipt URL from tenders (usually on card payments)
+    let receiptUrl = null;
+    if (order.tenders && order.tenders.length > 0) {
+        for (const tender of order.tenders) {
+            if (tender.receipt_url) {
+                receiptUrl = tender.receipt_url;
+                break;
+            }
+        }
+    }
+
     logger.info('Processing order for loyalty', {
         merchantId,
         orderId: order.id,
         customerId: squareCustomerId,
         customerSource,
-        lineItemCount: lineItems.length
+        lineItemCount: lineItems.length,
+        hasReceiptUrl: !!receiptUrl
     });
 
     const results = {
@@ -1967,7 +1980,8 @@ async function processOrderForLoyalty(order, merchantId) {
                 quantity,
                 unitPriceCents,
                 purchasedAt: order.created_at || new Date(),
-                squareLocationId: order.location_id
+                squareLocationId: order.location_id,
+                receiptUrl
             });
 
             if (purchaseResult.processed) {
@@ -2430,47 +2444,74 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Query catalog to find the maximum price among qualifying items
-        // This will be used to cap the discount at "1 item free" worth
+        // Query the max price from the customer's ACTUAL purchases that earned this reward
+        // This ensures the discount cap reflects what they actually bought, not catalog max
         let maxPriceCents = 0;
+        let priceSource = 'unknown';
         try {
-            const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
-                },
-                body: JSON.stringify({
-                    object_ids: variationIds,
-                    include_related_objects: false
-                })
-            });
+            const priceResult = await db.query(`
+                SELECT MAX(unit_price_cents) as max_price
+                FROM loyalty_purchase_events
+                WHERE reward_id = $1
+                  AND unit_price_cents IS NOT NULL
+                  AND quantity > 0
+            `, [internalRewardId]);
 
-            if (catalogResponse.ok) {
-                const catalogData = await catalogResponse.json();
-                for (const obj of catalogData.objects || []) {
-                    if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data?.price_money?.amount) {
-                        const price = obj.item_variation_data.price_money.amount;
-                        if (price > maxPriceCents) {
-                            maxPriceCents = price;
+            maxPriceCents = parseInt(priceResult.rows[0]?.max_price) || 0;
+            if (maxPriceCents > 0) {
+                priceSource = 'purchase_events';
+            }
+        } catch (priceErr) {
+            logger.warn('Could not fetch purchase prices for discount cap', { error: priceErr.message });
+        }
+
+        // Fallback to catalog prices if no purchase data available
+        if (maxPriceCents === 0) {
+            try {
+                const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2024-01-18'
+                    },
+                    body: JSON.stringify({
+                        object_ids: variationIds,
+                        include_related_objects: false
+                    })
+                });
+
+                if (catalogResponse.ok) {
+                    const catalogData = await catalogResponse.json();
+                    for (const obj of catalogData.objects || []) {
+                        if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data?.price_money?.amount) {
+                            const price = obj.item_variation_data.price_money.amount;
+                            if (price > maxPriceCents) {
+                                maxPriceCents = price;
+                            }
                         }
                     }
                 }
+                if (maxPriceCents > 0) {
+                    priceSource = 'catalog_fallback';
+                }
+            } catch (catalogErr) {
+                logger.warn('Could not fetch catalog prices for discount cap', { error: catalogErr.message });
             }
-        } catch (priceErr) {
-            logger.warn('Could not fetch item prices for discount cap', { error: priceErr.message });
         }
 
-        // Default to $50 if we couldn't determine max price
+        // Default to $50 if we still couldn't determine max price
         if (maxPriceCents === 0) {
             maxPriceCents = 5000; // $50.00
+            priceSource = 'default_fallback';
+            logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
         logger.info('Creating reward discount with price cap', {
             merchantId,
             internalRewardId,
             maxPriceCents,
+            priceSource,
             currency,
             variationCount: variationIds.length
         });

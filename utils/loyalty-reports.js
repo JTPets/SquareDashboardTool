@@ -185,6 +185,7 @@ async function generateVendorReceipt(redemptionId, merchantId) {
             <td class="quantity">${p.quantity}</td>
             <td class="currency">${formatCents(p.unit_price_cents)}</td>
             <td>${p.square_order_id}</td>
+            <td>${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank">View</a>` : 'N/A'}</td>
         </tr>
     `).join('');
 
@@ -445,10 +446,11 @@ async function generateVendorReceipt(redemptionId, merchantId) {
                     <th>Qty</th>
                     <th>Unit Price</th>
                     <th>Order ID</th>
+                    <th>Receipt</th>
                 </tr>
             </thead>
             <tbody>
-                ${purchaseRows || '<tr><td colspan="6">No purchase records available</td></tr>'}
+                ${purchaseRows || '<tr><td colspan="7">No purchase records available</td></tr>'}
             </tbody>
         </table>
     </div>
@@ -658,7 +660,8 @@ async function generateAuditCSV(merchantId, options = {}) {
         'Window Start',
         'Window End',
         'Reward ID',
-        'Is Refund'
+        'Is Refund',
+        'Receipt URL'
     ];
 
     const rows = result.rows.map(r => [
@@ -679,7 +682,8 @@ async function generateAuditCSV(merchantId, options = {}) {
         r.window_start_date ? new Date(r.window_start_date).toISOString().split('T')[0] : '',
         r.window_end_date ? new Date(r.window_end_date).toISOString().split('T')[0] : '',
         r.reward_id || '',
-        r.is_refund ? 'Yes' : 'No'
+        r.is_refund ? 'Yes' : 'No',
+        r.receipt_url || ''
     ]);
 
     const csv = UTF8_BOM + [
