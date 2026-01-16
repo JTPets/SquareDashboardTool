@@ -1186,37 +1186,39 @@ async function updateRewardProgress(client, data) {
             offerName: offer.offer_name
         });
 
-        // Try to create a Square Loyalty reward (non-blocking)
-        // This makes the reward visible in Square POS for the cashier
-        setImmediate(async () => {
-            try {
-                const squareResult = await createSquareLoyaltyReward({
+        // Create Square Customer Group Discount SYNCHRONOUSLY
+        // This ensures the discount is created before we return success
+        // Errors are logged but don't fail the transaction - manual sync available as fallback
+        try {
+            const squareResult = await createSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId,
+                internalRewardId: reward.id,
+                offerId
+            });
+            if (squareResult.success) {
+                logger.info('Square discount created for earned reward', {
                     merchantId,
-                    squareCustomerId,
-                    internalRewardId: reward.id,
-                    offerId
+                    rewardId: reward.id,
+                    groupId: squareResult.groupId,
+                    discountId: squareResult.discountId
                 });
-                if (squareResult.success) {
-                    logger.info('Square Loyalty reward created for earned reward', {
-                        merchantId,
-                        rewardId: reward.id,
-                        squareRewardId: squareResult.squareRewardId
-                    });
-                } else {
-                    logger.warn('Could not create Square Loyalty reward', {
-                        merchantId,
-                        rewardId: reward.id,
-                        reason: squareResult.error
-                    });
-                }
-            } catch (err) {
-                logger.error('Error creating Square Loyalty reward', {
-                    error: err.message,
+            } else {
+                // Log failure - reward is still earned, can be synced manually via Settings
+                logger.warn('Could not create Square discount - manual sync required', {
                     merchantId,
-                    rewardId: reward.id
+                    rewardId: reward.id,
+                    reason: squareResult.error
                 });
             }
-        });
+        } catch (err) {
+            // Log error but don't fail - reward is earned, can be synced manually
+            logger.error('Error creating Square discount - manual sync required', {
+                error: err.message,
+                merchantId,
+                rewardId: reward.id
+            });
+        }
     }
 
     // Update customer summary
@@ -2538,41 +2540,40 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
-        logger.info('Creating reward discount with price cap', {
+        logger.info('Creating reward discount - 1 FREE item', {
             merchantId,
             internalRewardId,
-            maxPriceCents,
+            freeItemValue: maxPriceCents,
             priceSource,
             currency,
-            variationCount: variationIds.length
+            variationCount: purchasedVariationIds.length
         });
 
         // Generate unique IDs for the catalog objects
         const discountId = `#fbp-discount-${internalRewardId}`;
         const matchProductSetId = `#fbp-match-set-${internalRewardId}`;
-        const excludeProductSetId = `#fbp-exclude-set-${internalRewardId}`;
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: 100% off with cap, exclude set targets 1 item
-        // Cap ensures max discount = 1 item's worth even if exclude fails
+        // Strategy: FIXED_AMOUNT discount = exactly 1 item's worth off
+        // This guarantees "buy 12, get 13th FREE" - customer gets exactly maxPriceCents off
+        // If they buy multiple qualifying items, they still only get 1 item's worth off total
         const catalogObjects = [
-            // 1. Create the Discount (100% off, capped at max item price)
+            // 1. Create the Discount (FIXED_AMOUNT = exactly 1 item's price off)
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
-                    name: `zz_Loyalty: ${offerName}`.substring(0, 255),
-                    discount_type: 'FIXED_PERCENTAGE',
-                    percentage: '100.0',
-                    maximum_amount_money: {
+                    name: `zz_Loyalty: FREE ${offerName}`.substring(0, 255),
+                    discount_type: 'FIXED_AMOUNT',
+                    amount_money: {
                         amount: maxPriceCents,
                         currency: currency
                     },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set (only items customer actually purchased)
+            // 2. Match Product Set (items customer purchased in this offer)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
@@ -2581,16 +2582,8 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     quantity_min: 1
                 }
             },
-            // 3. Exclude Product Set (same items - LEAST_EXPENSIVE excludes cheaper ones)
-            {
-                type: 'PRODUCT_SET',
-                id: excludeProductSetId,
-                product_set_data: {
-                    product_ids_any: purchasedVariationIds,
-                    quantity_min: 1
-                }
-            },
-            // 4. Pricing Rule with exclude strategy
+            // 3. Pricing Rule - links discount to customer group and qualifying products
+            // No exclude strategy needed - FIXED_AMOUNT guarantees exactly 1 item's worth
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
@@ -2598,8 +2591,6 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
-                    exclude_products_id: excludeProductSetId,
-                    exclude_strategy: 'LEAST_EXPENSIVE',
                     customer_group_ids_any: [groupId]
                 }
             }
@@ -2642,13 +2633,13 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         // Store all product set IDs for cleanup
         const productSetIds = productSetObjs.map(o => o.id).join(',');
 
-        logger.info('Created reward discount in Square catalog', {
+        logger.info('Created reward discount in Square catalog (1 FREE item)', {
             merchantId,
             internalRewardId,
             discountId: discountObj?.id,
-            productSetIds,
+            productSetId: productSetIds,
             pricingRuleId: pricingRuleObj?.id,
-            maxPriceCap: maxPriceCents
+            freeItemValue: maxPriceCents
         });
 
         return {
