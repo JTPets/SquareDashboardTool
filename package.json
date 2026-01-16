@@ -35,7 +35,7 @@
     "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
     "nodemailer": "^7.0.10",
-    "pg": "^8.11.3",
+    "pg": "^8.17.1",
     "square": "^43.2.1",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0"
