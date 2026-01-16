@@ -2432,10 +2432,10 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // To limit discount to exactly 1 item, we use the exclude pattern:
+        // To give the CHEAPEST qualifying item free:
         // - Match set: all qualifying items (quantity_min: 1)
-        // - Exclude set: all but 1 item (quantity_min: 0, large quantity_max)
-        // - exclude_strategy: LEAST_EXPENSIVE (keep cheapest for discount, exclude rest)
+        // - Exclude set: items to exclude from discount (quantity_min: 1)
+        // - exclude_strategy: MOST_EXPENSIVE (exclude pricey items, cheapest gets 100% off)
         const catalogObjects = [
             // 1. Create the Discount (100% off)
             {
@@ -2479,7 +2479,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
                     exclude_products_id: excludeProductSetId,
-                    exclude_strategy: 'LEAST_EXPENSIVE',  // Exclude cheap items, keep expensive for discount
+                    exclude_strategy: 'MOST_EXPENSIVE',  // Exclude expensive items, give cheapest item free
                     customer_group_ids_any: [groupId]
                 }
             }

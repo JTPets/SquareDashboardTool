@@ -11351,7 +11351,7 @@ app.get('/api/loyalty/rewards/pending-sync', requireAuth, requireMerchant, async
  * GET /api/loyalty/debug
  * Diagnostic endpoint to help troubleshoot loyalty tracking issues
  */
-app.get('/api/loyalty/debug', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -11932,7 +11932,7 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
  * Debug endpoint to fetch last 5 orders from Square with ALL raw data
  * Used to inspect where customer information is stored
  */
-app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -12022,7 +12022,7 @@ app.get('/api/loyalty/debug/recent-orders', requireAuth, requireMerchant, async 
  * GET /api/loyalty/debug/all-loyalty-events
  * Debug endpoint to get ALL recent loyalty events (for timestamp matching)
  */
-app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -12071,7 +12071,7 @@ app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, a
  * GET /api/loyalty/debug/loyalty-events/:orderId
  * Debug endpoint to check Square's Loyalty Events for a specific order
  */
-app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { orderId } = req.params;
@@ -12134,7 +12134,7 @@ app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMercha
  * Debug endpoint to see why prefetch matching might fail
  * Shows loyalty events and qualifying orders side by side with timestamps
  */
-app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const days = parseInt(req.query.days) || 1;
@@ -12283,8 +12283,10 @@ app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, async (req,
  * GET /api/loyalty/debug/customer-identification
  * Test customer identification for recent orders
  * Use this to verify the "cash sale + points sign-in after" flow works
+ *
+ * SECURITY: Admin-only endpoint, masks customer IDs in response
  */
-app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMerchant, async (req, res) => {
+app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const minutes = parseInt(req.query.minutes) || 30;
@@ -12346,14 +12348,18 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         const ordersData = await ordersResponse.json();
         const orders = ordersData.orders || [];
 
-        // Debug info
-        const debugInfo = {
-            locationIds,
-            startTime,
-            ordersApiStatus: ordersResponse.status,
-            ordersApiError: ordersData.errors || null,
-            ordersReturned: orders.length
-        };
+        // Handle API errors
+        if (!ordersResponse.ok) {
+            logger.error('Square Orders API error in customer identification', {
+                merchantId,
+                status: ordersResponse.status,
+                errors: ordersData.errors
+            });
+            return res.status(502).json({ error: 'Failed to fetch orders from Square' });
+        }
+
+        // Helper to mask customer IDs for security (show last 4 chars only)
+        const maskId = (id) => id ? `***${id.slice(-4)}` : null;
 
         // For each order, check all identification methods
         const results = [];
@@ -12469,23 +12475,22 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
             'unidentified': results.filter(r => !r.identifiedCustomerId).length
         };
 
+        // Build sanitized response - mask customer IDs for security
+        const sanitizedOrders = results.map(r => ({
+            orderId: r.orderId,
+            createdAt: r.createdAt,
+            totalAmount: r.totalMoney?.amount ? `${(r.totalMoney.amount / 100).toFixed(2)} ${r.totalMoney.currency}` : null,
+            paymentMethod: r.tenders?.[0]?.type || 'unknown',
+            identified: !!r.identifiedCustomerId,
+            identificationMethod: r.identificationMethod,
+            customerId: maskId(r.identifiedCustomerId)  // Masked for security
+        }));
+
         res.json({
-            test: 'Customer Identification for Loyalty',
-            instructions: 'Make a cash sale, then sign in with points after. Wait 1 min and refresh.',
+            title: 'Customer Identification Test',
+            description: 'Verifies loyalty tracking works for cash sales with points sign-in',
             timeWindow: `Last ${minutes} minutes`,
-            debug: debugInfo,
-            oauthScopes: {
-                current: scopes,
-                required: requiredScopes,
-                missing: missingScopes,
-                status: missingScopes.length === 0 ? '✅ All required scopes present' : '❌ Missing scopes'
-            },
-            webhooksRequired: [
-                'order.created',
-                'order.updated',
-                'refund.created (for reducing loyalty progress)',
-                'refund.updated'
-            ],
+            scopeStatus: missingScopes.length === 0 ? 'OK' : `Missing: ${missingScopes.join(', ')}`,
             summary: {
                 totalOrders: results.length,
                 identifiedOrders: identified.length,
@@ -12494,7 +12499,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
                     : 'N/A',
                 byMethod
             },
-            orders: results
+            orders: sanitizedOrders
         });
 
     } catch (error) {
