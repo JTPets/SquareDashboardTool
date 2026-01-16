@@ -12311,7 +12311,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
 
         // Get merchant's locations for the search
         const locationsResult = await db.query(
-            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE',
+            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND active = TRUE',
             [merchantId]
         );
         const locationIds = locationsResult.rows.map(r => r.square_location_id).filter(Boolean);
