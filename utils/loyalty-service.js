@@ -2444,28 +2444,44 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Query the max price from the customer's ACTUAL purchases that earned this reward
-        // This ensures the discount cap reflects what they actually bought, not catalog max
+        // Query the max price AND actual variations from customer's purchases for this reward
+        // This ensures discount only applies to items they actually bought
         let maxPriceCents = 0;
         let priceSource = 'unknown';
+        let purchasedVariationIds = [];
         try {
-            const priceResult = await db.query(`
-                SELECT MAX(unit_price_cents) as max_price
+            const purchaseResult = await db.query(`
+                SELECT
+                    MAX(unit_price_cents) as max_price,
+                    ARRAY_AGG(DISTINCT variation_id) as variation_ids
                 FROM loyalty_purchase_events
                 WHERE reward_id = $1
                   AND unit_price_cents IS NOT NULL
                   AND quantity > 0
             `, [internalRewardId]);
 
-            maxPriceCents = parseInt(priceResult.rows[0]?.max_price) || 0;
-            if (maxPriceCents > 0) {
+            maxPriceCents = parseInt(purchaseResult.rows[0]?.max_price) || 0;
+            purchasedVariationIds = purchaseResult.rows[0]?.variation_ids?.filter(Boolean) || [];
+
+            if (maxPriceCents > 0 && purchasedVariationIds.length > 0) {
                 priceSource = 'purchase_events';
+                logger.info('Using customer purchase history for discount', {
+                    internalRewardId,
+                    maxPriceCents,
+                    purchasedVariationCount: purchasedVariationIds.length
+                });
             }
         } catch (priceErr) {
-            logger.warn('Could not fetch purchase prices for discount cap', { error: priceErr.message });
+            logger.warn('Could not fetch purchase data for discount', { error: priceErr.message });
         }
 
-        // Fallback to catalog prices if no purchase data available
+        // Fallback to all offer variations if no purchase data
+        if (purchasedVariationIds.length === 0) {
+            purchasedVariationIds = variationIds;
+            priceSource = 'all_offer_variations';
+        }
+
+        // Fallback to catalog prices if no purchase price data
         if (maxPriceCents === 0) {
             try {
                 const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
@@ -2541,22 +2557,21 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set (triggers when qualifying item in cart)
+            // 2. Match Product Set (only items customer actually purchased)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
-                    product_ids_any: variationIds,
+                    product_ids_any: purchasedVariationIds,
                     quantity_min: 1
                 }
             },
-            // 3. Exclude Product Set (exclude all but 1 from discount)
-            // LEAST_EXPENSIVE: excludes the cheapest items, discounts the most expensive
+            // 3. Exclude Product Set (same items - LEAST_EXPENSIVE excludes cheaper ones)
             {
                 type: 'PRODUCT_SET',
                 id: excludeProductSetId,
                 product_set_data: {
-                    product_ids_any: variationIds,
+                    product_ids_any: purchasedVariationIds,
                     quantity_min: 1
                 }
             },
