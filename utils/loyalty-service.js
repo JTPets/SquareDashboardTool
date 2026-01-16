@@ -1527,6 +1527,21 @@ async function redeemReward(redemptionData) {
 
         await client.query('COMMIT');
 
+        // Clean up Square discount objects (outside transaction - non-critical)
+        try {
+            await cleanupSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId: reward.square_customer_id,
+                internalRewardId: rewardId
+            });
+        } catch (cleanupErr) {
+            // Log but don't fail - the redemption was successful
+            logger.warn('Failed to cleanup Square discount after redemption', {
+                error: cleanupErr.message,
+                rewardId
+            });
+        }
+
         logger.info('Reward redeemed successfully', {
             merchantId,
             rewardId,
