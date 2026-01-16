@@ -2530,10 +2530,9 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
-        logger.info('Creating reward discount - 1 FREE item from any offer variation', {
+        logger.info('Creating reward discount - 1 FREE item (requires exactly 1 qualifying item in cart)', {
             merchantId,
             internalRewardId,
-            freeItemValue: maxPriceCents,
             priceSource,
             currency,
             offerVariationCount: variationIds.length
@@ -2545,35 +2544,33 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: FIXED_AMOUNT discount = exactly 1 item's worth off
-        // This guarantees "buy 12, get 13th FREE" - customer gets exactly maxPriceCents off
-        // If they buy multiple qualifying items, they still only get 1 item's worth off total
+        // Strategy: 100% off ONE item only
+        // quantity_exact: 1 ensures the discount ONLY activates when customer has exactly 1 qualifying item
+        // This prevents the discount from applying to multiple items
+        // Customer must buy their free item separately if they want more qualifying items
         const catalogObjects = [
-            // 1. Create the Discount (FIXED_AMOUNT = exactly 1 item's price off)
+            // 1. Create the Discount (100% off - full item free)
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
                     name: `zz_Loyalty: FREE ${offerName}`.substring(0, 255),
-                    discount_type: 'FIXED_AMOUNT',
-                    amount_money: {
-                        amount: maxPriceCents,
-                        currency: currency
-                    },
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100.0',
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set (ALL items in the offer - customer can redeem on any)
+            // 2. Match Product Set - ONLY matches when exactly 1 qualifying item in cart
+            // This is the key to preventing discount on multiple items
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 1
+                    quantity_exact: 1
                 }
             },
-            // 3. Pricing Rule - links discount to customer group and qualifying products
-            // No exclude strategy needed - FIXED_AMOUNT guarantees exactly 1 item's worth
+            // 3. Pricing Rule - links discount to customer group and product set
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
