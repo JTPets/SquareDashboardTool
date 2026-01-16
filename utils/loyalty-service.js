@@ -909,12 +909,13 @@ async function getOfferForVariation(variationId, merchantId) {
  * @param {number} [purchaseData.unitPriceCents] - Unit price for audit
  * @param {Date} purchaseData.purchasedAt - Purchase timestamp
  * @param {string} [purchaseData.squareLocationId] - Square location ID
+ * @param {string} [purchaseData.receiptUrl] - Square receipt URL from tender
  * @returns {Promise<Object>} Processing result
  */
 async function processQualifyingPurchase(purchaseData) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
-        quantity, unitPriceCents, purchasedAt, squareLocationId
+        quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl
     } = purchaseData;
 
     if (!merchantId) {
@@ -989,16 +990,16 @@ async function processQualifyingPurchase(purchaseData) {
                 merchant_id, offer_id, square_customer_id, square_order_id,
                 square_location_id, variation_id, quantity, unit_price_cents,
                 purchased_at, window_start_date, window_end_date,
-                is_refund, idempotency_key
+                is_refund, idempotency_key, receipt_url
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
             squareLocationId, variationId, quantity, unitPriceCents,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
-            false, idempotencyKey
+            false, idempotencyKey, receiptUrl || null
         ]);
 
         const purchaseEvent = eventResult.rows[0];
@@ -1925,12 +1926,24 @@ async function processOrderForLoyalty(order, merchantId) {
         return { processed: false, reason: 'no_line_items' };
     }
 
+    // Extract receipt URL from tenders (usually on card payments)
+    let receiptUrl = null;
+    if (order.tenders && order.tenders.length > 0) {
+        for (const tender of order.tenders) {
+            if (tender.receipt_url) {
+                receiptUrl = tender.receipt_url;
+                break;
+            }
+        }
+    }
+
     logger.info('Processing order for loyalty', {
         merchantId,
         orderId: order.id,
         customerId: squareCustomerId,
         customerSource,
-        lineItemCount: lineItems.length
+        lineItemCount: lineItems.length,
+        hasReceiptUrl: !!receiptUrl
     });
 
     const results = {
@@ -1967,7 +1980,8 @@ async function processOrderForLoyalty(order, merchantId) {
                 quantity,
                 unitPriceCents,
                 purchasedAt: order.created_at || new Date(),
-                squareLocationId: order.location_id
+                squareLocationId: order.location_id,
+                receiptUrl
             });
 
             if (purchaseResult.processed) {
