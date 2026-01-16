@@ -12280,6 +12280,209 @@ app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, async (req,
 });
 
 /**
+ * GET /api/loyalty/debug/customer-identification
+ * Test customer identification for recent orders
+ * Use this to verify the "cash sale + points sign-in after" flow works
+ */
+app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const minutes = parseInt(req.query.minutes) || 30;
+
+        // Get merchant's access token
+        const merchantResult = await db.query(
+            'SELECT square_access_token, square_token_scopes FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+
+        if (!merchantResult.rows[0]?.square_access_token) {
+            return res.status(400).json({ error: 'No Square access token' });
+        }
+
+        const rawToken = merchantResult.rows[0].square_access_token;
+        const accessToken = rawToken.startsWith('ENC:')
+            ? require('./utils/crypto').decryptToken(rawToken)
+            : rawToken;
+        const scopes = merchantResult.rows[0].square_token_scopes || [];
+
+        // Check required scopes
+        const requiredScopes = ['LOYALTY_READ', 'ORDERS_READ', 'CUSTOMERS_READ'];
+        const missingScopes = requiredScopes.filter(s => !scopes.includes(s));
+
+        // Fetch recent orders from Square
+        const startTime = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+        const ordersResponse = await fetch('https://connect.squareup.com/v2/orders/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2024-01-18'
+            },
+            body: JSON.stringify({
+                query: {
+                    filter: {
+                        date_time_filter: {
+                            created_at: { start_at: startTime }
+                        },
+                        state_filter: { states: ['COMPLETED'] }
+                    },
+                    sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' }
+                },
+                limit: 20
+            })
+        });
+
+        const ordersData = await ordersResponse.json();
+        const orders = ordersData.orders || [];
+
+        // For each order, check all identification methods
+        const results = [];
+        for (const order of orders) {
+            const identification = {
+                orderId: order.id,
+                createdAt: order.created_at,
+                state: order.state,
+                totalMoney: order.total_money,
+
+                // Method 1: Direct order.customer_id
+                orderCustomerId: order.customer_id || null,
+
+                // Method 2: Check tenders for customer_id
+                tenderCustomerId: null,
+                tenders: (order.tenders || []).map(t => ({
+                    type: t.type,
+                    customerId: t.customer_id || null
+                })),
+
+                // Method 3: Loyalty event by order_id
+                loyaltyEventCustomerId: null,
+                loyaltyEvent: null,
+
+                // Final result
+                identifiedCustomerId: null,
+                identificationMethod: null
+            };
+
+            // Check tenders
+            for (const tender of order.tenders || []) {
+                if (tender.customer_id) {
+                    identification.tenderCustomerId = tender.customer_id;
+                    break;
+                }
+            }
+
+            // Check loyalty events by order_id
+            try {
+                const loyaltyResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2024-01-18'
+                    },
+                    body: JSON.stringify({
+                        query: {
+                            filter: {
+                                order_filter: { order_id: order.id }
+                            }
+                        },
+                        limit: 5
+                    })
+                });
+
+                if (loyaltyResponse.ok) {
+                    const loyaltyData = await loyaltyResponse.json();
+                    const events = loyaltyData.events || [];
+
+                    if (events.length > 0) {
+                        const event = events[0];
+                        identification.loyaltyEvent = {
+                            id: event.id,
+                            type: event.type,
+                            loyaltyAccountId: event.loyalty_account_id,
+                            createdAt: event.created_at
+                        };
+
+                        // Get customer_id from loyalty account
+                        const accountResponse = await fetch(
+                            `https://connect.squareup.com/v2/loyalty/accounts/${event.loyalty_account_id}`,
+                            {
+                                headers: {
+                                    'Authorization': `Bearer ${accessToken}`,
+                                    'Content-Type': 'application/json',
+                                    'Square-Version': '2024-01-18'
+                                }
+                            }
+                        );
+
+                        if (accountResponse.ok) {
+                            const accountData = await accountResponse.json();
+                            identification.loyaltyEventCustomerId = accountData.loyalty_account?.customer_id || null;
+                        }
+                    }
+                }
+            } catch (loyaltyErr) {
+                identification.loyaltyError = loyaltyErr.message;
+            }
+
+            // Determine final identification
+            if (identification.orderCustomerId) {
+                identification.identifiedCustomerId = identification.orderCustomerId;
+                identification.identificationMethod = 'order.customer_id';
+            } else if (identification.tenderCustomerId) {
+                identification.identifiedCustomerId = identification.tenderCustomerId;
+                identification.identificationMethod = 'tender.customer_id';
+            } else if (identification.loyaltyEventCustomerId) {
+                identification.identifiedCustomerId = identification.loyaltyEventCustomerId;
+                identification.identificationMethod = 'loyalty_event_order_id';
+            }
+
+            results.push(identification);
+        }
+
+        // Summary
+        const identified = results.filter(r => r.identifiedCustomerId);
+        const byMethod = {
+            'order.customer_id': results.filter(r => r.identificationMethod === 'order.customer_id').length,
+            'tender.customer_id': results.filter(r => r.identificationMethod === 'tender.customer_id').length,
+            'loyalty_event_order_id': results.filter(r => r.identificationMethod === 'loyalty_event_order_id').length,
+            'unidentified': results.filter(r => !r.identifiedCustomerId).length
+        };
+
+        res.json({
+            test: 'Customer Identification for Loyalty',
+            instructions: 'Make a cash sale, then sign in with points after. Wait 1 min and refresh.',
+            timeWindow: `Last ${minutes} minutes`,
+            oauthScopes: {
+                current: scopes,
+                required: requiredScopes,
+                missing: missingScopes,
+                status: missingScopes.length === 0 ? '✅ All required scopes present' : '❌ Missing scopes'
+            },
+            webhooksRequired: [
+                'order.created',
+                'order.updated',
+                'refund.created (for reducing loyalty progress)',
+                'refund.updated'
+            ],
+            summary: {
+                totalOrders: results.length,
+                identifiedOrders: identified.length,
+                identificationRate: results.length > 0
+                    ? `${Math.round(identified.length / results.length * 100)}%`
+                    : 'N/A',
+                byMethod
+            },
+            orders: results
+        });
+
+    } catch (error) {
+        logger.error('Error in customer identification debug', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/manual-entry
  * Manually record a loyalty purchase for orders where customer wasn't attached
  * Used to backfill purchases that couldn't be auto-detected
