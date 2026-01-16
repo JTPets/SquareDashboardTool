@@ -12300,9 +12300,8 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         }
 
         const rawToken = merchantResult.rows[0].square_access_token;
-        const accessToken = rawToken.startsWith('ENC:')
-            ? require('./utils/crypto').decryptToken(rawToken)
-            : rawToken;
+        const { isEncryptedToken, decryptToken } = require('./utils/token-encryption');
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
         const scopes = merchantResult.rows[0].square_token_scopes || [];
 
         // Check required scopes
