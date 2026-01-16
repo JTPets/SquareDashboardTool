@@ -9372,6 +9372,92 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            // ==================== PAYMENT WEBHOOKS ====================
+            // Process loyalty from payment.updated since order.* webhooks are unreliable (BETA)
+            case 'payment.updated':
+                if (!internalMerchantId) {
+                    logger.debug('Payment webhook - merchant not found, skipping loyalty');
+                    break;
+                }
+                try {
+                    const payment = data;
+                    // Only process COMPLETED payments with an order_id
+                    if (payment.status === 'COMPLETED' && payment.order_id) {
+                        logger.info('Payment completed - fetching order for loyalty processing', {
+                            paymentId: payment.id,
+                            orderId: payment.order_id
+                        });
+
+                        // Fetch the full order from Square
+                        const squareClient = await getSquareClientForMerchant(internalMerchantId);
+                        const orderResponse = await squareClient.orders.get({
+                            orderId: payment.order_id
+                        });
+
+                        if (orderResponse.order && orderResponse.order.state === 'COMPLETED') {
+                            const order = orderResponse.order;
+
+                            // Process for loyalty
+                            const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, internalMerchantId);
+                            if (loyaltyResult.processed) {
+                                syncResults.loyalty = {
+                                    purchasesRecorded: loyaltyResult.purchasesRecorded.length,
+                                    customerId: loyaltyResult.customerId,
+                                    source: 'payment.updated'
+                                };
+                                logger.info('Loyalty purchases recorded via payment webhook', {
+                                    orderId: order.id,
+                                    customerId: loyaltyResult.customerId,
+                                    purchases: loyaltyResult.purchasesRecorded.length
+                                });
+
+                                // Check for earned rewards and create discounts
+                                if (loyaltyResult.purchasesRecorded.length > 0) {
+                                    for (const purchase of loyaltyResult.purchasesRecorded) {
+                                        if (purchase.rewardEarned) {
+                                            try {
+                                                await loyaltyService.createRewardDiscount({
+                                                    merchantId: internalMerchantId,
+                                                    squareCustomerId: loyaltyResult.customerId,
+                                                    internalRewardId: purchase.rewardId
+                                                });
+                                                logger.info('Created reward discount via payment webhook', {
+                                                    rewardId: purchase.rewardId
+                                                });
+                                            } catch (discountErr) {
+                                                logger.error('Failed to create reward discount', {
+                                                    error: discountErr.message,
+                                                    rewardId: purchase.rewardId
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Check for reward redemption
+                            const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, internalMerchantId);
+                            if (redemptionResult.detected) {
+                                syncResults.loyaltyRedemption = {
+                                    rewardId: redemptionResult.rewardId,
+                                    offerName: redemptionResult.offerName
+                                };
+                                logger.info('Reward redemption detected via payment webhook', {
+                                    orderId: order.id,
+                                    rewardId: redemptionResult.rewardId
+                                });
+                            }
+                        }
+                    }
+                } catch (paymentErr) {
+                    logger.error('Error processing payment for loyalty', {
+                        error: paymentErr.message,
+                        paymentId: data?.id
+                    });
+                    // Don't set syncResults.error - this is non-critical
+                }
+                break;
+
             // ==================== REFUND WEBHOOKS ====================
             // Handle refund events directly (in addition to order.updated with refunds)
             case 'refund.created':
