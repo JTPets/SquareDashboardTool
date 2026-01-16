@@ -977,6 +977,11 @@
       document.getElementById('offer-quantity').value = '12';
       document.getElementById('offer-window').value = '12';
       document.getElementById('offer-description').value = '';
+      // Re-enable fields (may be disabled from previous edit)
+      document.getElementById('offer-brand').disabled = false;
+      document.getElementById('offer-size').disabled = false;
+      document.getElementById('offer-quantity').disabled = false;
+      document.getElementById('offer-window').disabled = false;
       showModal('offer-modal');
     }
 
