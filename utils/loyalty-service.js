@@ -88,7 +88,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
+                    'Square-Version': '2025-01-16'
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -137,7 +137,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2024-01-18'
+                        'Square-Version': '2025-01-16'
                     }
                 });
 
@@ -230,7 +230,7 @@ async function getCustomerDetails(customerId, merchantId) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             }
         });
 
@@ -298,7 +298,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             },
             body: JSON.stringify({
                 query: {
@@ -339,7 +339,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             }
         });
 
@@ -2243,7 +2243,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             },
             body: JSON.stringify({
                 group: {
@@ -2304,7 +2304,7 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
+                    'Square-Version': '2025-01-16'
                 }
             }
         );
@@ -2358,7 +2358,7 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
+                    'Square-Version': '2025-01-16'
                 }
             }
         );
@@ -2411,7 +2411,7 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2024-01-18'
+                    'Square-Version': '2025-01-16'
                 }
             }
         );
@@ -2496,7 +2496,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2024-01-18'
+                        'Square-Version': '2025-01-16'
                     },
                     body: JSON.stringify({
                         object_ids: variationIds,
@@ -2530,24 +2530,24 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
-        logger.info('Creating reward discount - 1 FREE item (requires exactly 1 qualifying item in cart)', {
+        logger.info('Creating reward discount - 1 FREE item (most expensive gets discount)', {
             merchantId,
             internalRewardId,
-            priceSource,
             currency,
             offerVariationCount: variationIds.length
         });
 
+
         // Generate unique IDs for the catalog objects
         const discountId = `#fbp-discount-${internalRewardId}`;
         const matchProductSetId = `#fbp-match-set-${internalRewardId}`;
+        const excludeProductSetId = `#fbp-exclude-set-${internalRewardId}`;
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: 100% off ONE item only
-        // quantity_exact: 1 ensures the discount ONLY activates when customer has exactly 1 qualifying item
-        // This prevents the discount from applying to multiple items
-        // Customer must buy their free item separately if they want more qualifying items
+        // Strategy: Use LEAST_EXPENSIVE exclude to discount only the MOST EXPENSIVE item
+        // Per Square docs: "The least expensive matched products are excluded from the pricing"
+        // This should exclude all cheaper items, leaving only the most expensive 1 to get 100% off
         const catalogObjects = [
             // 1. Create the Discount (100% off - full item free)
             {
@@ -2560,17 +2560,27 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set - ONLY matches when exactly 1 qualifying item in cart
-            // This is the key to preventing discount on multiple items
+            // 2. Match Product Set - all qualifying items
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_exact: 1
+                    quantity_min: 1
                 }
             },
-            // 3. Pricing Rule - links discount to customer group and product set
+            // 3. Exclude Product Set - same items, used with LEAST_EXPENSIVE strategy
+            // Per docs: "An exclude rule can only match once in the match set"
+            // LEAST_EXPENSIVE should exclude cheaper items, leaving 1 most expensive for discount
+            {
+                type: 'PRODUCT_SET',
+                id: excludeProductSetId,
+                product_set_data: {
+                    product_ids_any: variationIds,
+                    quantity_min: 1
+                }
+            },
+            // 4. Pricing Rule with exclude strategy
             {
                 type: 'PRICING_RULE',
                 id: pricingRuleId,
@@ -2578,6 +2588,8 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_FBP Reward #${internalRewardId}`,
                     discount_id: discountId,
                     match_products_id: matchProductSetId,
+                    exclude_products_id: excludeProductSetId,
+                    exclude_strategy: 'LEAST_EXPENSIVE',
                     customer_group_ids_any: [groupId]
                 }
             }
@@ -2588,7 +2600,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             },
             body: JSON.stringify({
                 idempotency_key: `fbp-catalog-${internalRewardId}-${Date.now()}`,
@@ -2669,7 +2681,7 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2024-01-18'
+                        'Square-Version': '2025-01-16'
                     }
                 }
             );
