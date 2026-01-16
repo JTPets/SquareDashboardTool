@@ -9372,6 +9372,67 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            // ==================== REFUND WEBHOOKS ====================
+            // Handle refund events directly (in addition to order.updated with refunds)
+            case 'refund.created':
+            case 'refund.updated':
+                if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot process refund - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
+                    try {
+                        const refund = data;
+                        logger.info('Refund event received via webhook', {
+                            refundId: refund.id,
+                            orderId: refund.order_id,
+                            status: refund.status,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Only process completed refunds
+                        if (refund.status === 'COMPLETED' && refund.order_id) {
+                            // Fetch the full order to process refund line items
+                            const accessToken = await loyaltyService.getSquareAccessToken(internalMerchantId);
+                            if (accessToken) {
+                                const orderResponse = await fetch(
+                                    `https://connect.squareup.com/v2/orders/${refund.order_id}`,
+                                    {
+                                        headers: {
+                                            'Authorization': `Bearer ${accessToken}`,
+                                            'Content-Type': 'application/json',
+                                            'Square-Version': '2024-01-18'
+                                        }
+                                    }
+                                );
+
+                                if (orderResponse.ok) {
+                                    const orderData = await orderResponse.json();
+                                    const order = orderData.order;
+
+                                    if (order && order.refunds && order.refunds.length > 0) {
+                                        const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, internalMerchantId);
+                                        if (refundResult.processed) {
+                                            syncResults.loyaltyRefunds = {
+                                                refundsProcessed: refundResult.refundsProcessed.length
+                                            };
+                                            logger.info('Loyalty refunds processed via refund webhook', {
+                                                orderId: order.id,
+                                                refundCount: refundResult.refundsProcessed.length
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (refundError) {
+                        logger.error('Refund webhook processing failed', { error: refundError.message });
+                        syncResults.error = refundError.message;
+                    }
+                }
+                break;
+
             default:
                 logger.info('Unhandled webhook event type', { type: event.type });
                 syncResults.unhandled = true;
