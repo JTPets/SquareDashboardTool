@@ -2569,17 +2569,17 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     quantity_min: 1
                 }
             },
-            // 3. Exclude Product Set - only activates when 2+ items in cart
-            // With quantity_min: 2, exclude rule won't trigger for single item purchases
-            // 1 item: no exclusion → 1 FREE
-            // 2 items: exclude 1 cheaper → 1 FREE
-            // 3+ items: exclude 1 cheaper → multiple FREE (limitation)
+            // 3. Exclude Product Set - excludes 1 item (the cheapest)
+            // quantity_min: 1 means exclude 1 item
+            // 1 item: exclude 1 → 0 FREE (known limitation - customer should buy 2)
+            // 2 items: exclude 1 → 1 FREE ✓
+            // 3+ items: exclude 1 → 2+ FREE (known limitation)
             {
                 type: 'PRODUCT_SET',
                 id: excludeProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 2
+                    quantity_min: 1
                 }
             },
             // 4. Pricing Rule with exclude strategy
