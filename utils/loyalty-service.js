@@ -2523,10 +2523,10 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: 100% off, but exclude all but 1 item from discount
-        // LEAST_EXPENSIVE exclude = exclude cheap items, discount the most expensive 1
+        // Strategy: 100% off with cap, exclude set targets 1 item
+        // Cap ensures max discount = 1 item's worth even if exclude fails
         const catalogObjects = [
-            // 1. Create the Discount (100% off the non-excluded item)
+            // 1. Create the Discount (100% off, capped at max item price)
             {
                 type: 'DISCOUNT',
                 id: discountId,
@@ -2534,6 +2534,10 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `zz_Loyalty: ${offerName}`.substring(0, 255),
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100.0',
+                    maximum_amount_money: {
+                        amount: maxPriceCents,
+                        currency: currency
+                    },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
