@@ -1273,32 +1273,38 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
 }
 
 /**
- * Sync sales velocity for all periods (91, 182, 365 days) with a SINGLE API fetch.
- * This optimized function fetches orders once for 365 days and calculates all three periods,
- * eliminating redundant API calls (365d includes 182d includes 91d).
- *
- * Performance improvement: ~17,500 orders fetched once instead of ~52,500 across 3 calls.
+ * Sync sales velocity for multiple periods with a SINGLE API fetch.
+ * This optimized function fetches orders once for the specified max period and calculates
+ * all periods up to that max, eliminating redundant API calls.
  *
  * @param {number} merchantId - The merchant ID for multi-tenant token lookup
- * @returns {Promise<Object>} Summary with counts for each period { '91d': count, '182d': count, '365d': count }
+ * @param {number} [maxPeriod=365] - Maximum period to fetch (91, 182, or 365).
+ *                                   Will calculate all periods <= maxPeriod.
+ *                                   e.g., maxPeriod=182 fetches 182d and calculates 91d + 182d
+ * @returns {Promise<Object>} Summary with counts for each period synced { '91d': count, '182d': count, ... }
  */
-async function syncSalesVelocityAllPeriods(merchantId) {
-    const PERIODS = [91, 182, 365];
+async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365) {
+    const ALL_PERIODS = [91, 182, 365];
+    // Only sync periods up to maxPeriod
+    const PERIODS = ALL_PERIODS.filter(p => p <= maxPeriod);
     const MAX_PERIOD = Math.max(...PERIODS);
 
-    logger.info('Starting optimized sales velocity sync (all periods)', {
+    logger.info('Starting optimized sales velocity sync', {
         periods: PERIODS,
+        maxPeriod: MAX_PERIOD,
         merchantId,
-        optimization: 'single fetch for all periods'
+        optimization: `single fetch for ${PERIODS.length} period(s)`
     });
 
+    // Initialize summary with only the periods we're syncing
     const summary = {
-        '91d': 0,
-        '182d': 0,
-        '365d': 0,
         ordersProcessed: 0,
-        apiCallsSaved: 0
+        apiCallsSaved: 0,
+        periodssynced: PERIODS
     };
+    for (const days of PERIODS) {
+        summary[`${days}d`] = 0;
+    }
 
     try {
         const accessToken = await getMerchantToken(merchantId);
