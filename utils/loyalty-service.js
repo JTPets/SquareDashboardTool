@@ -767,6 +767,174 @@ async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
     }
 }
 
+/**
+ * Look up customer from Square Loyalty reward redemption on order
+ * If the order has a `rewards` array, we can look up the reward to find the loyalty account
+ * and then get the customer_id from that account.
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<string|null>} customer_id if found, null otherwise
+ */
+async function lookupCustomerFromOrderRewards(order, merchantId) {
+    try {
+        // Check if order has rewards (Square Loyalty redemptions)
+        const rewards = order.rewards || [];
+        if (rewards.length === 0) {
+            return null;
+        }
+
+        logger.debug('Order has Square Loyalty rewards, looking up customer', {
+            orderId: order.id,
+            rewardCount: rewards.length,
+            rewardIds: rewards.map(r => r.id)
+        });
+
+        // Get merchant's access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Try to find the loyalty account via reward lookup
+        // First, search for REDEEM_REWARD loyalty events for this order
+        const eventsResponse = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/events/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2025-01-16'
+            },
+            body: JSON.stringify({
+                query: {
+                    filter: {
+                        order_filter: {
+                            order_id: order.id
+                        }
+                    }
+                },
+                limit: 10
+            })
+        }, 10000);
+
+        if (eventsResponse.ok) {
+            const eventsData = await eventsResponse.json();
+            const events = eventsData.events || [];
+
+            // Look for any event (REDEEM_REWARD or ACCUMULATE_POINTS) that has our reward
+            for (const event of events) {
+                if (event.loyalty_account_id) {
+                    // Fetch the loyalty account to get the customer_id
+                    const accountResponse = await fetchWithTimeout(
+                        `https://connect.squareup.com/v2/loyalty/accounts/${event.loyalty_account_id}`,
+                        {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json',
+                                'Square-Version': '2025-01-16'
+                            }
+                        },
+                        10000
+                    );
+
+                    if (accountResponse.ok) {
+                        const accountData = await accountResponse.json();
+                        const customerId = accountData.loyalty_account?.customer_id;
+
+                        if (customerId) {
+                            logger.info('Found customer via order rewards/loyalty event', {
+                                orderId: order.id,
+                                loyaltyAccountId: event.loyalty_account_id,
+                                customerId,
+                                eventType: event.type
+                            });
+                            return customerId;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: Try to look up reward directly via Loyalty Rewards API
+        for (const reward of rewards) {
+            try {
+                const rewardResponse = await fetchWithTimeout(
+                    `https://connect.squareup.com/v2/loyalty/rewards/${reward.id}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                            'Square-Version': '2025-01-16'
+                        }
+                    },
+                    10000
+                );
+
+                if (rewardResponse.ok) {
+                    const rewardData = await rewardResponse.json();
+                    const loyaltyAccountId = rewardData.reward?.loyalty_account_id;
+
+                    if (loyaltyAccountId) {
+                        // Fetch the loyalty account to get the customer_id
+                        const accountResponse = await fetchWithTimeout(
+                            `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
+                            {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': `Bearer ${accessToken}`,
+                                    'Content-Type': 'application/json',
+                                    'Square-Version': '2025-01-16'
+                                }
+                            },
+                            10000
+                        );
+
+                        if (accountResponse.ok) {
+                            const accountData = await accountResponse.json();
+                            const customerId = accountData.loyalty_account?.customer_id;
+
+                            if (customerId) {
+                                logger.info('Found customer via direct reward lookup', {
+                                    orderId: order.id,
+                                    rewardId: reward.id,
+                                    loyaltyAccountId,
+                                    customerId
+                                });
+                                return customerId;
+                            }
+                        }
+                    }
+                }
+            } catch (rewardErr) {
+                logger.debug('Failed to look up individual reward', {
+                    rewardId: reward.id,
+                    error: rewardErr.message
+                });
+            }
+        }
+
+        logger.debug('Could not find customer from order rewards', { orderId: order.id });
+        return null;
+
+    } catch (error) {
+        logger.error('Error looking up customer from order rewards', {
+            error: error.message,
+            orderId: order.id,
+            merchantId
+        });
+        return null;
+    }
+}
+
 // ============================================================================
 // REWARD STATE MACHINE CONSTANTS
 // ============================================================================
@@ -2428,7 +2596,20 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
         }
     }
 
-    // Fallback 3: For web/online orders - lookup by fulfillment recipient phone/email
+    // Fallback 3: If order has Square Loyalty rewards, look up customer from reward
+    if (!squareCustomerId) {
+        logger.debug('Trying order rewards lookup', { orderId: order.id, hasRewards: !!(order.rewards?.length) });
+        squareCustomerId = await lookupCustomerFromOrderRewards(order, merchantId);
+        if (squareCustomerId) {
+            customerSource = 'order_rewards';
+            logger.info('Found customer via order rewards lookup', {
+                orderId: order.id,
+                customerId: squareCustomerId
+            });
+        }
+    }
+
+    // Fallback 4: For web/online orders - lookup by fulfillment recipient phone/email
     // Square Online orders often don't have customer_id but have recipient contact info
     if (!squareCustomerId) {
         logger.debug('Trying fulfillment recipient lookup for web order', { orderId: order.id });
@@ -4430,6 +4611,7 @@ module.exports = {
     getCustomerDetails,
     lookupCustomerFromLoyalty,
     lookupCustomerFromFulfillmentRecipient,
+    lookupCustomerFromOrderRewards,
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,
 
