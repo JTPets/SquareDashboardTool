@@ -10792,17 +10792,18 @@ app.get('/api/loyalty/offers/:id', requireAuth, requireMerchant, async (req, res
 /**
  * PATCH /api/loyalty/offers/:id
  * Update a loyalty offer
- * Note: requiredQuantity and windowMonths cannot be changed to preserve integrity
+ * Note: requiredQuantity cannot be changed to preserve integrity, but windowMonths can be adjusted
  */
 app.patch('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const { offer_name, description, is_active } = req.body;
+        const { offer_name, description, is_active, window_months } = req.body;
 
         const updates = {};
         if (offer_name !== undefined) updates.offer_name = offer_name;
         if (description !== undefined) updates.description = description;
         if (is_active !== undefined) updates.is_active = is_active;
+        if (window_months !== undefined && window_months > 0) updates.window_months = parseInt(window_months);
 
         const offer = await loyaltyService.updateOffer(
             req.params.id,

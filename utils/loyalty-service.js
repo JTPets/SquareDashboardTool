@@ -894,7 +894,7 @@ async function updateOffer(offerId, updates, merchantId, userId = null) {
         throw new Error('merchantId is required for updateOffer - tenant isolation required');
     }
 
-    const allowedFields = ['offer_name', 'description', 'is_active'];
+    const allowedFields = ['offer_name', 'description', 'is_active', 'window_months'];
     const setClause = [];
     const params = [offerId, merchantId];
 
@@ -3621,13 +3621,14 @@ async function processExpiredEarnedRewards(merchantId) {
     // Find earned rewards where the locked purchases have all expired
     // This shouldn't normally happen since purchases are locked when reward is earned,
     // but we check for edge cases or data inconsistencies
+    // Uses the offer's window_months to determine expiration (e.g., 12 months for Smack, 18 months for Big Country Raw)
     const expiredRewardsResult = await db.query(`
-        SELECT r.*, o.offer_name, o.required_quantity
+        SELECT r.*, o.offer_name, o.required_quantity, o.window_months
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id
         WHERE r.merchant_id = $1
           AND r.status = 'earned'
-          AND r.earned_at < NOW() - INTERVAL '1 year'
+          AND r.earned_at < NOW() - (o.window_months || ' months')::INTERVAL
           AND NOT EXISTS (
               SELECT 1 FROM loyalty_purchase_events pe
               WHERE pe.reward_id = r.id

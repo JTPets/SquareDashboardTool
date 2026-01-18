@@ -1044,11 +1044,11 @@
       document.getElementById('offer-window').value = offer.window_months;
       document.getElementById('offer-description').value = offer.description || '';
 
-      // Disable brand/size/quantity for existing offers
+      // Disable brand/size/quantity for existing offers (window_months remains editable)
       document.getElementById('offer-brand').disabled = true;
       document.getElementById('offer-size').disabled = true;
       document.getElementById('offer-quantity').disabled = true;
-      document.getElementById('offer-window').disabled = true;
+      document.getElementById('offer-window').disabled = false;
 
       showModal('offer-modal');
     }
@@ -1116,7 +1116,8 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               offer_name: data.offerName,
-              description: data.description
+              description: data.description,
+              window_months: data.windowMonths
             })
           });
         } else {
