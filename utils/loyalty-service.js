@@ -1886,6 +1886,57 @@ async function getCustomerLoyaltyHistory(squareCustomerId, merchantId, options =
 // ============================================================================
 
 /**
+ * Check if an order has already been processed for loyalty
+ * Uses the idempotency constraint on loyalty_purchase_events
+ *
+ * @param {string} squareOrderId - Square order ID
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<boolean>} True if order was already processed
+ */
+async function isOrderAlreadyProcessedForLoyalty(squareOrderId, merchantId) {
+    const result = await db.query(`
+        SELECT 1 FROM loyalty_purchase_events
+        WHERE merchant_id = $1 AND square_order_id = $2
+        LIMIT 1
+    `, [merchantId, squareOrderId]);
+    return result.rows.length > 0;
+}
+
+/**
+ * Process an order for loyalty ONLY if not already processed (idempotent)
+ * Used by sales velocity sync to catch missed orders without double-counting.
+ *
+ * Order history is append-only - once COMPLETED, orders don't change.
+ * So if we've processed an order once, we never need to reprocess it.
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object>} Result with processed status
+ */
+async function processOrderForLoyaltyIfNeeded(order, merchantId) {
+    // Skip orders without customer ID (can't track loyalty without knowing who)
+    if (!order.customer_id) {
+        return { processed: false, reason: 'no_customer_id' };
+    }
+
+    // Skip if order was already processed (idempotent check)
+    const alreadyProcessed = await isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
+    if (alreadyProcessed) {
+        return { processed: false, reason: 'already_processed', orderId: order.id };
+    }
+
+    // Process the order through normal loyalty flow
+    logger.info('Processing missed order for loyalty (backfill)', {
+        orderId: order.id,
+        customerId: order.customer_id,
+        merchantId,
+        source: 'sync_backfill'
+    });
+
+    return processOrderForLoyalty(order, merchantId);
+}
+
+/**
  * Process an order for loyalty (called from webhook handler)
  * Extracts line items and processes qualifying purchases
  *
@@ -3144,6 +3195,10 @@ module.exports = {
     // Webhook processing
     processOrderForLoyalty,
     processOrderRefundsForLoyalty,
+
+    // Backfill / Sync hook
+    isOrderAlreadyProcessedForLoyalty,
+    processOrderForLoyaltyIfNeeded,
 
     // Utilities
     getSquareAccessToken,
