@@ -809,6 +809,14 @@
           <textarea id="offer-description" rows="2" placeholder="Optional description..."></textarea>
         </div>
 
+        <div class="form-group">
+          <label>Vendor (for credit submissions)</label>
+          <select id="offer-vendor">
+            <option value="">-- Select Vendor --</option>
+          </select>
+          <small>Select the vendor who will receive credit submissions for this program</small>
+        </div>
+
         <div class="alert alert-warning">
           <strong>Important:</strong> One offer per brand + size group combination. Customers earn by purchasing only the explicitly configured variations.
         </div>
@@ -1014,7 +1022,23 @@
       }
     }
 
-    function showCreateOfferModal() {
+    async function loadVendorsDropdown() {
+      try {
+        const response = await fetch('/api/vendors');
+        if (response.ok) {
+          const data = await response.json();
+          const select = document.getElementById('offer-vendor');
+          select.innerHTML = '<option value="">-- Select Vendor --</option>';
+          for (const vendor of (data.vendors || data || [])) {
+            select.innerHTML += `<option value="${vendor.id}">${vendor.name}</option>`;
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load vendors:', error);
+      }
+    }
+
+    async function showCreateOfferModal() {
       document.getElementById('offer-modal-title').textContent = 'Create Loyalty Offer';
       document.getElementById('offer-edit-id').value = '';
       document.getElementById('offer-name').value = '';
@@ -1023,15 +1047,17 @@
       document.getElementById('offer-quantity').value = '12';
       document.getElementById('offer-window').value = '12';
       document.getElementById('offer-description').value = '';
+      document.getElementById('offer-vendor').value = '';
       // Re-enable fields (may be disabled from previous edit)
       document.getElementById('offer-brand').disabled = false;
       document.getElementById('offer-size').disabled = false;
       document.getElementById('offer-quantity').disabled = false;
       document.getElementById('offer-window').disabled = false;
+      await loadVendorsDropdown();
       showModal('offer-modal');
     }
 
-    function editOffer(offerId) {
+    async function editOffer(offerId) {
       const offer = allOffers.find(o => o.id === offerId);
       if (!offer) return;
 
@@ -1049,6 +1075,10 @@
       document.getElementById('offer-size').disabled = true;
       document.getElementById('offer-quantity').disabled = true;
       document.getElementById('offer-window').disabled = false;
+
+      // Load vendors and set current selection
+      await loadVendorsDropdown();
+      document.getElementById('offer-vendor').value = offer.vendor_id || '';
 
       showModal('offer-modal');
     }
@@ -1094,13 +1124,15 @@
 
     async function saveOffer() {
       const editId = document.getElementById('offer-edit-id').value;
+      const vendorId = document.getElementById('offer-vendor').value;
       const data = {
         offerName: document.getElementById('offer-name').value,
         brandName: document.getElementById('offer-brand').value,
         sizeGroup: document.getElementById('offer-size').value,
         requiredQuantity: parseInt(document.getElementById('offer-quantity').value),
         windowMonths: parseInt(document.getElementById('offer-window').value),
-        description: document.getElementById('offer-description').value
+        description: document.getElementById('offer-description').value,
+        vendorId: vendorId || null
       };
 
       if (!data.brandName || !data.sizeGroup || !data.requiredQuantity) {
@@ -1117,7 +1149,8 @@
             body: JSON.stringify({
               offer_name: data.offerName,
               description: data.description,
-              window_months: data.windowMonths
+              window_months: data.windowMonths,
+              vendor_id: data.vendorId
             })
           });
         } else {
