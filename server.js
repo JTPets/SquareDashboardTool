@@ -1156,62 +1156,77 @@ async function runSmartSync({ merchantId } = {}) {
     const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d, merchantId);
     const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d, merchantId);
 
-    // Count how many periods need syncing
-    const periodsNeeded = [sales91Check.needed, sales182Check.needed, sales365Check.needed].filter(Boolean).length;
-
-    // Optimization: If 365d needs syncing OR multiple periods need syncing, use the optimized function
-    // This fetches orders once and calculates all periods, saving ~2x API calls
-    if (sales365Check.needed || periodsNeeded >= 2) {
+    // Tiered optimization strategy:
+    // - If 365d is due → fetch 365d, calculate all three periods
+    // - If 182d is due (but not 365d) → fetch 182d, calculate 91d + 182d
+    // - If only 91d is due → fetch 91d only (smallest fetch, efficient for webhook-heavy setups)
+    if (sales365Check.needed) {
+        // Tier 1: 365d is due - fetch all 365 days, sync all periods
         try {
-            logger.info('Syncing all sales velocity periods (optimized single fetch)', {
-                periodsNeeded,
-                reason: sales365Check.needed ? '365d due' : 'multiple periods due'
-            });
+            logger.info('Syncing all sales velocity periods (365d due - full fetch)', { merchantId });
 
-            // Use optimized function that fetches once for all periods
-            const result = await squareApi.syncSalesVelocityAllPeriods(merchantId);
+            const result = await squareApi.syncSalesVelocityAllPeriods(merchantId, 365);
 
             // Update sync_history for ALL periods since we synced them all
-            await db.query(`
-                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
-                VALUES ('sales_91d', $1, $2, CURRENT_TIMESTAMP)
-                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
-                    records_synced = EXCLUDED.records_synced,
-                    synced_at = CURRENT_TIMESTAMP
-            `, [result['91d'] || 0, merchantId]);
-
-            await db.query(`
-                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
-                VALUES ('sales_182d', $1, $2, CURRENT_TIMESTAMP)
-                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
-                    records_synced = EXCLUDED.records_synced,
-                    synced_at = CURRENT_TIMESTAMP
-            `, [result['182d'] || 0, merchantId]);
-
-            await db.query(`
-                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
-                VALUES ('sales_365d', $1, $2, CURRENT_TIMESTAMP)
-                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
-                    records_synced = EXCLUDED.records_synced,
-                    synced_at = CURRENT_TIMESTAMP
-            `, [result['365d'] || 0, merchantId]);
+            for (const period of ['sales_91d', 'sales_182d', 'sales_365d']) {
+                const days = period.replace('sales_', '').replace('d', '');
+                await db.query(`
+                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                    ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                        records_synced = EXCLUDED.records_synced,
+                        synced_at = CURRENT_TIMESTAMP
+                `, [period, result[`${days}d`] || 0, merchantId]);
+            }
 
             synced.push('sales_91d', 'sales_182d', 'sales_365d');
             summary.sales_91d = result['91d'];
             summary.sales_182d = result['182d'];
             summary.sales_365d = result['365d'];
-            summary.salesVelocityOptimization = 'all_periods_single_fetch';
+            summary.salesVelocityOptimization = 'tier1_365d_full_fetch';
         } catch (error) {
-            logger.error('Optimized sales velocity sync error', { error: error.message });
-            errors.push({ type: 'sales_velocity_all', error: error.message });
+            logger.error('Sales velocity sync error (365d)', { error: error.message });
+            errors.push({ type: 'sales_velocity_365d', error: error.message });
+        }
+    } else if (sales182Check.needed) {
+        // Tier 2: 182d is due (but not 365d) - fetch 182 days, sync 91d + 182d only
+        try {
+            logger.info('Syncing 91d + 182d sales velocity (182d due - medium fetch)', { merchantId });
+
+            const result = await squareApi.syncSalesVelocityAllPeriods(merchantId, 182);
+
+            // Update sync_history for 91d and 182d only
+            for (const period of ['sales_91d', 'sales_182d']) {
+                const days = period.replace('sales_', '').replace('d', '');
+                await db.query(`
+                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                    ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                        records_synced = EXCLUDED.records_synced,
+                        synced_at = CURRENT_TIMESTAMP
+                `, [period, result[`${days}d`] || 0, merchantId]);
+            }
+
+            synced.push('sales_91d', 'sales_182d');
+            summary.sales_91d = result['91d'];
+            summary.sales_182d = result['182d'];
+            summary.salesVelocityOptimization = 'tier2_182d_medium_fetch';
+
+            // Report skipped status for 365d
+            const hoursRemaining365 = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
+            skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining365.toFixed(1)}h`;
+        } catch (error) {
+            logger.error('Sales velocity sync error (182d)', { error: error.message });
+            errors.push({ type: 'sales_velocity_182d', error: error.message });
         }
     } else if (sales91Check.needed) {
-        // Only 91d needs syncing - use single-period function (smaller fetch, more efficient for frequent updates)
+        // Tier 3: Only 91d is due - smallest fetch, ideal for webhook-heavy setups
         try {
-            logger.info('Syncing 91-day sales velocity only');
+            logger.info('Syncing 91-day sales velocity only (minimal fetch)', { merchantId });
             const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91, merchantId), merchantId);
             synced.push('sales_91d');
             summary.sales_91d = result;
+            summary.salesVelocityOptimization = 'tier3_91d_minimal_fetch';
         } catch (error) {
             errors.push({ type: 'sales_91d', error: error.message });
         }
