@@ -470,6 +470,7 @@ SKU-003"></textarea>
     let pendingItems = [];
     let countedToday = 0;
     let target = 0;
+    let lastLoadTime = 0;
 
     // Count modal state
     let currentCountItem = null;
@@ -477,9 +478,14 @@ SKU-003"></textarea>
     let systemCount = 0;
 
     // Load pending items on page load
-    async function loadPendingItems() {
+    async function loadPendingItems(preserveScroll = false) {
       const container = document.getElementById('items-container');
-      container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading cycle count items...</p></div>';
+      const scrollPosition = preserveScroll ? window.scrollY : 0;
+
+      // Only show loading spinner if not preserving scroll (initial load)
+      if (!preserveScroll) {
+        container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading cycle count items...</p></div>';
+      }
 
       try {
         const response = await fetch('/api/cycle-counts/pending');
@@ -518,6 +524,15 @@ SKU-003"></textarea>
         }
 
         renderItems();
+
+        // Restore scroll position if preserving
+        if (preserveScroll && scrollPosition > 0) {
+          requestAnimationFrame(() => {
+            window.scrollTo(0, scrollPosition);
+          });
+        }
+
+        lastLoadTime = Date.now();
 
       } catch (error) {
         console.error('Failed to load items:', error);
@@ -950,13 +965,18 @@ SKU-003"></textarea>
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', () => {
+      lastLoadTime = Date.now();
       loadPendingItems();
     });
 
-    // Refresh data when tab becomes visible
+    // Refresh data when tab becomes visible (with debounce and scroll preservation)
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        loadPendingItems();
+        // Only reload if more than 30 seconds since last load
+        const timeSinceLastLoad = Date.now() - lastLoadTime;
+        if (timeSinceLastLoad > 30000) {
+          loadPendingItems(true); // Preserve scroll position
+        }
       }
     });
   </script>
