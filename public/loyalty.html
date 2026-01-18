@@ -735,9 +735,31 @@
         <div class="form-group">
           <button class="btn-warning" onclick="processExpired()">Process Expired Window Entries</button>
           <small style="margin-top: 10px; display: block;">
-            Remove purchases that have fallen outside the rolling time window. This runs automatically but can be triggered manually.
+            Remove purchases that have fallen outside the rolling time window and revoke expired earned rewards. This runs automatically but can be triggered manually.
           </small>
         </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <h3 style="margin-bottom: 20px;">Discount Validation</h3>
+        <p style="color: #4b5563; margin-bottom: 15px;">
+          Verify that Square discounts for earned rewards are correctly configured and working.
+          This checks that discount objects exist in Square and customers are in the correct groups.
+        </p>
+
+        <div id="discount-validation-results" style="display: none; margin-bottom: 20px;"></div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn-secondary" onclick="validateDiscounts(false)" id="validate-btn">
+            Validate Discounts
+          </button>
+          <button class="btn-primary" onclick="validateDiscounts(true)" id="validate-fix-btn">
+            Validate & Fix Issues
+          </button>
+        </div>
+        <small style="margin-top: 10px; display: block; color: #6b7280;">
+          "Validate" checks for issues without making changes. "Validate & Fix" will recreate missing/deleted discounts.
+        </small>
       </div>
     </div>
   </div>
@@ -2061,17 +2083,121 @@
     }
 
     async function processExpired() {
-      if (!confirm('Process expired window entries?\n\nThis will remove purchases that have fallen outside the rolling time window.')) {
+      if (!confirm('Process expired window entries?\n\nThis will remove purchases that have fallen outside the rolling time window and revoke any expired earned rewards.')) {
         return;
       }
 
       try {
         const response = await fetch('/api/loyalty/process-expired', { method: 'POST' });
         const result = await response.json();
-        alert(`Processed ${result.processedCount} expired entries.`);
+
+        let message = `Window Entries: Processed ${result.windowEntries?.processedCount || 0} expired entries.`;
+
+        if (result.expiredEarnedRewards) {
+          const earned = result.expiredEarnedRewards;
+          if (earned.processedCount > 0) {
+            message += `\n\nExpired Earned Rewards: Revoked ${earned.processedCount} reward(s) and cleaned up discounts.`;
+            if (earned.revokedRewards?.length > 0) {
+              message += '\n\nRevoked Rewards:';
+              earned.revokedRewards.forEach(r => {
+                message += `\n• ${r.offerName}`;
+              });
+            }
+          } else {
+            message += '\n\nNo expired earned rewards found.';
+          }
+        }
+
+        alert(message);
       } catch (error) {
         console.error('Failed to process expired:', error);
         alert('Failed to process expired entries.');
+      }
+    }
+
+    async function validateDiscounts(fixIssues = false) {
+      const validateBtn = document.getElementById('validate-btn');
+      const fixBtn = document.getElementById('validate-fix-btn');
+      const resultsDiv = document.getElementById('discount-validation-results');
+
+      validateBtn.disabled = true;
+      fixBtn.disabled = true;
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><br>Validating discounts against Square...</div>';
+
+      try {
+        const endpoint = fixIssues ? '/api/loyalty/discounts/validate-and-fix' : '/api/loyalty/discounts/validate';
+        const response = await fetch(endpoint, { method: fixIssues ? 'POST' : 'GET' });
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Validation failed');
+        }
+
+        // Build results HTML
+        let html = '';
+
+        // Summary stats
+        html += `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 15px; text-align: center;">
+            <div style="padding: 10px; background: #f0fdf4; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #10b981;">${result.validated}</div>
+              <div style="font-size: 11px; color: #6b7280;">Valid</div>
+            </div>
+            <div style="padding: 10px; background: ${result.issues.length > 0 ? '#fef2f2' : '#f3f4f6'}; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: ${result.issues.length > 0 ? '#ef4444' : '#6b7280'};">${result.issues.length}</div>
+              <div style="font-size: 11px; color: #6b7280;">Issues</div>
+            </div>
+            ${fixIssues ? `
+            <div style="padding: 10px; background: ${result.fixed.length > 0 ? '#dbeafe' : '#f3f4f6'}; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #2563eb;">${result.fixed.length}</div>
+              <div style="font-size: 11px; color: #6b7280;">Fixed</div>
+            </div>
+            ` : ''}
+            <div style="padding: 10px; background: #f3f4f6; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #374151;">${result.totalEarned}</div>
+              <div style="font-size: 11px; color: #6b7280;">Total Earned</div>
+            </div>
+          </div>
+        `;
+
+        // Show issues if any
+        if (result.issues.length > 0) {
+          html += `<div class="alert ${fixIssues && result.fixed.length > 0 ? 'alert-success' : 'alert-warning'}" style="margin-bottom: 10px;">`;
+
+          if (fixIssues && result.fixed.length > 0) {
+            html += `<strong>Fixed ${result.fixed.length} issue(s)!</strong><br>`;
+          }
+
+          if (result.issues.length > result.fixed.length) {
+            html += `<strong>${result.issues.length - result.fixed.length} issue(s) ${fixIssues ? 'could not be fixed' : 'found'}:</strong><br>`;
+          }
+
+          html += '<ul style="margin: 10px 0 0 20px; padding: 0;">';
+          result.issues.forEach(issue => {
+            const wasFixed = fixIssues && result.fixed.some(f => f.rewardId === issue.rewardId);
+            html += `
+              <li style="margin-bottom: 8px; ${wasFixed ? 'text-decoration: line-through; color: #6b7280;' : ''}">
+                <strong>${escapeHtml(issue.offerName)}</strong>
+                <span style="color: #6b7280; font-size: 12px;"> - ${escapeHtml(issue.issue.replace(/_/g, ' '))}</span>
+                ${wasFixed ? '<span style="color: #10b981; font-size: 12px;"> (Fixed)</span>' : ''}
+                <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${new Date(issue.earnedAt).toLocaleDateString()}</small>
+              </li>
+            `;
+          });
+          html += '</ul></div>';
+        } else {
+          html += '<div class="alert alert-success"><strong>All discounts validated successfully!</strong><br>All earned rewards have properly configured Square discounts.</div>';
+        }
+
+        resultsDiv.innerHTML = html;
+
+      } catch (error) {
+        console.error('Failed to validate discounts:', error);
+        resultsDiv.innerHTML = `<div class="alert alert-danger">Failed to validate discounts: ${escapeHtml(error.message)}</div>`;
+      } finally {
+        validateBtn.disabled = false;
+        fixBtn.disabled = false;
       }
     }
 
