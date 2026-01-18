@@ -3960,6 +3960,7 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
 
         analyzedOrders.push({
             orderId: order.id,
+            orderCustomerId: order.customer_id || null,  // Show actual customer_id on order
             closedAt: order.closed_at,
             locationId: order.location_id,
             receiptUrl,

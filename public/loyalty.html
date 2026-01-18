@@ -1780,6 +1780,11 @@
             ).join(' ')
           : '<span style="color: #9ca3af;">-</span>';
 
+        // Check customer ID match
+        const expectedCustomerId = document.getElementById('audit-customer-id').value;
+        const orderCustId = order.orderCustomerId;
+        const custIdMatch = !orderCustId ? 'none' : (orderCustId === expectedCustomerId ? 'match' : 'mismatch');
+
         // Status badge
         let statusBadge = '';
         if (isTracked) {
@@ -1790,6 +1795,14 @@
           statusBadge = '<span class="status-badge" style="font-size: 10px; background: #fee2e2; color: #dc2626;">🎁 Free Only</span>';
         } else {
           statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Items</span>';
+        }
+
+        // Customer ID indicator
+        let custIdBadge = '';
+        if (custIdMatch === 'none') {
+          custIdBadge = '<span style="font-size: 9px; color: #f59e0b;" title="Order has no customer_id">⚠️ No CustID</span>';
+        } else if (custIdMatch === 'mismatch') {
+          custIdBadge = `<span style="font-size: 9px; color: #dc2626;" title="Order customer: ${orderCustId}">❌ Wrong CustID</span>`;
         }
 
         html += `
@@ -1804,7 +1817,8 @@
               ` : ''}
             </td>
             <td>${new Date(order.closedAt).toLocaleDateString()}<br>
-                <small style="color: #6b7280;">${new Date(order.closedAt).toLocaleTimeString()}</small></td>
+                <small style="color: #6b7280;">${new Date(order.closedAt).toLocaleTimeString()}</small>
+                ${custIdBadge ? `<br>${custIdBadge}` : ''}</td>
             <td style="max-width: 250px;">${qualifyingList}</td>
             <td style="max-width: 150px;">${freeList}</td>
             <td style="text-align: center; font-weight: 600;">${order.totalQualifyingQty}</td>
