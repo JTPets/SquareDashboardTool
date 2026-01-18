@@ -1151,52 +1151,84 @@ async function runSmartSync({ merchantId } = {}) {
         skipped.inventory = `Last synced ${inventoryCheck.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
     }
 
-    // Check and sync sales_91d
+    // Check all sales velocity periods upfront to determine optimal sync strategy
     const sales91Check = await isSyncNeeded('sales_91d', intervals.sales_91d, merchantId);
-    if (sales91Check.needed) {
+    const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d, merchantId);
+    const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d, merchantId);
+
+    // Count how many periods need syncing
+    const periodsNeeded = [sales91Check.needed, sales182Check.needed, sales365Check.needed].filter(Boolean).length;
+
+    // Optimization: If 365d needs syncing OR multiple periods need syncing, use the optimized function
+    // This fetches orders once and calculates all periods, saving ~2x API calls
+    if (sales365Check.needed || periodsNeeded >= 2) {
         try {
-            logger.info('Syncing 91-day sales velocity');
+            logger.info('Syncing all sales velocity periods (optimized single fetch)', {
+                periodsNeeded,
+                reason: sales365Check.needed ? '365d due' : 'multiple periods due'
+            });
+
+            // Use optimized function that fetches once for all periods
+            const result = await squareApi.syncSalesVelocityAllPeriods(merchantId);
+
+            // Update sync_history for ALL periods since we synced them all
+            await db.query(`
+                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
+                VALUES ('sales_91d', $1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                    records_synced = EXCLUDED.records_synced,
+                    synced_at = CURRENT_TIMESTAMP
+            `, [result['91d'] || 0, merchantId]);
+
+            await db.query(`
+                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
+                VALUES ('sales_182d', $1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                    records_synced = EXCLUDED.records_synced,
+                    synced_at = CURRENT_TIMESTAMP
+            `, [result['182d'] || 0, merchantId]);
+
+            await db.query(`
+                INSERT INTO sync_history (sync_type, records_synced, merchant_id, synced_at)
+                VALUES ('sales_365d', $1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                    records_synced = EXCLUDED.records_synced,
+                    synced_at = CURRENT_TIMESTAMP
+            `, [result['365d'] || 0, merchantId]);
+
+            synced.push('sales_91d', 'sales_182d', 'sales_365d');
+            summary.sales_91d = result['91d'];
+            summary.sales_182d = result['182d'];
+            summary.sales_365d = result['365d'];
+            summary.salesVelocityOptimization = 'all_periods_single_fetch';
+        } catch (error) {
+            logger.error('Optimized sales velocity sync error', { error: error.message });
+            errors.push({ type: 'sales_velocity_all', error: error.message });
+        }
+    } else if (sales91Check.needed) {
+        // Only 91d needs syncing - use single-period function (smaller fetch, more efficient for frequent updates)
+        try {
+            logger.info('Syncing 91-day sales velocity only');
             const result = await loggedSync('sales_91d', () => squareApi.syncSalesVelocity(91, merchantId), merchantId);
             synced.push('sales_91d');
             summary.sales_91d = result;
         } catch (error) {
             errors.push({ type: 'sales_91d', error: error.message });
         }
-    } else {
-        const hoursRemaining = Math.max(0, intervals.sales_91d - parseFloat(sales91Check.hoursSince));
-        skipped.sales_91d = `Last synced ${sales91Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-    }
 
-    // Check and sync sales_182d
-    const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d, merchantId);
-    if (sales182Check.needed) {
-        try {
-            logger.info('Syncing 182-day sales velocity');
-            const result = await loggedSync('sales_182d', () => squareApi.syncSalesVelocity(182, merchantId), merchantId);
-            synced.push('sales_182d');
-            summary.sales_182d = result;
-        } catch (error) {
-            errors.push({ type: 'sales_182d', error: error.message });
-        }
+        // Report skipped status for other periods
+        const hoursRemaining182 = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
+        skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining182.toFixed(1)}h`;
+        const hoursRemaining365 = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
+        skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining365.toFixed(1)}h`;
     } else {
-        const hoursRemaining = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
-        skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
-    }
-
-    // Check and sync sales_365d
-    const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d, merchantId);
-    if (sales365Check.needed) {
-        try {
-            logger.info('Syncing 365-day sales velocity');
-            const result = await loggedSync('sales_365d', () => squareApi.syncSalesVelocity(365, merchantId), merchantId);
-            synced.push('sales_365d');
-            summary.sales_365d = result;
-        } catch (error) {
-            errors.push({ type: 'sales_365d', error: error.message });
-        }
-    } else {
-        const hoursRemaining = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
-        skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining.toFixed(1)}h`;
+        // No sales velocity periods need syncing - report all as skipped
+        const hoursRemaining91 = Math.max(0, intervals.sales_91d - parseFloat(sales91Check.hoursSince));
+        skipped.sales_91d = `Last synced ${sales91Check.hoursSince}h ago, next in ${hoursRemaining91.toFixed(1)}h`;
+        const hoursRemaining182 = Math.max(0, intervals.sales_182d - parseFloat(sales182Check.hoursSince));
+        skipped.sales_182d = `Last synced ${sales182Check.hoursSince}h ago, next in ${hoursRemaining182.toFixed(1)}h`;
+        const hoursRemaining365 = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
+        skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining365.toFixed(1)}h`;
     }
 
     return {
@@ -1270,22 +1302,21 @@ app.post('/api/sync', requireAuth, requireMerchant, async (req, res) => {
 
 /**
  * POST /api/sync-sales
- * Sync only sales velocity data (faster, can run frequently)
+ * Sync only sales velocity data - optimized to fetch orders once for all periods
  */
 app.post('/api/sync-sales', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        logger.info('Sales velocity sync requested', { merchantId });
-        const results = {};
+        logger.info('Sales velocity sync requested (optimized)', { merchantId });
 
-        for (const days of [91, 182, 365]) {
-            results[`${days}d`] = await squareApi.syncSalesVelocity(days, { merchantId });
-        }
+        // Use optimized function that fetches orders once for all periods
+        const results = await squareApi.syncSalesVelocityAllPeriods(merchantId);
 
         res.json({
             status: 'success',
             periods: [91, 182, 365],
-            variations_updated: results
+            variations_updated: results,
+            optimization: 'single_fetch'
         });
     } catch (error) {
         logger.error('Sales sync error', { error: error.message, stack: error.stack });
