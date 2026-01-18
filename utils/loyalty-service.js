@@ -2461,50 +2461,43 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Get max price from catalog - cap discount at most expensive item in the offer
+        // Get max price from LOCAL DATABASE - cap discount at most expensive item in the offer
         // This ensures customer gets 1 free item worth up to the most expensive qualifying item
+        // Using local variations table instead of Square API call for efficiency
         let maxPriceCents = 0;
+        let priceSource = 'local_db';
         try {
-            const catalogResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-retrieve', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
-                },
-                body: JSON.stringify({
-                    object_ids: variationIds,
-                    include_related_objects: false
-                })
-            });
+            if (variationIds.length > 0) {
+                // Query local variations table for max price
+                const placeholders = variationIds.map((_, i) => `$${i + 1}`).join(',');
+                const priceResult = await db.query(`
+                    SELECT MAX(price_money) as max_price
+                    FROM variations
+                    WHERE id IN (${placeholders})
+                      AND merchant_id = $${variationIds.length + 1}
+                      AND price_money IS NOT NULL
+                      AND price_money > 0
+                `, [...variationIds, merchantId]);
 
-            if (catalogResponse.ok) {
-                const catalogData = await catalogResponse.json();
-                for (const obj of catalogData.objects || []) {
-                    if (obj.type === 'ITEM_VARIATION' && obj.item_variation_data?.price_money?.amount) {
-                        const price = obj.item_variation_data.price_money.amount;
-                        if (price > maxPriceCents) {
-                            maxPriceCents = price;
-                        }
-                    }
+                if (priceResult.rows[0]?.max_price) {
+                    maxPriceCents = parseInt(priceResult.rows[0].max_price);
+                    logger.info('Using max price from local DB for discount cap', {
+                        internalRewardId,
+                        maxPriceCents,
+                        itemCount: variationIds.length,
+                        source: 'local_variations_table'
+                    });
                 }
             }
-            if (maxPriceCents > 0) {
-                logger.info('Using max catalog price for discount cap', {
-                    internalRewardId,
-                    maxPriceCents,
-                    itemCount: variationIds.length
-                });
-            }
-        } catch (catalogErr) {
-            logger.warn('Could not fetch catalog prices for discount cap', { error: catalogErr.message });
+        } catch (dbErr) {
+            logger.warn('Could not fetch prices from local DB for discount cap', { error: dbErr.message });
         }
 
-        // Default to $50 if we still couldn't determine max price
+        // Default to $50 if we couldn't determine max price from local DB
         if (maxPriceCents === 0) {
             maxPriceCents = 5000; // $50.00
             priceSource = 'default_fallback';
-            logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
+            logger.warn('Using default $50 discount cap - no price data in local DB', { internalRewardId });
         }
 
         logger.info('Creating reward discount - 1 FREE item (most expensive gets discount)', {
