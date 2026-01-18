@@ -735,9 +735,31 @@
         <div class="form-group">
           <button class="btn-warning" onclick="processExpired()">Process Expired Window Entries</button>
           <small style="margin-top: 10px; display: block;">
-            Remove purchases that have fallen outside the rolling time window. This runs automatically but can be triggered manually.
+            Remove purchases that have fallen outside the rolling time window and revoke expired earned rewards. This runs automatically but can be triggered manually.
           </small>
         </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+        <h3 style="margin-bottom: 20px;">Discount Validation</h3>
+        <p style="color: #4b5563; margin-bottom: 15px;">
+          Verify that Square discounts for earned rewards are correctly configured and working.
+          This checks that discount objects exist in Square and customers are in the correct groups.
+        </p>
+
+        <div id="discount-validation-results" style="display: none; margin-bottom: 20px;"></div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn-secondary" onclick="validateDiscounts(false)" id="validate-btn">
+            Validate Discounts
+          </button>
+          <button class="btn-primary" onclick="validateDiscounts(true)" id="validate-fix-btn">
+            Validate & Fix Issues
+          </button>
+        </div>
+        <small style="margin-top: 10px; display: block; color: #6b7280;">
+          "Validate" checks for issues without making changes. "Validate & Fix" will recreate missing/deleted discounts.
+        </small>
       </div>
     </div>
   </div>
@@ -871,6 +893,30 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('redeem-modal')">Cancel</button>
         <button class="btn-success" onclick="submitRedemption()">Confirm Redemption</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Order Audit History -->
+  <div class="modal modal-wide" id="order-audit-modal">
+    <div class="modal-content" style="max-width: 900px;">
+      <div class="modal-header">
+        <h2>91-Day Order History Audit</h2>
+        <button class="modal-close" onclick="closeModal('order-audit-modal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="audit-customer-id">
+        <div id="audit-customer-info" class="alert alert-info" style="margin-bottom: 15px;"></div>
+        <div id="audit-summary" style="margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 5px;"></div>
+        <div id="audit-orders-container">
+          <div class="loading"><div class="spinner"></div><br>Loading order history...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('order-audit-modal')">Cancel</button>
+        <button class="btn-primary" id="audit-add-selected-btn" onclick="addSelectedOrdersToLoyalty()" disabled>
+          Add Selected Orders (0)
+        </button>
       </div>
     </div>
   </div>
@@ -1407,6 +1453,11 @@
                 ${customer.email ? escapeHtml(customer.email) : ''}
               </p>
               <p style="color: #6b7280; margin-top: 10px;">No loyalty activity found for this customer.</p>
+              <div style="margin-top: 15px;">
+                <button class="btn-primary" onclick="viewOrderAuditHistory('${customerId}', '${escapeHtml(displayName)}')">
+                  Check for Missed Loyalty Items (91 Days)
+                </button>
+              </div>
             </div>
           `;
           return;
@@ -1455,8 +1506,11 @@
             <div class="customer-offers">
               ${offersHtml}
             </div>
-            <div style="margin-top: 20px;">
+            <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
               <button class="btn-secondary" onclick="viewCustomerHistory('${customerId}')">View Full History</button>
+              <button class="btn-primary" onclick="viewOrderAuditHistory('${customerId}', '${escapeHtml(displayName)}')">
+                View Missed Loyalty Items (91 Days)
+              </button>
             </div>
           </div>
         `;
@@ -1499,6 +1553,238 @@
       } catch (error) {
         console.error('Failed to load history:', error);
         alert('Failed to load customer history');
+      }
+    }
+
+    // Order Audit History for Missed Loyalty Items
+    let auditSelectedOrders = new Set();
+    let auditOrdersData = null;
+
+    async function viewOrderAuditHistory(customerId, customerName = 'Customer') {
+      auditSelectedOrders.clear();
+      auditOrdersData = null;
+
+      document.getElementById('audit-customer-id').value = customerId;
+      document.getElementById('audit-customer-info').innerHTML = `
+        <strong>Customer:</strong> ${escapeHtml(customerName)}<br>
+        <small style="color: #6b7280;">ID: ${customerId}</small>
+      `;
+      document.getElementById('audit-summary').innerHTML = '';
+      document.getElementById('audit-orders-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading 91-day order history from Square...</div>';
+      updateAuditButton();
+
+      showModal('order-audit-modal');
+
+      try {
+        const response = await fetch(`/api/loyalty/customer/${customerId}/audit-history?days=91`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to fetch order history');
+        }
+
+        auditOrdersData = data;
+        renderAuditOrders(data);
+
+      } catch (error) {
+        console.error('Failed to load audit history:', error);
+        document.getElementById('audit-orders-container').innerHTML = `
+          <div class="empty-state" style="color: #dc2626;">
+            Failed to load order history: ${escapeHtml(error.message)}
+          </div>
+        `;
+      }
+    }
+
+    function renderAuditOrders(data) {
+      const container = document.getElementById('audit-orders-container');
+      const summaryDiv = document.getElementById('audit-summary');
+
+      // Show summary
+      summaryDiv.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; text-align: center;">
+          <div>
+            <div style="font-size: 20px; font-weight: 700; color: #2563eb;">${data.summary.totalOrders}</div>
+            <div style="font-size: 11px; color: #6b7280;">Total Orders</div>
+          </div>
+          <div>
+            <div style="font-size: 20px; font-weight: 700; color: #10b981;">${data.summary.alreadyTracked}</div>
+            <div style="font-size: 11px; color: #6b7280;">Already Tracked</div>
+          </div>
+          <div>
+            <div style="font-size: 20px; font-weight: 700; color: #f59e0b;">${data.summary.canBeAdded}</div>
+            <div style="font-size: 11px; color: #6b7280;">Can Be Added</div>
+          </div>
+          <div>
+            <div style="font-size: 20px; font-weight: 700; color: #8b5cf6;">${data.summary.totalQualifyingQtyAvailable}</div>
+            <div style="font-size: 11px; color: #6b7280;">Qualifying Items</div>
+          </div>
+        </div>
+        <div style="margin-top: 10px; font-size: 11px; color: #6b7280; text-align: center;">
+          Period: ${new Date(data.dateRange.start).toLocaleDateString()} - ${new Date(data.dateRange.end).toLocaleDateString()}
+        </div>
+      `;
+
+      if (data.orders.length === 0) {
+        container.innerHTML = '<div class="empty-state">No orders found in the last 91 days.</div>';
+        return;
+      }
+
+      // Build orders table
+      let html = `
+        <div style="margin-bottom: 10px;">
+          <label style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+            <input type="checkbox" id="audit-select-all" onchange="toggleAllAuditOrders(this.checked)">
+            <span style="font-size: 13px;">Select all eligible orders</span>
+          </label>
+        </div>
+        <table style="font-size: 12px; width: 100%;">
+          <thead>
+            <tr>
+              <th style="width: 30px;"></th>
+              <th>Date</th>
+              <th>Qualifying Items</th>
+              <th>Qty</th>
+              <th>Status</th>
+              <th>Receipt</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const order of data.orders) {
+        const isTracked = order.isAlreadyTracked;
+        const canAdd = order.canBeAdded;
+        const rowClass = isTracked ? 'style="background: #f0fdf4;"' : (canAdd ? '' : 'style="background: #fef2f2;"');
+
+        // Build qualifying items list
+        const qualifyingList = order.qualifyingItems.length > 0
+          ? order.qualifyingItems.map(item =>
+              `<span style="display: inline-block; background: #dbeafe; padding: 2px 6px; border-radius: 3px; margin: 1px;">${escapeHtml(item.name)} (${item.quantity})</span>`
+            ).join(' ')
+          : '<span style="color: #9ca3af;">None</span>';
+
+        // Status badge
+        let statusBadge = '';
+        if (isTracked) {
+          statusBadge = '<span class="status-badge earned" style="font-size: 10px;">Already Tracked</span>';
+        } else if (canAdd) {
+          statusBadge = '<span class="status-badge in_progress" style="font-size: 10px;">Can Add</span>';
+        } else {
+          statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Qualifying Items</span>';
+        }
+
+        html += `
+          <tr ${rowClass}>
+            <td>
+              ${canAdd ? `
+                <input type="checkbox"
+                       class="audit-order-checkbox"
+                       data-order-id="${order.orderId}"
+                       ${auditSelectedOrders.has(order.orderId) ? 'checked' : ''}
+                       onchange="toggleAuditOrder('${order.orderId}', this.checked)">
+              ` : ''}
+            </td>
+            <td>${new Date(order.closedAt).toLocaleDateString()}<br>
+                <small style="color: #6b7280;">${new Date(order.closedAt).toLocaleTimeString()}</small></td>
+            <td style="max-width: 300px;">${qualifyingList}</td>
+            <td style="text-align: center; font-weight: 600;">${order.totalQualifyingQty}</td>
+            <td>${statusBadge}</td>
+            <td>
+              ${order.receiptUrl
+                ? `<a href="${order.receiptUrl}" target="_blank" style="color: #2563eb; text-decoration: none;">View</a>`
+                : '-'}
+            </td>
+          </tr>
+        `;
+      }
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    function toggleAuditOrder(orderId, isChecked) {
+      if (isChecked) {
+        auditSelectedOrders.add(orderId);
+      } else {
+        auditSelectedOrders.delete(orderId);
+      }
+      updateAuditButton();
+    }
+
+    function toggleAllAuditOrders(selectAll) {
+      if (!auditOrdersData) return;
+
+      auditSelectedOrders.clear();
+      if (selectAll) {
+        for (const order of auditOrdersData.orders) {
+          if (order.canBeAdded) {
+            auditSelectedOrders.add(order.orderId);
+          }
+        }
+      }
+
+      // Update all checkboxes
+      document.querySelectorAll('.audit-order-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+      });
+
+      updateAuditButton();
+    }
+
+    function updateAuditButton() {
+      const btn = document.getElementById('audit-add-selected-btn');
+      const count = auditSelectedOrders.size;
+      btn.disabled = count === 0;
+      btn.textContent = `Add Selected Orders (${count})`;
+    }
+
+    async function addSelectedOrdersToLoyalty() {
+      if (auditSelectedOrders.size === 0) {
+        alert('Please select at least one order to add.');
+        return;
+      }
+
+      const customerId = document.getElementById('audit-customer-id').value;
+      const orderIds = Array.from(auditSelectedOrders);
+
+      const btn = document.getElementById('audit-add-selected-btn');
+      btn.disabled = true;
+      btn.textContent = 'Adding orders...';
+
+      try {
+        const response = await fetch(`/api/loyalty/customer/${customerId}/add-orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderIds })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to add orders');
+        }
+
+        // Show results
+        let message = `Successfully processed ${result.processed.length} orders.`;
+        if (result.skipped.length > 0) {
+          message += `\n${result.skipped.length} orders were already tracked.`;
+        }
+        if (result.errors.length > 0) {
+          message += `\n${result.errors.length} orders had errors.`;
+        }
+
+        alert(message);
+
+        // Close modal and refresh customer view
+        closeModal('order-audit-modal');
+        showCustomerLoyalty(customerId);
+
+      } catch (error) {
+        console.error('Failed to add orders:', error);
+        alert('Failed to add orders: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = `Add Selected Orders (${auditSelectedOrders.size})`;
       }
     }
 
@@ -1797,17 +2083,121 @@
     }
 
     async function processExpired() {
-      if (!confirm('Process expired window entries?\n\nThis will remove purchases that have fallen outside the rolling time window.')) {
+      if (!confirm('Process expired window entries?\n\nThis will remove purchases that have fallen outside the rolling time window and revoke any expired earned rewards.')) {
         return;
       }
 
       try {
         const response = await fetch('/api/loyalty/process-expired', { method: 'POST' });
         const result = await response.json();
-        alert(`Processed ${result.processedCount} expired entries.`);
+
+        let message = `Window Entries: Processed ${result.windowEntries?.processedCount || 0} expired entries.`;
+
+        if (result.expiredEarnedRewards) {
+          const earned = result.expiredEarnedRewards;
+          if (earned.processedCount > 0) {
+            message += `\n\nExpired Earned Rewards: Revoked ${earned.processedCount} reward(s) and cleaned up discounts.`;
+            if (earned.revokedRewards?.length > 0) {
+              message += '\n\nRevoked Rewards:';
+              earned.revokedRewards.forEach(r => {
+                message += `\n• ${r.offerName}`;
+              });
+            }
+          } else {
+            message += '\n\nNo expired earned rewards found.';
+          }
+        }
+
+        alert(message);
       } catch (error) {
         console.error('Failed to process expired:', error);
         alert('Failed to process expired entries.');
+      }
+    }
+
+    async function validateDiscounts(fixIssues = false) {
+      const validateBtn = document.getElementById('validate-btn');
+      const fixBtn = document.getElementById('validate-fix-btn');
+      const resultsDiv = document.getElementById('discount-validation-results');
+
+      validateBtn.disabled = true;
+      fixBtn.disabled = true;
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><br>Validating discounts against Square...</div>';
+
+      try {
+        const endpoint = fixIssues ? '/api/loyalty/discounts/validate-and-fix' : '/api/loyalty/discounts/validate';
+        const response = await fetch(endpoint, { method: fixIssues ? 'POST' : 'GET' });
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Validation failed');
+        }
+
+        // Build results HTML
+        let html = '';
+
+        // Summary stats
+        html += `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 15px; text-align: center;">
+            <div style="padding: 10px; background: #f0fdf4; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #10b981;">${result.validated}</div>
+              <div style="font-size: 11px; color: #6b7280;">Valid</div>
+            </div>
+            <div style="padding: 10px; background: ${result.issues.length > 0 ? '#fef2f2' : '#f3f4f6'}; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: ${result.issues.length > 0 ? '#ef4444' : '#6b7280'};">${result.issues.length}</div>
+              <div style="font-size: 11px; color: #6b7280;">Issues</div>
+            </div>
+            ${fixIssues ? `
+            <div style="padding: 10px; background: ${result.fixed.length > 0 ? '#dbeafe' : '#f3f4f6'}; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #2563eb;">${result.fixed.length}</div>
+              <div style="font-size: 11px; color: #6b7280;">Fixed</div>
+            </div>
+            ` : ''}
+            <div style="padding: 10px; background: #f3f4f6; border-radius: 5px;">
+              <div style="font-size: 24px; font-weight: 700; color: #374151;">${result.totalEarned}</div>
+              <div style="font-size: 11px; color: #6b7280;">Total Earned</div>
+            </div>
+          </div>
+        `;
+
+        // Show issues if any
+        if (result.issues.length > 0) {
+          html += `<div class="alert ${fixIssues && result.fixed.length > 0 ? 'alert-success' : 'alert-warning'}" style="margin-bottom: 10px;">`;
+
+          if (fixIssues && result.fixed.length > 0) {
+            html += `<strong>Fixed ${result.fixed.length} issue(s)!</strong><br>`;
+          }
+
+          if (result.issues.length > result.fixed.length) {
+            html += `<strong>${result.issues.length - result.fixed.length} issue(s) ${fixIssues ? 'could not be fixed' : 'found'}:</strong><br>`;
+          }
+
+          html += '<ul style="margin: 10px 0 0 20px; padding: 0;">';
+          result.issues.forEach(issue => {
+            const wasFixed = fixIssues && result.fixed.some(f => f.rewardId === issue.rewardId);
+            html += `
+              <li style="margin-bottom: 8px; ${wasFixed ? 'text-decoration: line-through; color: #6b7280;' : ''}">
+                <strong>${escapeHtml(issue.offerName)}</strong>
+                <span style="color: #6b7280; font-size: 12px;"> - ${escapeHtml(issue.issue.replace(/_/g, ' '))}</span>
+                ${wasFixed ? '<span style="color: #10b981; font-size: 12px;"> (Fixed)</span>' : ''}
+                <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${new Date(issue.earnedAt).toLocaleDateString()}</small>
+              </li>
+            `;
+          });
+          html += '</ul></div>';
+        } else {
+          html += '<div class="alert alert-success"><strong>All discounts validated successfully!</strong><br>All earned rewards have properly configured Square discounts.</div>';
+        }
+
+        resultsDiv.innerHTML = html;
+
+      } catch (error) {
+        console.error('Failed to validate discounts:', error);
+        resultsDiv.innerHTML = `<div class="alert alert-danger">Failed to validate discounts: ${escapeHtml(error.message)}</div>`;
+      } finally {
+        validateBtn.disabled = false;
+        fixBtn.disabled = false;
       }
     }
 

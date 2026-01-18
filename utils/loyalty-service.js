@@ -3057,6 +3057,397 @@ async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId
 }
 
 /**
+ * Validate earned rewards and their Square discount objects
+ * Checks that discounts exist in Square and match database state
+ * Optionally fixes discrepancies
+ *
+ * @param {Object} params - Parameters
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {boolean} [params.fixIssues=false] - Whether to fix found issues
+ * @returns {Promise<Object>} Validation results
+ */
+async function validateEarnedRewardsDiscounts({ merchantId, fixIssues = false }) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    logger.info('Validating earned rewards discounts', { merchantId, fixIssues });
+
+    const accessToken = await getSquareAccessToken(merchantId);
+    if (!accessToken) {
+        return { success: false, error: 'No access token available' };
+    }
+
+    // Get all earned rewards with Square discount IDs
+    const rewardsResult = await db.query(`
+        SELECT r.*, o.offer_name, o.brand_name, o.size_group
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1
+          AND r.status = 'earned'
+        ORDER BY r.earned_at DESC
+    `, [merchantId]);
+
+    const results = {
+        totalEarned: rewardsResult.rows.length,
+        validated: 0,
+        issues: [],
+        fixed: []
+    };
+
+    for (const reward of rewardsResult.rows) {
+        const validationResult = await validateSingleRewardDiscount({
+            merchantId,
+            reward,
+            accessToken,
+            fixIssues
+        });
+
+        if (validationResult.valid) {
+            results.validated++;
+        } else {
+            results.issues.push({
+                rewardId: reward.id,
+                squareCustomerId: reward.square_customer_id,
+                offerName: reward.offer_name,
+                earnedAt: reward.earned_at,
+                issue: validationResult.issue,
+                details: validationResult.details
+            });
+
+            if (fixIssues && validationResult.fixed) {
+                results.fixed.push({
+                    rewardId: reward.id,
+                    action: validationResult.fixAction
+                });
+            }
+        }
+    }
+
+    logger.info('Discount validation complete', {
+        merchantId,
+        totalEarned: results.totalEarned,
+        validated: results.validated,
+        issueCount: results.issues.length,
+        fixedCount: results.fixed.length
+    });
+
+    return {
+        success: true,
+        ...results
+    };
+}
+
+/**
+ * Validate a single reward's discount objects in Square
+ */
+async function validateSingleRewardDiscount({ merchantId, reward, accessToken, fixIssues }) {
+    const result = {
+        valid: true,
+        issue: null,
+        details: {},
+        fixed: false,
+        fixAction: null
+    };
+
+    // Check 1: Does the reward have Square IDs stored?
+    if (!reward.square_discount_id && !reward.square_group_id) {
+        result.valid = false;
+        result.issue = 'MISSING_SQUARE_IDS';
+        result.details = { message: 'No Square discount objects created for this reward' };
+
+        if (fixIssues) {
+            // Try to create the discount objects
+            const createResult = await createSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId: reward.square_customer_id,
+                internalRewardId: reward.id,
+                offerId: reward.offer_id
+            });
+
+            if (createResult.success) {
+                result.fixed = true;
+                result.fixAction = 'CREATED_DISCOUNT';
+                logger.info('Created missing discount for reward', {
+                    merchantId,
+                    rewardId: reward.id
+                });
+            }
+        }
+
+        return result;
+    }
+
+    // Check 2: Verify the discount object exists in Square
+    if (reward.square_discount_id) {
+        try {
+            const response = await fetch(
+                `https://connect.squareup.com/v2/catalog/object/${reward.square_discount_id}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2025-01-16'
+                    }
+                }
+            );
+
+            if (response.status === 404) {
+                result.valid = false;
+                result.issue = 'DISCOUNT_NOT_FOUND';
+                result.details = {
+                    message: 'Discount object not found in Square catalog',
+                    squareDiscountId: reward.square_discount_id
+                };
+
+                if (fixIssues) {
+                    // Clear invalid IDs and recreate
+                    await db.query(`
+                        UPDATE loyalty_rewards SET
+                            square_group_id = NULL,
+                            square_discount_id = NULL,
+                            square_product_set_id = NULL,
+                            square_pricing_rule_id = NULL,
+                            updated_at = NOW()
+                        WHERE id = $1
+                    `, [reward.id]);
+
+                    const createResult = await createSquareCustomerGroupDiscount({
+                        merchantId,
+                        squareCustomerId: reward.square_customer_id,
+                        internalRewardId: reward.id,
+                        offerId: reward.offer_id
+                    });
+
+                    if (createResult.success) {
+                        result.fixed = true;
+                        result.fixAction = 'RECREATED_DISCOUNT';
+                    }
+                }
+
+                return result;
+            }
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                result.valid = false;
+                result.issue = 'DISCOUNT_API_ERROR';
+                result.details = {
+                    message: 'Error checking discount in Square',
+                    error: errorData
+                };
+                return result;
+            }
+
+            // Discount exists - verify it's still valid
+            const discountData = await response.json();
+            const discountObj = discountData.object;
+
+            if (discountObj.is_deleted) {
+                result.valid = false;
+                result.issue = 'DISCOUNT_DELETED';
+                result.details = {
+                    message: 'Discount was deleted in Square',
+                    squareDiscountId: reward.square_discount_id
+                };
+
+                if (fixIssues) {
+                    // Clear invalid IDs and recreate
+                    await db.query(`
+                        UPDATE loyalty_rewards SET
+                            square_group_id = NULL,
+                            square_discount_id = NULL,
+                            square_product_set_id = NULL,
+                            square_pricing_rule_id = NULL,
+                            updated_at = NOW()
+                        WHERE id = $1
+                    `, [reward.id]);
+
+                    const createResult = await createSquareCustomerGroupDiscount({
+                        merchantId,
+                        squareCustomerId: reward.square_customer_id,
+                        internalRewardId: reward.id,
+                        offerId: reward.offer_id
+                    });
+
+                    if (createResult.success) {
+                        result.fixed = true;
+                        result.fixAction = 'RECREATED_DELETED_DISCOUNT';
+                    }
+                }
+
+                return result;
+            }
+
+        } catch (error) {
+            result.valid = false;
+            result.issue = 'VALIDATION_ERROR';
+            result.details = { message: error.message };
+            return result;
+        }
+    }
+
+    // Check 3: Verify customer group membership
+    if (reward.square_group_id && reward.square_customer_id) {
+        try {
+            const response = await fetch(
+                `https://connect.squareup.com/v2/customers/${reward.square_customer_id}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2025-01-16'
+                    }
+                }
+            );
+
+            if (response.ok) {
+                const customerData = await response.json();
+                const groupIds = customerData.customer?.group_ids || [];
+
+                if (!groupIds.includes(reward.square_group_id)) {
+                    result.valid = false;
+                    result.issue = 'CUSTOMER_NOT_IN_GROUP';
+                    result.details = {
+                        message: 'Customer not in discount group',
+                        squareGroupId: reward.square_group_id,
+                        customerGroups: groupIds
+                    };
+
+                    if (fixIssues) {
+                        // Re-add customer to group
+                        const addResult = await addCustomerToGroup({
+                            merchantId,
+                            squareCustomerId: reward.square_customer_id,
+                            groupId: reward.square_group_id
+                        });
+
+                        if (addResult) {
+                            result.fixed = true;
+                            result.fixAction = 'READDED_TO_GROUP';
+                        }
+                    }
+
+                    return result;
+                }
+            }
+        } catch (error) {
+            // Non-fatal - customer lookup may fail
+            logger.warn('Could not verify customer group membership', {
+                rewardId: reward.id,
+                error: error.message
+            });
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Process expired earned rewards and cleanup their discounts
+ * Called when purchases expire and reduce quantity below threshold
+ *
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object>} Results
+ */
+async function processExpiredEarnedRewards(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    logger.info('Processing expired earned rewards', { merchantId });
+
+    // Find earned rewards where the locked purchases have all expired
+    // This shouldn't normally happen since purchases are locked when reward is earned,
+    // but we check for edge cases or data inconsistencies
+    const expiredRewardsResult = await db.query(`
+        SELECT r.*, o.offer_name, o.required_quantity
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1
+          AND r.status = 'earned'
+          AND r.earned_at < NOW() - INTERVAL '1 year'
+          AND NOT EXISTS (
+              SELECT 1 FROM loyalty_purchase_events pe
+              WHERE pe.reward_id = r.id
+              AND pe.window_end_date >= CURRENT_DATE
+          )
+    `, [merchantId]);
+
+    const results = {
+        processedCount: 0,
+        revokedRewards: [],
+        cleanedDiscounts: []
+    };
+
+    for (const reward of expiredRewardsResult.rows) {
+        logger.info('Found expired earned reward', {
+            rewardId: reward.id,
+            offerName: reward.offer_name,
+            earnedAt: reward.earned_at
+        });
+
+        // Revoke the reward
+        await db.query(`
+            UPDATE loyalty_rewards
+            SET status = 'revoked',
+                revocation_reason = 'Expired - all locked purchases outside window',
+                updated_at = NOW()
+            WHERE id = $1
+        `, [reward.id]);
+
+        // Unlock the purchase events
+        await db.query(`
+            UPDATE loyalty_purchase_events
+            SET reward_id = NULL, updated_at = NOW()
+            WHERE reward_id = $1
+        `, [reward.id]);
+
+        results.revokedRewards.push({
+            rewardId: reward.id,
+            offerName: reward.offer_name,
+            squareCustomerId: reward.square_customer_id
+        });
+
+        // Cleanup Square discount objects
+        if (reward.square_discount_id || reward.square_group_id) {
+            const cleanupResult = await cleanupSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId: reward.square_customer_id,
+                internalRewardId: reward.id
+            });
+
+            if (cleanupResult.success) {
+                results.cleanedDiscounts.push({ rewardId: reward.id });
+            }
+        }
+
+        // Log audit event
+        await logAuditEvent({
+            merchantId,
+            action: AuditActions.REWARD_REVOKED,
+            offerId: reward.offer_id,
+            rewardId: reward.id,
+            squareCustomerId: reward.square_customer_id,
+            triggeredBy: 'EXPIRATION_CLEANUP',
+            details: {
+                reason: 'All locked purchases expired',
+                earnedAt: reward.earned_at
+            }
+        });
+
+        results.processedCount++;
+    }
+
+    logger.info('Expired earned rewards processing complete', {
+        merchantId,
+        processedCount: results.processedCount
+    });
+
+    return results;
+}
+
+/**
  * Check if an order used a reward discount and mark it as redeemed
  * Called from order webhook to detect when customer redeems at POS
  *
@@ -3542,6 +3933,10 @@ module.exports = {
     // Manual Customer Order Audit
     getCustomerOrderHistoryForAudit,
     addOrdersToLoyaltyTracking,
+
+    // Discount Validation & Expiration
+    validateEarnedRewardsDiscounts,
+    processExpiredEarnedRewards,
 
     // Utilities
     getSquareAccessToken,

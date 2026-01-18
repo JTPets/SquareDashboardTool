@@ -10939,6 +10939,60 @@ app.get('/api/loyalty/customer/:customerId/rewards', requireAuth, requireMerchan
 });
 
 /**
+ * GET /api/loyalty/customer/:customerId/audit-history
+ * Get 91-day order history for manual loyalty audit
+ * Returns orders with qualifying/non-qualifying items analysis
+ */
+app.get('/api/loyalty/customer/:customerId/audit-history', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const customerId = req.params.customerId;
+        const days = parseInt(req.query.days) || 91;
+
+        const result = await loyaltyService.getCustomerOrderHistoryForAudit({
+            squareCustomerId: customerId,
+            merchantId,
+            periodDays: days
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error fetching customer audit history', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/customer/:customerId/add-orders
+ * Add selected orders to loyalty tracking (manual backfill for specific customer)
+ */
+app.post('/api/loyalty/customer/:customerId/add-orders', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const customerId = req.params.customerId;
+        const { orderIds } = req.body;
+
+        if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+            return res.status(400).json({ error: 'orderIds array is required' });
+        }
+
+        const result = await loyaltyService.addOrdersToLoyaltyTracking({
+            squareCustomerId: customerId,
+            merchantId,
+            orderIds
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        logger.error('Error adding orders to loyalty tracking', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/rewards/:rewardId/redeem
  * Redeem a loyalty reward
  * BUSINESS RULE: Full redemption only - one reward = one free unit
@@ -12706,21 +12760,78 @@ app.post('/api/loyalty/manual-entry', requireAuth, requireMerchant, requireWrite
 /**
  * POST /api/loyalty/process-expired
  * Process expired window entries (run periodically or on-demand)
- * This removes purchases outside the rolling window
+ * This removes purchases outside the rolling window AND processes expired earned rewards
  */
 app.post('/api/loyalty/process-expired', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const result = await loyaltyService.processExpiredWindowEntries(merchantId);
 
-        logger.info('Processed expired loyalty window entries', {
+        // Process expired window entries (purchases that aged out)
+        const windowResult = await loyaltyService.processExpiredWindowEntries(merchantId);
+
+        // Also process expired earned rewards (earned rewards with all expired purchases)
+        const earnedResult = await loyaltyService.processExpiredEarnedRewards(merchantId);
+
+        logger.info('Processed expired loyalty entries', {
             merchantId,
-            processedCount: result.processedCount
+            windowEntriesProcessed: windowResult.processedCount,
+            earnedRewardsRevoked: earnedResult.processedCount
+        });
+
+        res.json({
+            windowEntries: windowResult,
+            expiredEarnedRewards: earnedResult
+        });
+    } catch (error) {
+        logger.error('Error processing expired entries', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/discounts/validate
+ * Validate earned rewards discounts against Square
+ * Returns list of issues found (missing discounts, deleted discounts, etc.)
+ */
+app.get('/api/loyalty/discounts/validate', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await loyaltyService.validateEarnedRewardsDiscounts({
+            merchantId,
+            fixIssues: false
         });
 
         res.json(result);
     } catch (error) {
-        logger.error('Error processing expired entries', { error: error.message });
+        logger.error('Error validating discounts', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/discounts/validate-and-fix
+ * Validate earned rewards discounts and fix any issues found
+ * Recreates missing/deleted discounts and re-adds customers to groups
+ */
+app.post('/api/loyalty/discounts/validate-and-fix', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await loyaltyService.validateEarnedRewardsDiscounts({
+            merchantId,
+            fixIssues: true
+        });
+
+        logger.info('Validated and fixed discount issues', {
+            merchantId,
+            totalEarned: result.totalEarned,
+            validated: result.validated,
+            issues: result.issues.length,
+            fixed: result.fixed.length
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error validating and fixing discounts', { error: error.message });
         res.status(500).json({ error: error.message });
     }
 });
