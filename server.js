@@ -6443,7 +6443,7 @@ app.get('/api/cycle-counts/pending', requireAuth, requireMerchant, async (req, r
               AND v.track_inventory = TRUE
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
                      cqp.added_date, cqp.notes
-            ORDER BY cqp.added_date ASC
+            ORDER BY i.name ASC, v.name ASC
         `;
 
         const priorityItems = await db.query(priorityQuery, [merchantId]);
@@ -6478,7 +6478,7 @@ app.get('/api/cycle-counts/pending', requireAuth, requireMerchant, async (req, r
               AND cqp.id IS NULL
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by,
                      cqd.batch_date, cqd.added_date
-            ORDER BY cqd.batch_date ASC, cqd.added_date ASC
+            ORDER BY i.name ASC, v.name ASC
         `;
 
         const dailyBatchItems = await db.query(dailyBatchQuery, [merchantId]);
