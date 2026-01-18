@@ -693,6 +693,8 @@ async function generateAuditCSV(merchantId, options = {}) {
         'Event ID',
         'Event Date',
         'Event Type',
+        'Customer Source',
+        'Payment Type',
         'Brand Name',
         'Size Group',
         'Offer Name',
@@ -711,10 +713,20 @@ async function generateAuditCSV(merchantId, options = {}) {
         'Receipt URL'
     ];
 
+    // Map customer_source values to human-readable labels
+    const sourceLabels = {
+        'order': 'Direct (Order)',
+        'tender': 'Payment Tender',
+        'loyalty_api': 'Loyalty API',
+        'manual': 'Manual Admin Add'
+    };
+
     const rows = result.rows.map(r => [
         r.id,
         r.purchased_at ? new Date(r.purchased_at).toISOString() : '',
         r.is_refund ? 'REFUND' : 'PURCHASE',
+        sourceLabels[r.customer_source] || r.customer_source || 'Direct (Order)',
+        r.payment_type || '',
         r.brand_name,
         r.size_group,
         r.offer_name,
