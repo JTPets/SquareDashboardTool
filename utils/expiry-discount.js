@@ -843,6 +843,97 @@ async function applyDiscounts(options = {}) {
 }
 
 /**
+ * Filter variation IDs to only include those that exist in Square catalog
+ * This handles cases where variations were deleted in Square but still exist in our DB
+ * @param {Array<string>} variationIds - Array of variation IDs to check
+ * @param {string} accessToken - Square API access token
+ * @param {number} merchantId - Merchant ID for logging
+ * @returns {Promise<Object>} Object with validIds array and invalidIds array
+ */
+async function filterValidVariations(variationIds, accessToken, merchantId) {
+    if (variationIds.length === 0) {
+        return { validIds: [], invalidIds: [] };
+    }
+
+    const squareApiModule = getSquareApi();
+    const validIds = [];
+    const invalidIds = [];
+
+    // Square batch retrieve has a limit of 1000 objects per request
+    const batchSize = 1000;
+    for (let i = 0; i < variationIds.length; i += batchSize) {
+        const batch = variationIds.slice(i, i + batchSize);
+
+        try {
+            const response = await squareApiModule.makeSquareRequest('/v2/catalog/batch-retrieve', {
+                method: 'POST',
+                accessToken,
+                body: JSON.stringify({
+                    object_ids: batch,
+                    include_deleted_objects: false
+                })
+            });
+
+            // Get the IDs that were actually returned (exist in Square)
+            const returnedIds = new Set((response.objects || []).map(obj => obj.id));
+
+            for (const id of batch) {
+                if (returnedIds.has(id)) {
+                    validIds.push(id);
+                } else {
+                    invalidIds.push(id);
+                }
+            }
+        } catch (error) {
+            logger.warn('Error validating variations batch, assuming all valid', {
+                merchantId,
+                batchStart: i,
+                error: error.message
+            });
+            // On error, include all to avoid data loss
+            validIds.push(...batch);
+        }
+    }
+
+    if (invalidIds.length > 0) {
+        logger.info('Filtered out invalid/deleted variations', {
+            merchantId,
+            validCount: validIds.length,
+            invalidCount: invalidIds.length,
+            invalidIds: invalidIds.slice(0, 10) // Log first 10 for debugging
+        });
+
+        // Mark these as deleted in our database
+        if (invalidIds.length > 0) {
+            try {
+                await db.query(`
+                    UPDATE variations SET is_deleted = TRUE, updated_at = NOW()
+                    WHERE id = ANY($1) AND merchant_id = $2
+                `, [invalidIds, merchantId]);
+
+                // Also remove from variation_discount_status
+                await db.query(`
+                    DELETE FROM variation_discount_status
+                    WHERE variation_id = ANY($1) AND merchant_id = $2
+                `, [invalidIds, merchantId]);
+
+                logger.info('Cleaned up deleted variations from database', {
+                    merchantId,
+                    cleanedCount: invalidIds.length
+                });
+            } catch (dbError) {
+                logger.warn('Failed to clean up deleted variations', {
+                    merchantId,
+                    error: dbError.message
+                });
+            }
+        }
+    }
+
+    return { validIds, invalidIds };
+}
+
+/**
  * Create or update a Square Pricing Rule for item-level discounts
  * @param {Object} tier - Tier configuration with square_discount_id
  * @param {Array<string>} variationIds - Variation IDs to apply discount to
@@ -854,12 +945,20 @@ async function upsertPricingRule(tier, variationIds) {
 
     const pricingRuleKey = `expiry-${tier.tier_code.toLowerCase()}`;
 
+    // Filter out any variations that no longer exist in Square
+    const { validIds, invalidIds } = await filterValidVariations(variationIds, accessToken, tier.merchant_id);
+
     logger.info('Upserting pricing rule', {
         tierCode: tier.tier_code,
         pricingRuleKey,
-        variationCount: variationIds.length,
+        originalCount: variationIds.length,
+        validCount: validIds.length,
+        filteredOut: invalidIds.length,
         merchantId: tier.merchant_id
     });
+
+    // Use validIds instead of variationIds from here on
+    variationIds = validIds;
 
     try {
         // Check if pricing rule already exists
