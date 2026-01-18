@@ -455,14 +455,14 @@ async function getCustomerDetails(customerId, merchantId) {
         const rawToken = tokenResult.rows[0].square_access_token;
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
-        const response = await fetch(`https://connect.squareup.com/v2/customers/${customerId}`, {
+        const response = await fetchWithTimeout(`https://connect.squareup.com/v2/customers/${customerId}`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
                 'Square-Version': '2025-01-16'
             }
-        });
+        }, 10000); // 10 second timeout
 
         if (!response.ok) {
             logger.debug('Failed to fetch customer details', { customerId, status: response.status });
@@ -529,7 +529,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
         // Search for loyalty events by order_id (RELIABLE - direct link)
-        const eventsResponse = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
+        const eventsResponse = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/events/search', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -546,7 +546,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
                 },
                 limit: 10
             })
-        });
+        }, 10000); // 10 second timeout
 
         let loyaltyAccountId = null;
 
@@ -570,14 +570,14 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
         }
 
         // Fetch the loyalty account to get the customer_id
-        const accountResponse = await fetch(`https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`, {
+        const accountResponse = await fetchWithTimeout(`https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
                 'Square-Version': '2025-01-16'
             }
-        });
+        }, 10000); // 10 second timeout
 
         if (!accountResponse.ok) {
             logger.debug('Failed to fetch loyalty account', { loyaltyAccountId });
@@ -3912,7 +3912,7 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
             requestBody.cursor = cursor;
         }
 
-        const response = await fetch('https://connect.squareup.com/v2/orders/search', {
+        const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -3920,7 +3920,7 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
                 'Square-Version': '2025-01-16'
             },
             body: JSON.stringify(requestBody)
-        });
+        }, 15000); // 15 second timeout for search
 
         if (!response.ok) {
             const errorData = await response.json();
