@@ -1890,7 +1890,11 @@
           message += `\n${result.skipped.length} orders were already tracked.`;
         }
         if (result.errors.length > 0) {
-          message += `\n${result.errors.length} orders had errors.`;
+          message += `\n\n${result.errors.length} orders had errors:`;
+          for (const err of result.errors) {
+            const shortId = err.orderId ? err.orderId.slice(0,8) + '...' : 'unknown';
+            message += `\n• ${shortId}: ${err.error}`;
+          }
         }
 
         alert(message);
