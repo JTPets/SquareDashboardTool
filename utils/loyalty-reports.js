@@ -34,7 +34,7 @@ async function getRedemptionDetails(redemptionId, merchantId) {
         throw new Error('merchantId is required - tenant isolation required');
     }
 
-    // Get redemption with reward and offer details
+    // Get redemption with reward and offer details (including vendor info)
     const redemptionResult = await db.query(`
         SELECT
             rd.*,
@@ -47,6 +47,9 @@ async function getRedemptionDetails(redemptionId, merchantId) {
             o.brand_name,
             o.size_group,
             o.window_months,
+            o.vendor_id,
+            o.vendor_name,
+            o.vendor_email,
             m.business_name,
             m.business_email,
             u.name as redeemed_by_name
@@ -64,23 +67,39 @@ async function getRedemptionDetails(redemptionId, merchantId) {
 
     const redemption = redemptionResult.rows[0];
 
-    // Get all contributing purchase events for this reward
+    // Get all contributing purchase events for this reward (with cost and vendor item info)
     const purchasesResult = await db.query(`
         SELECT
             pe.*,
             qv.item_name,
             qv.variation_name,
-            qv.sku
+            qv.sku,
+            v.last_cost_cents as wholesale_cost_cents,
+            COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number,
+            vv.unit_cost_money as vendor_unit_cost
         FROM loyalty_purchase_events pe
         LEFT JOIN loyalty_qualifying_variations qv
             ON pe.variation_id = qv.variation_id AND qv.merchant_id = pe.merchant_id
+        LEFT JOIN variations v
+            ON pe.variation_id = v.id
+        LEFT JOIN variation_vendors vv
+            ON pe.variation_id = vv.variation_id
         WHERE pe.reward_id = $1 AND pe.merchant_id = $2
         ORDER BY pe.purchased_at ASC
     `, [redemption.reward_id, merchantId]);
 
+    // Calculate lowest price for vendor credit amount (per BCR policy)
+    const lowestPriceResult = await db.query(`
+        SELECT MIN(unit_price_cents) as lowest_price_cents
+        FROM loyalty_purchase_events
+        WHERE reward_id = $1 AND merchant_id = $2 AND quantity > 0
+    `, [redemption.reward_id, merchantId]);
+    const lowestPriceCents = lowestPriceResult.rows[0]?.lowest_price_cents || 0;
+
     return {
         ...redemption,
-        contributingPurchases: purchasesResult.rows
+        contributingPurchases: purchasesResult.rows,
+        lowestPriceCents
     };
 }
 
@@ -176,15 +195,17 @@ async function generateVendorReceipt(redemptionId, merchantId) {
         return `$${(cents / 100).toFixed(2)}`;
     };
 
-    // Build purchase history table rows
+    // Build purchase history table rows (with wholesale cost, vendor item #, payment type)
     const purchaseRows = data.contributingPurchases.map(p => `
         <tr>
             <td>${formatDate(p.purchased_at)}</td>
             <td>${p.item_name || 'Unknown'} - ${p.variation_name || p.variation_id}</td>
-            <td>${p.sku || 'N/A'}</td>
+            <td>${p.vendor_item_number || p.sku || 'N/A'}</td>
             <td class="quantity">${p.quantity}</td>
             <td class="currency">${formatCents(p.unit_price_cents)}</td>
-            <td>${p.square_order_id}</td>
+            <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
+            <td>${p.payment_type || 'N/A'}</td>
+            <td style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>
             <td>${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank">View</a>` : 'N/A'}</td>
         </tr>
     `).join('');
@@ -442,18 +463,36 @@ async function generateVendorReceipt(redemptionId, merchantId) {
                 <tr>
                     <th>Date</th>
                     <th>Item</th>
-                    <th>SKU</th>
+                    <th>Vendor Item #</th>
                     <th>Qty</th>
-                    <th>Unit Price</th>
+                    <th>Retail Price</th>
+                    <th>Wholesale Cost</th>
+                    <th>Payment</th>
                     <th>Order ID</th>
                     <th>Receipt</th>
                 </tr>
             </thead>
             <tbody>
-                ${purchaseRows || '<tr><td colspan="7">No purchase records available</td></tr>'}
+                ${purchaseRows || '<tr><td colspan="9">No purchase records available</td></tr>'}
             </tbody>
         </table>
     </div>
+
+    ${data.vendor_name ? `
+    <div class="section" style="margin-top: 20px; background: #e8f5e9; padding: 15px; border-radius: 8px;">
+        <h2 style="color: #2e7d32;">Vendor Credit Submission</h2>
+        <div class="info-grid">
+            <div class="info-box" style="background: white;">
+                <label>Vendor</label>
+                <div class="value">${data.vendor_name}</div>
+            </div>
+            <div class="info-box" style="background: white;">
+                <label>Vendor Email</label>
+                <div class="value">${data.vendor_email || 'N/A'}</div>
+            </div>
+        </div>
+    </div>
+    ` : ''}
 
     <div class="summary">
         <div class="summary-row">
@@ -472,9 +511,17 @@ async function generateVendorReceipt(redemptionId, merchantId) {
             <span>Net Qualifying Purchases:</span>
             <span>${netQuantity} units</span>
         </div>
-        <div class="summary-row total">
-            <span>Reward Value:</span>
+        <div class="summary-row">
+            <span>Redeemed Item Value:</span>
             <span>${formatCents(data.redeemed_value_cents)}</span>
+        </div>
+        <div class="summary-row">
+            <span>Lowest Price (of ${data.required_quantity} items):</span>
+            <span>${formatCents(data.lowestPriceCents)}</span>
+        </div>
+        <div class="summary-row total" style="background: #e8f5e9; padding: 10px; margin: 10px -15px -15px; border-radius: 0 0 4px 4px;">
+            <span><strong>VENDOR CREDIT AMOUNT:</strong></span>
+            <span><strong>${formatCents(data.lowestPriceCents)}</strong></span>
         </div>
     </div>
 

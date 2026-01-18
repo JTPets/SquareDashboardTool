@@ -10850,7 +10850,7 @@ app.get('/api/loyalty/offers', requireAuth, requireMerchant, async (req, res) =>
 app.post('/api/loyalty/offers', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const { offerName, brandName, sizeGroup, requiredQuantity, windowMonths, description } = req.body;
+        const { offerName, brandName, sizeGroup, requiredQuantity, windowMonths, description, vendorId } = req.body;
 
         if (!brandName || !sizeGroup || !requiredQuantity) {
             return res.status(400).json({
@@ -10866,6 +10866,7 @@ app.post('/api/loyalty/offers', requireAuth, requireMerchant, requireWriteAccess
             requiredQuantity: parseInt(requiredQuantity),
             windowMonths: windowMonths ? parseInt(windowMonths) : 12,
             description,
+            vendorId: vendorId || null,
             createdBy: req.session.user.id
         });
 
@@ -10919,13 +10920,14 @@ app.get('/api/loyalty/offers/:id', requireAuth, requireMerchant, async (req, res
 app.patch('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const { offer_name, description, is_active, window_months } = req.body;
+        const { offer_name, description, is_active, window_months, vendor_id } = req.body;
 
         const updates = {};
         if (offer_name !== undefined) updates.offer_name = offer_name;
         if (description !== undefined) updates.description = description;
         if (is_active !== undefined) updates.is_active = is_active;
         if (window_months !== undefined && window_months > 0) updates.window_months = parseInt(window_months);
+        if (vendor_id !== undefined) updates.vendor_id = vendor_id || null;
 
         const offer = await loyaltyService.updateOffer(
             req.params.id,

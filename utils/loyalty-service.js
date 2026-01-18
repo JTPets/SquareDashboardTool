@@ -773,7 +773,7 @@ async function initializeDefaultSettings(merchantId) {
  * @returns {Promise<Object>} Created offer
  */
 async function createOffer(offerData) {
-    const { merchantId, offerName, brandName, sizeGroup, requiredQuantity, windowMonths, description, createdBy } = offerData;
+    const { merchantId, offerName, brandName, sizeGroup, requiredQuantity, windowMonths, description, vendorId, createdBy } = offerData;
 
     if (!merchantId) {
         throw new Error('merchantId is required for createOffer - tenant isolation required');
@@ -787,15 +787,29 @@ async function createOffer(offerData) {
         throw new Error('requiredQuantity must be a positive integer');
     }
 
-    logger.info('Creating loyalty offer', { merchantId, brandName, sizeGroup, requiredQuantity });
+    logger.info('Creating loyalty offer', { merchantId, brandName, sizeGroup, requiredQuantity, vendorId });
+
+    // If vendor_id provided, look up vendor details for caching
+    let vendorName = null;
+    let vendorEmail = null;
+    if (vendorId) {
+        const vendorResult = await db.query(
+            'SELECT name, contact_email FROM vendors WHERE id = $1',
+            [vendorId]
+        );
+        if (vendorResult.rows[0]) {
+            vendorName = vendorResult.rows[0].name;
+            vendorEmail = vendorResult.rows[0].contact_email;
+        }
+    }
 
     const result = await db.query(`
         INSERT INTO loyalty_offers (
             merchant_id, offer_name, brand_name, size_group,
             required_quantity, reward_quantity, window_months,
-            description, created_by
+            description, vendor_id, vendor_name, vendor_email, created_by
         )
-        VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9, $10, $11)
         RETURNING *
     `, [
         merchantId,
@@ -805,6 +819,9 @@ async function createOffer(offerData) {
         requiredQuantity,
         windowMonths || 12,
         description,
+        vendorId || null,
+        vendorName,
+        vendorEmail,
         createdBy
     ]);
 
@@ -894,7 +911,25 @@ async function updateOffer(offerId, updates, merchantId, userId = null) {
         throw new Error('merchantId is required for updateOffer - tenant isolation required');
     }
 
-    const allowedFields = ['offer_name', 'description', 'is_active', 'window_months'];
+    // If vendor_id is being updated, look up vendor details
+    if (updates.vendor_id !== undefined) {
+        if (updates.vendor_id) {
+            const vendorResult = await db.query(
+                'SELECT name, contact_email FROM vendors WHERE id = $1',
+                [updates.vendor_id]
+            );
+            if (vendorResult.rows[0]) {
+                updates.vendor_name = vendorResult.rows[0].name;
+                updates.vendor_email = vendorResult.rows[0].contact_email;
+            }
+        } else {
+            // Clearing vendor
+            updates.vendor_name = null;
+            updates.vendor_email = null;
+        }
+    }
+
+    const allowedFields = ['offer_name', 'description', 'is_active', 'window_months', 'vendor_id', 'vendor_name', 'vendor_email'];
     const setClause = [];
     const params = [offerId, merchantId];
 
@@ -1149,13 +1184,14 @@ async function getOfferForVariation(variationId, merchantId) {
  * @param {string} [purchaseData.squareLocationId] - Square location ID
  * @param {string} [purchaseData.receiptUrl] - Square receipt URL from tender
  * @param {string} [purchaseData.customerSource] - How customer was identified: order, tender, loyalty_api, or manual
+ * @param {string} [purchaseData.paymentType] - Payment method: CARD, CASH, WALLET, etc.
  * @returns {Promise<Object>} Processing result
  */
 async function processQualifyingPurchase(purchaseData) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
         quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl,
-        customerSource = 'order'
+        customerSource = 'order', paymentType = null
     } = purchaseData;
 
     if (!merchantId) {
@@ -1230,16 +1266,16 @@ async function processQualifyingPurchase(purchaseData) {
                 merchant_id, offer_id, square_customer_id, square_order_id,
                 square_location_id, variation_id, quantity, unit_price_cents,
                 purchased_at, window_start_date, window_end_date,
-                is_refund, idempotency_key, receipt_url, customer_source
+                is_refund, idempotency_key, receipt_url, customer_source, payment_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
             squareLocationId, variationId, quantity, unitPriceCents,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
-            false, idempotencyKey, receiptUrl || null, customerSource
+            false, idempotencyKey, receiptUrl || null, customerSource, paymentType
         ]);
 
         const purchaseEvent = eventResult.rows[0];
@@ -2241,9 +2277,14 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
         return { processed: false, reason: 'no_line_items' };
     }
 
-    // Extract receipt URL from tenders (usually on card payments)
+    // Extract receipt URL and payment type from tenders (usually on card payments)
     let receiptUrl = null;
+    let paymentType = null;
     if (order.tenders && order.tenders.length > 0) {
+        // Get primary tender info (first tender is usually the main payment)
+        const primaryTender = order.tenders[0];
+        paymentType = primaryTender.type; // CARD, CASH, WALLET, SQUARE_GIFT_CARD, etc.
+
         for (const tender of order.tenders) {
             if (tender.receipt_url) {
                 receiptUrl = tender.receipt_url;
@@ -2404,7 +2445,8 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
                 purchasedAt: order.created_at || new Date(),
                 squareLocationId: order.location_id,
                 receiptUrl,
-                customerSource: dbCustomerSource
+                customerSource: dbCustomerSource,
+                paymentType
             });
 
             if (purchaseResult.processed) {
