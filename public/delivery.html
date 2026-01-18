@@ -462,8 +462,26 @@
             <input type="text" class="form-input" id="orderCustomerName" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Address *</label>
-            <input type="text" class="form-input" id="orderAddress" required placeholder="Full address including city, state, ZIP">
+            <label class="form-label">Street Address *</label>
+            <input type="text" class="form-input" id="orderStreet" required placeholder="123 Main St">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit/Apt</label>
+            <input type="text" class="form-input" id="orderUnit" placeholder="Apt 4B, Suite 100, etc.">
+          </div>
+          <div class="form-row" style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 2;">
+              <label class="form-label">City *</label>
+              <input type="text" class="form-input" id="orderCity" required placeholder="City">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">Postal Code *</label>
+              <input type="text" class="form-input" id="orderPostalCode" required placeholder="12345">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Country *</label>
+            <input type="text" class="form-input" id="orderCountry" required value="Canada" placeholder="Canada">
           </div>
           <div class="form-group">
             <label class="form-label">Phone</label>
@@ -495,6 +513,28 @@
           <div class="form-group">
             <label class="form-label">Customer Name</label>
             <input type="text" class="form-input" id="editCustomerName">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Street Address</label>
+            <input type="text" class="form-input" id="editStreet">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit/Apt</label>
+            <input type="text" class="form-input" id="editUnit">
+          </div>
+          <div class="form-row" style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 2;">
+              <label class="form-label">City</label>
+              <input type="text" class="form-input" id="editCity">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">Postal Code</label>
+              <input type="text" class="form-input" id="editPostalCode">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Country</label>
+            <input type="text" class="form-input" id="editCountry">
           </div>
           <div class="form-group">
             <label class="form-label">Phone</label>
@@ -677,12 +717,57 @@
       document.getElementById('addOrderModal').classList.add('active');
     }
 
+    function parseAddressString(address) {
+      // Try to parse address in format: "street, unit, city, postal, country" or "street, city, postal, country"
+      if (!address) return { street: '', unit: '', city: '', postalCode: '', country: '' };
+
+      const parts = address.split(',').map(p => p.trim());
+
+      if (parts.length >= 4) {
+        // Check if second part looks like a unit (contains apt, suite, unit, #, or is short)
+        const secondPart = parts[1].toLowerCase();
+        const looksLikeUnit = secondPart.includes('apt') || secondPart.includes('suite') ||
+                             secondPart.includes('unit') || secondPart.includes('#') ||
+                             parts[1].length <= 10;
+
+        if (parts.length >= 5 && looksLikeUnit) {
+          // Format: street, unit, city, postal, country
+          return {
+            street: parts[0],
+            unit: parts[1],
+            city: parts[2],
+            postalCode: parts[3],
+            country: parts.slice(4).join(', ')
+          };
+        } else {
+          // Format: street, city, postal, country (no unit)
+          return {
+            street: parts[0],
+            unit: '',
+            city: parts[1],
+            postalCode: parts[2],
+            country: parts.slice(3).join(', ')
+          };
+        }
+      }
+
+      // Can't parse - put everything in street for user to fix
+      return { street: address, unit: '', city: '', postalCode: '', country: '' };
+    }
+
     function editOrder(orderId) {
       const order = [...orders.pending, ...orders.active, ...orders.completed].find(o => o.id === orderId);
       if (!order) return;
 
+      const addr = parseAddressString(order.address);
+
       document.getElementById('editOrderId').value = order.id;
       document.getElementById('editCustomerName').value = order.customer_name || '';
+      document.getElementById('editStreet').value = addr.street;
+      document.getElementById('editUnit').value = addr.unit;
+      document.getElementById('editCity').value = addr.city;
+      document.getElementById('editPostalCode').value = addr.postalCode;
+      document.getElementById('editCountry').value = addr.country;
       document.getElementById('editPhone').value = order.phone || '';
       document.getElementById('editNotes').value = order.notes || '';
       document.getElementById('editOrderModal').classList.add('active');
@@ -692,8 +777,25 @@
       document.getElementById(modalId).classList.remove('active');
     }
 
+    function buildAddressString(street, unit, city, postalCode, country) {
+      let address = street;
+      if (unit) address += ', ' + unit;
+      address += ', ' + city;
+      address += ', ' + postalCode;
+      address += ', ' + country;
+      return address;
+    }
+
     async function submitAddOrder(e) {
       e.preventDefault();
+
+      const address = buildAddressString(
+        document.getElementById('orderStreet').value,
+        document.getElementById('orderUnit').value,
+        document.getElementById('orderCity').value,
+        document.getElementById('orderPostalCode').value,
+        document.getElementById('orderCountry').value
+      );
 
       try {
         const response = await fetch('/api/delivery/orders', {
@@ -701,7 +803,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerName: document.getElementById('orderCustomerName').value,
-            address: document.getElementById('orderAddress').value,
+            address: address,
             phone: document.getElementById('orderPhone').value || null,
             notes: document.getElementById('orderNotes').value || null
           })
@@ -724,6 +826,13 @@
       e.preventDefault();
 
       const orderId = document.getElementById('editOrderId').value;
+      const address = buildAddressString(
+        document.getElementById('editStreet').value,
+        document.getElementById('editUnit').value,
+        document.getElementById('editCity').value,
+        document.getElementById('editPostalCode').value,
+        document.getElementById('editCountry').value
+      );
 
       try {
         const response = await fetch(`/api/delivery/orders/${orderId}`, {
@@ -731,6 +840,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerName: document.getElementById('editCustomerName').value,
+            address: address,
             phone: document.getElementById('editPhone').value,
             notes: document.getElementById('editNotes').value
           })
