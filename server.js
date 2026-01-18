@@ -9610,6 +9610,128 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            // ==================== LOYALTY WEBHOOKS ====================
+            // Handle loyalty events to catch orders where customer was linked after initial webhook
+            case 'loyalty.event.created':
+                if (process.env.WEBHOOK_ORDER_SYNC !== 'false') {
+                    if (!internalMerchantId) {
+                        logger.warn('Cannot process loyalty event - merchant not found for webhook');
+                        syncResults.error = 'Merchant not found';
+                        break;
+                    }
+                    try {
+                        const loyaltyEvent = data;
+
+                        // Extract order_id from the loyalty event (can be in different places depending on event type)
+                        const orderId = loyaltyEvent.accumulate_points?.order_id
+                            || loyaltyEvent.redeem_reward?.order_id
+                            || loyaltyEvent.order_id;
+
+                        const loyaltyAccountId = loyaltyEvent.loyalty_account_id;
+
+                        logger.info('Loyalty event received via webhook', {
+                            eventId: loyaltyEvent.id,
+                            eventType: loyaltyEvent.type,
+                            orderId,
+                            loyaltyAccountId,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Only process if we have an order_id to link
+                        if (orderId && loyaltyAccountId) {
+                            // Check if we've already processed this order for loyalty
+                            const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(orderId, internalMerchantId);
+
+                            if (!alreadyProcessed) {
+                                logger.info('Loyalty event for unprocessed order - attempting to process', {
+                                    orderId,
+                                    loyaltyAccountId,
+                                    merchantId: internalMerchantId
+                                });
+
+                                // Get the customer_id from the loyalty account
+                                const accessToken = await loyaltyService.getSquareAccessToken(internalMerchantId);
+                                if (accessToken) {
+                                    // Fetch the loyalty account to get customer_id
+                                    const accountResponse = await fetch(
+                                        `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
+                                        {
+                                            headers: {
+                                                'Authorization': `Bearer ${accessToken}`,
+                                                'Content-Type': 'application/json',
+                                                'Square-Version': '2025-01-16'
+                                            }
+                                        }
+                                    );
+
+                                    if (accountResponse.ok) {
+                                        const accountData = await accountResponse.json();
+                                        const customerId = accountData.loyalty_account?.customer_id;
+
+                                        if (customerId) {
+                                            // Fetch the order
+                                            const orderResponse = await fetch(
+                                                `https://connect.squareup.com/v2/orders/${orderId}`,
+                                                {
+                                                    headers: {
+                                                        'Authorization': `Bearer ${accessToken}`,
+                                                        'Content-Type': 'application/json',
+                                                        'Square-Version': '2025-01-16'
+                                                    }
+                                                }
+                                            );
+
+                                            if (orderResponse.ok) {
+                                                const orderData = await orderResponse.json();
+                                                const order = orderData.order;
+
+                                                if (order && order.state === 'COMPLETED') {
+                                                    // Process with the customer_id we got from loyalty account
+                                                    // Override the order's customer_id if it's missing
+                                                    const effectiveOrder = {
+                                                        ...order,
+                                                        customer_id: order.customer_id || customerId
+                                                    };
+
+                                                    const loyaltyResult = await loyaltyService.processOrderForLoyalty(
+                                                        effectiveOrder,
+                                                        internalMerchantId,
+                                                        { customerSourceOverride: 'loyalty_api' }
+                                                    );
+
+                                                    if (loyaltyResult.processed) {
+                                                        syncResults.loyaltyEventRecovery = {
+                                                            orderId,
+                                                            customerId,
+                                                            purchasesRecorded: loyaltyResult.purchasesRecorded.length
+                                                        };
+                                                        logger.info('Successfully processed order via loyalty event webhook', {
+                                                            orderId,
+                                                            customerId,
+                                                            purchaseCount: loyaltyResult.purchasesRecorded.length,
+                                                            merchantId: internalMerchantId
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                logger.debug('Order already processed for loyalty, skipping', { orderId });
+                                syncResults.loyaltyEventSkipped = { orderId, reason: 'already_processed' };
+                            }
+                        }
+                    } catch (loyaltyEventError) {
+                        logger.error('Loyalty event webhook processing failed', {
+                            error: loyaltyEventError.message,
+                            stack: loyaltyEventError.stack
+                        });
+                        syncResults.loyaltyEventError = loyaltyEventError.message;
+                    }
+                }
+                break;
+
             default:
                 logger.info('Unhandled webhook event type', { type: event.type });
                 syncResults.unhandled = true;
