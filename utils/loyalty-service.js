@@ -648,13 +648,15 @@ const RedemptionTypes = {
  * @param {Object} event - Audit event details
  * @param {number} event.merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  */
-async function logAuditEvent(event) {
+async function logAuditEvent(event, client = null) {
     if (!event.merchantId) {
         throw new Error('merchantId is required for logAuditEvent - tenant isolation required');
     }
 
     try {
-        await db.query(`
+        // Use provided client (for transactions) or db.query (for standalone)
+        const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+        await queryFn(`
             INSERT INTO loyalty_audit_logs (
                 merchant_id, action, offer_id, reward_id, purchase_event_id, redemption_id,
                 square_customer_id, square_order_id, old_state, new_state,
@@ -1250,7 +1252,7 @@ async function processQualifyingPurchase(purchaseData) {
             newQuantity: quantity,
             triggeredBy: 'WEBHOOK',
             details: { variationId, unitPriceCents }
-        });
+        }, client);  // Pass transaction client to avoid deadlock
 
         // Update reward progress
         const rewardResult = await updateRewardProgress(client, {
@@ -1373,7 +1375,7 @@ async function updateRewardProgress(client, data) {
             oldQuantity,
             newQuantity: currentQuantity,
             triggeredBy: 'SYSTEM'
-        });
+        }, client);  // Pass transaction client to avoid deadlock
     }
 
     // Check if reward has been earned
@@ -1413,7 +1415,7 @@ async function updateRewardProgress(client, data) {
             oldState: RewardStatus.IN_PROGRESS,
             newState: RewardStatus.EARNED,
             details: { requiredQuantity: offer.required_quantity }
-        });
+        }, client);  // Pass transaction client to avoid deadlock
 
         logger.info('Reward earned!', {
             merchantId,
@@ -1550,7 +1552,7 @@ async function processRefund(refundData) {
             newQuantity: refundQuantity,
             triggeredBy: 'WEBHOOK',
             details: { variationId, originalEventId }
-        });
+        }, client);  // Pass transaction client to avoid deadlock
 
         // Check if this refund affects an earned reward
         const earnedReward = await client.query(`
@@ -1606,7 +1608,7 @@ async function processRefund(refundData) {
                         remainingQuantity,
                         requiredQuantity: offer.required_quantity
                     }
-                });
+                }, client);  // Pass transaction client to avoid deadlock
 
                 logger.warn('Earned reward revoked due to refund', {
                     merchantId,
@@ -1763,7 +1765,7 @@ async function redeemReward(redemptionData) {
                 redeemedVariationId,
                 redeemedValueCents
             }
-        });
+        }, client);  // Pass transaction client to avoid deadlock
 
         // Update customer summary
         await updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id);
@@ -1978,7 +1980,7 @@ async function processExpiredWindowEntries(merchantId) {
                     offerId: row.offer_id,
                     squareCustomerId: row.square_customer_id,
                     triggeredBy: 'SYSTEM'
-                });
+                }, client);  // Pass transaction client to avoid deadlock
 
                 processedCount++;
             }
