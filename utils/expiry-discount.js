@@ -704,10 +704,6 @@ async function applyDiscounts(options = {}) {
 
             const variationIds = variationsResult.rows.map(r => r.variation_id);
 
-            if (variationIds.length === 0) {
-                continue;
-            }
-
             logger.info(`Processing ${tier.tier_code} tier`, {
                 variationCount: variationIds.length,
                 discountPercent: tier.discount_percent
@@ -715,10 +711,19 @@ async function applyDiscounts(options = {}) {
 
             // For item-level discounts in Square, we need to create/update
             // a PRICING_RULE that applies the discount to specific items
+            // IMPORTANT: We must update the pricing rule even if variationIds is empty,
+            // to clear out items that moved to other tiers
             if (!dryRun && tier.square_discount_id) {
                 try {
                     // Create/update pricing rule for this tier
+                    // This will REPLACE the product set, removing items that moved to other tiers
                     const pricingRuleResult = await upsertPricingRule(tier, variationIds);
+
+                    // If no variations in this tier, we're done (pricing rule was cleared)
+                    if (variationIds.length === 0) {
+                        logger.info(`Cleared pricing rule for empty tier ${tier.tier_code}`);
+                        continue;
+                    }
 
                     // Update local records
                     for (const row of variationsResult.rows) {
@@ -873,6 +878,45 @@ async function upsertPricingRule(tier, variationIds) {
             if (obj.type === 'PRODUCT_SET' && obj.product_set_data?.name === `${pricingRuleKey}-products`) {
                 existingProductSet = obj;
             }
+        }
+
+        // If no variations and existing rule exists, delete the pricing rule to clear it
+        if (variationIds.length === 0) {
+            if (existingRule || existingProductSet) {
+                logger.info('Deleting pricing rule for empty tier', {
+                    tierCode: tier.tier_code,
+                    hasRule: !!existingRule,
+                    hasProductSet: !!existingProductSet
+                });
+
+                const objectsToDelete = [];
+                if (existingRule?.id) objectsToDelete.push(existingRule.id);
+                if (existingProductSet?.id) objectsToDelete.push(existingProductSet.id);
+
+                if (objectsToDelete.length > 0) {
+                    try {
+                        await squareApiModule.makeSquareRequest('/v2/catalog/batch-delete', {
+                            method: 'POST',
+                            body: JSON.stringify({ object_ids: objectsToDelete })
+                        });
+                        logger.info('Deleted pricing rule objects for empty tier', {
+                            tierCode: tier.tier_code,
+                            deletedIds: objectsToDelete
+                        });
+                    } catch (deleteError) {
+                        logger.warn('Failed to delete pricing rule objects', {
+                            tierCode: tier.tier_code,
+                            error: deleteError.message
+                        });
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                pricingRule: null,
+                message: 'No variations - pricing rule cleared'
+            };
         }
 
         const idempotencyKey = squareApiModule.generateIdempotencyKey(`pricing-rule-${tier.tier_code}`);
@@ -1265,6 +1309,272 @@ async function ensureMerchantTiers(merchantId) {
     return { created: false, tierCount: tiers.length };
 }
 
+/**
+ * Validate and verify expiry discount configuration in Square
+ * Checks that discount percentages match and pricing rules are correctly configured
+ * @param {Object} options - Options
+ * @param {number} options.merchantId - REQUIRED: Merchant ID
+ * @param {boolean} [options.fix=false] - Whether to fix issues found
+ * @returns {Promise<Object>} Validation results
+ */
+async function validateExpiryDiscounts({ merchantId, fix = false }) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for validateExpiryDiscounts');
+    }
+
+    const squareApiModule = getSquareApi();
+
+    logger.info('Validating expiry discounts', { merchantId, fix });
+
+    const results = {
+        success: true,
+        tiersChecked: 0,
+        issues: [],
+        fixed: []
+    };
+
+    try {
+        // Get all auto-apply tiers
+        const tiersResult = await db.query(`
+            SELECT * FROM expiry_discount_tiers
+            WHERE is_active = TRUE AND is_auto_apply = TRUE AND merchant_id = $1
+            ORDER BY priority DESC
+        `, [merchantId]);
+
+        for (const tier of tiersResult.rows) {
+            results.tiersChecked++;
+
+            // Check 1: Verify Square discount object exists and has correct percentage
+            if (tier.square_discount_id) {
+                try {
+                    const discountData = await squareApiModule.makeSquareRequest(
+                        `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
+                    );
+
+                    const discountObj = discountData.object;
+                    if (!discountObj) {
+                        results.issues.push({
+                            tierCode: tier.tier_code,
+                            issue: 'DISCOUNT_NOT_FOUND',
+                            message: 'Discount object not found in Square',
+                            squareDiscountId: tier.square_discount_id
+                        });
+
+                        if (fix) {
+                            // Clear stale ID and recreate
+                            await db.query(`
+                                UPDATE expiry_discount_tiers
+                                SET square_discount_id = NULL, updated_at = NOW()
+                                WHERE id = $1
+                            `, [tier.id]);
+                            tier.square_discount_id = null;
+                            const createResult = await upsertSquareDiscount(tier);
+                            if (createResult.success) {
+                                results.fixed.push({
+                                    tierCode: tier.tier_code,
+                                    action: 'RECREATED_DISCOUNT',
+                                    newDiscountId: createResult.discountId
+                                });
+                            }
+                        }
+                    } else if (discountObj.is_deleted) {
+                        results.issues.push({
+                            tierCode: tier.tier_code,
+                            issue: 'DISCOUNT_DELETED',
+                            message: 'Discount object was deleted in Square'
+                        });
+
+                        if (fix) {
+                            await db.query(`
+                                UPDATE expiry_discount_tiers
+                                SET square_discount_id = NULL, updated_at = NOW()
+                                WHERE id = $1
+                            `, [tier.id]);
+                            tier.square_discount_id = null;
+                            const createResult = await upsertSquareDiscount(tier);
+                            if (createResult.success) {
+                                results.fixed.push({
+                                    tierCode: tier.tier_code,
+                                    action: 'RECREATED_DELETED_DISCOUNT',
+                                    newDiscountId: createResult.discountId
+                                });
+                            }
+                        }
+                    } else {
+                        // Verify percentage matches
+                        const squarePercent = parseFloat(discountObj.discount_data?.percentage || '0');
+                        const expectedPercent = parseFloat(tier.discount_percent);
+
+                        if (Math.abs(squarePercent - expectedPercent) > 0.01) {
+                            results.issues.push({
+                                tierCode: tier.tier_code,
+                                issue: 'PERCENTAGE_MISMATCH',
+                                message: `Square has ${squarePercent}% but should be ${expectedPercent}%`,
+                                squarePercent,
+                                expectedPercent
+                            });
+
+                            if (fix) {
+                                const updateResult = await upsertSquareDiscount(tier);
+                                if (updateResult.success) {
+                                    results.fixed.push({
+                                        tierCode: tier.tier_code,
+                                        action: 'UPDATED_PERCENTAGE',
+                                        oldPercent: squarePercent,
+                                        newPercent: expectedPercent
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    results.issues.push({
+                        tierCode: tier.tier_code,
+                        issue: 'API_ERROR',
+                        message: error.message
+                    });
+                }
+            } else {
+                results.issues.push({
+                    tierCode: tier.tier_code,
+                    issue: 'MISSING_SQUARE_ID',
+                    message: 'No Square discount ID configured'
+                });
+
+                if (fix) {
+                    const createResult = await upsertSquareDiscount(tier);
+                    if (createResult.success) {
+                        results.fixed.push({
+                            tierCode: tier.tier_code,
+                            action: 'CREATED_DISCOUNT',
+                            newDiscountId: createResult.discountId
+                        });
+                    }
+                }
+            }
+
+            // Check 2: Verify pricing rule exists and has correct products
+            const pricingRuleKey = `expiry-${tier.tier_code.toLowerCase()}`;
+            try {
+                const searchResult = await squareApiModule.makeSquareRequest('/v2/catalog/search', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        object_types: ['PRICING_RULE', 'PRODUCT_SET'],
+                        query: {
+                            prefix_query: {
+                                attribute_name: 'name',
+                                attribute_prefix: pricingRuleKey
+                            }
+                        }
+                    })
+                });
+
+                let existingRule = null;
+                let existingProductSet = null;
+                for (const obj of (searchResult.objects || [])) {
+                    if (obj.type === 'PRICING_RULE' && obj.pricing_rule_data?.name === pricingRuleKey) {
+                        existingRule = obj;
+                    }
+                    if (obj.type === 'PRODUCT_SET' && obj.product_set_data?.name === `${pricingRuleKey}-products`) {
+                        existingProductSet = obj;
+                    }
+                }
+
+                // Get expected variations for this tier
+                const variationsResult = await db.query(`
+                    SELECT variation_id FROM variation_discount_status
+                    WHERE current_tier_id = $1 AND merchant_id = $2
+                `, [tier.id, merchantId]);
+                const expectedVariations = variationsResult.rows.map(r => r.variation_id);
+
+                if (expectedVariations.length > 0) {
+                    if (!existingRule) {
+                        results.issues.push({
+                            tierCode: tier.tier_code,
+                            issue: 'MISSING_PRICING_RULE',
+                            message: `Pricing rule not found but ${expectedVariations.length} items should have this discount`
+                        });
+
+                        if (fix) {
+                            const ruleResult = await upsertPricingRule(tier, expectedVariations);
+                            if (ruleResult.success) {
+                                results.fixed.push({
+                                    tierCode: tier.tier_code,
+                                    action: 'CREATED_PRICING_RULE',
+                                    variationCount: expectedVariations.length
+                                });
+                            }
+                        }
+                    } else if (existingProductSet) {
+                        // Compare product sets
+                        const squareProducts = existingProductSet.product_set_data?.product_ids_any || [];
+                        const missingInSquare = expectedVariations.filter(v => !squareProducts.includes(v));
+                        const extraInSquare = squareProducts.filter(v => !expectedVariations.includes(v));
+
+                        if (missingInSquare.length > 0 || extraInSquare.length > 0) {
+                            results.issues.push({
+                                tierCode: tier.tier_code,
+                                issue: 'PRODUCT_SET_MISMATCH',
+                                message: `Product set mismatch: ${missingInSquare.length} missing, ${extraInSquare.length} extra`,
+                                missingInSquare: missingInSquare.slice(0, 5),
+                                extraInSquare: extraInSquare.slice(0, 5)
+                            });
+
+                            if (fix) {
+                                const ruleResult = await upsertPricingRule(tier, expectedVariations);
+                                if (ruleResult.success) {
+                                    results.fixed.push({
+                                        tierCode: tier.tier_code,
+                                        action: 'UPDATED_PRODUCT_SET',
+                                        addedCount: missingInSquare.length,
+                                        removedCount: extraInSquare.length
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } else if (existingRule) {
+                    // Tier has no items but pricing rule exists - should be deleted
+                    results.issues.push({
+                        tierCode: tier.tier_code,
+                        issue: 'ORPHAN_PRICING_RULE',
+                        message: 'Pricing rule exists but tier has no items'
+                    });
+
+                    if (fix) {
+                        const ruleResult = await upsertPricingRule(tier, []);
+                        if (ruleResult.success) {
+                            results.fixed.push({
+                                tierCode: tier.tier_code,
+                                action: 'DELETED_ORPHAN_RULE'
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                results.issues.push({
+                    tierCode: tier.tier_code,
+                    issue: 'PRICING_RULE_API_ERROR',
+                    message: error.message
+                });
+            }
+        }
+
+        logger.info('Expiry discount validation complete', {
+            merchantId,
+            tiersChecked: results.tiersChecked,
+            issueCount: results.issues.length,
+            fixedCount: results.fixed.length
+        });
+
+        return results;
+
+    } catch (error) {
+        logger.error('Expiry discount validation failed', { error: error.message });
+        throw error;
+    }
+}
+
 module.exports = {
     // Tier management
     getActiveTiers,
@@ -1298,6 +1608,9 @@ module.exports = {
     getDiscountStatusSummary,
     getVariationsInTier,
     getAuditLog,
+
+    // Validation
+    validateExpiryDiscounts,
 
     // Audit
     logAuditEvent

@@ -2858,6 +2858,51 @@ app.patch('/api/expiry-discounts/settings', requireAuth, requireMerchant, async 
     }
 });
 
+/**
+ * GET /api/expiry-discounts/validate
+ * Validate expiry discount configuration in Square
+ * Checks that discount percentages match and pricing rules are correctly configured
+ */
+app.get('/api/expiry-discounts/validate', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await expiryDiscountService.validateExpiryDiscounts({
+            merchantId,
+            fix: false
+        });
+        res.json(result);
+    } catch (error) {
+        logger.error('Validate expiry discounts error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/expiry-discounts/validate-and-fix
+ * Validate expiry discount configuration and fix any issues found
+ */
+app.post('/api/expiry-discounts/validate-and-fix', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await expiryDiscountService.validateExpiryDiscounts({
+            merchantId,
+            fix: true
+        });
+
+        logger.info('Validated and fixed expiry discount issues', {
+            merchantId,
+            tiersChecked: result.tiersChecked,
+            issues: result.issues.length,
+            fixed: result.fixed.length
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Validate and fix expiry discounts error', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== INVENTORY ENDPOINTS ====================
 
 /**
