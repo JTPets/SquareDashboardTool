@@ -8786,6 +8786,285 @@ app.get('/api/webhooks/events', requireAuth, requireAdmin, async (req, res) => {
     }
 });
 
+// ==================== WEBHOOK SUBSCRIPTION MANAGEMENT ====================
+
+const squareWebhooks = require('./utils/square-webhooks');
+
+/**
+ * GET /api/webhooks/subscriptions
+ * List all webhook subscriptions for the current merchant
+ */
+app.get('/api/webhooks/subscriptions', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const subscriptions = await squareWebhooks.listWebhookSubscriptions(merchantId);
+
+        res.json({
+            success: true,
+            subscriptions,
+            count: subscriptions.length
+        });
+    } catch (error) {
+        logger.error('Error listing webhook subscriptions', {
+            error: error.message,
+            merchantId: req.merchantContext?.id
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/webhooks/subscriptions/audit
+ * Audit current webhook configuration against recommended event types
+ */
+app.get('/api/webhooks/subscriptions/audit', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const audit = await squareWebhooks.auditWebhookConfiguration(merchantId);
+
+        res.json({
+            success: true,
+            ...audit
+        });
+    } catch (error) {
+        logger.error('Error auditing webhook configuration', {
+            error: error.message,
+            merchantId: req.merchantContext?.id
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/webhooks/event-types
+ * Get all available webhook event types and their categories
+ */
+app.get('/api/webhooks/event-types', requireAuth, async (req, res) => {
+    try {
+        res.json({
+            success: true,
+            eventTypes: squareWebhooks.WEBHOOK_EVENT_TYPES,
+            all: squareWebhooks.getAllEventTypes(),
+            recommended: squareWebhooks.getRecommendedEventTypes()
+        });
+    } catch (error) {
+        logger.error('Error getting webhook event types', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/webhooks/register
+ * Register a new webhook subscription with Square
+ *
+ * Body:
+ * - notificationUrl: string (required) - The webhook endpoint URL
+ * - eventTypes: string[] (optional) - Event types to subscribe to (defaults to recommended)
+ * - name: string (optional) - Friendly name for the subscription
+ */
+app.post('/api/webhooks/register', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { notificationUrl, eventTypes, name } = req.body;
+
+        if (!notificationUrl) {
+            return res.status(400).json({
+                error: 'Missing required field: notificationUrl'
+            });
+        }
+
+        // Validate URL format
+        try {
+            new URL(notificationUrl);
+        } catch {
+            return res.status(400).json({
+                error: 'Invalid notificationUrl format'
+            });
+        }
+
+        const subscription = await squareWebhooks.createWebhookSubscription(merchantId, {
+            notificationUrl,
+            eventTypes,
+            name
+        });
+
+        logger.info('Webhook subscription registered', {
+            merchantId,
+            subscriptionId: subscription.id,
+            notificationUrl
+        });
+
+        res.json({
+            success: true,
+            subscription,
+            message: 'Webhook subscription created successfully. Copy the signature key from Square Developer Dashboard.',
+            nextSteps: [
+                '1. Go to Square Developer Dashboard > Your App > Webhooks',
+                '2. Find the new subscription and copy the Signature Key',
+                '3. Set SQUARE_WEBHOOK_SIGNATURE_KEY in your .env file',
+                '4. Restart the server to apply the new key'
+            ]
+        });
+    } catch (error) {
+        logger.error('Error registering webhook subscription', {
+            error: error.message,
+            merchantId: req.merchantContext?.id
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/webhooks/ensure
+ * Ensure a webhook subscription exists (creates if missing, updates if needed)
+ *
+ * Body:
+ * - notificationUrl: string (required) - The webhook endpoint URL
+ * - eventTypes: string[] (optional) - Event types to subscribe to
+ * - updateIfExists: boolean (optional) - Update event types if subscription exists
+ */
+app.post('/api/webhooks/ensure', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { notificationUrl, eventTypes, updateIfExists } = req.body;
+
+        if (!notificationUrl) {
+            return res.status(400).json({
+                error: 'Missing required field: notificationUrl'
+            });
+        }
+
+        const subscription = await squareWebhooks.ensureWebhookSubscription(merchantId, notificationUrl, {
+            eventTypes,
+            updateIfExists
+        });
+
+        res.json({
+            success: true,
+            subscription,
+            message: subscription.created_at ?
+                'Webhook subscription already exists' :
+                'New webhook subscription created'
+        });
+    } catch (error) {
+        logger.error('Error ensuring webhook subscription', {
+            error: error.message,
+            merchantId: req.merchantContext?.id
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/webhooks/subscriptions/:subscriptionId
+ * Update an existing webhook subscription
+ *
+ * Body:
+ * - enabled: boolean (optional) - Enable/disable the subscription
+ * - eventTypes: string[] (optional) - Updated event types
+ * - notificationUrl: string (optional) - Updated notification URL
+ * - name: string (optional) - Updated name
+ */
+app.put('/api/webhooks/subscriptions/:subscriptionId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { subscriptionId } = req.params;
+        const { enabled, eventTypes, notificationUrl, name } = req.body;
+
+        const updates = {};
+        if (enabled !== undefined) updates.enabled = enabled;
+        if (eventTypes) updates.eventTypes = eventTypes;
+        if (notificationUrl) updates.notificationUrl = notificationUrl;
+        if (name) updates.name = name;
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({
+                error: 'No updates provided'
+            });
+        }
+
+        const subscription = await squareWebhooks.updateWebhookSubscription(
+            merchantId,
+            subscriptionId,
+            updates
+        );
+
+        logger.info('Webhook subscription updated', {
+            merchantId,
+            subscriptionId,
+            updates: Object.keys(updates)
+        });
+
+        res.json({
+            success: true,
+            subscription
+        });
+    } catch (error) {
+        logger.error('Error updating webhook subscription', {
+            error: error.message,
+            merchantId: req.merchantContext?.id,
+            subscriptionId: req.params.subscriptionId
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/webhooks/subscriptions/:subscriptionId
+ * Delete a webhook subscription
+ */
+app.delete('/api/webhooks/subscriptions/:subscriptionId', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { subscriptionId } = req.params;
+
+        await squareWebhooks.deleteWebhookSubscription(merchantId, subscriptionId);
+
+        logger.info('Webhook subscription deleted', {
+            merchantId,
+            subscriptionId
+        });
+
+        res.json({
+            success: true,
+            message: 'Webhook subscription deleted successfully'
+        });
+    } catch (error) {
+        logger.error('Error deleting webhook subscription', {
+            error: error.message,
+            merchantId: req.merchantContext?.id,
+            subscriptionId: req.params.subscriptionId
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/webhooks/subscriptions/:subscriptionId/test
+ * Send a test webhook event
+ */
+app.post('/api/webhooks/subscriptions/:subscriptionId/test', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { subscriptionId } = req.params;
+
+        const result = await squareWebhooks.testWebhookSubscription(merchantId, subscriptionId);
+
+        res.json({
+            success: true,
+            result,
+            message: 'Test webhook sent. Check your server logs for the received event.'
+        });
+    } catch (error) {
+        logger.error('Error testing webhook subscription', {
+            error: error.message,
+            merchantId: req.merchantContext?.id,
+            subscriptionId: req.params.subscriptionId
+        });
+        res.status(500).json({ error: error.message });
+    }
+});
+
 /**
  * POST /api/webhooks/square
  * Handle Square webhook events
@@ -9464,7 +9743,63 @@ app.post('/api/webhooks/square', async (req, res) => {
                 break;
 
             // ==================== PAYMENT WEBHOOKS ====================
-            // Process loyalty from payment.updated since order.* webhooks are unreliable (BETA)
+            // Process loyalty from payment events since order.* webhooks can be unreliable
+            case 'payment.created':
+                // New payment created - can be used for early loyalty tracking
+                if (!internalMerchantId) {
+                    logger.debug('Payment.created webhook - merchant not found, skipping');
+                    break;
+                }
+                try {
+                    const payment = data;
+                    logger.info('Payment created webhook received', {
+                        paymentId: payment.id,
+                        orderId: payment.order_id,
+                        status: payment.status,
+                        merchantId: internalMerchantId
+                    });
+
+                    // For payment.created, we log the event but wait for payment.updated (COMPLETED)
+                    // to process loyalty since the payment may not be finalized yet
+                    syncResults.paymentCreated = {
+                        paymentId: payment.id,
+                        orderId: payment.order_id,
+                        status: payment.status
+                    };
+
+                    // If payment is already COMPLETED (rare for .created), process immediately
+                    if (payment.status === 'COMPLETED' && payment.order_id) {
+                        // Fetch the full order from Square
+                        const squareClient = await getSquareClientForMerchant(internalMerchantId);
+                        const orderResponse = await squareClient.orders.get({
+                            orderId: payment.order_id
+                        });
+
+                        if (orderResponse.order && orderResponse.order.state === 'COMPLETED') {
+                            const order = orderResponse.order;
+                            const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, internalMerchantId);
+                            if (loyaltyResult.processed) {
+                                syncResults.loyalty = {
+                                    purchasesRecorded: loyaltyResult.purchasesRecorded.length,
+                                    customerId: loyaltyResult.customerId,
+                                    source: 'payment.created'
+                                };
+                                logger.info('Loyalty purchases recorded via payment.created webhook', {
+                                    orderId: order.id,
+                                    customerId: loyaltyResult.customerId,
+                                    purchases: loyaltyResult.purchasesRecorded.length
+                                });
+                            }
+                        }
+                    }
+                } catch (paymentErr) {
+                    logger.error('Error processing payment.created', {
+                        error: paymentErr.message,
+                        paymentId: data?.id
+                    });
+                }
+                break;
+
             case 'payment.updated':
                 if (!internalMerchantId) {
                     logger.debug('Payment webhook - merchant not found, skipping loyalty');
