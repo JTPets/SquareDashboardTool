@@ -477,6 +477,30 @@ SKU-003"></textarea>
     let currentCountIndex = null;
     let systemCount = 0;
 
+    // Calculate and display completion status
+    function updateCompletionDisplay(pending, dailyTarget) {
+      const el = document.getElementById('completion-rate');
+      if (dailyTarget <= 0) {
+        el.textContent = '0%';
+        return;
+      }
+
+      if (pending <= dailyTarget) {
+        // Normal case: show completion percentage
+        const completed = dailyTarget - pending;
+        const pct = Math.round((completed / dailyTarget) * 100);
+        el.textContent = `${pct}%`;
+      } else {
+        // Behind: show days behind instead of negative percentage
+        const daysBehind = Math.ceil(pending / dailyTarget) - 1;
+        if (daysBehind === 1) {
+          el.textContent = '1 day behind';
+        } else {
+          el.textContent = `${daysBehind} days behind`;
+        }
+      }
+    }
+
     // Load pending items on page load
     async function loadPendingItems(preserveScroll = false) {
       const container = document.getElementById('items-container');
@@ -508,8 +532,7 @@ SKU-003"></textarea>
         // Calculate completion
         const completed = Math.max(0, target - pendingItems.length);
         countedToday = completed;
-        const completionRate = target > 0 ? Math.round((completed / target) * 100) : 0;
-        document.getElementById('completion-rate').textContent = `${completionRate}%`;
+        updateCompletionDisplay(pendingItems.length, target);
 
         if (pendingItems.length === 0) {
           container.innerHTML = `
@@ -781,9 +804,7 @@ SKU-003"></textarea>
         countedToday++;
         const remaining = pendingItems.length;
         document.getElementById('pending-count').textContent = remaining;
-
-        const completionRate = target > 0 ? Math.round(((target - remaining) / target) * 100) : 0;
-        document.getElementById('completion-rate').textContent = `${completionRate}%`;
+        updateCompletionDisplay(remaining, target);
 
         // Show appropriate success/error message
         if (syncError) {
