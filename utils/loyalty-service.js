@@ -607,6 +607,166 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
     }
 }
 
+/**
+ * Look up customer by phone number or email from fulfillment recipient
+ * Used for Square Online orders where customer_id is not set but recipient info exists
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<string|null>} customer_id if found, null otherwise
+ */
+async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
+    try {
+        // Extract recipient info from fulfillments
+        const fulfillments = order.fulfillments || [];
+        if (fulfillments.length === 0) {
+            return null;
+        }
+
+        let phoneNumber = null;
+        let emailAddress = null;
+
+        for (const fulfillment of fulfillments) {
+            // Check delivery details
+            const deliveryDetails = fulfillment.delivery_details || fulfillment.deliveryDetails;
+            if (deliveryDetails?.recipient) {
+                phoneNumber = phoneNumber || deliveryDetails.recipient.phone_number || deliveryDetails.recipient.phoneNumber;
+                emailAddress = emailAddress || deliveryDetails.recipient.email_address || deliveryDetails.recipient.emailAddress;
+            }
+
+            // Check shipment details
+            const shipmentDetails = fulfillment.shipment_details || fulfillment.shipmentDetails;
+            if (shipmentDetails?.recipient) {
+                phoneNumber = phoneNumber || shipmentDetails.recipient.phone_number || shipmentDetails.recipient.phoneNumber;
+                emailAddress = emailAddress || shipmentDetails.recipient.email_address || shipmentDetails.recipient.emailAddress;
+            }
+
+            // Check pickup details (less common for online orders but possible)
+            const pickupDetails = fulfillment.pickup_details || fulfillment.pickupDetails;
+            if (pickupDetails?.recipient) {
+                phoneNumber = phoneNumber || pickupDetails.recipient.phone_number || pickupDetails.recipient.phoneNumber;
+                emailAddress = emailAddress || pickupDetails.recipient.email_address || pickupDetails.recipient.emailAddress;
+            }
+        }
+
+        if (!phoneNumber && !emailAddress) {
+            logger.debug('No recipient contact info found in fulfillments', { orderId: order.id });
+            return null;
+        }
+
+        logger.debug('Found recipient info in fulfillment', {
+            orderId: order.id,
+            hasPhone: !!phoneNumber,
+            hasEmail: !!emailAddress
+        });
+
+        // Get merchant's access token
+        const tokenResult = await db.query(
+            'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+            [merchantId]
+        );
+
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+            return null;
+        }
+
+        const rawToken = tokenResult.rows[0].square_access_token;
+        const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+        // Search for customer by phone number first (more reliable match)
+        if (phoneNumber) {
+            // Normalize phone number (remove non-digits, keep + for country code)
+            const normalizedPhone = phoneNumber.replace(/[^\d+]/g, '');
+
+            const searchResponse = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2025-01-16'
+                },
+                body: JSON.stringify({
+                    query: {
+                        filter: {
+                            phone_number: {
+                                exact: normalizedPhone
+                            }
+                        }
+                    },
+                    limit: 1
+                })
+            }, 10000);
+
+            if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                const customers = searchData.customers || [];
+
+                if (customers.length > 0) {
+                    const customerId = customers[0].id;
+                    logger.info('Found customer by phone number from fulfillment', {
+                        orderId: order.id,
+                        customerId,
+                        phoneNumber: normalizedPhone.slice(-4) // Log last 4 digits only
+                    });
+                    return customerId;
+                }
+            }
+        }
+
+        // Fallback: Search by email address
+        if (emailAddress) {
+            const searchResponse = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2025-01-16'
+                },
+                body: JSON.stringify({
+                    query: {
+                        filter: {
+                            email_address: {
+                                exact: emailAddress.toLowerCase()
+                            }
+                        }
+                    },
+                    limit: 1
+                })
+            }, 10000);
+
+            if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                const customers = searchData.customers || [];
+
+                if (customers.length > 0) {
+                    const customerId = customers[0].id;
+                    logger.info('Found customer by email from fulfillment', {
+                        orderId: order.id,
+                        customerId,
+                        email: emailAddress.replace(/(.{2}).*(@.*)/, '$1***$2') // Mask email
+                    });
+                    return customerId;
+                }
+            }
+        }
+
+        logger.debug('No matching customer found for fulfillment recipient', {
+            orderId: order.id,
+            hasPhone: !!phoneNumber,
+            hasEmail: !!emailAddress
+        });
+        return null;
+
+    } catch (error) {
+        logger.error('Error looking up customer from fulfillment', {
+            error: error.message,
+            orderId: order.id,
+            merchantId
+        });
+        return null;
+    }
+}
+
 // ============================================================================
 // REWARD STATE MACHINE CONSTANTS
 // ============================================================================
@@ -2259,17 +2419,33 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
     if (!squareCustomerId) {
         logger.debug('No customer_id on order or tenders, trying loyalty lookup by order_id', { orderId: order.id });
         squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId);
-        customerSource = 'loyalty_event_order_id';
-
-        if (!squareCustomerId) {
-            logger.debug('Order has no reliable customer identifier', { orderId: order.id });
-            return { processed: false, reason: 'no_customer' };
+        if (squareCustomerId) {
+            customerSource = 'loyalty_event_order_id';
+            logger.info('Found customer via loyalty API (order_id match)', {
+                orderId: order.id,
+                customerId: squareCustomerId
+            });
         }
+    }
 
-        logger.info('Found customer via loyalty API (order_id match)', {
-            orderId: order.id,
-            customerId: squareCustomerId
-        });
+    // Fallback 3: For web/online orders - lookup by fulfillment recipient phone/email
+    // Square Online orders often don't have customer_id but have recipient contact info
+    if (!squareCustomerId) {
+        logger.debug('Trying fulfillment recipient lookup for web order', { orderId: order.id });
+        squareCustomerId = await lookupCustomerFromFulfillmentRecipient(order, merchantId);
+        if (squareCustomerId) {
+            customerSource = 'fulfillment_recipient';
+            logger.info('Found customer via fulfillment recipient lookup (phone/email match)', {
+                orderId: order.id,
+                customerId: squareCustomerId
+            });
+        }
+    }
+
+    // No customer found through any method
+    if (!squareCustomerId) {
+        logger.debug('Order has no reliable customer identifier after all lookups', { orderId: order.id });
+        return { processed: false, reason: 'no_customer' };
     }
 
     const lineItems = order.line_items || [];
@@ -4253,6 +4429,7 @@ module.exports = {
     getCustomerLoyaltyHistory,
     getCustomerDetails,
     lookupCustomerFromLoyalty,
+    lookupCustomerFromFulfillmentRecipient,
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,
 
