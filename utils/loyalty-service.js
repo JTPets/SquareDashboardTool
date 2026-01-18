@@ -4060,14 +4060,25 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                 continue;
             }
 
-            // Verify customer matches
-            if (order.customer_id !== squareCustomerId) {
-                results.errors.push({ orderId, error: 'Customer ID mismatch' });
+            // Verify customer matches (or allow override for orders without customer_id)
+            const orderCustomerId = order.customer_id;
+            if (orderCustomerId && orderCustomerId !== squareCustomerId) {
+                results.errors.push({
+                    orderId,
+                    error: `Customer ID mismatch - order belongs to ${orderCustomerId.slice(0,8)}..., expected ${squareCustomerId.slice(0,8)}...`
+                });
                 continue;
             }
 
+            // If order has no customer_id, we'll assign it to this customer for loyalty purposes
+            // This is safe because admin manually selected this customer + order combo
+            const effectiveOrder = {
+                ...order,
+                customer_id: squareCustomerId  // Use the customer we're auditing
+            };
+
             // Process through normal loyalty flow
-            const loyaltyResult = await processOrderForLoyalty(order, merchantId);
+            const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId);
 
             results.processed.push({
                 orderId,
