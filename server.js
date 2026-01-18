@@ -10939,6 +10939,60 @@ app.get('/api/loyalty/customer/:customerId/rewards', requireAuth, requireMerchan
 });
 
 /**
+ * GET /api/loyalty/customer/:customerId/audit-history
+ * Get 91-day order history for manual loyalty audit
+ * Returns orders with qualifying/non-qualifying items analysis
+ */
+app.get('/api/loyalty/customer/:customerId/audit-history', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const customerId = req.params.customerId;
+        const days = parseInt(req.query.days) || 91;
+
+        const result = await loyaltyService.getCustomerOrderHistoryForAudit({
+            squareCustomerId: customerId,
+            merchantId,
+            periodDays: days
+        });
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Error fetching customer audit history', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/customer/:customerId/add-orders
+ * Add selected orders to loyalty tracking (manual backfill for specific customer)
+ */
+app.post('/api/loyalty/customer/:customerId/add-orders', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const customerId = req.params.customerId;
+        const { orderIds } = req.body;
+
+        if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+            return res.status(400).json({ error: 'orderIds array is required' });
+        }
+
+        const result = await loyaltyService.addOrdersToLoyaltyTracking({
+            squareCustomerId: customerId,
+            merchantId,
+            orderIds
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        logger.error('Error adding orders to loyalty tracking', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * POST /api/loyalty/rewards/:rewardId/redeem
  * Redeem a loyalty reward
  * BUSINESS RULE: Full redemption only - one reward = one free unit
