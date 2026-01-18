@@ -12830,7 +12830,8 @@ app.post('/api/loyalty/manual-entry', requireAuth, requireMerchant, requireWrite
             quantity: qty,
             unitPriceCents: 0,  // Unknown for manual entry
             purchasedAt: purchasedAt || new Date(),
-            squareLocationId: null
+            squareLocationId: null,
+            customerSource: 'manual'
         });
 
         if (!result.processed) {

@@ -1798,10 +1798,21 @@
           statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Items</span>';
         }
 
-        // Customer ID indicator
+        // Customer ID indicator - show how we linked to the customer
         let custIdBadge = '';
-        if (custIdMatch === 'none') {
-          custIdBadge = '<span style="font-size: 9px; color: #f59e0b;" title="Order has no customer_id">⚠️ No CustID</span>';
+        if (isTracked) {
+          // Show how we connected this order to the customer
+          const sourceLabels = {
+            'order': { icon: '✓', text: 'Direct', title: 'Customer ID was on the order' },
+            'tender': { icon: '💳', text: 'Payment', title: 'Found via payment tender' },
+            'loyalty_api': { icon: '🔗', text: 'Loyalty', title: 'Linked via Square Loyalty API' },
+            'manual': { icon: '✏️', text: 'Manual', title: 'Manually added by admin' }
+          };
+          // Default to 'order' for legacy records without customer_source
+          const source = sourceLabels[order.customerSource] || sourceLabels['order'];
+          custIdBadge = `<span style="font-size: 9px; color: #059669;" title="${source.title}">${source.icon} ${source.text}</span>`;
+        } else if (custIdMatch === 'none') {
+          custIdBadge = '<span style="font-size: 9px; color: #f59e0b;" title="Order has no customer_id - will be linked via Loyalty API if added">⚠️ No CustID</span>';
         } else if (custIdMatch === 'mismatch') {
           custIdBadge = `<span style="font-size: 9px; color: #dc2626;" title="Order customer: ${orderCustId}">❌ Wrong CustID</span>`;
         }
