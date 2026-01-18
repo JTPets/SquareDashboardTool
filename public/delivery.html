@@ -682,11 +682,11 @@
     function updateStats(stats) {
       // Handle undefined stats (e.g., if stats endpoint failed)
       if (!stats) {
-        stats = { byStatus: {}, completedLast7Days: 0 };
+        stats = { byStatus: {}, completedToday: 0 };
       }
       document.getElementById('statPending').textContent = stats.byStatus?.pending || 0;
       document.getElementById('statActive').textContent = stats.byStatus?.active || 0;
-      document.getElementById('statCompleted').textContent = stats.completedLast7Days || 0;
+      document.getElementById('statCompleted').textContent = stats.completedToday || 0;
 
       // Count orders needing geocode
       const needsGeocode = orders.pending.filter(o => !o.geocoded_at).length;
