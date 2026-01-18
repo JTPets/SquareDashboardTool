@@ -32,6 +32,33 @@ function getSquareApi() {
 }
 
 /**
+ * Fetch with timeout wrapper to prevent hanging on Square API calls
+ * @param {string} url - URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {number} timeoutMs - Timeout in milliseconds (default 15000)
+ * @returns {Promise<Response>} Fetch response
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+    }
+}
+
+/**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
  * This avoids making individual API calls per order during backfill
  *
@@ -1401,16 +1428,15 @@ async function updateRewardProgress(client, data) {
             hasActiveRewards: true
         }).catch(err => logger.debug('Failed to update customer stats', { error: err.message }));
 
-        // Create Square Customer Group Discount SYNCHRONOUSLY
-        // This ensures the discount is created before we return success
-        // Errors are logged but don't fail the transaction - manual sync available as fallback
-        try {
-            const squareResult = await createSquareCustomerGroupDiscount({
-                merchantId,
-                squareCustomerId,
-                internalRewardId: reward.id,
-                offerId
-            });
+        // Create Square Customer Group Discount ASYNCHRONOUSLY (fire and forget)
+        // This prevents timeout issues when processing multiple rewards
+        // Errors are logged - manual sync available via Settings if needed
+        createSquareCustomerGroupDiscount({
+            merchantId,
+            squareCustomerId,
+            internalRewardId: reward.id,
+            offerId
+        }).then(squareResult => {
             if (squareResult.success) {
                 logger.info('Square discount created for earned reward', {
                     merchantId,
@@ -1426,14 +1452,14 @@ async function updateRewardProgress(client, data) {
                     reason: squareResult.error
                 });
             }
-        } catch (err) {
+        }).catch(err => {
             // Log error but don't fail - reward is earned, can be synced manually
             logger.error('Error creating Square discount - manual sync required', {
                 error: err.message,
                 merchantId,
                 rewardId: reward.id
             });
-        }
+        });
     }
 
     // Update customer summary
@@ -2631,7 +2657,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
         // Create a unique group name for this specific reward
         const groupName = `FBP Reward #${internalRewardId}: ${offerName}`.substring(0, 255);
 
-        const response = await fetch('https://connect.squareup.com/v2/customers/groups', {
+        const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/groups', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -2644,7 +2670,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
                 },
                 idempotency_key: `fbp-group-${internalRewardId}-${Date.now()}`
             })
-        });
+        }, 10000); // 10 second timeout
 
         if (!response.ok) {
             const errText = await response.text();
@@ -2690,7 +2716,7 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
             return { success: false, error: 'No access token available' };
         }
 
-        const response = await fetch(
+        const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
             {
                 method: 'PUT',
@@ -2699,7 +2725,8 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
                     'Content-Type': 'application/json',
                     'Square-Version': '2025-01-16'
                 }
-            }
+            },
+            10000 // 10 second timeout
         );
 
         if (!response.ok) {
@@ -2744,7 +2771,7 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
             return { success: false, error: 'No access token available' };
         }
 
-        const response = await fetch(
+        const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
             {
                 method: 'DELETE',
@@ -2753,7 +2780,8 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
                     'Content-Type': 'application/json',
                     'Square-Version': '2025-01-16'
                 }
-            }
+            },
+            10000 // 10 second timeout
         );
 
         if (!response.ok && response.status !== 404) {
@@ -2797,7 +2825,7 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
             return { success: false, error: 'No access token available' };
         }
 
-        const response = await fetch(
+        const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/groups/${groupId}`,
             {
                 method: 'DELETE',
@@ -2806,7 +2834,8 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
                     'Content-Type': 'application/json',
                     'Square-Version': '2025-01-16'
                 }
-            }
+            },
+            10000 // 10 second timeout
         );
 
         if (!response.ok && response.status !== 404) {
@@ -2947,7 +2976,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             }
         ];
 
-        const response = await fetch('https://connect.squareup.com/v2/catalog/batch-upsert', {
+        const response = await fetchWithTimeout('https://connect.squareup.com/v2/catalog/batch-upsert', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -2960,7 +2989,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     objects: catalogObjects
                 }]
             })
-        });
+        }, 20000); // 20 second timeout for catalog operations
 
         if (!response.ok) {
             const errText = await response.text();
@@ -3027,25 +3056,31 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
         for (const objectId of objectIds) {
             if (!objectId) continue;
 
-            const response = await fetch(
-                `https://connect.squareup.com/v2/catalog/object/${objectId}`,
-                {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
-                    }
-                }
-            );
+            try {
+                const response = await fetchWithTimeout(
+                    `https://connect.squareup.com/v2/catalog/object/${objectId}`,
+                    {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                            'Square-Version': '2025-01-16'
+                        }
+                    },
+                    10000 // 10 second timeout
+                );
 
-            if (!response.ok && response.status !== 404) {
-                logger.warn('Failed to delete catalog object', {
-                    objectId,
-                    status: response.status
-                });
+                if (!response.ok && response.status !== 404) {
+                    logger.warn('Failed to delete catalog object', {
+                        objectId,
+                        status: response.status
+                    });
+                }
+                results.push({ objectId, deleted: response.ok || response.status === 404 });
+            } catch (timeoutErr) {
+                logger.warn('Timeout deleting catalog object', { objectId, error: timeoutErr.message });
+                results.push({ objectId, deleted: false, error: timeoutErr.message });
             }
-            results.push({ objectId, deleted: response.ok || response.status === 404 });
         }
 
         logger.info('Deleted reward discount objects', { merchantId, results });
@@ -4038,14 +4073,14 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                 continue;
             }
 
-            // Fetch order from Square
-            const response = await fetch(`https://connect.squareup.com/v2/orders/${orderId}`, {
+            // Fetch order from Square with timeout
+            const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
                     'Square-Version': '2025-01-16'
                 }
-            });
+            }, 10000); // 10 second timeout per order
 
             if (!response.ok) {
                 const errorData = await response.json();
