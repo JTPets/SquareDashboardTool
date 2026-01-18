@@ -3413,5 +3413,6 @@ module.exports = {
     updateVariationCost,
     // Utility functions (for expiry discount module)
     generateIdempotencyKey,
-    makeSquareRequest
+    makeSquareRequest,
+    getMerchantToken
 };
