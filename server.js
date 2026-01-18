@@ -9077,8 +9077,12 @@ app.post('/api/webhooks/subscriptions/:subscriptionId/test', requireAuth, requir
  * Catalog & Inventory Events (feature-flagged):
  *   - catalog.version.updated  → WEBHOOK_CATALOG_SYNC
  *   - inventory.count.updated  → WEBHOOK_INVENTORY_SYNC
- *   - order.created/updated    → WEBHOOK_ORDER_SYNC (syncs committed inventory)
- *   - order.fulfillment.updated → WEBHOOK_ORDER_SYNC (syncs committed + sales velocity)
+ *   - order.created/updated    → WEBHOOK_ORDER_SYNC (syncs committed inventory + delivery ingestion)
+ *   - order.fulfillment.updated → WEBHOOK_ORDER_SYNC (syncs committed + sales velocity + delivery status)
+ *
+ * Delivery Scheduler Events:
+ *   - order.created/updated with DELIVERY/SHIPMENT fulfillment → auto-ingests to delivery queue
+ *   - order.fulfillment.updated (COMPLETED/CANCELED/FAILED) → updates delivery order status
  *
  * OAuth Events:
  *   - oauth.authorization.revoked → Logs warning, requires re-auth
@@ -9575,6 +9579,61 @@ app.post('/api/webhooks/square', async (req, res) => {
                             await squareApi.syncSalesVelocity(91, internalMerchantId);
                             syncResults.salesVelocity = true;
                             logger.info('Sales velocity sync completed via fulfillment webhook');
+                        }
+
+                        // DELIVERY SCHEDULER: Update delivery order status based on fulfillment state
+                        // This handles state transitions: PROPOSED → RESERVED → PREPARED → COMPLETED/CANCELED
+                        if (data.order_id && fulfillment?.state) {
+                            try {
+                                const squareOrderId = data.order_id;
+                                const fulfillmentState = fulfillment.state;
+                                const fulfillmentType = fulfillment.type;
+
+                                // Only process delivery/shipment fulfillments
+                                if (fulfillmentType === 'DELIVERY' || fulfillmentType === 'SHIPMENT') {
+                                    // Use handleSquareOrderUpdate for COMPLETED/CANCELED states
+                                    if (fulfillmentState === 'COMPLETED' || fulfillmentState === 'CANCELED') {
+                                        await deliveryApi.handleSquareOrderUpdate(
+                                            internalMerchantId,
+                                            squareOrderId,
+                                            fulfillmentState
+                                        );
+                                        syncResults.deliveryUpdate = {
+                                            orderId: squareOrderId,
+                                            fulfillmentState,
+                                            action: fulfillmentState === 'COMPLETED' ? 'marked_completed' : 'removed'
+                                        };
+                                        logger.info('Delivery order updated via fulfillment webhook', {
+                                            squareOrderId,
+                                            fulfillmentState,
+                                            merchantId: internalMerchantId
+                                        });
+                                    } else if (fulfillmentState === 'FAILED') {
+                                        // Handle failed fulfillments same as canceled
+                                        await deliveryApi.handleSquareOrderUpdate(
+                                            internalMerchantId,
+                                            squareOrderId,
+                                            'CANCELED'
+                                        );
+                                        syncResults.deliveryUpdate = {
+                                            orderId: squareOrderId,
+                                            fulfillmentState: 'FAILED',
+                                            action: 'removed'
+                                        };
+                                        logger.info('Failed delivery order removed via fulfillment webhook', {
+                                            squareOrderId,
+                                            merchantId: internalMerchantId
+                                        });
+                                    }
+                                }
+                            } catch (deliveryError) {
+                                // Log but don't fail the webhook for delivery errors
+                                logger.warn('Delivery order update via fulfillment webhook failed', {
+                                    error: deliveryError.message,
+                                    orderId: data.order_id
+                                });
+                                syncResults.deliveryError = deliveryError.message;
+                            }
                         }
                     } catch (syncError) {
                         logger.error('Fulfillment sync via webhook failed', { error: syncError.message });
