@@ -3609,12 +3609,23 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - periodDays);
 
+    // Get merchant's location IDs (required for Square Orders Search API)
+    const locationsResult = await db.query(`
+        SELECT square_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE
+    `, [merchantId]);
+    const locationIds = locationsResult.rows.map(r => r.square_id);
+
+    if (locationIds.length === 0) {
+        throw new Error('No active locations found for merchant');
+    }
+
     // Fetch orders from Square
     const orders = [];
     let cursor = null;
 
     do {
         const requestBody = {
+            location_ids: locationIds,
             query: {
                 filter: {
                     customer_filter: {
