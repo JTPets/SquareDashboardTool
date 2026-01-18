@@ -1283,7 +1283,9 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
  *                                   e.g., maxPeriod=182 fetches 182d and calculates 91d + 182d
  * @returns {Promise<Object>} Summary with counts for each period synced { '91d': count, '182d': count, ... }
  */
-async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365) {
+async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options = {}) {
+    const { loyaltyBackfill = false } = options;  // Disabled by default - use manual customer audit instead
+
     const ALL_PERIODS = [91, 182, 365];
     // Only sync periods up to maxPeriod
     const PERIODS = ALL_PERIODS.filter(p => p <= maxPeriod);
@@ -1293,14 +1295,27 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365) {
         periods: PERIODS,
         maxPeriod: MAX_PERIOD,
         merchantId,
+        loyaltyBackfill,
         optimization: `single fetch for ${PERIODS.length} period(s)`
     });
+
+    // Lazy-load loyalty service to avoid circular dependency
+    let loyaltyService = null;
+    if (loyaltyBackfill) {
+        try {
+            loyaltyService = require('./loyalty-service');
+        } catch (err) {
+            logger.warn('Could not load loyalty-service for backfill', { error: err.message });
+        }
+    }
 
     // Initialize summary with only the periods we're syncing
     const summary = {
         ordersProcessed: 0,
         apiCallsSaved: 0,
-        periodssynced: PERIODS
+        periodssynced: PERIODS,
+        loyaltyOrdersChecked: 0,
+        loyaltyOrdersBackfilled: 0
     };
     for (const days of PERIODS) {
         summary[`${days}d`] = 0;
@@ -1380,6 +1395,24 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365) {
             // Process each order and assign to appropriate periods based on closed_at date
             for (const order of orders) {
                 if (!order.line_items) continue;
+
+                // LOYALTY BACKFILL HOOK: Process order for loyalty if not already done
+                // Order history is append-only, so we only need to process each order once
+                if (loyaltyService && order.customer_id) {
+                    try {
+                        summary.loyaltyOrdersChecked++;
+                        const loyaltyResult = await loyaltyService.processOrderForLoyaltyIfNeeded(order, merchantId);
+                        if (loyaltyResult.processed) {
+                            summary.loyaltyOrdersBackfilled++;
+                        }
+                    } catch (loyaltyErr) {
+                        // Non-fatal - log and continue with velocity sync
+                        logger.warn('Loyalty backfill failed for order', {
+                            orderId: order.id,
+                            error: loyaltyErr.message
+                        });
+                    }
+                }
 
                 const orderClosedAt = new Date(order.closed_at);
 
