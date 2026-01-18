@@ -133,22 +133,50 @@
 
 ## Webhooks - Current vs Planned
 
-### Currently Implemented
+### Currently Implemented ✅
 ```
-POST /api/webhooks/square
-├── subscription.created    → Create subscriber record
-├── subscription.updated    → Update subscription status
-├── payment.created         → Record payment
-├── payment.failed          → Log failure, alert
-└── customer.deleted        → Cancel subscriptions
+POST /api/webhooks/square (21 event types handled)
+
+ESSENTIAL - Core Features:
+├── order.created              → Delivery ingestion, loyalty tracking, committed inventory
+├── order.updated              → Order changes, delivery updates, loyalty
+├── order.fulfillment.updated  → Delivery status sync, sales velocity
+├── catalog.version.updated    → Catalog sync (items, prices, variations)
+├── inventory.count.updated    → Real-time inventory updates
+└── oauth.authorization.revoked → Security - app disconnection
+
+LOYALTY - Frequent Buyer:
+├── loyalty.event.created      → Late-linked orders via loyalty card
+├── payment.created            → Payment tracking for loyalty
+└── payment.updated            → Payment completion triggers loyalty
+
+REFUNDS:
+├── refund.created             → Refund processing for loyalty
+└── refund.updated             → Refund status changes
+
+VENDORS & LOCATIONS:
+├── vendor.created             → New vendors
+├── vendor.updated             → Vendor changes
+├── location.created           → New locations
+└── location.updated           → Location changes
+
+SUBSCRIPTIONS:
+├── subscription.created       → Create subscriber record
+├── subscription.updated       → Update subscription status
+├── invoice.payment_made       → Record payment, activate subscription
+├── invoice.payment_failed     → Mark past_due, log failure
+└── customer.deleted           → Cancel subscriptions
+
+CUSTOMERS:
+└── customer.updated           → Sync notes to delivery orders
 ```
 
-### Planned Additions (Low Risk)
+### Previously Planned (Now Implemented)
 ```
-catalog.version.updated     → Trigger catalog sync
-inventory.count.updated     → Update local inventory
-order.created               → Update sales data
-order.fulfilled             → Update sales velocity
+catalog.version.updated     ✅ Triggers catalog sync
+inventory.count.updated     ✅ Updates local inventory
+order.created               ✅ Updates sales data, delivery, loyalty
+order.fulfilled             ✅ Updates sales velocity
 ```
 
 ### Implementation Risk Assessment
@@ -198,15 +226,41 @@ case 'order.fulfilled':
     break;
 ```
 
-### Phase 2: Add Webhook Registration Endpoint (30 min)
-Create endpoint to register webhooks with Square:
+### Phase 2: Webhook Registration Endpoint ✅ IMPLEMENTED
+Webhook registration and management is now available via the following endpoints:
 
 ```javascript
+// List all webhook subscriptions
+GET /api/webhooks/subscriptions
+
+// Audit current configuration against recommended event types
+GET /api/webhooks/subscriptions/audit
+
+// Get available event types and categories
+GET /api/webhooks/event-types
+
+// Register a new webhook subscription
 POST /api/webhooks/register
-// Creates webhook subscription in Square Dashboard
+// Body: { notificationUrl, eventTypes?, name? }
+
+// Ensure subscription exists (create if missing)
+POST /api/webhooks/ensure
+// Body: { notificationUrl, eventTypes?, updateIfExists? }
+
+// Update a subscription
+PUT /api/webhooks/subscriptions/:subscriptionId
+// Body: { enabled?, eventTypes?, notificationUrl?, name? }
+
+// Delete a subscription
+DELETE /api/webhooks/subscriptions/:subscriptionId
+
+// Test a subscription
+POST /api/webhooks/subscriptions/:subscriptionId/test
 ```
 
-### Phase 3: Add Admin UI (Optional, 1 hr)
+Utility module: `utils/square-webhooks.js`
+
+### Phase 3: Add Admin UI (Optional)
 - Settings page to enable/disable webhook types
 - View webhook history
 - Test webhook connectivity
