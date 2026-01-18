@@ -10678,13 +10678,13 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
         // Get today's route info
         const activeRoute = await deliveryApi.getActiveRoute(merchantId, today);
 
-        // Get recent completions
-        const recentCompletions = await db.query(`
+        // Get today's completions
+        const todayCompletions = await db.query(`
             SELECT COUNT(*) as count
             FROM delivery_orders
             WHERE merchant_id = $1
               AND status = 'completed'
-              AND updated_at >= NOW() - INTERVAL '7 days'
+              AND updated_at::date = CURRENT_DATE
         `, [merchantId]);
 
         res.json({
@@ -10699,7 +10699,7 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
                     completedStops: activeRoute.completed_count,
                     skippedStops: activeRoute.skipped_count
                 } : null,
-                completedLast7Days: parseInt(recentCompletions.rows[0]?.count || 0)
+                completedToday: parseInt(todayCompletions.rows[0]?.count || 0)
             }
         });
     } catch (error) {
