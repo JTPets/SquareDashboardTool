@@ -1148,12 +1148,14 @@ async function getOfferForVariation(variationId, merchantId) {
  * @param {Date} purchaseData.purchasedAt - Purchase timestamp
  * @param {string} [purchaseData.squareLocationId] - Square location ID
  * @param {string} [purchaseData.receiptUrl] - Square receipt URL from tender
+ * @param {string} [purchaseData.customerSource] - How customer was identified: order, tender, loyalty_api, or manual
  * @returns {Promise<Object>} Processing result
  */
 async function processQualifyingPurchase(purchaseData) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
-        quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl
+        quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl,
+        customerSource = 'order'
     } = purchaseData;
 
     if (!merchantId) {
@@ -1228,16 +1230,16 @@ async function processQualifyingPurchase(purchaseData) {
                 merchant_id, offer_id, square_customer_id, square_order_id,
                 square_location_id, variation_id, quantity, unit_price_cents,
                 purchased_at, window_start_date, window_end_date,
-                is_refund, idempotency_key, receipt_url
+                is_refund, idempotency_key, receipt_url, customer_source
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
             squareLocationId, variationId, quantity, unitPriceCents,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
-            false, idempotencyKey, receiptUrl || null
+            false, idempotencyKey, receiptUrl || null, customerSource
         ]);
 
         const purchaseEvent = eventResult.rows[0];
@@ -2185,8 +2187,10 @@ async function processOrderForLoyaltyIfNeeded(order, merchantId) {
  *
  * @param {Object} order - Square order object from webhook
  * @param {number} merchantId - Internal merchant ID
+ * @param {Object} [options] - Optional parameters
+ * @param {string} [options.customerSourceOverride] - Override customer source (e.g., 'manual' for admin-added orders)
  */
-async function processOrderForLoyalty(order, merchantId) {
+async function processOrderForLoyalty(order, merchantId, options = {}) {
     if (!merchantId) {
         throw new Error('merchantId is required - tenant isolation required');
     }
@@ -2201,7 +2205,7 @@ async function processOrderForLoyalty(order, merchantId) {
     // RELIABLE CUSTOMER IDENTIFICATION - Only use trustworthy identifiers
     // Priority order: order.customer_id > tenders.customer_id > loyalty event by order_id
     let squareCustomerId = order.customer_id;
-    let customerSource = 'order.customer_id';
+    let customerSource = options.customerSourceOverride || 'order.customer_id';
 
     // Fallback 1: Check tenders for customer_id (some POS workflows attach customer to payment)
     if (!squareCustomerId && order.tenders && order.tenders.length > 0) {
@@ -2385,6 +2389,11 @@ async function processOrderForLoyalty(order, merchantId) {
             }
 
             // Process the purchase (item was paid for, not free)
+            // Map customerSource to shorter DB values: order.customer_id -> order, tender.customer_id -> tender, loyalty_event_order_id -> loyalty_api
+            const dbCustomerSource = customerSource === 'order.customer_id' ? 'order'
+                : customerSource === 'tender.customer_id' ? 'tender'
+                : customerSource === 'loyalty_event_order_id' ? 'loyalty_api'
+                : 'order';
             const purchaseResult = await processQualifyingPurchase({
                 merchantId,
                 squareOrderId: order.id,
@@ -2394,7 +2403,8 @@ async function processOrderForLoyalty(order, merchantId) {
                 unitPriceCents,
                 purchasedAt: order.created_at || new Date(),
                 squareLocationId: order.location_id,
-                receiptUrl
+                receiptUrl,
+                customerSource: dbCustomerSource
             });
 
             if (purchaseResult.processed) {
@@ -3849,13 +3859,15 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
         }
     }
 
-    // Get orders already tracked for this customer
+    // Get orders already tracked for this customer (including customer_source for display)
     const trackedOrdersResult = await db.query(`
-        SELECT DISTINCT square_order_id
+        SELECT DISTINCT ON (square_order_id) square_order_id, customer_source
         FROM loyalty_purchase_events
         WHERE merchant_id = $1 AND square_customer_id = $2
+        ORDER BY square_order_id, created_at ASC
     `, [merchantId, squareCustomerId]);
     const trackedOrderIds = new Set(trackedOrdersResult.rows.map(r => r.square_order_id));
+    const trackedOrderSources = new Map(trackedOrdersResult.rows.map(r => [r.square_order_id, r.customer_source]));
 
     // Get customer's current loyalty status
     const rewardsResult = await db.query(`
@@ -3999,6 +4011,7 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
         analyzedOrders.push({
             orderId: order.id,
             orderCustomerId: order.customer_id || null,  // Show actual customer_id on order
+            customerSource: isAlreadyTracked ? trackedOrderSources.get(order.id) : null,  // How we linked to customer
             closedAt: order.closed_at,
             locationId: order.location_id,
             receiptUrl,
@@ -4116,8 +4129,8 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                 customer_id: squareCustomerId  // Use the customer we're auditing
             };
 
-            // Process through normal loyalty flow
-            const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId);
+            // Process through normal loyalty flow, marking as 'manual' since admin added it
+            const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId, { customerSourceOverride: 'manual' });
 
             results.processed.push({
                 orderId,
