@@ -1600,9 +1600,111 @@
       const container = document.getElementById('audit-orders-container');
       const summaryDiv = document.getElementById('audit-summary');
 
+      // Calculate offer breakdown from all orders
+      const offerBreakdown = {};
+      let totalFreeSkipped = 0;
+
+      for (const order of data.orders) {
+        // Count qualifying items by offer
+        for (const item of order.qualifyingItems) {
+          const offerName = item.offer?.name || 'Unknown Offer';
+          if (!offerBreakdown[offerName]) {
+            offerBreakdown[offerName] = {
+              earned: 0,
+              canAdd: 0,
+              freeSkipped: 0,
+              offerId: item.offer?.id
+            };
+          }
+          if (order.isAlreadyTracked) {
+            offerBreakdown[offerName].earned += item.quantity;
+          } else {
+            offerBreakdown[offerName].canAdd += item.quantity;
+          }
+        }
+
+        // Count free/skipped items
+        for (const item of order.nonQualifyingItems || []) {
+          if (item.skipReason === 'free_item') {
+            totalFreeSkipped += item.quantity;
+            // Try to match to an offer by checking if there's a matching variation
+            const offerName = item.offer?.name || 'Free Items (No Credit)';
+            if (!offerBreakdown[offerName]) {
+              offerBreakdown[offerName] = { earned: 0, canAdd: 0, freeSkipped: 0 };
+            }
+            offerBreakdown[offerName].freeSkipped += item.quantity;
+          }
+        }
+      }
+
+      // Build reward status from currentRewards
+      const rewardStatus = {};
+      for (const reward of data.currentRewards || []) {
+        const offerName = reward.offer_name;
+        if (!rewardStatus[offerName]) {
+          rewardStatus[offerName] = { inProgress: 0, earned: 0, redeemed: 0, required: reward.required_quantity };
+        }
+        if (reward.status === 'in_progress') {
+          rewardStatus[offerName].inProgress = reward.current_quantity;
+        } else if (reward.status === 'earned') {
+          rewardStatus[offerName].earned++;
+        } else if (reward.status === 'redeemed') {
+          rewardStatus[offerName].redeemed++;
+        }
+      }
+
+      // Build offer breakdown HTML
+      let offerBreakdownHtml = '';
+      const offerNames = Object.keys(offerBreakdown);
+      if (offerNames.length > 0) {
+        offerBreakdownHtml = `
+          <div style="margin-top: 15px; background: #f8fafc; padding: 12px; border-radius: 8px;">
+            <div style="font-weight: 600; margin-bottom: 10px; font-size: 13px;">📊 Offer Unit Breakdown (91 Days)</div>
+            <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #e2e8f0;">
+                  <th style="padding: 6px; text-align: left;">Offer</th>
+                  <th style="padding: 6px; text-align: center; color: #10b981;">✓ Earned</th>
+                  <th style="padding: 6px; text-align: center; color: #f59e0b;">+ Can Add</th>
+                  <th style="padding: 6px; text-align: center; color: #ef4444;">🎁 Free (No Credit)</th>
+                  <th style="padding: 6px; text-align: center; color: #8b5cf6;">🎉 Rewards</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${offerNames.map(name => {
+                  const b = offerBreakdown[name];
+                  const r = rewardStatus[name] || { inProgress: 0, earned: 0, redeemed: 0, required: '?' };
+                  const rewardText = [];
+                  if (r.inProgress > 0) rewardText.push(`${r.inProgress}/${r.required} in progress`);
+                  if (r.earned > 0) rewardText.push(`${r.earned} ready`);
+                  if (r.redeemed > 0) rewardText.push(`${r.redeemed} redeemed`);
+                  return `
+                    <tr style="border-bottom: 1px solid #e2e8f0;">
+                      <td style="padding: 6px; font-weight: 500;">${escapeHtml(name)}</td>
+                      <td style="padding: 6px; text-align: center; color: #10b981; font-weight: 600;">${b.earned || '-'}</td>
+                      <td style="padding: 6px; text-align: center; color: #f59e0b; font-weight: 600;">${b.canAdd || '-'}</td>
+                      <td style="padding: 6px; text-align: center; color: #ef4444;">${b.freeSkipped || '-'}</td>
+                      <td style="padding: 6px; text-align: center; font-size: 11px; color: #6b7280;">
+                        ${rewardText.length > 0 ? rewardText.join(', ') : '-'}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+            <div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
+              <strong>Legend:</strong>
+              ✓ Earned = Already counted toward loyalty |
+              + Can Add = Missed items you can add |
+              🎁 Free = 100% discounted (no loyalty credit)
+            </div>
+          </div>
+        `;
+      }
+
       // Show summary
       summaryDiv.innerHTML = `
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; text-align: center;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; text-align: center;">
           <div>
             <div style="font-size: 20px; font-weight: 700; color: #2563eb;">${data.summary.totalOrders}</div>
             <div style="font-size: 11px; color: #6b7280;">Total Orders</div>
@@ -1619,10 +1721,15 @@
             <div style="font-size: 20px; font-weight: 700; color: #8b5cf6;">${data.summary.totalQualifyingQtyAvailable}</div>
             <div style="font-size: 11px; color: #6b7280;">Qualifying Items</div>
           </div>
+          <div>
+            <div style="font-size: 20px; font-weight: 700; color: #ef4444;">${totalFreeSkipped}</div>
+            <div style="font-size: 11px; color: #6b7280;">Free (No Credit)</div>
+          </div>
         </div>
         <div style="margin-top: 10px; font-size: 11px; color: #6b7280; text-align: center;">
           Period: ${new Date(data.dateRange.start).toLocaleDateString()} - ${new Date(data.dateRange.end).toLocaleDateString()}
         </div>
+        ${offerBreakdownHtml}
       `;
 
       if (data.orders.length === 0) {
@@ -1644,6 +1751,7 @@
               <th style="width: 30px;"></th>
               <th>Date</th>
               <th>Qualifying Items</th>
+              <th>Free/Skipped</th>
               <th>Qty</th>
               <th>Status</th>
               <th>Receipt</th>
@@ -1660,18 +1768,28 @@
         // Build qualifying items list
         const qualifyingList = order.qualifyingItems.length > 0
           ? order.qualifyingItems.map(item =>
-              `<span style="display: inline-block; background: #dbeafe; padding: 2px 6px; border-radius: 3px; margin: 1px;">${escapeHtml(item.name)} (${item.quantity})</span>`
+              `<span style="display: inline-block; background: #dbeafe; padding: 2px 6px; border-radius: 3px; margin: 1px;" title="${escapeHtml(item.offer?.name || '')}">${escapeHtml(item.name)} (${item.quantity})</span>`
             ).join(' ')
           : '<span style="color: #9ca3af;">None</span>';
+
+        // Build free/skipped items list
+        const freeItems = (order.nonQualifyingItems || []).filter(i => i.skipReason === 'free_item');
+        const freeList = freeItems.length > 0
+          ? freeItems.map(item =>
+              `<span style="display: inline-block; background: #fee2e2; padding: 2px 6px; border-radius: 3px; margin: 1px;" title="100% discounted - no loyalty credit">🎁 ${escapeHtml(item.name)} (${item.quantity})</span>`
+            ).join(' ')
+          : '<span style="color: #9ca3af;">-</span>';
 
         // Status badge
         let statusBadge = '';
         if (isTracked) {
-          statusBadge = '<span class="status-badge earned" style="font-size: 10px;">Already Tracked</span>';
+          statusBadge = '<span class="status-badge earned" style="font-size: 10px;">✓ Tracked</span>';
         } else if (canAdd) {
-          statusBadge = '<span class="status-badge in_progress" style="font-size: 10px;">Can Add</span>';
+          statusBadge = '<span class="status-badge in_progress" style="font-size: 10px;">+ Can Add</span>';
+        } else if (freeItems.length > 0) {
+          statusBadge = '<span class="status-badge" style="font-size: 10px; background: #fee2e2; color: #dc2626;">🎁 Free Only</span>';
         } else {
-          statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Qualifying Items</span>';
+          statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Items</span>';
         }
 
         html += `
@@ -1687,7 +1805,8 @@
             </td>
             <td>${new Date(order.closedAt).toLocaleDateString()}<br>
                 <small style="color: #6b7280;">${new Date(order.closedAt).toLocaleTimeString()}</small></td>
-            <td style="max-width: 300px;">${qualifyingList}</td>
+            <td style="max-width: 250px;">${qualifyingList}</td>
+            <td style="max-width: 150px;">${freeList}</td>
             <td style="text-align: center; font-weight: 600;">${order.totalQualifyingQty}</td>
             <td>${statusBadge}</td>
             <td>
