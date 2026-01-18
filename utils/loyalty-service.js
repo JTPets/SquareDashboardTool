@@ -1969,8 +1969,56 @@ async function processOrderForLoyalty(order, merchantId) {
         customerId: squareCustomerId,
         customerSource,  // 'order' or 'loyalty_lookup'
         purchasesRecorded: [],
+        skippedFreeItems: [],
         errors: []
     };
+
+    // CRITICAL: Detect free/discounted items to prevent double-counting
+    // 1. Check if order has any of OUR loyalty discounts applied
+    // 2. Check if any line items are 100% discounted (free via any coupon)
+    const orderDiscounts = order.discounts || [];
+
+    // Get our loyalty discount IDs to detect our own discounts being redeemed
+    let ourLoyaltyDiscountIds = new Set();
+    try {
+        const loyaltyDiscountsResult = await db.query(`
+            SELECT square_discount_id, square_pricing_rule_id
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+              AND (square_discount_id IS NOT NULL OR square_pricing_rule_id IS NOT NULL)
+        `, [merchantId]);
+
+        for (const row of loyaltyDiscountsResult.rows) {
+            if (row.square_discount_id) ourLoyaltyDiscountIds.add(row.square_discount_id);
+            if (row.square_pricing_rule_id) ourLoyaltyDiscountIds.add(row.square_pricing_rule_id);
+        }
+    } catch (err) {
+        logger.warn('Could not fetch loyalty discount IDs for free item detection', { error: err.message });
+    }
+
+    // Check if this order used one of our loyalty discounts (redemption order)
+    const orderUsedOurDiscount = orderDiscounts.some(d =>
+        d.catalog_object_id && ourLoyaltyDiscountIds.has(d.catalog_object_id)
+    );
+
+    // Build a map of line item UIDs that had discounts applied
+    const lineItemDiscountMap = new Map();
+    for (const discount of orderDiscounts) {
+        // Check if this is one of our loyalty discounts
+        const isOurLoyaltyDiscount = discount.catalog_object_id &&
+            ourLoyaltyDiscountIds.has(discount.catalog_object_id);
+
+        // Track which line items this discount was applied to
+        if (discount.applied_money?.amount > 0) {
+            // Line-item level discounts have scope = 'LINE_ITEM' and reference specific items
+            // Order-level discounts have scope = 'ORDER' but still track applied amounts per line
+            const uid = discount.uid;
+            lineItemDiscountMap.set(uid, {
+                isOurLoyaltyDiscount,
+                amount: discount.applied_money.amount
+            });
+        }
+    }
 
     for (const lineItem of lineItems) {
         try {
@@ -1985,10 +2033,55 @@ async function processOrderForLoyalty(order, merchantId) {
                 continue;  // Skip zero or negative quantities
             }
 
-            // Get unit price
+            // Get pricing info
             const unitPriceCents = lineItem.base_price_money?.amount || 0;
+            const grossSalesCents = lineItem.gross_sales_money?.amount || (unitPriceCents * quantity);
+            const totalDiscountCents = lineItem.total_discount_money?.amount || 0;
+            const totalMoneyCents = lineItem.total_money?.amount ?? (grossSalesCents - totalDiscountCents);
 
-            // Process the purchase
+            // SKIP FREE ITEMS: Check if item was 100% discounted (free)
+            // This prevents counting free items from ANY source (coupons, loyalty rewards, promos)
+            if (grossSalesCents > 0 && totalMoneyCents === 0) {
+                logger.info('Skipping FREE item from loyalty tracking (100% discounted)', {
+                    orderId: order.id,
+                    variationId,
+                    quantity,
+                    grossSalesCents,
+                    totalDiscountCents,
+                    reason: 'item_fully_discounted'
+                });
+                results.skippedFreeItems.push({
+                    variationId,
+                    quantity,
+                    reason: 'fully_discounted_to_zero'
+                });
+                continue;
+            }
+
+            // SKIP OUR LOYALTY REDEMPTIONS: Check if this specific line item had our discount applied
+            // Square's applied_discounts array on line items contains discount UIDs
+            const appliedDiscounts = lineItem.applied_discounts || [];
+            const itemHasOurLoyaltyDiscount = appliedDiscounts.some(ad => {
+                const discountInfo = lineItemDiscountMap.get(ad.discount_uid);
+                return discountInfo?.isOurLoyaltyDiscount;
+            });
+
+            if (itemHasOurLoyaltyDiscount) {
+                logger.info('Skipping item with OUR loyalty discount applied', {
+                    orderId: order.id,
+                    variationId,
+                    quantity,
+                    reason: 'our_loyalty_discount_applied'
+                });
+                results.skippedFreeItems.push({
+                    variationId,
+                    quantity,
+                    reason: 'loyalty_reward_redemption'
+                });
+                continue;
+            }
+
+            // Process the purchase (item was paid for, not free)
             const purchaseResult = await processQualifyingPurchase({
                 merchantId,
                 squareOrderId: order.id,
@@ -2019,6 +2112,16 @@ async function processOrderForLoyalty(order, merchantId) {
                 error: error.message
             });
         }
+    }
+
+    // Log summary if we skipped any free items
+    if (results.skippedFreeItems.length > 0) {
+        logger.info('Loyalty processing skipped free items', {
+            orderId: order.id,
+            skippedCount: results.skippedFreeItems.length,
+            skippedItems: results.skippedFreeItems,
+            orderUsedOurDiscount
+        });
     }
 
     return results;
@@ -2069,13 +2172,28 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
                     const quantity = parseInt(returnItem.quantity) || 0;
                     if (quantity <= 0) continue;
 
+                    // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
+                    // that were free (never counted toward loyalty in the first place)
+                    const unitPriceCents = returnItem.base_price_money?.amount || 0;
+                    const totalMoneyCents = returnItem.total_money?.amount ?? unitPriceCents;
+
+                    if (unitPriceCents > 0 && totalMoneyCents === 0) {
+                        logger.info('Skipping refund of FREE item (was 100% discounted)', {
+                            orderId: order.id,
+                            variationId,
+                            quantity,
+                            reason: 'free_item_refund_no_adjustment_needed'
+                        });
+                        continue;
+                    }
+
                     const refundResult = await processRefund({
                         merchantId,
                         squareOrderId: order.id,
                         squareCustomerId,
                         variationId,
                         quantity,
-                        unitPriceCents: returnItem.base_price_money?.amount || 0,
+                        unitPriceCents,
                         refundedAt: refund.created_at,
                         squareLocationId: order.location_id
                     });
