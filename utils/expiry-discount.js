@@ -364,11 +364,13 @@ async function logAuditEvent(event) {
  */
 async function upsertSquareDiscount(tier) {
     const squareApiModule = getSquareApi();
+    const accessToken = await squareApiModule.getMerchantToken(tier.merchant_id);
 
     logger.info('Upserting Square discount object', {
         tierCode: tier.tier_code,
         discountPercent: tier.discount_percent,
-        existingId: tier.square_discount_id
+        existingId: tier.square_discount_id,
+        merchantId: tier.merchant_id
     });
 
     try {
@@ -390,7 +392,8 @@ async function upsertSquareDiscount(tier) {
             // Update existing - need to fetch version first
             try {
                 const retrieveData = await squareApiModule.makeSquareRequest(
-                    `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
+                    `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`,
+                    { accessToken }
                 );
 
                 if (retrieveData.object) {
@@ -437,6 +440,7 @@ async function upsertSquareDiscount(tier) {
 
         const response = await squareApiModule.makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
+            accessToken,
             body: JSON.stringify(requestBody)
         });
 
@@ -581,6 +585,7 @@ async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
     }
 
     const squareApiModule = getSquareApi();
+    const accessToken = await squareApiModule.getMerchantToken(merchantId);
 
     logger.info('Updating discount applies_to list', {
         tierCode,
@@ -598,7 +603,8 @@ async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
 
         // Fetch current discount object
         const retrieveData = await squareApiModule.makeSquareRequest(
-            `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
+            `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`,
+            { accessToken }
         );
 
         if (!retrieveData.object) {
@@ -628,6 +634,7 @@ async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
 
         const response = await squareApiModule.makeSquareRequest('/v2/catalog/object', {
             method: 'POST',
+            accessToken,
             body: JSON.stringify(requestBody)
         });
 
@@ -843,13 +850,15 @@ async function applyDiscounts(options = {}) {
  */
 async function upsertPricingRule(tier, variationIds) {
     const squareApiModule = getSquareApi();
+    const accessToken = await squareApiModule.getMerchantToken(tier.merchant_id);
 
     const pricingRuleKey = `expiry-${tier.tier_code.toLowerCase()}`;
 
     logger.info('Upserting pricing rule', {
         tierCode: tier.tier_code,
         pricingRuleKey,
-        variationCount: variationIds.length
+        variationCount: variationIds.length,
+        merchantId: tier.merchant_id
     });
 
     try {
@@ -860,6 +869,7 @@ async function upsertPricingRule(tier, variationIds) {
         // Search for existing pricing rule by name
         const searchResult = await squareApiModule.makeSquareRequest('/v2/catalog/search', {
             method: 'POST',
+            accessToken,
             body: JSON.stringify({
                 object_types: ['PRICING_RULE', 'PRODUCT_SET'],
                 query: {
@@ -897,6 +907,7 @@ async function upsertPricingRule(tier, variationIds) {
                     try {
                         await squareApiModule.makeSquareRequest('/v2/catalog/batch-delete', {
                             method: 'POST',
+                            accessToken,
                             body: JSON.stringify({ object_ids: objectsToDelete })
                         });
                         logger.info('Deleted pricing rule objects for empty tier', {
@@ -952,6 +963,7 @@ async function upsertPricingRule(tier, variationIds) {
 
         const response = await squareApiModule.makeSquareRequest('/v2/catalog/batch-upsert', {
             method: 'POST',
+            accessToken,
             body: JSON.stringify({
                 idempotency_key: idempotencyKey,
                 batches: [{ objects }]
