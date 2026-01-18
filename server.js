@@ -2866,7 +2866,7 @@ app.patch('/api/expiry-discounts/settings', requireAuth, requireMerchant, async 
 app.get('/api/expiry-discounts/validate', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const result = await expiryDiscountService.validateExpiryDiscounts({
+        const result = await expiryDiscount.validateExpiryDiscounts({
             merchantId,
             fix: false
         });
@@ -2884,7 +2884,7 @@ app.get('/api/expiry-discounts/validate', requireAuth, requireMerchant, async (r
 app.post('/api/expiry-discounts/validate-and-fix', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const result = await expiryDiscountService.validateExpiryDiscounts({
+        const result = await expiryDiscount.validateExpiryDiscounts({
             merchantId,
             fix: true
         });
