@@ -1284,7 +1284,7 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
  * @returns {Promise<Object>} Summary with counts for each period synced { '91d': count, '182d': count, ... }
  */
 async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options = {}) {
-    const { loyaltyBackfill = true } = options;  // Enable loyalty backfill by default
+    const { loyaltyBackfill = false } = options;  // Disabled by default - use manual customer audit instead
 
     const ALL_PERIODS = [91, 182, 365];
     // Only sync periods up to maxPeriod

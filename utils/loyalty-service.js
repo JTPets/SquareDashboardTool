@@ -3141,6 +3141,345 @@ async function createSquareLoyaltyReward({ merchantId, squareCustomerId, interna
 }
 
 // ============================================================================
+// MANUAL CUSTOMER ORDER AUDIT
+// ============================================================================
+// Search a specific customer's order history and show which orders can be
+// added to loyalty tracking. Safer than auto-backfill - admin reviews first.
+
+/**
+ * Fetch a customer's order history from Square and analyze for loyalty eligibility
+ * Used for manual audit workflow - admin searches customer, reviews orders, selects which to add
+ *
+ * @param {Object} params
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {number} [params.periodDays=91] - How many days of history to fetch
+ * @returns {Promise<Object>} Order history with loyalty analysis
+ */
+async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, periodDays = 91 }) {
+    if (!squareCustomerId || !merchantId) {
+        throw new Error('squareCustomerId and merchantId are required');
+    }
+
+    logger.info('Fetching customer order history for loyalty audit', {
+        squareCustomerId,
+        merchantId,
+        periodDays
+    });
+
+    const accessToken = await getSquareAccessToken(merchantId);
+    if (!accessToken) {
+        throw new Error('No access token available');
+    }
+
+    // Get all active offers and their qualifying variations for this merchant
+    const offersResult = await db.query(`
+        SELECT o.id, o.offer_name, o.brand_name, o.size_group, o.required_quantity,
+               array_agg(qv.variation_id) as variation_ids
+        FROM loyalty_offers o
+        JOIN loyalty_qualifying_variations qv ON o.id = qv.offer_id AND qv.is_active = TRUE
+        WHERE o.merchant_id = $1 AND o.is_active = TRUE
+        GROUP BY o.id
+    `, [merchantId]);
+
+    // Build variation -> offer lookup
+    const variationToOffer = new Map();
+    for (const offer of offersResult.rows) {
+        for (const varId of offer.variation_ids || []) {
+            variationToOffer.set(varId, {
+                offerId: offer.id,
+                offerName: offer.offer_name,
+                brandName: offer.brand_name,
+                sizeGroup: offer.size_group,
+                requiredQuantity: offer.required_quantity
+            });
+        }
+    }
+
+    // Get orders already tracked for this customer
+    const trackedOrdersResult = await db.query(`
+        SELECT DISTINCT square_order_id
+        FROM loyalty_purchase_events
+        WHERE merchant_id = $1 AND square_customer_id = $2
+    `, [merchantId, squareCustomerId]);
+    const trackedOrderIds = new Set(trackedOrdersResult.rows.map(r => r.square_order_id));
+
+    // Get customer's current loyalty status
+    const rewardsResult = await db.query(`
+        SELECT r.*, o.offer_name, o.required_quantity
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1 AND r.square_customer_id = $2
+        ORDER BY r.created_at DESC
+    `, [merchantId, squareCustomerId]);
+
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - periodDays);
+
+    // Fetch orders from Square
+    const orders = [];
+    let cursor = null;
+
+    do {
+        const requestBody = {
+            query: {
+                filter: {
+                    customer_filter: {
+                        customer_ids: [squareCustomerId]
+                    },
+                    state_filter: {
+                        states: ['COMPLETED']
+                    },
+                    date_time_filter: {
+                        closed_at: {
+                            start_at: startDate.toISOString(),
+                            end_at: endDate.toISOString()
+                        }
+                    }
+                },
+                sort: {
+                    sort_field: 'CLOSED_AT',
+                    sort_order: 'DESC'
+                }
+            },
+            limit: 50
+        };
+
+        if (cursor) {
+            requestBody.cursor = cursor;
+        }
+
+        const response = await fetch('https://connect.squareup.com/v2/orders/search', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2025-01-16'
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`Square API error: ${JSON.stringify(errorData)}`);
+        }
+
+        const data = await response.json();
+        orders.push(...(data.orders || []));
+        cursor = data.cursor;
+
+    } while (cursor);
+
+    // Analyze each order
+    const analyzedOrders = [];
+
+    for (const order of orders) {
+        const isAlreadyTracked = trackedOrderIds.has(order.id);
+
+        // Get receipt URL from tenders
+        let receiptUrl = null;
+        for (const tender of order.tenders || []) {
+            if (tender.receipt_url) {
+                receiptUrl = tender.receipt_url;
+                break;
+            }
+        }
+
+        // Analyze line items
+        const qualifyingItems = [];
+        const nonQualifyingItems = [];
+
+        for (const lineItem of order.line_items || []) {
+            const variationId = lineItem.catalog_object_id;
+            const quantity = parseInt(lineItem.quantity) || 0;
+            const unitPriceCents = lineItem.base_price_money?.amount || 0;
+            const totalMoneyCents = lineItem.total_money?.amount ?? unitPriceCents;
+
+            // Check if free (100% discounted)
+            const isFree = unitPriceCents > 0 && totalMoneyCents === 0;
+
+            const itemInfo = {
+                uid: lineItem.uid,
+                variationId,
+                name: lineItem.name,
+                quantity,
+                unitPriceCents,
+                totalMoneyCents,
+                isFree
+            };
+
+            if (variationId && variationToOffer.has(variationId) && !isFree) {
+                const offer = variationToOffer.get(variationId);
+                qualifyingItems.push({
+                    ...itemInfo,
+                    offer: {
+                        id: offer.offerId,
+                        name: offer.offerName,
+                        brandName: offer.brandName,
+                        sizeGroup: offer.sizeGroup
+                    }
+                });
+            } else {
+                nonQualifyingItems.push({
+                    ...itemInfo,
+                    skipReason: isFree ? 'free_item' : (variationId ? 'no_matching_offer' : 'no_variation_id')
+                });
+            }
+        }
+
+        // Calculate totals
+        const totalQualifyingQty = qualifyingItems.reduce((sum, item) => sum + item.quantity, 0);
+
+        analyzedOrders.push({
+            orderId: order.id,
+            closedAt: order.closed_at,
+            locationId: order.location_id,
+            receiptUrl,
+            isAlreadyTracked,
+            canBeAdded: !isAlreadyTracked && totalQualifyingQty > 0,
+            qualifyingItems,
+            nonQualifyingItems,
+            totalQualifyingQty,
+            orderTotal: order.total_money
+        });
+    }
+
+    // Summary stats
+    const summary = {
+        totalOrders: orders.length,
+        alreadyTracked: analyzedOrders.filter(o => o.isAlreadyTracked).length,
+        canBeAdded: analyzedOrders.filter(o => o.canBeAdded).length,
+        totalQualifyingQtyAvailable: analyzedOrders
+            .filter(o => o.canBeAdded)
+            .reduce((sum, o) => sum + o.totalQualifyingQty, 0)
+    };
+
+    return {
+        squareCustomerId,
+        periodDays,
+        dateRange: {
+            start: startDate.toISOString(),
+            end: endDate.toISOString()
+        },
+        currentRewards: rewardsResult.rows,
+        summary,
+        orders: analyzedOrders
+    };
+}
+
+/**
+ * Add selected orders to loyalty tracking (manual backfill for specific customer)
+ * Called after admin reviews order history and selects which orders to add
+ *
+ * @param {Object} params
+ * @param {string} params.squareCustomerId - Square customer ID
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {Array<string>} params.orderIds - Array of Square order IDs to add
+ * @returns {Promise<Object>} Results of adding orders
+ */
+async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderIds }) {
+    if (!squareCustomerId || !merchantId || !orderIds?.length) {
+        throw new Error('squareCustomerId, merchantId, and orderIds are required');
+    }
+
+    logger.info('Manually adding orders to loyalty tracking', {
+        squareCustomerId,
+        merchantId,
+        orderCount: orderIds.length
+    });
+
+    const accessToken = await getSquareAccessToken(merchantId);
+    if (!accessToken) {
+        throw new Error('No access token available');
+    }
+
+    const results = {
+        processed: [],
+        skipped: [],
+        errors: []
+    };
+
+    // Fetch each order and process
+    for (const orderId of orderIds) {
+        try {
+            // Check if already tracked
+            const alreadyTracked = await isOrderAlreadyProcessedForLoyalty(orderId, merchantId);
+            if (alreadyTracked) {
+                results.skipped.push({ orderId, reason: 'already_tracked' });
+                continue;
+            }
+
+            // Fetch order from Square
+            const response = await fetch(`https://connect.squareup.com/v2/orders/${orderId}`, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2025-01-16'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                results.errors.push({ orderId, error: `Square API: ${JSON.stringify(errorData)}` });
+                continue;
+            }
+
+            const data = await response.json();
+            const order = data.order;
+
+            if (!order) {
+                results.errors.push({ orderId, error: 'Order not found' });
+                continue;
+            }
+
+            // Verify customer matches
+            if (order.customer_id !== squareCustomerId) {
+                results.errors.push({ orderId, error: 'Customer ID mismatch' });
+                continue;
+            }
+
+            // Process through normal loyalty flow
+            const loyaltyResult = await processOrderForLoyalty(order, merchantId);
+
+            results.processed.push({
+                orderId,
+                purchasesRecorded: loyaltyResult.purchasesRecorded?.length || 0,
+                skippedFreeItems: loyaltyResult.skippedFreeItems?.length || 0
+            });
+
+        } catch (error) {
+            logger.error('Error adding order to loyalty', { orderId, error: error.message });
+            results.errors.push({ orderId, error: error.message });
+        }
+    }
+
+    // Log audit event
+    await logAuditEvent({
+        action: AuditActions.PURCHASE_RECORDED,
+        merchantId,
+        squareCustomerId,
+        triggeredBy: 'ADMIN_BACKFILL',
+        details: {
+            ordersProcessed: results.processed.length,
+            ordersSkipped: results.skipped.length,
+            ordersErrored: results.errors.length
+        }
+    });
+
+    logger.info('Manual order backfill complete', {
+        squareCustomerId,
+        merchantId,
+        processed: results.processed.length,
+        skipped: results.skipped.length,
+        errors: results.errors.length
+    });
+
+    return results;
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -3196,9 +3535,13 @@ module.exports = {
     processOrderForLoyalty,
     processOrderRefundsForLoyalty,
 
-    // Backfill / Sync hook
+    // Backfill / Sync hook (auto - disabled by default)
     isOrderAlreadyProcessedForLoyalty,
     processOrderForLoyaltyIfNeeded,
+
+    // Manual Customer Order Audit
+    getCustomerOrderHistoryForAudit,
+    addOrdersToLoyaltyTracking,
 
     // Utilities
     getSquareAccessToken,
