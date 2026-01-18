@@ -3611,9 +3611,9 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
 
     // Get merchant's location IDs (required for Square Orders Search API)
     const locationsResult = await db.query(`
-        SELECT square_id FROM locations WHERE merchant_id = $1 AND is_active = TRUE
+        SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE
     `, [merchantId]);
-    const locationIds = locationsResult.rows.map(r => r.square_id);
+    const locationIds = locationsResult.rows.map(r => r.id);
 
     if (locationIds.length === 0) {
         throw new Error('No active locations found for merchant');
