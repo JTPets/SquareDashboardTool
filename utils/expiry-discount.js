@@ -1323,6 +1323,7 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
     }
 
     const squareApiModule = getSquareApi();
+    const accessToken = await squareApiModule.getMerchantToken(merchantId);
 
     logger.info('Validating expiry discounts', { merchantId, fix });
 
@@ -1348,7 +1349,8 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
             if (tier.square_discount_id) {
                 try {
                     const discountData = await squareApiModule.makeSquareRequest(
-                        `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`
+                        `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`,
+                        { accessToken }
                     );
 
                     const discountObj = discountData.object;
@@ -1458,6 +1460,7 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
             try {
                 const searchResult = await squareApiModule.makeSquareRequest('/v2/catalog/search', {
                     method: 'POST',
+                    accessToken,
                     body: JSON.stringify({
                         object_types: ['PRICING_RULE', 'PRODUCT_SET'],
                         query: {
