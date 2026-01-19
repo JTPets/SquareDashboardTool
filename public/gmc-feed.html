@@ -192,10 +192,10 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size: 12px;
     }
     th, td {
-      padding: 10px 12px;
+      padding: 8px 10px;
       text-align: left;
       border-bottom: 1px solid #e5e7eb;
     }
@@ -206,13 +206,29 @@
       position: sticky;
       top: 0;
       white-space: nowrap;
+      font-size: 11px;
     }
     tr:hover { background: #f9fafb; }
     td.truncate {
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    td.url-cell {
       max-width: 200px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-family: monospace;
+      font-size: 10px;
+    }
+    td.url-cell a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+    td.url-cell a:hover {
+      text-decoration: underline;
     }
     td.status-good { color: #16a34a; }
     td.status-bad { color: #dc2626; }
@@ -235,6 +251,32 @@
       justify-content: center;
       color: #dc2626;
       font-size: 10px;
+    }
+
+    /* URL Display */
+    .url-display {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .url-display .url-text {
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: monospace;
+      font-size: 10px;
+    }
+    .url-display .copy-btn {
+      padding: 2px 4px;
+      font-size: 10px;
+      background: #e5e7eb;
+      border: none;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    .url-display .copy-btn:hover {
+      background: #d1d5db;
     }
 
     /* Loading & Empty States */
@@ -960,16 +1002,23 @@ Wellness"></textarea>
       <table id="feed-table" style="display: none;">
         <thead>
           <tr>
-            <th>Image</th>
+            <th>Img</th>
             <th>ID</th>
             <th>Title</th>
-            <th>Category</th>
-            <th>Brand</th>
+            <th>Link (Item URL)</th>
+            <th>Description</th>
             <th>GTIN</th>
-            <th>Price</th>
+            <th>Category</th>
+            <th>Image Link</th>
+            <th>Add'l Images</th>
+            <th>Condition</th>
             <th>Availability</th>
-            <th>Quantity</th>
+            <th>Qty</th>
+            <th>Brand</th>
             <th>Google Category</th>
+            <th>Price</th>
+            <th>Adult</th>
+            <th>Bundle</th>
           </tr>
         </thead>
         <tbody id="table-body"></tbody>
@@ -1015,7 +1064,7 @@ Wellness"></textarea>
 
         <!-- Local Inventory Feed Options -->
         <div class="settings-group" style="margin-bottom: 25px;">
-          <h4 style="margin: 0 0 5px 0;">📦 Local Inventory Feed</h4>
+          <h4 style="margin: 0 0 5px 0;">📦 Local Inventory Feed URL</h4>
           <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
             GMC fetches your inventory file automatically. Add this URL in GMC under "Add local inventory from a file".
           </p>
@@ -1026,6 +1075,73 @@ Wellness"></textarea>
               <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
               <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Local Inventory Feed Preview -->
+        <div class="settings-group" style="margin-bottom: 25px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div>
+              <h4 style="margin: 0 0 5px 0;">📋 Local Inventory Feed Preview</h4>
+              <p style="font-size: 13px; color: #6b7280; margin: 0;">
+                Preview of the local inventory feed data that will be sent to Google.
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <select id="local-inventory-location-select" onchange="loadLocalInventoryPreview()" style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
+                <option value="">Select a location...</option>
+              </select>
+              <button onclick="downloadLocalInventoryTsv()" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">Download TSV</button>
+            </div>
+          </div>
+
+          <!-- Local Inventory Stats -->
+          <div id="local-inventory-stats" style="display: none; padding: 15px; background: #fff7ed; border-radius: 8px; margin-bottom: 15px;">
+            <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+              <div>
+                <span style="font-size: 24px; font-weight: 700; color: #c2410c;" id="li-stat-total">0</span>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Total Items</div>
+              </div>
+              <div>
+                <span style="font-size: 24px; font-weight: 700; color: #16a34a;" id="li-stat-in-stock">0</span>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase;">In Stock</div>
+              </div>
+              <div>
+                <span style="font-size: 24px; font-weight: 700; color: #dc2626;" id="li-stat-out-stock">0</span>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Out of Stock</div>
+              </div>
+              <div>
+                <span style="font-size: 14px; font-weight: 500; color: #374151;" id="li-stat-store-code">--</span>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Store Code</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Local Inventory Table -->
+          <div class="table-container" style="max-height: 500px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px;">
+            <div id="local-inventory-loading" style="display: none; padding: 40px; text-align: center; color: #6b7280;">
+              Loading inventory data...
+            </div>
+            <div id="local-inventory-empty" style="padding: 40px; text-align: center; color: #6b7280;">
+              Select a location above to preview the local inventory feed.
+            </div>
+            <table id="local-inventory-table" style="display: none; width: 100%; border-collapse: collapse; font-size: 12px;">
+              <thead>
+                <tr style="background: #f9fafb;">
+                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #f9fafb;">store_code</th>
+                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #f9fafb;">itemid</th>
+                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #f9fafb;">quantity</th>
+                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #f9fafb; color: #6b7280;">(Item Name)</th>
+                  <th style="padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #f9fafb; color: #6b7280;">(Variation)</th>
+                </tr>
+              </thead>
+              <tbody id="local-inventory-body"></tbody>
+            </table>
+          </div>
+          <div id="local-inventory-pagination" style="display: none; padding: 10px; background: #f9fafb; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+            <button onclick="prevLocalInventoryPage()" id="li-prev-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Previous</button>
+            <span id="li-page-info" style="font-size: 13px; color: #6b7280;">Page 1 of 1</span>
+            <button onclick="nextLocalInventoryPage()" id="li-next-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Next</button>
           </div>
         </div>
 
@@ -1234,19 +1350,34 @@ Wellness"></textarea>
               ? `<img src="${p.image_link}" class="thumbnail" alt="" onerror="this.outerHTML='<div class=\\'no-image\\'>ERR</div>'">`
               : '<div class="no-image">NONE</div>'}
           </td>
-          <td style="font-family: monospace; font-size: 11px;">${p.id ? p.id.substring(0, 12) + '...' : '-'}</td>
+          <td style="font-family: monospace; font-size: 10px;" title="${escapeHtml(p.id || '')}">${p.id ? p.id.substring(0, 10) + '...' : '-'}</td>
           <td class="truncate" title="${escapeHtml(p.title || '')}">${escapeHtml(p.title || '-')}</td>
-          <td class="truncate">${escapeHtml(p.category || '-')}</td>
-          <td class="${p.brand ? '' : 'status-bad'}">${escapeHtml(p.brand || 'MISSING')}</td>
-          <td class="${p.gtin ? '' : 'status-warning'}">${p.gtin || '-'}</td>
-          <td>${p.price || '-'}</td>
+          <td class="url-cell" title="${escapeHtml(p.link || '')}">
+            ${p.link ? `<a href="${escapeHtml(p.link)}" target="_blank">${escapeHtml(p.link.replace(/^https?:\/\/[^/]+/, '').substring(0, 30))}...</a>` : '<span class="status-warning">MISSING</span>'}
+          </td>
+          <td class="truncate" style="max-width: 120px;" title="${escapeHtml(p.description || '')}">${escapeHtml((p.description || '-').substring(0, 40))}${(p.description || '').length > 40 ? '...' : ''}</td>
+          <td class="${p.gtin ? '' : 'status-warning'}" style="font-family: monospace; font-size: 10px;">${p.gtin || '-'}</td>
+          <td class="truncate" style="max-width: 100px;">${escapeHtml(p.category || '-')}</td>
+          <td class="url-cell ${p.image_link ? '' : 'status-bad'}" title="${escapeHtml(p.image_link || '')}">
+            ${p.image_link ? `<a href="${escapeHtml(p.image_link)}" target="_blank">${escapeHtml(p.image_link.split('/').pop().substring(0, 20))}...</a>` : 'MISSING'}
+          </td>
+          <td style="font-size: 10px;">
+            ${p.additional_image_link_1 ? `<a href="${escapeHtml(p.additional_image_link_1)}" target="_blank" title="${escapeHtml(p.additional_image_link_1)}">+1</a>` : ''}
+            ${p.additional_image_link_2 ? `<a href="${escapeHtml(p.additional_image_link_2)}" target="_blank" title="${escapeHtml(p.additional_image_link_2)}" style="margin-left:4px;">+2</a>` : ''}
+            ${!p.additional_image_link_1 && !p.additional_image_link_2 ? '-' : ''}
+          </td>
+          <td>${p.condition || 'new'}</td>
           <td class="${p.availability === 'in_stock' ? 'status-good' : 'status-bad'}">
-            ${p.availability === 'in_stock' ? 'In Stock' : 'Out of Stock'}
+            ${p.availability === 'in_stock' ? 'in_stock' : 'out_of_stock'}
           </td>
           <td>${p.quantity || 0}</td>
-          <td class="truncate ${p.google_product_category ? '' : 'status-warning'}" title="${escapeHtml(p.google_product_category || '')}">
+          <td class="${p.brand ? '' : 'status-bad'}">${escapeHtml(p.brand || 'MISSING')}</td>
+          <td class="truncate ${p.google_product_category ? '' : 'status-warning'}" style="max-width: 150px;" title="${escapeHtml(p.google_product_category || '')}">
             ${escapeHtml(p.google_product_category || 'NOT MAPPED')}
           </td>
+          <td style="white-space: nowrap;">${p.price || '-'}</td>
+          <td>${p.adult || 'no'}</td>
+          <td>${p.is_bundle || 'no'}</td>
         </tr>
       `).join('');
 
@@ -1299,9 +1430,14 @@ Wellness"></textarea>
       }
     }
 
-    // Export CSV
+    // Export CSV - includes all GMC feed fields
     function exportCsv() {
-      const headers = ['id', 'title', 'link', 'description', 'gtin', 'category', 'image_link', 'condition', 'availability', 'quantity', 'brand', 'google_product_category', 'price'];
+      const headers = [
+        'id', 'title', 'link', 'description', 'gtin', 'category',
+        'image_link', 'additional_image_link_1', 'additional_image_link_2',
+        'condition', 'availability', 'quantity', 'brand',
+        'google_product_category', 'price', 'adult', 'is_bundle'
+      ];
       const rows = filteredProducts.map(p => headers.map(h => {
         let val = p[h] || '';
         if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
@@ -2199,11 +2335,127 @@ Wellness"></textarea>
         locationSettings = data.locations || [];
 
         renderLocationSettings();
+        populateLocalInventoryLocationSelect();
       } catch (error) {
         console.error('Failed to load location settings:', error);
         document.getElementById('location-settings-body').innerHTML =
           '<tr><td colspan="5" style="text-align: center; color: #dc2626;">Error loading locations</td></tr>';
       }
+    }
+
+    // ==================== LOCAL INVENTORY PREVIEW ====================
+    let localInventoryData = [];
+    let filteredLocalInventory = [];
+    let localInventoryPage = 1;
+    const localInventoryPageSize = 100;
+
+    function populateLocalInventoryLocationSelect() {
+      const select = document.getElementById('local-inventory-location-select');
+      select.innerHTML = '<option value="">Select a location...</option>';
+
+      locationSettings.forEach(loc => {
+        const opt = document.createElement('option');
+        opt.value = loc.location_id;
+        opt.textContent = `${loc.location_name}${loc.google_store_code ? ` (${loc.google_store_code})` : ''}`;
+        select.appendChild(opt);
+      });
+    }
+
+    async function loadLocalInventoryPreview() {
+      const locationId = document.getElementById('local-inventory-location-select').value;
+
+      if (!locationId) {
+        document.getElementById('local-inventory-empty').style.display = 'block';
+        document.getElementById('local-inventory-table').style.display = 'none';
+        document.getElementById('local-inventory-stats').style.display = 'none';
+        document.getElementById('local-inventory-pagination').style.display = 'none';
+        return;
+      }
+
+      document.getElementById('local-inventory-empty').style.display = 'none';
+      document.getElementById('local-inventory-loading').style.display = 'block';
+      document.getElementById('local-inventory-table').style.display = 'none';
+
+      try {
+        const response = await fetch(`/api/gmc/local-inventory-feed?location_id=${locationId}&format=json`);
+        const data = await response.json();
+
+        if (!data.success) throw new Error(data.error || 'Failed to load inventory');
+
+        localInventoryData = data.items || [];
+        filteredLocalInventory = [...localInventoryData];
+        localInventoryPage = 1;
+
+        // Update stats
+        const inStock = localInventoryData.filter(i => i.quantity > 0).length;
+        const outStock = localInventoryData.length - inStock;
+        document.getElementById('li-stat-total').textContent = localInventoryData.length.toLocaleString();
+        document.getElementById('li-stat-in-stock').textContent = inStock.toLocaleString();
+        document.getElementById('li-stat-out-stock').textContent = outStock.toLocaleString();
+        document.getElementById('li-stat-store-code').textContent = data.location?.store_code || '--';
+        document.getElementById('local-inventory-stats').style.display = 'block';
+
+        renderLocalInventoryTable();
+
+        document.getElementById('local-inventory-loading').style.display = 'none';
+        document.getElementById('local-inventory-table').style.display = 'table';
+        document.getElementById('local-inventory-pagination').style.display = 'flex';
+
+      } catch (error) {
+        console.error('Error loading local inventory:', error);
+        document.getElementById('local-inventory-loading').innerHTML =
+          `<span style="color: #dc2626;">Error: ${error.message}</span>`;
+      }
+    }
+
+    function renderLocalInventoryTable() {
+      const tbody = document.getElementById('local-inventory-body');
+      const start = (localInventoryPage - 1) * localInventoryPageSize;
+      const end = start + localInventoryPageSize;
+      const pageItems = filteredLocalInventory.slice(start, end);
+
+      tbody.innerHTML = pageItems.map(item => `
+        <tr>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-size: 11px;">${escapeHtml(item.store_code)}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-size: 10px;" title="${escapeHtml(item.itemid)}">${escapeHtml(item.itemid ? item.itemid.substring(0, 12) + '...' : '-')}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600; ${item.quantity > 0 ? 'color: #16a34a;' : 'color: #dc2626;'}">${item.quantity}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; color: #6b7280; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.item_name || '')}">${escapeHtml(item.item_name || '-')}</td>
+          <td style="padding: 8px 10px; border-bottom: 1px solid #e5e7eb; color: #6b7280;">${escapeHtml(item.variation_name || '-')}</td>
+        </tr>
+      `).join('');
+
+      updateLocalInventoryPagination();
+    }
+
+    function updateLocalInventoryPagination() {
+      const totalPages = Math.ceil(filteredLocalInventory.length / localInventoryPageSize) || 1;
+      document.getElementById('li-page-info').textContent = `Page ${localInventoryPage} of ${totalPages} (${filteredLocalInventory.length} items)`;
+      document.getElementById('li-prev-btn').disabled = localInventoryPage <= 1;
+      document.getElementById('li-next-btn').disabled = localInventoryPage >= totalPages;
+    }
+
+    function prevLocalInventoryPage() {
+      if (localInventoryPage > 1) {
+        localInventoryPage--;
+        renderLocalInventoryTable();
+      }
+    }
+
+    function nextLocalInventoryPage() {
+      const totalPages = Math.ceil(filteredLocalInventory.length / localInventoryPageSize);
+      if (localInventoryPage < totalPages) {
+        localInventoryPage++;
+        renderLocalInventoryTable();
+      }
+    }
+
+    function downloadLocalInventoryTsv() {
+      const locationId = document.getElementById('local-inventory-location-select').value;
+      if (!locationId) {
+        alert('Please select a location first');
+        return;
+      }
+      window.open(`/api/gmc/local-inventory-feed.tsv?location_id=${locationId}`, '_blank');
     }
 
     function renderLocationSettings() {
