@@ -191,7 +191,8 @@ async function updateOrder(merchantId, orderId, updates) {
     const allowedFields = [
         'customer_name', 'address', 'address_lat', 'address_lng',
         'geocoded_at', 'phone', 'notes', 'customer_note', 'status', 'route_id',
-        'route_position', 'route_date', 'square_synced_at', 'square_customer_id'
+        'route_position', 'route_date', 'square_synced_at', 'square_customer_id',
+        'square_order_data'
     ];
 
     const setClauses = [];
@@ -200,7 +201,9 @@ async function updateOrder(merchantId, orderId, updates) {
     for (const [key, value] of Object.entries(updates)) {
         const snakeKey = key.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
         if (allowedFields.includes(snakeKey)) {
-            params.push(value);
+            // Serialize JSONB fields
+            const paramValue = snakeKey === 'square_order_data' && value ? JSON.stringify(value) : value;
+            params.push(paramValue);
             setClauses.push(`${snakeKey} = $${params.length}`);
         }
     }
@@ -1042,15 +1045,41 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // Check if already exists
     const existing = await getOrderBySquareId(merchantId, squareOrder.id);
     if (existing) {
+        const updates = {};
+
         // Update status if Square order is now completed but ours isn't
         if (squareOrder.state === 'COMPLETED' && existing.status !== 'completed') {
-            await updateOrder(merchantId, existing.id, {
-                status: 'completed',
-                squareSyncedAt: new Date()
-            });
-            logger.info('Updated delivery order to completed from Square', { merchantId, orderId: existing.id });
-            return { ...existing, status: 'completed' };
+            updates.status = 'completed';
+            updates.squareSyncedAt = new Date();
         }
+
+        // Backfill order data if missing
+        if (!existing.square_order_data && (squareOrder.lineItems || squareOrder.line_items)) {
+            updates.squareOrderData = {
+                lineItems: (squareOrder.lineItems || squareOrder.line_items || []).map(item => ({
+                    name: item.name,
+                    quantity: item.quantity,
+                    variationName: item.variationName || item.variation_name,
+                    note: item.note,
+                    modifiers: (item.modifiers || []).map(m => ({
+                        name: m.name,
+                        quantity: m.quantity
+                    }))
+                })),
+                totalMoney: squareOrder.totalMoney || squareOrder.total_money,
+                createdAt: squareOrder.createdAt || squareOrder.created_at,
+                state: squareOrder.state
+            };
+            logger.info('Backfilling order data for existing delivery order', { merchantId, orderId: existing.id });
+        }
+
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+            await updateOrder(merchantId, existing.id, updates);
+            logger.info('Updated existing delivery order', { merchantId, orderId: existing.id, updates: Object.keys(updates) });
+            return { ...existing, ...updates };
+        }
+
         logger.debug('Square order already ingested', { merchantId, squareOrderId: squareOrder.id });
         return existing;
     }
