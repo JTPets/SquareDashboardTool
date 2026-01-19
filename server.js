@@ -9624,6 +9624,51 @@ app.post('/api/webhooks/square', async (req, res) => {
                                             squareOrderId,
                                             merchantId: internalMerchantId
                                         });
+                                    } else if (['PROPOSED', 'RESERVED', 'PREPARED'].includes(fulfillmentState)) {
+                                        // Handle intermediate states - auto-ingest if enabled
+                                        // This catches orders where fulfillment is added/updated after order creation
+                                        try {
+                                            const deliverySettings = await deliveryApi.getSettings(internalMerchantId);
+                                            const autoIngest = deliverySettings?.auto_ingest_ready_orders !== false;
+
+                                            if (autoIngest) {
+                                                // Fetch the full order from Square to get all details
+                                                const squareClient = await getSquareClientForMerchant(internalMerchantId);
+                                                const orderResponse = await squareClient.orders.get({
+                                                    orderId: squareOrderId
+                                                });
+                                                const fullOrder = orderResponse.order;
+                                                if (fullOrder) {
+                                                    const deliveryOrder = await deliveryApi.ingestSquareOrder(internalMerchantId, fullOrder);
+                                                    if (deliveryOrder) {
+                                                        syncResults.deliveryUpdate = {
+                                                            orderId: squareOrderId,
+                                                            fulfillmentState,
+                                                            action: 'ingested',
+                                                            deliveryOrderId: deliveryOrder.id
+                                                        };
+                                                        logger.info('Auto-ingested delivery order via fulfillment webhook', {
+                                                            squareOrderId,
+                                                            fulfillmentState,
+                                                            deliveryOrderId: deliveryOrder.id,
+                                                            merchantId: internalMerchantId
+                                                        });
+                                                    }
+                                                }
+                                            } else {
+                                                logger.info('Skipped auto-ingest - disabled in settings', {
+                                                    squareOrderId,
+                                                    fulfillmentState,
+                                                    merchantId: internalMerchantId
+                                                });
+                                            }
+                                        } catch (ingestError) {
+                                            logger.warn('Auto-ingest via fulfillment webhook failed', {
+                                                error: ingestError.message,
+                                                squareOrderId,
+                                                fulfillmentState
+                                            });
+                                        }
                                     }
                                 }
                             } catch (deliveryError) {
