@@ -537,7 +537,7 @@
         <table>
           <thead>
             <tr>
-              <th>Customer ID</th>
+              <th>Phone</th>
               <th>Offer</th>
               <th>Progress</th>
               <th>Window</th>
@@ -568,7 +568,7 @@
           <thead>
             <tr>
               <th>Redeemed At</th>
-              <th>Customer ID</th>
+              <th>Phone</th>
               <th>Offer</th>
               <th>Item Redeemed</th>
               <th>Value</th>
@@ -1994,10 +1994,11 @@
         tbody.innerHTML = data.rewards.map(reward => {
           const progress = reward.current_quantity / reward.required_quantity;
           const progressPct = Math.min(progress * 100, 100);
+          const phoneDisplay = reward.customer_phone || 'No phone';
 
           return `
             <tr>
-              <td style="font-family: monospace; font-size: 12px;">${reward.square_customer_id?.slice(0,12)}...</td>
+              <td style="font-size: 13px;">${escapeHtml(phoneDisplay)}</td>
               <td>${escapeHtml(reward.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(reward.brand_name)} - ${escapeHtml(reward.size_group)}</small></td>
               <td>
                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -2094,10 +2095,12 @@
           return;
         }
 
-        tbody.innerHTML = data.redemptions.map(r => `
+        tbody.innerHTML = data.redemptions.map(r => {
+          const phoneDisplay = r.customer_phone || 'No phone';
+          return `
           <tr>
             <td>${new Date(r.redeemed_at).toLocaleString()}</td>
-            <td style="font-family: monospace; font-size: 12px;">${r.square_customer_id?.slice(0,12)}...</td>
+            <td style="font-size: 13px;">${escapeHtml(phoneDisplay)}</td>
             <td>${escapeHtml(r.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(r.brand_name)} - ${escapeHtml(r.size_group)}</small></td>
             <td>${r.redeemed_item_name ? escapeHtml(r.redeemed_item_name) : '-'}</td>
             <td>${r.redeemed_value_cents ? '$' + (r.redeemed_value_cents / 100).toFixed(2) : '-'}</td>
@@ -2106,7 +2109,7 @@
               <button class="action-btn view" onclick="viewVendorReceipt('${r.id}')">Receipt</button>
             </td>
           </tr>
-        `).join('');
+        `}).join('');
 
       } catch (error) {
         console.error('Failed to load redemptions:', error);
