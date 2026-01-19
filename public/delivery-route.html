@@ -276,6 +276,84 @@
       padding: 0;
     }
 
+    /* Order Items (green - items in the delivery) */
+    .stop-order-items {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .order-items-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: #166534;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .toggle-arrow {
+      transition: transform 0.2s;
+    }
+    .toggle-arrow.open {
+      transform: rotate(180deg);
+    }
+    .order-items-list {
+      margin-top: 12px;
+      border-top: 1px solid #bbf7d0;
+      padding-top: 12px;
+    }
+    .order-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #dcfce7;
+    }
+    .order-item:last-child {
+      border-bottom: none;
+    }
+    .item-qty {
+      display: inline-block;
+      background: #166534;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    .item-name {
+      font-weight: 500;
+      color: #14532d;
+    }
+    .item-modifiers {
+      margin-top: 4px;
+      padding-left: 40px;
+    }
+    .modifier {
+      display: block;
+      font-size: 12px;
+      color: #15803d;
+    }
+    .item-note {
+      margin-top: 4px;
+      padding-left: 40px;
+      font-size: 12px;
+      color: #92400e;
+      font-style: italic;
+    }
+    .order-total {
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 2px solid #166534;
+      text-align: right;
+      font-size: 16px;
+      color: #166534;
+    }
+
     /* POD Section */
     .stop-pod {
       display: flex;
@@ -701,6 +779,34 @@
                 </div>
               ` : ''}
 
+              ${stop.square_order_data && stop.square_order_data.lineItems && stop.square_order_data.lineItems.length > 0 ? `
+                <div class="stop-order-items">
+                  <button class="order-items-toggle" onclick="toggleOrderItems('${stop.id}')">
+                    📦 View Order Items (${stop.square_order_data.lineItems.length})
+                    <span class="toggle-arrow" id="arrow-${stop.id}">▼</span>
+                  </button>
+                  <div class="order-items-list" id="items-${stop.id}" style="display: none;">
+                    ${stop.square_order_data.lineItems.map(item => `
+                      <div class="order-item">
+                        <span class="item-qty">${item.quantity}x</span>
+                        <span class="item-name">${escapeHtml(item.name)}${item.variationName ? ` (${escapeHtml(item.variationName)})` : ''}</span>
+                        ${item.modifiers && item.modifiers.length > 0 ? `
+                          <div class="item-modifiers">
+                            ${item.modifiers.map(m => `<span class="modifier">+ ${escapeHtml(m.name)}</span>`).join('')}
+                          </div>
+                        ` : ''}
+                        ${item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
+                      </div>
+                    `).join('')}
+                    ${stop.square_order_data.totalMoney ? `
+                      <div class="order-total">
+                        <strong>Total:</strong> $${(stop.square_order_data.totalMoney.amount / 100).toFixed(2)}
+                      </div>
+                    ` : ''}
+                  </div>
+                </div>
+              ` : ''}
+
               ${stop.pod_photo_path ? `
                 <div class="stop-pod">
                   <span>✓ POD captured</span>
@@ -803,6 +909,16 @@
       } else {
         // Android and others - use Google Maps
         window.open(`https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, '_blank');
+      }
+    }
+
+    function toggleOrderItems(orderId) {
+      const itemsList = document.getElementById(`items-${orderId}`);
+      const arrow = document.getElementById(`arrow-${orderId}`);
+      if (itemsList && arrow) {
+        const isHidden = itemsList.style.display === 'none';
+        itemsList.style.display = isHidden ? 'block' : 'none';
+        arrow.classList.toggle('open', isHidden);
       }
     }
 

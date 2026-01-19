@@ -151,20 +151,22 @@ async function createOrder(merchantId, orderData) {
         phone = null,
         notes = null,
         customerNote = null,
-        status = 'pending'
+        status = 'pending',
+        squareOrderData = null
     } = orderData;
 
     const result = await db.query(
         `INSERT INTO delivery_orders (
             merchant_id, square_order_id, square_customer_id, customer_name, address,
             address_lat, address_lng, phone, notes, customer_note, status,
-            geocoded_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            geocoded_at, square_order_data
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *`,
         [
             merchantId, squareOrderId, squareCustomerId, customerName, address,
             addressLat, addressLng, phone, notes, customerNote, status,
-            addressLat && addressLng ? new Date() : null
+            addressLat && addressLng ? new Date() : null,
+            squareOrderData ? JSON.stringify(squareOrderData) : null
         ]
     );
 
@@ -1114,6 +1116,23 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // Extract customer ID from Square order (camelCase for SDK v43+)
     const squareCustomerId = squareOrder.customerId || squareOrder.customer_id || null;
 
+    // Extract relevant order data for driver reference (line items, totals, etc.)
+    const squareOrderData = {
+        lineItems: (squareOrder.lineItems || squareOrder.line_items || []).map(item => ({
+            name: item.name,
+            quantity: item.quantity,
+            variationName: item.variationName || item.variation_name,
+            note: item.note,
+            modifiers: (item.modifiers || []).map(m => ({
+                name: m.name,
+                quantity: m.quantity
+            }))
+        })),
+        totalMoney: squareOrder.totalMoney || squareOrder.total_money,
+        createdAt: squareOrder.createdAt || squareOrder.created_at,
+        state: squareOrder.state
+    };
+
     // Create delivery order
     const order = await createOrder(merchantId, {
         squareOrderId: squareOrder.id,
@@ -1122,7 +1141,8 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         address,
         phone,
         notes: squareOrder.note || null,  // Order-specific notes
-        status: initialStatus
+        status: initialStatus,
+        squareOrderData
     });
 
     // Geocode the address immediately so it's ready for routing
