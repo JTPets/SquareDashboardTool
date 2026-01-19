@@ -1412,7 +1412,7 @@ app.get('/api/sync-intervals', requireAuth, async (req, res) => {
                 sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
                 sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
                 sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168'),
-                gmc: process.env.GMC_SYNC_INTERVAL_HOURS ? parseInt(process.env.GMC_SYNC_INTERVAL_HOURS) : null
+                gmc: process.env.GMC_SYNC_CRON_SCHEDULE || null
             },
             cronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *'
         });
@@ -13966,7 +13966,6 @@ async function startServer() {
                 }
 
                 const allErrors = [];
-                const gmcSyncInterval = process.env.GMC_SYNC_INTERVAL_HOURS ? parseInt(process.env.GMC_SYNC_INTERVAL_HOURS) : null;
 
                 for (const merchant of merchants) {
                     try {
@@ -13981,28 +13980,6 @@ async function startServer() {
 
                         if (result.errors && result.errors.length > 0) {
                             allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: result.errors });
-                        }
-
-                        // GMC Product Sync - push to Google Merchant Center if configured
-                        if (gmcSyncInterval) {
-                            try {
-                                const gmcSyncNeeded = await isSyncNeeded('gmc_product_catalog', gmcSyncInterval, merchant.id);
-                                if (gmcSyncNeeded.needed) {
-                                    logger.info('Running scheduled GMC product sync for merchant', { merchantId: merchant.id });
-                                    const gmcResult = await gmcApi.syncProductCatalog(merchant.id);
-                                    logger.info('Scheduled GMC product sync completed', {
-                                        merchantId: merchant.id,
-                                        total: gmcResult.total,
-                                        synced: gmcResult.synced,
-                                        failed: gmcResult.failed
-                                    });
-                                } else {
-                                    logger.debug('GMC sync not needed yet', { merchantId: merchant.id, nextDue: gmcSyncNeeded.nextDue });
-                                }
-                            } catch (gmcError) {
-                                logger.error('Scheduled GMC sync failed for merchant', { merchantId: merchant.id, error: gmcError.message });
-                                allErrors.push({ merchantId: merchant.id, businessName: merchant.business_name, errors: [{ type: 'gmc_sync', error: gmcError.message }] });
-                            }
                         }
                     } catch (error) {
                         logger.error('Smart sync failed for merchant', { merchantId: merchant.id, error: error.message });
@@ -14030,6 +14007,82 @@ async function startServer() {
         }));
 
         logger.info('Database sync cron job scheduled', { schedule: syncCronSchedule });
+
+        // Initialize GMC (Google Merchant Center) sync cron job
+        // Pushes product catalog to GMC daily at 11pm by default (configurable via GMC_SYNC_CRON_SCHEDULE)
+        const gmcSyncCronSchedule = process.env.GMC_SYNC_CRON_SCHEDULE;
+        if (gmcSyncCronSchedule) {
+            cronTasks.push(cron.schedule(gmcSyncCronSchedule, async () => {
+                logger.info('Running scheduled GMC product sync for all merchants');
+                try {
+                    const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                    const merchants = merchantsResult.rows;
+
+                    if (merchants.length === 0) {
+                        logger.info('No merchants for GMC sync');
+                        return;
+                    }
+
+                    const results = [];
+                    for (const merchant of merchants) {
+                        try {
+                            logger.info('Running GMC product sync for merchant', { merchantId: merchant.id, businessName: merchant.business_name });
+                            const gmcResult = await gmcApi.syncProductCatalog(merchant.id);
+                            results.push({
+                                merchantId: merchant.id,
+                                businessName: merchant.business_name,
+                                success: true,
+                                total: gmcResult.total,
+                                synced: gmcResult.synced,
+                                failed: gmcResult.failed
+                            });
+                            logger.info('GMC product sync completed for merchant', {
+                                merchantId: merchant.id,
+                                total: gmcResult.total,
+                                synced: gmcResult.synced,
+                                failed: gmcResult.failed
+                            });
+                        } catch (merchantError) {
+                            logger.error('GMC sync failed for merchant', { merchantId: merchant.id, error: merchantError.message });
+                            results.push({
+                                merchantId: merchant.id,
+                                businessName: merchant.business_name,
+                                success: false,
+                                error: merchantError.message
+                            });
+                        }
+                    }
+
+                    // Send alert if any syncs failed
+                    const failures = results.filter(r => !r.success);
+                    if (failures.length > 0) {
+                        const errorDetails = failures.map(f =>
+                            `${f.businessName} (${f.merchantId}): ${f.error}`
+                        ).join('\n');
+                        await emailNotifier.sendAlert(
+                            'GMC Sync Partial Failure',
+                            `GMC sync failed for some merchants:\n\n${errorDetails}`
+                        );
+                    }
+
+                    logger.info('Scheduled GMC sync completed for all merchants', {
+                        total: merchants.length,
+                        successful: results.filter(r => r.success).length,
+                        failed: failures.length
+                    });
+                } catch (error) {
+                    logger.error('Scheduled GMC sync failed', { error: error.message });
+                    await emailNotifier.sendAlert(
+                        'GMC Sync Failed',
+                        `Failed to run scheduled GMC sync:\n\n${error.message}\n\nStack: ${error.stack}`
+                    );
+                }
+            }));
+
+            logger.info('GMC sync cron job scheduled', { schedule: gmcSyncCronSchedule });
+        } else {
+            logger.info('GMC sync cron job not configured (set GMC_SYNC_CRON_SCHEDULE to enable)');
+        }
 
         // Initialize automated weekly database backup cron job
         // Runs every Sunday at 2:00 AM by default (configurable via BACKUP_CRON_SCHEDULE)
