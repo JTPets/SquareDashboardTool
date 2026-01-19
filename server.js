@@ -9421,12 +9421,13 @@ app.post('/api/webhooks/square', async (req, res) => {
                         break;
                     }
                     try {
-                        const order = data.order;
+                        const webhookOrder = data.order;
                         logger.info('Order event detected via webhook', {
-                            orderId: order?.id,
-                            state: order?.state,
+                            orderId: webhookOrder?.id,
+                            state: webhookOrder?.state,
                             eventType: event.type,
-                            merchantId: internalMerchantId
+                            merchantId: internalMerchantId,
+                            hasFulfillments: webhookOrder?.fulfillments?.length > 0
                         });
                         // Sync committed inventory for open orders
                         const committedResult = await squareApi.syncCommittedInventory(internalMerchantId);
@@ -9439,13 +9440,38 @@ app.post('/api/webhooks/square', async (req, res) => {
 
                         // If order is COMPLETED, also sync sales velocity
                         // This catches delivery orders that may not trigger fulfillment webhooks
-                        if (order?.state === 'COMPLETED') {
+                        if (webhookOrder?.state === 'COMPLETED') {
                             await squareApi.syncSalesVelocity(91, internalMerchantId);
                             syncResults.salesVelocity = true;
                             logger.info('Sales velocity sync completed via order.updated (COMPLETED state)');
                         }
 
                         // DELIVERY SCHEDULER: Auto-ingest orders with delivery/shipment fulfillments
+                        // Fetch full order from Square API to ensure we have complete fulfillment data
+                        // (webhook payloads may not include full fulfillment details)
+                        let order = webhookOrder;
+                        if (webhookOrder?.id) {
+                            try {
+                                const squareClient = await getSquareClientForMerchant(internalMerchantId);
+                                const orderResponse = await squareClient.orders.get({
+                                    orderId: webhookOrder.id
+                                });
+                                if (orderResponse.order) {
+                                    order = orderResponse.order;
+                                    logger.info('Fetched full order from Square API for delivery check', {
+                                        orderId: order.id,
+                                        fulfillmentCount: order.fulfillments?.length || 0,
+                                        fulfillmentTypes: order.fulfillments?.map(f => f.type) || []
+                                    });
+                                }
+                            } catch (fetchError) {
+                                logger.warn('Failed to fetch full order from Square, using webhook data', {
+                                    orderId: webhookOrder.id,
+                                    error: fetchError.message
+                                });
+                            }
+                        }
+
                         // Check if order has a delivery-type fulfillment that's ready
                         if (order && order.fulfillments && order.fulfillments.length > 0) {
                             const deliveryFulfillment = order.fulfillments.find(f =>
@@ -9513,6 +9539,20 @@ app.post('/api/webhooks/square', async (req, res) => {
                                     });
                                 }
                             }
+
+                            // Log if no eligible delivery fulfillment was found
+                            if (!deliveryFulfillment) {
+                                const fulfillmentTypes = order.fulfillments.map(f => `${f.type}:${f.state}`);
+                                logger.debug('Order has fulfillments but none eligible for delivery routing', {
+                                    orderId: order.id,
+                                    fulfillments: fulfillmentTypes
+                                });
+                            }
+                        } else if (order) {
+                            logger.debug('Order has no fulfillments for delivery routing', {
+                                orderId: order.id,
+                                state: order.state
+                            });
                         }
 
                         // LOYALTY ADDON: Process qualifying purchases for frequent buyer program
