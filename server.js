@@ -4755,6 +4755,47 @@ app.get('/api/gmc/local-inventory-feed-url', requireAuth, requireMerchant, async
 });
 
 /**
+ * GET /api/gmc/local-inventory-feed
+ * Get local inventory feed data as JSON for preview
+ * Requires location_id query param
+ */
+app.get('/api/gmc/local-inventory-feed', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const { location_id, format } = req.query;
+        const merchantId = req.merchantContext.id;
+
+        if (!location_id) {
+            return res.status(400).json({ error: 'location_id query param required' });
+        }
+
+        // Verify location belongs to this merchant
+        const locationCheck = await db.query(
+            'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
+            [location_id, merchantId]
+        );
+
+        if (locationCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Location not found' });
+        }
+
+        const feedData = await gmcFeed.generateLocalInventoryFeed({
+            merchantId,
+            locationId: location_id
+        });
+
+        res.json({
+            success: true,
+            items: feedData.items,
+            location: feedData.location,
+            stats: feedData.stats
+        });
+    } catch (error) {
+        logger.error('Local inventory feed JSON error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/gmc/local-inventory-feed.tsv
  * Download combined local inventory feed TSV for all enabled locations
  * Supports multiple auth methods:
