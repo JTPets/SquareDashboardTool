@@ -807,6 +807,62 @@
       </div>
     </div>
 
+    <!-- Feed URL Settings (Collapsible) -->
+    <div class="settings-section" style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb;">
+      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleFeedSettings()">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-weight: 600; color: #374151;">🔗 Product Link Settings</span>
+          <span id="feed-url-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: #991b1b;">Not configured</span>
+        </div>
+        <span id="feed-settings-toggle" style="color: #6b7280;">▼</span>
+      </div>
+      <div id="feed-settings-panel" style="display: none; margin-top: 15px;">
+        <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+          Configure how product URLs are generated for the Google feed. These URLs should point to products on your website.
+        </p>
+        <div class="form-row" style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+          <div class="form-group" style="flex: 1; min-width: 300px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Website Base URL <span style="color: #dc2626;">*</span></label>
+            <input type="url" id="website-base-url" placeholder="https://yourstore.com" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+            <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">Your website's base URL (e.g., https://mypetstore.com)</div>
+          </div>
+          <div class="form-group" style="flex: 1; min-width: 300px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Product URL Pattern</label>
+            <input type="text" id="product-url-pattern" placeholder="/product/{slug}/{variation_id}" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+            <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">
+              Available placeholders: <code style="background: #f3f4f6; padding: 1px 4px; border-radius: 2px;">{slug}</code> (product name),
+              <code style="background: #f3f4f6; padding: 1px 4px; border-radius: 2px;">{variation_id}</code> (Square item ID)
+            </div>
+          </div>
+        </div>
+        <div class="form-row" style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;">
+          <div class="form-group" style="flex: 0 0 150px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Currency</label>
+            <select id="feed-currency" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+              <option value="CAD">CAD</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex: 0 0 150px;">
+            <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Default Condition</label>
+            <select id="feed-condition" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;">
+              <option value="new">New</option>
+              <option value="used">Used</option>
+              <option value="refurbished">Refurbished</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button onclick="saveFeedSettings()" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Feed Settings</button>
+          <span id="feed-settings-status" style="font-size: 13px; color: #6b7280;"></span>
+        </div>
+        <div id="url-preview" style="margin-top: 15px; padding: 12px; background: #f9fafb; border-radius: 4px; display: none;">
+          <div style="font-size: 12px; font-weight: 500; margin-bottom: 6px;">Example URL Preview:</div>
+          <code id="url-preview-text" style="font-size: 12px; color: #374151; word-break: break-all;"></code>
+        </div>
+      </div>
+    </div>
+
     <!-- Sync Controls & Status -->
     <div style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
       <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -2030,6 +2086,133 @@ Wellness"></textarea>
       }
     }
 
+    // Toggle Feed settings panel
+    function toggleFeedSettings() {
+      const panel = document.getElementById('feed-settings-panel');
+      const toggle = document.getElementById('feed-settings-toggle');
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '▲';
+      } else {
+        panel.style.display = 'none';
+        toggle.textContent = '▼';
+      }
+    }
+
+    // Update feed URL badge based on settings
+    function updateFeedUrlBadge() {
+      const badge = document.getElementById('feed-url-badge');
+      const baseUrl = document.getElementById('website-base-url').value;
+      if (baseUrl && baseUrl !== 'https://your-store-url.com') {
+        badge.textContent = 'Configured';
+        badge.style.background = '#dcfce7';
+        badge.style.color = '#166534';
+      } else {
+        badge.textContent = 'Not configured';
+        badge.style.background = '#fee2e2';
+        badge.style.color = '#991b1b';
+      }
+      updateUrlPreview();
+    }
+
+    // Update URL preview
+    function updateUrlPreview() {
+      const baseUrl = document.getElementById('website-base-url').value || 'https://yourstore.com';
+      const pattern = document.getElementById('product-url-pattern').value || '/product/{slug}/{variation_id}';
+      const preview = document.getElementById('url-preview');
+      const previewText = document.getElementById('url-preview-text');
+
+      const exampleUrl = baseUrl + pattern
+        .replace('{slug}', 'blue-buffalo-chicken-dog-food')
+        .replace('{variation_id}', 'ABC123XYZ');
+
+      previewText.textContent = exampleUrl;
+      preview.style.display = 'block';
+    }
+
+    // Load feed settings
+    async function loadFeedSettings() {
+      try {
+        const response = await fetch('/api/gmc/settings');
+        const data = await response.json();
+        const settings = data.settings || {};
+
+        document.getElementById('website-base-url').value = settings.website_base_url || '';
+        document.getElementById('product-url-pattern').value = settings.product_url_pattern || '/product/{slug}/{variation_id}';
+        document.getElementById('feed-currency').value = settings.currency || 'CAD';
+        document.getElementById('feed-condition').value = settings.default_condition || 'new';
+
+        updateFeedUrlBadge();
+      } catch (error) {
+        console.error('Failed to load feed settings:', error);
+      }
+    }
+
+    // Save feed settings
+    async function saveFeedSettings() {
+      const statusEl = document.getElementById('feed-settings-status');
+      statusEl.textContent = 'Saving...';
+      statusEl.style.color = '#6b7280';
+
+      try {
+        const websiteBaseUrl = document.getElementById('website-base-url').value.trim();
+        const productUrlPattern = document.getElementById('product-url-pattern').value.trim() || '/product/{slug}/{variation_id}';
+        const currency = document.getElementById('feed-currency').value;
+        const defaultCondition = document.getElementById('feed-condition').value;
+
+        if (!websiteBaseUrl) {
+          statusEl.textContent = 'Website Base URL is required';
+          statusEl.style.color = '#dc2626';
+          return;
+        }
+
+        // Validate URL format
+        try {
+          new URL(websiteBaseUrl);
+        } catch (e) {
+          statusEl.textContent = 'Invalid URL format. Use https://yourstore.com';
+          statusEl.style.color = '#dc2626';
+          return;
+        }
+
+        const response = await fetch('/api/gmc/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: {
+              website_base_url: websiteBaseUrl,
+              product_url_pattern: productUrlPattern,
+              currency: currency,
+              default_condition: defaultCondition
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+
+        statusEl.textContent = 'Settings saved! Reload feed to see updated URLs.';
+        statusEl.style.color = '#16a34a';
+        updateFeedUrlBadge();
+
+        // Optionally reload feed data to show updated URLs
+        setTimeout(() => {
+          statusEl.textContent = '';
+        }, 5000);
+      } catch (error) {
+        statusEl.textContent = 'Error: ' + error.message;
+        statusEl.style.color = '#dc2626';
+      }
+    }
+
+    // Add input listeners for URL preview
+    document.addEventListener('DOMContentLoaded', () => {
+      const baseUrlInput = document.getElementById('website-base-url');
+      const patternInput = document.getElementById('product-url-pattern');
+      if (baseUrlInput) baseUrlInput.addEventListener('input', updateUrlPreview);
+      if (patternInput) patternInput.addEventListener('input', updateUrlPreview);
+    });
+
     // Update connection badge based on settings
     function updateConnectionBadge() {
       const badge = document.getElementById('gmc-connection-badge');
@@ -2526,6 +2709,7 @@ Wellness"></textarea>
       loadFeedData();
       loadFeedUrl();
       loadGmcSettings();
+      loadFeedSettings();
       loadSyncStatus();
       loadLocalInventoryFeedUrl();
     });
