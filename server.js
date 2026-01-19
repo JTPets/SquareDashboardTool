@@ -11689,9 +11689,11 @@ app.get('/api/loyalty/rewards', requireAuth, requireMerchant, async (req, res) =
         const { status, offerId, customerId, limit, offset } = req.query;
 
         let query = `
-            SELECT r.*, o.offer_name, o.brand_name, o.size_group
+            SELECT r.*, o.offer_name, o.brand_name, o.size_group,
+                   lc.phone_number as customer_phone, lc.display_name as customer_name
             FROM loyalty_rewards r
             JOIN loyalty_offers o ON r.offer_id = o.id
+            LEFT JOIN loyalty_customers lc ON r.square_customer_id = lc.square_customer_id AND r.merchant_id = lc.merchant_id
             WHERE r.merchant_id = $1
         `;
         const params = [merchantId];
@@ -11738,9 +11740,11 @@ app.get('/api/loyalty/redemptions', requireAuth, requireMerchant, async (req, re
         const { offerId, customerId, startDate, endDate, limit, offset } = req.query;
 
         let query = `
-            SELECT rd.*, o.offer_name, o.brand_name, o.size_group
+            SELECT rd.*, o.offer_name, o.brand_name, o.size_group,
+                   lc.phone_number as customer_phone, lc.display_name as customer_name
             FROM loyalty_redemptions rd
             JOIN loyalty_offers o ON rd.offer_id = o.id
+            LEFT JOIN loyalty_customers lc ON rd.square_customer_id = lc.square_customer_id AND rd.merchant_id = lc.merchant_id
             WHERE rd.merchant_id = $1
         `;
         const params = [merchantId];
