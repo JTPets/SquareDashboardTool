@@ -854,10 +854,17 @@ async function loggedSync(syncType, syncFunction, merchantId) {
     const startedAt = new Date();
 
     try {
-        // Create sync history record
+        // Create or update sync history record (upsert for unique constraint)
         const insertResult = await db.query(`
             INSERT INTO sync_history (sync_type, started_at, status, merchant_id)
             VALUES ($1, $2, 'running', $3)
+            ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                started_at = EXCLUDED.started_at,
+                status = 'running',
+                completed_at = NULL,
+                records_synced = 0,
+                error_message = NULL,
+                duration_seconds = NULL
             RETURNING id
         `, [syncType, startedAt, merchantId]);
 
