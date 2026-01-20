@@ -879,8 +879,15 @@ async function syncVariation(obj, merchantId) {
 
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {
-            // Skip entries without a vendor_id (vendor not assigned)
+            // Log the full vendor_information object to debug structure issues
             if (!vendorInfo.vendor_id) {
+                logger.warn('vendor_information entry missing vendor_id - check Square API field names', {
+                    variation_id: obj.id,
+                    vendorInfo_keys: Object.keys(vendorInfo),
+                    vendorInfo_raw: JSON.stringify(vendorInfo),
+                    has_price_money: !!vendorInfo.price_money,
+                    has_unit_cost_money: !!vendorInfo.unit_cost_money
+                });
                 continue;
             }
             try {
