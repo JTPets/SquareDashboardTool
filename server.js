@@ -11054,15 +11054,32 @@ app.get('/api/delivery/route/active', requireAuth, requireMerchant, async (req, 
 app.get('/api/delivery/route/:id', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const route = await deliveryApi.getRouteWithOrders(merchantId, req.params.id);
+        const routeId = req.params.id;
+
+        logger.debug('Fetching delivery route', { merchantId, routeId });
+
+        const route = await deliveryApi.getRouteWithOrders(merchantId, routeId);
 
         if (!route) {
+            logger.warn('Route not found', { merchantId, routeId });
             return res.status(404).json({ error: 'Route not found' });
         }
 
+        logger.debug('Route fetched successfully', {
+            merchantId,
+            routeId,
+            orderCount: route.orders?.length || 0
+        });
+
         res.json({ route });
     } catch (error) {
-        logger.error('Error fetching route', { error: error.message, stack: error.stack });
+        logger.error('Error fetching delivery route', {
+            merchantId: req.merchantContext?.id,
+            routeId: req.params.id,
+            error: error.message,
+            stack: error.stack,
+            errorType: error.name
+        });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13478,7 +13495,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         const sanitizedOrders = results.map(r => ({
             orderId: r.orderId,
             createdAt: r.createdAt,
-            totalAmount: r.totalMoney?.amount ? `${(r.totalMoney.amount / 100).toFixed(2)} ${r.totalMoney.currency}` : null,
+            totalAmount: r.totalMoney?.amount ? `${(Number(r.totalMoney.amount) / 100).toFixed(2)} ${r.totalMoney.currency}` : null,
             paymentMethod: r.tenders?.[0]?.type || 'unknown',
             identified: !!r.identifiedCustomerId,
             identificationMethod: r.identificationMethod,
@@ -14528,6 +14545,24 @@ async function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Catch uncaught exceptions and unhandled promise rejections
+process.on('uncaughtException', (error) => {
+    logger.error('UNCAUGHT EXCEPTION - This should not happen!', {
+        error: error.message,
+        stack: error.stack,
+        type: error.name
+    });
+    // Give time for the log to be written before exiting
+    setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('UNHANDLED PROMISE REJECTION', {
+        reason: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined
+    });
+});
 
 // Start the server
 startServer().catch(err => {

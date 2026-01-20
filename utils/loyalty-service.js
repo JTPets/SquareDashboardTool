@@ -2738,11 +2738,11 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
                 continue;  // Skip zero or negative quantities
             }
 
-            // Get pricing info
-            const unitPriceCents = lineItem.base_price_money?.amount || 0;
-            const grossSalesCents = lineItem.gross_sales_money?.amount || (unitPriceCents * quantity);
-            const totalDiscountCents = lineItem.total_discount_money?.amount || 0;
-            const totalMoneyCents = lineItem.total_money?.amount ?? (grossSalesCents - totalDiscountCents);
+            // Get pricing info (convert BigInt to Number for Square SDK v43+)
+            const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
+            const grossSalesCents = Number(lineItem.gross_sales_money?.amount || 0) || (unitPriceCents * quantity);
+            const totalDiscountCents = Number(lineItem.total_discount_money?.amount || 0);
+            const totalMoneyCents = Number(lineItem.total_money?.amount ?? 0) || (grossSalesCents - totalDiscountCents);
 
             // SKIP FREE ITEMS: Check if item was 100% discounted (free)
             // This prevents counting free items from ANY source (coupons, loyalty rewards, promos)
@@ -2886,8 +2886,9 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
 
                     // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
                     // that were free (never counted toward loyalty in the first place)
-                    const unitPriceCents = returnItem.base_price_money?.amount || 0;
-                    const totalMoneyCents = returnItem.total_money?.amount ?? unitPriceCents;
+                    // Convert BigInt to Number for Square SDK v43+
+                    const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
+                    const totalMoneyCents = Number(returnItem.total_money?.amount ?? 0) || unitPriceCents;
 
                     if (unitPriceCents > 0 && totalMoneyCents === 0) {
                         logger.info('Skipping refund of FREE item (was 100% discounted)', {
@@ -4167,7 +4168,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId) {
                     squareOrderId: order.id,
                     squareCustomerId: order.customer_id,
                     redemptionType: RedemptionTypes.AUTO_DETECTED,
-                    redeemedValueCents: discount.applied_money?.amount || 0,
+                    redeemedValueCents: Number(discount.applied_money?.amount || 0),
                     squareLocationId: order.location_id
                 });
 
@@ -4369,8 +4370,9 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
         for (const lineItem of order.line_items || []) {
             const variationId = lineItem.catalog_object_id;
             const quantity = parseInt(lineItem.quantity) || 0;
-            const unitPriceCents = lineItem.base_price_money?.amount || 0;
-            const totalMoneyCents = lineItem.total_money?.amount ?? unitPriceCents;
+            // Convert BigInt to Number for Square SDK v43+
+            const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
+            const totalMoneyCents = Number(lineItem.total_money?.amount ?? 0) || unitPriceCents;
 
             // Check if free (100% discounted)
             const isFree = unitPriceCents > 0 && totalMoneyCents === 0;
