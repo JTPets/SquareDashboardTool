@@ -14003,7 +14003,7 @@ async function startServer() {
             logger.info('Running scheduled daily batch generation for all merchants');
             try {
                 // Get all active merchants
-                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE');
                 const merchants = merchantsResult.rows;
 
                 if (merchants.length === 0) {
@@ -14043,7 +14043,7 @@ async function startServer() {
             logger.info('Running scheduled smart sync for all merchants');
             try {
                 // Get all active merchants
-                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE');
                 const merchants = merchantsResult.rows;
 
                 if (merchants.length === 0) {
@@ -14101,7 +14101,7 @@ async function startServer() {
             cronTasks.push(cron.schedule(gmcSyncCronSchedule, async () => {
                 logger.info('Running scheduled GMC product sync for all merchants');
                 try {
-                    const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                    const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE');
                     const merchants = merchantsResult.rows;
 
                     if (merchants.length === 0) {
@@ -14294,7 +14294,7 @@ async function startServer() {
         (async () => {
             try {
                 // Get all active merchants
-                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE');
                 const merchants = merchantsResult.rows;
 
                 if (merchants.length === 0) {
@@ -14336,7 +14336,7 @@ async function startServer() {
                 logger.info('Checking for stale data on startup for all merchants');
 
                 // Get all active merchants
-                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL');
+                const merchantsResult = await db.query('SELECT id, business_name FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE');
                 const merchants = merchantsResult.rows;
 
                 if (merchants.length === 0) {
