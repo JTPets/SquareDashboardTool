@@ -127,23 +127,54 @@ async function enrichOrdersWithGtin(merchantId, orders) {
 
     // If no variation names to look up, return orders unchanged
     if (variationNames.size === 0) {
-        logger.debug('No variation names to lookup for GTIN enrichment', { merchantId, orderCount: orders.length });
+        logger.info('GTIN enrichment: No variation names found in orders', { merchantId, orderCount: orders.length });
         return orders;
     }
+
+    const variationNameList = Array.from(variationNames);
+    logger.info('GTIN enrichment: Looking up UPCs', {
+        merchantId,
+        variationNames: variationNameList.slice(0, 10), // Log first 10 for debugging
+        totalNames: variationNameList.length
+    });
 
     // Batch lookup UPCs by variation name
     let upcMap = new Map();
     try {
         const result = await db.query(
             `SELECT name, upc FROM variations WHERE merchant_id = $1 AND name = ANY($2) AND upc IS NOT NULL`,
-            [merchantId, Array.from(variationNames)]
+            [merchantId, variationNameList]
         );
         result.rows.forEach(row => {
             if (row.upc) {
                 upcMap.set(row.name, row.upc);
             }
         });
-        logger.debug('GTIN lookup results', { merchantId, requested: variationNames.size, found: upcMap.size });
+        logger.info('GTIN enrichment: Lookup complete', {
+            merchantId,
+            requested: variationNameList.length,
+            found: upcMap.size,
+            foundNames: Array.from(upcMap.keys()).slice(0, 10)
+        });
+
+        // If no UPCs found, check if the variations exist at all (without UPC filter)
+        if (upcMap.size === 0) {
+            const checkResult = await db.query(
+                `SELECT name, upc FROM variations WHERE merchant_id = $1 AND name = ANY($2) LIMIT 5`,
+                [merchantId, variationNameList]
+            );
+            if (checkResult.rows.length > 0) {
+                logger.info('GTIN enrichment: Variations found but no UPCs set', {
+                    merchantId,
+                    sampleVariations: checkResult.rows.map(r => ({ name: r.name, hasUpc: !!r.upc }))
+                });
+            } else {
+                logger.info('GTIN enrichment: No matching variations found in database', {
+                    merchantId,
+                    searchedNames: variationNameList.slice(0, 5)
+                });
+            }
+        }
     } catch (err) {
         logger.warn('Failed to lookup GTINs for orders', { merchantId, error: err.message });
         return orders;

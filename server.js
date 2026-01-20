@@ -10807,9 +10807,14 @@ app.patch('/api/delivery/orders/:id/notes', deliveryRateLimit, requireAuth, requ
 app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
-        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+        const orderId = req.params.id;
+
+        logger.debug('Fetching customer stats', { merchantId, orderId });
+
+        const order = await deliveryApi.getOrderById(merchantId, orderId);
 
         if (!order) {
+            logger.warn('Customer stats: Order not found', { merchantId, orderId });
             return res.status(404).json({ error: 'Order not found' });
         }
 
@@ -10825,6 +10830,11 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
 
         // If no Square customer ID, return basic stats
         if (!order.square_customer_id) {
+            logger.debug('Customer stats: No Square customer ID, returning basic stats', {
+                merchantId,
+                orderId,
+                customerName: order.customer_name
+            });
             return res.json(stats);
         }
 
@@ -10899,6 +10909,17 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
             }) : Promise.resolve(null)
         ]);
 
+        // Log results of parallel fetches
+        logger.debug('Customer stats: Square API results', {
+            orderId,
+            orderCountStatus: orderCountResult.status,
+            orderCountError: orderCountResult.status === 'rejected' ? orderCountResult.reason?.message : undefined,
+            loyaltyStatus: loyaltyResult.status,
+            loyaltyError: loyaltyResult.status === 'rejected' ? loyaltyResult.reason?.message : undefined,
+            squareOrderStatus: squareOrderResult.status,
+            squareOrderError: squareOrderResult.status === 'rejected' ? squareOrderResult.reason?.message : undefined
+        });
+
         // Process order count
         if (orderCountResult.status === 'fulfilled' && orderCountResult.value.orders) {
             stats.order_count = orderCountResult.value.orders.length;
@@ -10935,6 +10956,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
             }
         }
 
+        logger.debug('Customer stats: Returning stats', { orderId, stats });
         res.json(stats);
     } catch (error) {
         logger.error('Error fetching customer stats', { error: error.message, stack: error.stack });
