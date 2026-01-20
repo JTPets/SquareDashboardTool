@@ -11424,16 +11424,41 @@ app.post('/api/delivery/sync', deliveryStrictRateLimit, requireAuth, requireMerc
                     continue;
                 }
 
-                // Skip if already completed in Square and in our system
+                // Handle completed orders specially
                 if (order.state === 'COMPLETED') {
                     const existing = await deliveryApi.getOrderBySquareId(merchantId, order.id);
-                    if (existing && existing.status === 'completed') {
+                    if (existing) {
+                        // If we already have this order, update its status if needed
+                        if (existing.status !== 'completed') {
+                            await deliveryApi.updateOrder(merchantId, existing.id, {
+                                status: 'completed',
+                                squareSyncedAt: new Date()
+                            });
+                            logger.info('Updated existing delivery order to completed', {
+                                merchantId,
+                                orderId: existing.id,
+                                squareOrderId: order.id
+                            });
+                            imported++;
+                        } else {
+                            // Already completed in our system too
+                            skipped++;
+                        }
+                    } else {
+                        // Don't import NEW orders that are already completed in Square
+                        // They've already been fulfilled, no point adding to delivery queue
+                        logger.debug('Skipping completed Square order - not in our system', {
+                            merchantId,
+                            squareOrderId: order.id,
+                            customerName: order.fulfillments?.[0]?.deliveryDetails?.recipient?.displayName ||
+                                         order.fulfillments?.[0]?.shipmentDetails?.recipient?.displayName
+                        });
                         skipped++;
-                        continue;
                     }
+                    continue;
                 }
 
-                // Try to ingest
+                // Try to ingest OPEN orders only
                 const result = await deliveryApi.ingestSquareOrder(merchantId, order);
                 if (result) {
                     imported++;
