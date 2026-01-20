@@ -1009,9 +1009,9 @@
             <td class="text-center">${offer.total_redeemed || 0}</td>
             <td><span class="status-badge ${offer.is_active ? 'active' : 'inactive'}">${offer.is_active ? 'Active' : 'Inactive'}</span></td>
             <td>
-              <button class="action-btn view" onclick="showVariationsModal('${offer.id}')">Variations</button>
-              <button class="action-btn edit" onclick="editOffer('${offer.id}')">Edit</button>
-              <button class="action-btn danger" onclick="deleteOffer('${offer.id}', '${escapeHtml(offer.offer_name)}')">Delete</button>
+              <button class="action-btn view" onclick="showVariationsModal('${escapeJsString(offer.id)}')">Variations</button>
+              <button class="action-btn edit" onclick="editOffer('${escapeJsString(offer.id)}')">Edit</button>
+              <button class="action-btn danger" onclick="deleteOffer('${escapeJsString(offer.id)}', '${escapeJsString(offer.offer_name)}')">Delete</button>
             </td>
           </tr>
         `).join('');
@@ -1264,11 +1264,11 @@
         const displayUpc = v.upc || '';
 
         return `
-          <div class="variation-item ${isSelected ? 'selected' : ''}" onclick="toggleVariationCard('${v.variationId}')">
+          <div class="variation-item ${isSelected ? 'selected' : ''}" onclick="toggleVariationCard('${escapeJsString(v.variationId)}')">
             <input type="checkbox" class="item-checkbox"
               id="var-${v.variationId}"
               ${isSelected ? 'checked' : ''}
-              onclick="event.stopPropagation(); toggleVariationCard('${v.variationId}')"
+              onclick="event.stopPropagation(); toggleVariationCard('${escapeJsString(v.variationId)}')"
             >
             <div class="image-container">
               ${imageUrl
@@ -1441,7 +1441,7 @@
             <strong>Found ${data.customers.length} customers:</strong>
             <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px;">
               ${data.customers.map(c => `
-                <button class="btn-secondary" onclick="showCustomerLoyalty('${c.id}')" style="text-align: left; padding: 10px 15px;">
+                <button class="btn-secondary" onclick="showCustomerLoyalty('${escapeJsString(c.id)}')" style="text-align: left; padding: 10px 15px;">
                   <strong>${escapeHtml(c.displayName || 'Unknown')}</strong><br>
                   <small style="color: #6b7280;">
                     ${c.phone ? escapeHtml(c.phone) : ''}
@@ -1488,7 +1488,7 @@
               </p>
               <p style="color: #6b7280; margin-top: 10px;">No loyalty activity found for this customer.</p>
               <div style="margin-top: 15px;">
-                <button class="btn-primary" onclick="viewOrderAuditHistory('${customerId}', '${escapeHtml(displayName)}')">
+                <button class="btn-primary" onclick="viewOrderAuditHistory('${escapeJsString(customerId)}', '${escapeJsString(displayName)}')">
                   Check for Missed Loyalty Items (91 Days)
                 </button>
               </div>
@@ -1521,7 +1521,7 @@
                 ${offer.window_end_date && !hasReward ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
               </div>
               ${hasReward ? `
-                <button class="btn-redeem-large" onclick="showRedeemModal('${offer.earned_reward_id}', '${escapeHtml(offer.offer_name)}', '${customerId}')">
+                <button class="btn-redeem-large" onclick="showRedeemModal('${escapeJsString(offer.earned_reward_id)}', '${escapeJsString(offer.offer_name)}', '${escapeJsString(customerId)}')">
                   Redeem Free Item Now
                 </button>
               ` : ''}
@@ -1541,8 +1541,8 @@
               ${offersHtml}
             </div>
             <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-              <button class="btn-secondary" onclick="viewCustomerHistory('${customerId}')">View Full History</button>
-              <button class="btn-primary" onclick="viewOrderAuditHistory('${customerId}', '${escapeHtml(displayName)}')">
+              <button class="btn-secondary" onclick="viewCustomerHistory('${escapeJsString(customerId)}')">View Full History</button>
+              <button class="btn-primary" onclick="viewOrderAuditHistory('${escapeJsString(customerId)}', '${escapeJsString(displayName)}')">
                 View Missed Loyalty Items (91 Days)
               </button>
             </div>
@@ -2013,7 +2013,7 @@
               <td>${reward.earned_at ? new Date(reward.earned_at).toLocaleDateString() : '-'}</td>
               <td>
                 ${reward.status === 'earned' ? `
-                  <button class="action-btn redeem" onclick="showRedeemModal('${reward.id}', '${escapeHtml(reward.offer_name)}', '${reward.square_customer_id}')">Redeem</button>
+                  <button class="action-btn redeem" onclick="showRedeemModal('${escapeJsString(reward.id)}', '${escapeJsString(reward.offer_name)}', '${escapeJsString(reward.square_customer_id)}')">Redeem</button>
                 ` : '-'}
               </td>
             </tr>
@@ -2106,7 +2106,7 @@
             <td>${r.redeemed_value_cents ? '$' + (r.redeemed_value_cents / 100).toFixed(2) : '-'}</td>
             <td><span class="status-badge ${r.redemption_type}">${r.redemption_type.replace(/_/g, ' ')}</span></td>
             <td>
-              <button class="action-btn view" onclick="viewVendorReceipt('${r.id}')">Receipt</button>
+              <button class="action-btn view" onclick="viewVendorReceipt('${escapeJsString(r.id)}')">Receipt</button>
             </td>
           </tr>
         `}).join('');
@@ -2401,6 +2401,16 @@
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
   </script>
 </body>
