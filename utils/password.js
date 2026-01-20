@@ -54,7 +54,7 @@ async function hashPassword(password) {
         const hash = await bcrypt.hash(password, SALT_ROUNDS);
         return hash;
     } catch (error) {
-        logger.error('Password hashing failed', { error: error.message });
+        logger.error('Password hashing failed', { error: error.message, stack: error.stack });
         throw new Error('Failed to hash password');
     }
 }
@@ -70,7 +70,7 @@ async function verifyPassword(password, hash) {
         const match = await bcrypt.compare(password, hash);
         return match;
     } catch (error) {
-        logger.error('Password verification failed', { error: error.message });
+        logger.error('Password verification failed', { error: error.message, stack: error.stack });
         return false;
     }
 }

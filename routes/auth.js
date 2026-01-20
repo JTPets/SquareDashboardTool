@@ -200,7 +200,7 @@ router.post('/logout', async (req, res) => {
 
     req.session.destroy((err) => {
         if (err) {
-            logger.error('Session destroy error', { error: err.message });
+            logger.error('Session destroy error', { error: err.message, stack: err.stack });
         }
         res.clearCookie('connect.sid');
         res.json({ success: true });
@@ -316,7 +316,7 @@ router.get('/users', requireAuth, requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('List users error', { error: error.message });
+        logger.error('List users error', { error: error.message, stack: error.stack });
         res.status(500).json({
             success: false,
             error: 'Failed to list users'
@@ -421,7 +421,7 @@ router.post('/users', requireAuth, requireAdmin, async (req, res) => {
         res.json(response);
 
     } catch (error) {
-        logger.error('Create user error', { error: error.message });
+        logger.error('Create user error', { error: error.message, stack: error.stack });
         res.status(500).json({
             success: false,
             error: 'Failed to create user'
@@ -747,7 +747,7 @@ router.post('/forgot-password', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Forgot password error', { error: error.message });
+        logger.error('Forgot password error', { error: error.message, stack: error.stack });
         res.status(500).json({
             success: false,
             error: 'Failed to process password reset request'
@@ -836,7 +836,7 @@ router.post('/reset-password', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Reset password error', { error: error.message });
+        logger.error('Reset password error', { error: error.message, stack: error.stack });
         res.status(500).json({
             success: false,
             error: 'Failed to reset password'
@@ -885,7 +885,7 @@ router.get('/verify-reset-token', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Verify reset token error', { error: error.message });
+        logger.error('Verify reset token error', { error: error.message, stack: error.stack });
         res.status(500).json({
             success: false,
             valid: false,
