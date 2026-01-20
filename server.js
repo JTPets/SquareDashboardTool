@@ -1183,13 +1183,14 @@ async function runSmartSync({ merchantId } = {}) {
             for (const period of ['sales_91d', 'sales_182d', 'sales_365d']) {
                 const days = period.replace('sales_', '').replace('d', '');
                 await db.query(`
-                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, started_at, synced_at, status)
-                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'completed')
+                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, started_at, synced_at, status, completed_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', CURRENT_TIMESTAMP)
                     ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
                         records_synced = EXCLUDED.records_synced,
                         started_at = CURRENT_TIMESTAMP,
                         synced_at = CURRENT_TIMESTAMP,
-                        status = 'completed'
+                        completed_at = CURRENT_TIMESTAMP,
+                        status = 'success'
                 `, [period, result[`${days}d`] || 0, merchantId]);
             }
 
@@ -1213,13 +1214,14 @@ async function runSmartSync({ merchantId } = {}) {
             for (const period of ['sales_91d', 'sales_182d']) {
                 const days = period.replace('sales_', '').replace('d', '');
                 await db.query(`
-                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, started_at, synced_at, status)
-                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'completed')
+                    INSERT INTO sync_history (sync_type, records_synced, merchant_id, started_at, synced_at, status, completed_at)
+                    VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'success', CURRENT_TIMESTAMP)
                     ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
                         records_synced = EXCLUDED.records_synced,
                         started_at = CURRENT_TIMESTAMP,
                         synced_at = CURRENT_TIMESTAMP,
-                        status = 'completed'
+                        completed_at = CURRENT_TIMESTAMP,
+                        status = 'success'
                 `, [period, result[`${days}d`] || 0, merchantId]);
             }
 
