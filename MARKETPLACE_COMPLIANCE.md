@@ -163,8 +163,9 @@ SqTools.ca enhances your Square experience with advanced inventory management to
 
 | Plan | Price | Features |
 |------|-------|----------|
-| Free Trial | $0 for 14 days | Full access to all features |
-| Monthly | $XX/month | Full access, priority support |
+| Free Trial | $0 for 30 days | Full access to all features |
+| Monthly | $29.99/month | Full access, email support |
+| Annual | $299.99/year | Full access, priority support, 2 months free |
 
 ---
 
