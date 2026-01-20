@@ -763,10 +763,10 @@
       return 'info';
     }
 
-    // Format velocity value like reorder.html
+    // Format velocity value with 2 decimal places
     function formatVelocity(val) {
       if (!val || val === 0) return '-';
-      return parseFloat(val).toFixed(1);
+      return parseFloat(val).toFixed(2);
     }
 
     function renderTable(data) {
