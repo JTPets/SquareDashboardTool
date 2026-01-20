@@ -681,6 +681,25 @@
         route = data.route;
         stops = data.orders || [];
 
+        // Debug: Log order data to help diagnose rendering issues
+        console.log('Route loaded:', route?.id);
+        console.log('Orders loaded:', stops.length);
+        stops.forEach((stop, i) => {
+          const items = stop.square_order_data?.lineItems || [];
+          console.log(`Order ${i + 1} (${stop.customer_name}):`, {
+            id: stop.id,
+            hasSquareCustomerId: !!stop.square_customer_id,
+            hasSquareOrderData: !!stop.square_order_data,
+            lineItemsCount: items.length,
+            lineItems: items.map(item => ({
+              name: item.name,
+              quantity: item.quantity,
+              variationName: item.variationName
+            })),
+            totalMoney: stop.square_order_data?.totalMoney
+          });
+        });
+
         renderRoute();
       } catch (error) {
         console.error('Error loading route:', error);
