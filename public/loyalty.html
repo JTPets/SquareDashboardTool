@@ -1084,9 +1084,9 @@
       document.getElementById('offer-window').value = offer.window_months;
       document.getElementById('offer-description').value = offer.description || '';
 
-      // Disable brand/size/quantity for existing offers (window_months remains editable)
+      // Disable brand/quantity for existing offers (size_group and window_months remain editable)
       document.getElementById('offer-brand').disabled = true;
-      document.getElementById('offer-size').disabled = true;
+      document.getElementById('offer-size').disabled = false;
       document.getElementById('offer-quantity').disabled = true;
       document.getElementById('offer-window').disabled = false;
 
@@ -1164,7 +1164,8 @@
               offer_name: data.offerName,
               description: data.description,
               window_months: data.windowMonths,
-              vendor_id: data.vendorId
+              vendor_id: data.vendorId,
+              size_group: data.sizeGroup
             })
           });
         } else {

@@ -1257,7 +1257,7 @@ async function updateOffer(offerId, updates, merchantId, userId = null) {
         }
     }
 
-    const allowedFields = ['offer_name', 'description', 'is_active', 'window_months', 'vendor_id', 'vendor_name', 'vendor_email'];
+    const allowedFields = ['offer_name', 'description', 'is_active', 'window_months', 'vendor_id', 'vendor_name', 'vendor_email', 'size_group'];
     const setClause = [];
     const params = [offerId, merchantId];
 
