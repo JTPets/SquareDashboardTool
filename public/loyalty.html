@@ -335,6 +335,18 @@
     .variation-item .name { font-weight: 600; font-size: 14px; color: #374151; margin-bottom: 2px; }
     .variation-item .variation-name { font-size: 13px; color: #6b7280; margin-bottom: 2px; }
     .variation-item .sku-gtin { font-size: 12px; color: #9ca3af; font-family: monospace; display: flex; gap: 15px; flex-wrap: wrap; }
+    .variation-item .assigned-badge {
+      font-size: 11px;
+      color: #b45309;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 4px;
+      padding: 2px 6px;
+      margin-top: 4px;
+      display: inline-block;
+    }
+    .variation-item.assigned-other { opacity: 0.7; }
+    .variation-item.assigned-other:hover { opacity: 1; }
 
     /* Large modal for variations */
     .modal-wide .modal-content {
@@ -933,6 +945,8 @@
     let allOffers = [];
     let allVariations = [];
     let selectedVariations = new Set();
+    let variationAssignments = {}; // Maps variation_id to offer info
+    let currentOfferId = null; // Track which offer we're editing
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
@@ -1070,9 +1084,9 @@
       document.getElementById('offer-window').value = offer.window_months;
       document.getElementById('offer-description').value = offer.description || '';
 
-      // Disable brand/size/quantity for existing offers (window_months remains editable)
+      // Disable brand/quantity for existing offers (size_group and window_months remain editable)
       document.getElementById('offer-brand').disabled = true;
-      document.getElementById('offer-size').disabled = true;
+      document.getElementById('offer-size').disabled = false;
       document.getElementById('offer-quantity').disabled = true;
       document.getElementById('offer-window').disabled = false;
 
@@ -1150,7 +1164,8 @@
               offer_name: data.offerName,
               description: data.description,
               window_months: data.windowMonths,
-              vendor_id: data.vendorId
+              vendor_id: data.vendorId,
+              size_group: data.sizeGroup
             })
           });
         } else {
@@ -1186,16 +1201,24 @@
     // Variations
     async function showVariationsModal(offerId) {
       document.getElementById('variations-offer-id').value = offerId;
+      currentOfferId = offerId;
       selectedVariations.clear();
       showModal('variations-modal');
 
-      // Load current variations
+      // Load current variations and assignments in parallel
       try {
-        const response = await fetch(`/api/loyalty/offers/${offerId}/variations`);
-        const data = await response.json();
+        const [variationsResponse, assignmentsResponse] = await Promise.all([
+          fetch(`/api/loyalty/offers/${offerId}/variations`),
+          fetch('/api/loyalty/variations/assignments')
+        ]);
 
-        data.variations.forEach(v => selectedVariations.add(v.variation_id));
-        updateCurrentVariationsDisplay(data.variations);
+        const variationsData = await variationsResponse.json();
+        const assignmentsData = await assignmentsResponse.json();
+
+        variationAssignments = assignmentsData.assignments || {};
+
+        variationsData.variations.forEach(v => selectedVariations.add(v.variation_id));
+        updateCurrentVariationsDisplay(variationsData.variations);
       } catch (error) {
         console.error('Failed to load variations:', error);
       }
@@ -1263,8 +1286,12 @@
         const displaySku = v.sku || '';
         const displayUpc = v.upc || '';
 
+        // Check if assigned to another offer (not the current one)
+        const assignment = variationAssignments[v.variationId];
+        const isAssignedToOther = assignment && assignment.offerId !== currentOfferId;
+
         return `
-          <div class="variation-item ${isSelected ? 'selected' : ''}" onclick="toggleVariationCard('${escapeJsString(v.variationId)}')">
+          <div class="variation-item ${isSelected ? 'selected' : ''} ${isAssignedToOther ? 'assigned-other' : ''}" onclick="toggleVariationCard('${escapeJsString(v.variationId)}')">
             <input type="checkbox" class="item-checkbox"
               id="var-${v.variationId}"
               ${isSelected ? 'checked' : ''}
@@ -1284,6 +1311,7 @@
                 ${displayUpc ? `<span>UPC: ${escapeHtml(displayUpc)}</span>` : ''}
                 ${!displaySku && !displayUpc ? '<span style="color: #d1d5db;">No SKU/UPC</span>' : ''}
               </div>
+              ${isAssignedToOther ? `<div class="assigned-badge">Already in: ${escapeHtml(assignment.offerName)}</div>` : ''}
             </div>
           </div>
         `;
@@ -1378,7 +1406,18 @@
           body: JSON.stringify({ variations })
         });
 
-        if (!response.ok) throw new Error('Failed to save variations');
+        if (!response.ok) {
+          const errorData = await response.json();
+          // Handle variation conflict error with detailed message
+          if (response.status === 409 && errorData.code === 'VARIATION_CONFLICT') {
+            const conflictList = errorData.conflicts.map(c =>
+              `• "${c.item_name}${c.variation_name ? ' - ' + c.variation_name : ''}" is already assigned to "${c.offer_name}"`
+            ).join('\n');
+            alert(`Cannot save - these variations are already assigned to other offers:\n\n${conflictList}\n\nEach variation can only belong to one offer. Please remove the conflicting variations first.`);
+            return;
+          }
+          throw new Error(errorData.error || 'Failed to save variations');
+        }
 
         closeModal('variations-modal');
         loadOffers();
