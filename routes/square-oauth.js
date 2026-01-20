@@ -39,7 +39,8 @@ const REQUIRED_SCOPES = [
     'VENDOR_READ',
     'LOYALTY_READ',
     'CUSTOMERS_READ',
-    'CUSTOMERS_WRITE'  // Required for Customer Group Discounts (frequent buyer rewards)
+    'CUSTOMERS_WRITE',  // Required for Customer Group Discounts (frequent buyer rewards)
+    'INVOICES_READ'     // Required for committed inventory/purchase orders sync
 ];
 
 /**
