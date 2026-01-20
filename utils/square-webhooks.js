@@ -29,8 +29,12 @@ const WEBHOOK_EVENT_TYPES = {
     // Loyalty features
     loyalty: [
         'loyalty.event.created',      // Catches orders linked via loyalty card scan
+        'loyalty.account.created',    // New loyalty account - catchup for customer's orders
+        'loyalty.account.updated',    // Loyalty account changed - catchup for customer's orders
         'payment.created',            // Payment tracking for loyalty
-        'payment.updated'             // Payment completion for loyalty processing
+        'payment.updated',            // Payment completion for loyalty processing
+        'customer.updated',           // Customer info changed - catchup for linkable orders
+        'gift_card.customer_linked'   // Gift card linked - catchup for gift card purchases
     ],
 
     // Refund handling
