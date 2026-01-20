@@ -329,6 +329,12 @@
       font-weight: 500;
       color: #14532d;
     }
+    .item-gtin {
+      font-size: 11px;
+      color: #6b7280;
+      font-family: monospace;
+      margin-left: 8px;
+    }
     .item-modifiers {
       margin-top: 4px;
       padding-left: 40px;
@@ -790,6 +796,7 @@
                       <div class="order-item">
                         <span class="item-qty">${item.quantity}x</span>
                         <span class="item-name">${escapeHtml(item.name)}${item.variationName ? ` (${escapeHtml(item.variationName)})` : ''}</span>
+                        ${item.gtin ? `<span class="item-gtin">[${escapeHtml(item.gtin)}]</span>` : ''}
                         ${item.modifiers && item.modifiers.length > 0 ? `
                           <div class="item-modifiers">
                             ${item.modifiers.map(m => `<span class="modifier">+ ${escapeHtml(m.name)}</span>`).join('')}

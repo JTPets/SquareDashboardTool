@@ -48,6 +48,57 @@ function validateUUID(id, fieldName = 'ID') {
 }
 
 /**
+ * Look up GTINs (UPCs) for line items from our catalog
+ * @param {number} merchantId - The merchant ID
+ * @param {Array} lineItems - Square order line items
+ * @returns {Promise<Array>} Line items enriched with GTIN
+ */
+async function enrichLineItemsWithGtin(merchantId, lineItems) {
+    if (!lineItems || lineItems.length === 0) {
+        return [];
+    }
+
+    // Extract variation IDs from line items (catalogObjectId is the variation ID)
+    const variationIds = lineItems
+        .map(item => item.catalogObjectId || item.catalog_object_id)
+        .filter(Boolean);
+
+    // Batch lookup UPCs from our variations table
+    let upcMap = new Map();
+    if (variationIds.length > 0) {
+        try {
+            const result = await db.query(
+                `SELECT id, upc FROM variations WHERE merchant_id = $1 AND id = ANY($2)`,
+                [merchantId, variationIds]
+            );
+            result.rows.forEach(row => {
+                if (row.upc) {
+                    upcMap.set(row.id, row.upc);
+                }
+            });
+        } catch (err) {
+            logger.warn('Failed to lookup GTINs for line items', { merchantId, error: err.message });
+        }
+    }
+
+    // Map line items with GTIN
+    return lineItems.map(item => {
+        const variationId = item.catalogObjectId || item.catalog_object_id;
+        return {
+            name: item.name,
+            quantity: item.quantity,
+            variationName: item.variationName || item.variation_name,
+            note: item.note,
+            gtin: variationId ? upcMap.get(variationId) || null : null,
+            modifiers: (item.modifiers || []).map(m => ({
+                name: m.name,
+                quantity: m.quantity
+            }))
+        };
+    });
+}
+
+/**
  * Get delivery orders for a merchant
  * @param {number} merchantId - The merchant ID
  * @param {Object} options - Query options
@@ -1069,17 +1120,9 @@ async function ingestSquareOrder(merchantId, squareOrder) {
 
         // Backfill order data if missing
         if (!existing.square_order_data && (squareOrder.lineItems || squareOrder.line_items)) {
+            const lineItems = await enrichLineItemsWithGtin(merchantId, squareOrder.lineItems || squareOrder.line_items || []);
             updates.squareOrderData = {
-                lineItems: (squareOrder.lineItems || squareOrder.line_items || []).map(item => ({
-                    name: item.name,
-                    quantity: item.quantity,
-                    variationName: item.variationName || item.variation_name,
-                    note: item.note,
-                    modifiers: (item.modifiers || []).map(m => ({
-                        name: m.name,
-                        quantity: m.quantity
-                    }))
-                })),
+                lineItems,
                 totalMoney: squareOrder.totalMoney || squareOrder.total_money,
                 createdAt: squareOrder.createdAt || squareOrder.created_at,
                 state: squareOrder.state
@@ -1165,17 +1208,9 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     const squareCustomerId = squareOrder.customerId || squareOrder.customer_id || null;
 
     // Extract relevant order data for driver reference (line items, totals, etc.)
+    const lineItems = await enrichLineItemsWithGtin(merchantId, squareOrder.lineItems || squareOrder.line_items || []);
     const squareOrderData = {
-        lineItems: (squareOrder.lineItems || squareOrder.line_items || []).map(item => ({
-            name: item.name,
-            quantity: item.quantity,
-            variationName: item.variationName || item.variation_name,
-            note: item.note,
-            modifiers: (item.modifiers || []).map(m => ({
-                name: m.name,
-                quantity: m.quantity
-            }))
-        })),
+        lineItems,
         totalMoney: squareOrder.totalMoney || squareOrder.total_money,
         createdAt: squareOrder.createdAt || squareOrder.created_at,
         state: squareOrder.state
