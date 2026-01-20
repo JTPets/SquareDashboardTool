@@ -10813,13 +10813,24 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
         }
 
         const squareClient = await getSquareClientForMerchant(merchantId);
-        const merchant = await MerchantDB.getMerchantById(merchantId);
+
+        // Get active location IDs for this merchant
+        const locationsResult = await db.query(
+            'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND active = TRUE AND square_location_id IS NOT NULL',
+            [merchantId]
+        );
+        const locationIds = locationsResult.rows.map(r => r.square_location_id);
+
+        if (locationIds.length === 0) {
+            logger.warn('No active locations found for merchant', { merchantId });
+            return res.json(stats);
+        }
 
         // Fetch order count, loyalty status, and payment info in parallel
         const [orderCountResult, loyaltyResult, squareOrderResult] = await Promise.allSettled([
             // Count previous orders by this customer
             squareClient.orders.search({
-                locationIds: [merchant.square_location_id],
+                locationIds: locationIds,
                 query: {
                     filter: {
                         customerFilter: {
