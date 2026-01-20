@@ -48,9 +48,10 @@ function validateUUID(id, fieldName = 'ID') {
 }
 
 /**
- * Look up GTINs (UPCs) for line items from our catalog
+ * Look up GTINs (UPCs) for line items from our catalog at INGEST time
+ * Uses catalogObjectId (variation ID) from Square order data
  * @param {number} merchantId - The merchant ID
- * @param {Array} lineItems - Square order line items
+ * @param {Array} lineItems - Square order line items (with catalogObjectId)
  * @returns {Promise<Array>} Line items enriched with GTIN
  */
 async function enrichLineItemsWithGtin(merchantId, lineItems) {
@@ -94,6 +95,74 @@ async function enrichLineItemsWithGtin(merchantId, lineItems) {
                 name: m.name,
                 quantity: m.quantity
             }))
+        };
+    });
+}
+
+/**
+ * Enrich orders with GTIN data at READ time
+ * Uses variation name matching for orders that don't have catalogObjectId stored
+ * @param {number} merchantId - The merchant ID
+ * @param {Array} orders - Array of delivery orders
+ * @returns {Promise<Array>} Orders with lineItems enriched with GTIN
+ */
+async function enrichOrdersWithGtin(merchantId, orders) {
+    if (!orders || orders.length === 0) {
+        return orders;
+    }
+
+    // Collect all unique variation names from all orders
+    const variationNames = new Set();
+    for (const order of orders) {
+        const lineItems = order.square_order_data?.lineItems || [];
+        for (const item of lineItems) {
+            // Skip if already has GTIN
+            if (item.gtin) continue;
+            // Use variation name for lookup
+            if (item.variationName) {
+                variationNames.add(item.variationName);
+            }
+        }
+    }
+
+    if (variationNames.size === 0) {
+        return orders;
+    }
+
+    // Batch lookup UPCs by variation name
+    let upcMap = new Map();
+    try {
+        const result = await db.query(
+            `SELECT name, upc FROM variations WHERE merchant_id = $1 AND name = ANY($2) AND upc IS NOT NULL`,
+            [merchantId, Array.from(variationNames)]
+        );
+        result.rows.forEach(row => {
+            if (row.upc) {
+                upcMap.set(row.name, row.upc);
+            }
+        });
+    } catch (err) {
+        logger.warn('Failed to lookup GTINs for orders', { merchantId, error: err.message });
+        return orders;
+    }
+
+    // Enrich orders with GTIN
+    return orders.map(order => {
+        if (!order.square_order_data?.lineItems) {
+            return order;
+        }
+
+        const enrichedLineItems = order.square_order_data.lineItems.map(item => ({
+            ...item,
+            gtin: item.gtin || (item.variationName ? upcMap.get(item.variationName) : null) || null
+        }));
+
+        return {
+            ...order,
+            square_order_data: {
+                ...order.square_order_data,
+                lineItems: enrichedLineItems
+            }
         };
     });
 }
@@ -409,7 +478,10 @@ async function getRouteWithOrders(merchantId, routeId) {
     }
 
     const route = routeResult.rows[0];
-    const orders = await getOrders(merchantId, { routeId });
+    let orders = await getOrders(merchantId, { routeId });
+
+    // Enrich orders with GTIN data for driver view
+    orders = await enrichOrdersWithGtin(merchantId, orders);
 
     return { ...route, orders };
 }
