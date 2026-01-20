@@ -2096,6 +2096,8 @@ async function ensureSchema() {
             await query('CREATE INDEX idx_loyalty_qual_vars_merchant ON loyalty_qualifying_variations(merchant_id)');
             await query('CREATE INDEX idx_loyalty_qual_vars_offer ON loyalty_qualifying_variations(offer_id)');
             await query('CREATE INDEX idx_loyalty_qual_vars_variation ON loyalty_qualifying_variations(merchant_id, variation_id)');
+            // Unique constraint: each variation can only belong to ONE active offer per merchant
+            await query('CREATE UNIQUE INDEX idx_loyalty_qual_vars_unique_per_merchant ON loyalty_qualifying_variations(merchant_id, variation_id) WHERE is_active = TRUE');
 
             // 3. loyalty_purchase_events - Records qualifying purchases
             await query(`
@@ -2260,6 +2262,47 @@ async function ensureSchema() {
         }
     } catch (error) {
         logger.error('Failed to create loyalty program tables:', error.message);
+    }
+
+    // ==================== LOYALTY VARIATION UNIQUE CONSTRAINT MIGRATION ====================
+    // Migration 020: Ensure each variation can only belong to ONE active offer per merchant
+    // This fixes a bug where the same variation could be added to multiple offers,
+    // causing purchases to track to the wrong offer (non-deterministic first match)
+    try {
+        const uniqueIndexExists = await query(`
+            SELECT indexname FROM pg_indexes
+            WHERE tablename = 'loyalty_qualifying_variations'
+            AND indexname = 'idx_loyalty_qual_vars_unique_per_merchant'
+        `);
+
+        if (uniqueIndexExists.rows.length === 0) {
+            // Check for existing duplicates first
+            const duplicateCheck = await query(`
+                SELECT merchant_id, variation_id, COUNT(*) as offer_count
+                FROM loyalty_qualifying_variations
+                WHERE is_active = TRUE
+                GROUP BY merchant_id, variation_id
+                HAVING COUNT(*) > 1
+            `);
+
+            if (duplicateCheck.rows.length > 0) {
+                logger.warn('Found variations assigned to multiple offers - these must be cleaned up:', {
+                    duplicates: duplicateCheck.rows,
+                    hint: 'Run: SELECT merchant_id, variation_id, array_agg(offer_id) FROM loyalty_qualifying_variations WHERE is_active = TRUE GROUP BY merchant_id, variation_id HAVING COUNT(*) > 1'
+                });
+            } else {
+                // No duplicates, safe to create unique index
+                await query(`
+                    CREATE UNIQUE INDEX idx_loyalty_qual_vars_unique_per_merchant
+                    ON loyalty_qualifying_variations(merchant_id, variation_id)
+                    WHERE is_active = TRUE
+                `);
+                logger.info('Created unique index idx_loyalty_qual_vars_unique_per_merchant on loyalty_qualifying_variations');
+                appliedCount++;
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to apply loyalty variation unique constraint migration:', error.message);
     }
 
     if (appliedCount > 0) {
