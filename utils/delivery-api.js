@@ -125,7 +125,9 @@ async function enrichOrdersWithGtin(merchantId, orders) {
         }
     }
 
+    // If no variation names to look up, return orders unchanged
     if (variationNames.size === 0) {
+        logger.debug('No variation names to lookup for GTIN enrichment', { merchantId, orderCount: orders.length });
         return orders;
     }
 
@@ -141,29 +143,35 @@ async function enrichOrdersWithGtin(merchantId, orders) {
                 upcMap.set(row.name, row.upc);
             }
         });
+        logger.debug('GTIN lookup results', { merchantId, requested: variationNames.size, found: upcMap.size });
     } catch (err) {
         logger.warn('Failed to lookup GTINs for orders', { merchantId, error: err.message });
         return orders;
     }
 
-    // Enrich orders with GTIN
+    // Enrich orders with GTIN - be defensive to avoid breaking data
     return orders.map(order => {
-        if (!order.square_order_data?.lineItems) {
+        try {
+            if (!order.square_order_data || !Array.isArray(order.square_order_data.lineItems)) {
+                return order;
+            }
+
+            const enrichedLineItems = order.square_order_data.lineItems.map(item => ({
+                ...item,
+                gtin: item.gtin || (item.variationName ? upcMap.get(item.variationName) : null) || null
+            }));
+
+            return {
+                ...order,
+                square_order_data: {
+                    ...order.square_order_data,
+                    lineItems: enrichedLineItems
+                }
+            };
+        } catch (err) {
+            logger.warn('Failed to enrich order with GTIN', { orderId: order.id, error: err.message });
             return order;
         }
-
-        const enrichedLineItems = order.square_order_data.lineItems.map(item => ({
-            ...item,
-            gtin: item.gtin || (item.variationName ? upcMap.get(item.variationName) : null) || null
-        }));
-
-        return {
-            ...order,
-            square_order_data: {
-                ...order.square_order_data,
-                lineItems: enrichedLineItems
-            }
-        };
     });
 }
 
