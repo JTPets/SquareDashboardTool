@@ -10286,6 +10286,14 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
+            // Acknowledged but not processed - these don't require action from us
+            case 'loyalty.account.updated':
+            case 'loyalty.account.created':
+            case 'loyalty.program.updated':
+                logger.debug('Webhook event acknowledged but not processed', { type: event.type });
+                syncResults.acknowledged = true;
+                break;
+
             default:
                 logger.info('Unhandled webhook event type', { type: event.type });
                 syncResults.unhandled = true;

@@ -18,6 +18,11 @@ const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+// Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
+// Map<merchantId, timestamp> - expires after 1 hour
+const merchantsWithoutInvoicesScope = new Map();
+const INVOICES_SCOPE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
 /**
  * Get decrypted access token for a merchant
  * @param {number} merchantId - The merchant ID (REQUIRED)
@@ -879,13 +884,12 @@ async function syncVariation(obj, merchantId) {
 
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {
-            // Log the full vendor_information object to debug structure issues
+            // Skip entries without vendor_id - these are just cost data without a linked vendor
+            // (This is normal for items with costs but no vendor assigned)
             if (!vendorInfo.vendor_id) {
-                logger.warn('vendor_information entry missing vendor_id - check Square API field names', {
+                // Only log at debug level since this is expected
+                logger.debug('Vendor info without vendor_id (cost-only entry)', {
                     variation_id: obj.id,
-                    vendorInfo_keys: Object.keys(vendorInfo),
-                    vendorInfo_raw: JSON.stringify(vendorInfo),
-                    has_price_money: !!vendorInfo.price_money,
                     has_unit_cost_money: !!vendorInfo.unit_cost_money
                 });
                 continue;
@@ -1851,6 +1855,14 @@ async function syncCommittedInventory(merchantId) {
     if (!merchantId) {
         throw new Error('merchantId is required for syncCommittedInventory');
     }
+
+    // Check if merchant is known to lack INVOICES_READ scope (cached)
+    const cachedTimestamp = merchantsWithoutInvoicesScope.get(merchantId);
+    if (cachedTimestamp && Date.now() - cachedTimestamp < INVOICES_SCOPE_CACHE_TTL) {
+        // Silently skip - already logged once when cached
+        return { skipped: true, reason: 'INVOICES_READ scope not authorized (cached)', count: 0 };
+    }
+
     logger.info('Starting committed inventory sync from invoices', { merchantId });
 
     try {
@@ -1911,7 +1923,9 @@ async function syncCommittedInventory(merchantId) {
             } catch (apiError) {
                 // Gracefully handle missing INVOICES_READ scope
                 if (apiError.message && apiError.message.includes('INSUFFICIENT_SCOPES')) {
-                    logger.info('Skipping committed inventory sync - merchant does not have INVOICES_READ scope', { merchantId });
+                    // Cache this to avoid repeated API calls and log spam
+                    merchantsWithoutInvoicesScope.set(merchantId, Date.now());
+                    logger.info('Skipping committed inventory sync - merchant does not have INVOICES_READ scope (will cache for 1 hour)', { merchantId });
                     return { skipped: true, reason: 'INVOICES_READ scope not authorized', count: 0 };
                 }
                 // Re-throw other errors
