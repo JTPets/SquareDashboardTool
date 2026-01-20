@@ -91,12 +91,15 @@ CREATE INDEX idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE
 CREATE TABLE sync_history (
     id SERIAL PRIMARY KEY,
     sync_type TEXT NOT NULL,  -- 'catalog', 'vendors', 'inventory', 'sales_91d', 'sales_182d', 'sales_365d'
-    started_at TIMESTAMP NOT NULL,
+    merchant_id INTEGER REFERENCES merchants(id),
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
+    synced_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- Simple timestamp for last sync
     status TEXT DEFAULT 'running',  -- 'running', 'success', 'failed'
     records_synced INTEGER DEFAULT 0,
     error_message TEXT,
-    duration_seconds INTEGER
+    duration_seconds INTEGER,
+    UNIQUE(sync_type, merchant_id)
 );
 
 -- 2. Store locations from Square
