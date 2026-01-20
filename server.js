@@ -10335,7 +10335,7 @@ app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) =
 
         res.json({ orders });
     } catch (error) {
-        logger.error('Error fetching delivery orders', { error: error.message });
+        logger.error('Error fetching delivery orders', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10382,7 +10382,7 @@ app.post('/api/delivery/orders', deliveryRateLimit, requireAuth, requireMerchant
 
         res.status(201).json({ order });
     } catch (error) {
-        logger.error('Error creating delivery order', { error: error.message });
+        logger.error('Error creating delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10402,7 +10402,7 @@ app.get('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req, re
 
         res.json({ order });
     } catch (error) {
-        logger.error('Error fetching delivery order', { error: error.message });
+        logger.error('Error fetching delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10444,7 +10444,7 @@ app.patch('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req, 
 
         res.json({ order });
     } catch (error) {
-        logger.error('Error updating delivery order', { error: error.message });
+        logger.error('Error updating delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10468,7 +10468,7 @@ app.delete('/api/delivery/orders/:id', requireAuth, requireMerchant, async (req,
 
         res.json({ success: true });
     } catch (error) {
-        logger.error('Error deleting delivery order', { error: error.message });
+        logger.error('Error deleting delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10488,7 +10488,7 @@ app.post('/api/delivery/orders/:id/skip', requireAuth, requireMerchant, async (r
 
         res.json({ order });
     } catch (error) {
-        logger.error('Error skipping delivery order', { error: error.message });
+        logger.error('Error skipping delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10621,7 +10621,7 @@ app.post('/api/delivery/orders/:id/complete', requireAuth, requireMerchant, asyn
             square_sync_error: squareSyncError
         });
     } catch (error) {
-        logger.error('Error completing delivery order', { error: error.message });
+        logger.error('Error completing delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11098,7 +11098,7 @@ app.get('/api/delivery/settings', requireAuth, requireMerchant, async (req, res)
 
         res.json({ settings });
     } catch (error) {
-        logger.error('Error fetching delivery settings', { error: error.message });
+        logger.error('Error fetching delivery settings', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11160,7 +11160,7 @@ app.put('/api/delivery/settings', requireAuth, requireMerchant, async (req, res)
 
         res.json({ settings });
     } catch (error) {
-        logger.error('Error updating delivery settings', { error: error.message });
+        logger.error('Error updating delivery settings', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11234,7 +11234,7 @@ app.get('/api/delivery/stats', requireAuth, requireMerchant, async (req, res) =>
             }
         });
     } catch (error) {
-        logger.error('Error fetching delivery stats', { error: error.message });
+        logger.error('Error fetching delivery stats', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11332,20 +11332,24 @@ app.post('/api/delivery/sync', deliveryStrictRateLimit, requireAuth, requireMerc
         });
 
     } catch (error) {
-        logger.error('Error syncing delivery orders', { error: error.message });
+        logger.error('Error syncing delivery orders', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
 
 /**
- * Helper to get location IDs for a merchant
+ * Helper to get Square location IDs for a merchant
+ * Returns the Square-specific location IDs needed for API calls
  */
 async function getLocationIds(merchantId) {
     const result = await db.query(
-        'SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE',
+        'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND active = TRUE AND square_location_id IS NOT NULL',
         [merchantId]
     );
-    return result.rows.map(r => r.id);
+    if (result.rows.length === 0) {
+        logger.warn('No active locations found for merchant', { merchantId });
+    }
+    return result.rows.map(r => r.square_location_id);
 }
 
 // ==================== LOYALTY ADDON API ====================
