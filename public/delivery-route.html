@@ -765,7 +765,7 @@
               <div class="stop-customer">
                 <h3>${escapeHtml(stop.customer_name)}</h3>
                 <div class="customer-badges" id="badges-${stop.id}">
-                  ${stop.square_customer_id ? '<span class="badge badge-loading">Loading...</span>' : ''}
+                  ${(stop.square_customer_id || stop.phone) ? '<span class="badge badge-loading">Loading...</span>' : ''}
                 </div>
               </div>
               <span class="stop-status status-${stop.status}">${stop.status}</span>
@@ -879,8 +879,8 @@
     }
 
     async function fetchAllCustomerStats() {
-      // Get all stops with customer IDs and fetch their stats in parallel
-      const stopsWithCustomers = stops.filter(s => s.square_customer_id);
+      // Get all stops with customer IDs OR phone numbers (backend can look up by phone)
+      const stopsWithCustomers = stops.filter(s => s.square_customer_id || s.phone);
 
       // Fetch in batches of 5 to avoid overwhelming the server
       const batchSize = 5;

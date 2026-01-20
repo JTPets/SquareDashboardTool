@@ -10828,17 +10828,54 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
             amount_paid: null
         };
 
-        // If no Square customer ID, return basic stats
-        if (!order.square_customer_id) {
-            logger.debug('Customer stats: No Square customer ID, returning basic stats', {
+        const squareClient = await getSquareClientForMerchant(merchantId);
+
+        // If no Square customer ID, try to look up by phone number
+        let customerId = order.square_customer_id;
+        if (!customerId && order.phone) {
+            try {
+                logger.debug('Customer stats: No customer ID, searching by phone', {
+                    merchantId,
+                    orderId,
+                    phone: order.phone
+                });
+                const searchResult = await squareClient.customers.search({
+                    query: {
+                        filter: {
+                            phoneNumber: {
+                                exact: order.phone
+                            }
+                        }
+                    },
+                    limit: 1
+                });
+                if (searchResult.customers && searchResult.customers.length > 0) {
+                    customerId = searchResult.customers[0].id;
+                    logger.debug('Customer stats: Found customer by phone', {
+                        merchantId,
+                        orderId,
+                        customerId,
+                        customerName: searchResult.customers[0].givenName
+                    });
+                }
+            } catch (searchErr) {
+                logger.warn('Customer stats: Failed to search customer by phone', {
+                    merchantId,
+                    orderId,
+                    error: searchErr.message
+                });
+            }
+        }
+
+        // If still no customer ID, return basic stats
+        if (!customerId) {
+            logger.debug('Customer stats: No customer found, returning basic stats', {
                 merchantId,
                 orderId,
                 customerName: order.customer_name
             });
             return res.json(stats);
         }
-
-        const squareClient = await getSquareClientForMerchant(merchantId);
 
         // Get active location IDs for this merchant
         const locationsResult = await db.query(
@@ -10860,7 +10897,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
                 query: {
                     filter: {
                         customerFilter: {
-                            customerIds: [order.square_customer_id]
+                            customerIds: [customerId]
                         },
                         stateFilter: {
                             states: ['COMPLETED']
@@ -10882,7 +10919,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
                         // Search for loyalty account by customer ID
                         const accountsResponse = await squareClient.loyalty.accounts.search({
                             query: {
-                                customerIds: [order.square_customer_id]
+                                customerIds: [customerId]
                             }
                         });
 
