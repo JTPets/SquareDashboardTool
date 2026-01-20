@@ -1008,21 +1008,21 @@
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
               ${expiryInfoHtml}
             </td>
-            <td class="sku clickable" onclick="copyToClipboard('${escapeHtml(item.sku || '')}', 'SKU')" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
+            <td class="sku clickable" onclick="copyToClipboard('${escapeJsString(item.sku || '')}', 'SKU')" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">
               ${item.current_stock}
               ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
             </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"
-                   onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
+                   onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
                    title="Click to edit - syncs to Square">
                 ${item.stock_alert_min ? item.stock_alert_min : '-'}
               </div>
             </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
-                   onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
+                   onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
                 ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
               </div>
             </td>
@@ -1075,7 +1075,7 @@
             <td class="text-right ${item.gross_margin_percent !== null ? (item.gross_margin_percent >= 40 ? 'velocity-fast' : item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical') : ''}">${item.gross_margin_percent !== null ? item.gross_margin_percent.toFixed(1) + '%' : '-'}</td>
             <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
-            <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeHtml(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
+            <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeJsString(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
           </tr>
         `;
       }).join('');
@@ -1771,6 +1771,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     function copyToClipboard(text, label) {

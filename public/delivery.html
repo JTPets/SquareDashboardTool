@@ -668,12 +668,12 @@
       let actions = '';
 
       if (type === 'pending') {
-        actions += `<button class="btn btn-secondary" onclick="editOrder('${order.id}')">Edit</button>`;
+        actions += `<button class="btn btn-secondary" onclick="editOrder('${escapeJsString(order.id)}')">Edit</button>`;
         if (!order.square_order_id) {
-          actions += `<button class="btn btn-danger" onclick="deleteOrder('${order.id}')">Delete</button>`;
+          actions += `<button class="btn btn-danger" onclick="deleteOrder('${escapeJsString(order.id)}')">Delete</button>`;
         }
       } else if (type === 'active' && order.status !== 'completed') {
-        actions += `<button class="btn btn-secondary" onclick="editOrder('${order.id}')">Edit Notes</button>`;
+        actions += `<button class="btn btn-secondary" onclick="editOrder('${escapeJsString(order.id)}')">Edit Notes</button>`;
       }
 
       return actions;
@@ -998,6 +998,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     // Initial load

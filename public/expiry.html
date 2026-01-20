@@ -315,6 +315,16 @@
     let itemsPerPage = 50;
     let pendingChanges = new Map();
 
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+    }
+
     async function loadItems() {
       const expiryFilter = document.getElementById('expiry-filter').value;
       const categoryFilter = document.getElementById('category-filter').value;
@@ -446,20 +456,20 @@
           <td>
             <div class="date-input-container">
               <input type="date" value="${expiryValue}"
-                     onchange="showDateConfirmation('${item.identifier}', this.value, this)"
+                     onchange="showDateConfirmation('${escapeJsString(item.identifier)}', this.value, this)"
                      ${item.does_not_expire ? 'disabled' : ''}>
               <div id="confirm-${item.identifier}" class="date-confirmation">
-                <button onclick="confirmDateChange('${item.identifier}')" class="confirm-btn">✓</button>
-                <button onclick="cancelDateChange('${item.identifier}')" class="cancel-btn">✕</button>
+                <button onclick="confirmDateChange('${escapeJsString(item.identifier)}')" class="confirm-btn">✓</button>
+                <button onclick="cancelDateChange('${escapeJsString(item.identifier)}')" class="cancel-btn">✕</button>
               </div>
             </div>
           </td>
           <td>
             <input type="checkbox" ${item.does_not_expire ? 'checked' : ''}
-                   onchange="updateNeverExpires('${item.identifier}', this.checked)">
+                   onchange="updateNeverExpires('${escapeJsString(item.identifier)}', this.checked)">
           </td>
           <td class="review-col">
-            <button class="review-btn" onclick="markAsReviewed('${item.identifier}', this)">Mark Reviewed</button>
+            <button class="review-btn" onclick="markAsReviewed('${escapeJsString(item.identifier)}', this)">Mark Reviewed</button>
           </td>
         </tr>`;
       }).join('');

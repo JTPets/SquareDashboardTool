@@ -731,7 +731,7 @@
                         👁️ View
                       </button>
                       ${po.status === 'DRAFT' ? `
-                        <button onclick="deletePO(${po.id}, '${escapeHtml(po.po_number)}')"
+                        <button onclick="deletePO(${po.id}, '${escapeJsString(po.po_number)}')"
                                 class="btn btn-danger btn-small"
                                 title="Delete draft purchase order">
                           🗑️ Delete
@@ -776,6 +776,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     function formatDate(dateString) {

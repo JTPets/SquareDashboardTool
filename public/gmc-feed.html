@@ -1526,6 +1526,16 @@ Wellness"></textarea>
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+    }
+
     function formatTimeAgo(date) {
       const seconds = Math.floor((new Date() - date) / 1000);
       if (seconds < 60) return 'Just now';
@@ -1878,7 +1888,7 @@ Wellness"></textarea>
       const container = document.getElementById('category-list');
       container.innerHTML = filteredCategories.map(cat => `
         <div class="category-item ${cat.google_taxonomy_id ? 'mapped' : ''} ${selectedCategory?.category_name === cat.category_name ? 'selected' : ''}"
-             onclick="selectCategory('${escapeHtml(cat.category_name).replace(/'/g, "\\'")}')">
+             onclick="selectCategory('${escapeJsString(cat.category_name)}')">
           <div class="cat-name">${escapeHtml(cat.category_name)} <span class="cat-count">(${cat.product_count} products)</span></div>
           <div class="cat-mapping ${cat.google_taxonomy_id ? '' : 'not-mapped'}">
             ${cat.google_taxonomy_id
@@ -2663,7 +2673,7 @@ Wellness"></textarea>
                    ${loc.enabled ? 'checked' : ''}>
           </td>
           <td>
-            <button class="btn-save-row" onclick="saveLocationSetting('${loc.location_id}', ${idx})">Save</button>
+            <button class="btn-save-row" onclick="saveLocationSetting('${escapeJsString(loc.location_id)}', ${idx})">Save</button>
           </td>
         </tr>
       `).join('');

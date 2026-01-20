@@ -765,7 +765,7 @@
           <td class="text-right">${item.stock_alert_min || '-'}</td>
           <td class="text-right editable-cell">
             <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
-                 onclick="enterEditMode(this, '${item.variation_id}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
+                 onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
               ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
             </div>
           </td>
@@ -972,6 +972,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     // Load data on page load
