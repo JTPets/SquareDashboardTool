@@ -10311,7 +10311,9 @@ app.post('/api/webhooks/square', async (req, res) => {
                     error_message = $1,
                     processing_time_ms = $2
                 WHERE id = $3
-            `, [error.message, processingTime, webhookEventId]).catch(() => {});
+            `, [error.message, processingTime, webhookEventId]).catch(dbErr => {
+                logger.error('Failed to update webhook_events status', { webhookEventId, error: dbErr.message, stack: dbErr.stack });
+            });
         }
 
         res.status(500).json({ error: error.message });
