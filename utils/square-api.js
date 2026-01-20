@@ -1464,14 +1464,17 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
         // Estimate API calls saved: normally would be ~3x the calls for each period
         summary.apiCallsSaved = apiCalls * 2; // We made apiCalls, would have made ~3x
 
+        // Build period_counts dynamically based on which periods we're actually tracking
+        const period_counts = {};
+        for (const days of PERIODS) {
+            const periodMap = salesDataByPeriod.get(days);
+            period_counts[`${days}d`] = periodMap ? periodMap.size : 0;
+        }
+
         logger.info('Order fetch complete, processing periods', {
             ordersProcessed,
             apiCalls,
-            period_counts: {
-                '91d': salesDataByPeriod.get(91).size,
-                '182d': salesDataByPeriod.get(182).size,
-                '365d': salesDataByPeriod.get(365).size
-            }
+            period_counts
         });
 
         // Collect all unique variation IDs across all periods for validation
