@@ -2523,11 +2523,6 @@ async function isOrderAlreadyProcessedForLoyalty(squareOrderId, merchantId) {
  * @returns {Promise<Object>} Result with processed status
  */
 async function processOrderForLoyaltyIfNeeded(order, merchantId) {
-    // Skip orders without customer ID (can't track loyalty without knowing who)
-    if (!order.customer_id) {
-        return { processed: false, reason: 'no_customer_id' };
-    }
-
     // Skip if order was already processed (idempotent check)
     const alreadyProcessed = await isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
     if (alreadyProcessed) {
@@ -2535,9 +2530,15 @@ async function processOrderForLoyaltyIfNeeded(order, merchantId) {
     }
 
     // Process the order through normal loyalty flow
+    // Note: processOrderForLoyalty has multiple fallbacks to identify customer:
+    // 1. order.customer_id
+    // 2. tender.customer_id
+    // 3. loyalty API lookup
+    // 4. order rewards lookup
+    // 5. fulfillment recipient (phone/email) - catches web orders without customer_id
     logger.info('Processing missed order for loyalty (backfill)', {
         orderId: order.id,
-        customerId: order.customer_id,
+        customerId: order.customer_id || '(will try fallback lookups)',
         merchantId,
         source: 'sync_backfill'
     });
