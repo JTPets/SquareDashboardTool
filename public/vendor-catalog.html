@@ -1577,10 +1577,10 @@
                 </div>
                 <div style="display: flex; gap: 5px;">
                   ${isArchived
-                    ? `<button onclick="unarchiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
-                    : `<button onclick="archiveBatch('${batch.import_batch_id}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
+                    ? `<button onclick="unarchiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
+                    : `<button onclick="archiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
                   }
-                  <button class="delete-btn" onclick="deleteBatch('${batch.import_batch_id}')" style="font-size: 12px;">Delete</button>
+                  <button class="delete-btn" onclick="deleteBatch('${escapeJsString(batch.import_batch_id)}')" style="font-size: 12px;">Delete</button>
                 </div>
               </div>
             </div>
@@ -1666,6 +1666,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     // View price report in new window

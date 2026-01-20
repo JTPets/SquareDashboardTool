@@ -786,13 +786,13 @@
 
               ${stop.customer_note ? `
                 <div class="stop-customer-notes">
-                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '${escapeJsString(stop.customer_note || '')}')">Edit</button>
+                  <button class="edit-btn" onclick="editCustomerNote('${escapeJsString(stop.id)}', '${escapeJsString(stop.customer_note || '')}')">Edit</button>
                   <strong>🏠 Customer Info:</strong>
                   ${escapeHtml(stop.customer_note)}
                 </div>
               ` : (stop.square_customer_id ? `
                 <div class="stop-customer-notes" style="opacity: 0.7;">
-                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '')">+ Add</button>
+                  <button class="edit-btn" onclick="editCustomerNote('${escapeJsString(stop.id)}', '')">+ Add</button>
                   <strong>🏠 Customer Info:</strong>
                   <em>No notes saved for this customer</em>
                 </div>
@@ -807,7 +807,7 @@
 
               ${stop.square_order_data && stop.square_order_data.lineItems && stop.square_order_data.lineItems.length > 0 ? `
                 <div class="stop-order-items">
-                  <button class="order-items-toggle" onclick="toggleOrderItems('${stop.id}')">
+                  <button class="order-items-toggle" onclick="toggleOrderItems('${escapeJsString(stop.id)}')">
                     📦 View Order Items (${stop.square_order_data.lineItems.length})
                     <span class="toggle-arrow" id="arrow-${stop.id}">▼</span>
                   </button>
@@ -832,15 +832,15 @@
               ${!isCompleted ? `
                 <div class="stop-actions">
                   ${!stop.pod_photo_path ? `
-                    <button class="btn btn-primary" onclick="openPodModal('${stop.id}')">
+                    <button class="btn btn-primary" onclick="openPodModal('${escapeJsString(stop.id)}')">
                       📷 Photo
                     </button>
                   ` : ''}
-                  <button class="btn btn-success" onclick="completeStop('${stop.id}')">
+                  <button class="btn btn-success" onclick="completeStop('${escapeJsString(stop.id)}')">
                     ✓ Complete
                   </button>
                   ${stop.status !== 'skipped' ? `
-                    <button class="btn btn-warning" onclick="skipStop('${stop.id}')">
+                    <button class="btn btn-warning" onclick="skipStop('${escapeJsString(stop.id)}')">
                       Skip
                     </button>
                   ` : ''}

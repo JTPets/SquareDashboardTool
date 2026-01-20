@@ -661,7 +661,7 @@
             ` : `
               <span class="btn btn-outline" style="cursor: default;">Currently Active</span>
             `}
-            <button class="btn btn-outline" onclick="showDisconnectModal(${merchant.id}, '${escapeHtml(merchant.business_name)}')">
+            <button class="btn btn-outline" onclick="showDisconnectModal(${merchant.id}, '${escapeJsString(merchant.business_name)}')">
               Disconnect
             </button>
           </div>
@@ -751,6 +751,16 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
     }
 
     // Helper: format date

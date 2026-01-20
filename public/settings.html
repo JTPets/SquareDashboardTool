@@ -967,6 +967,16 @@
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Escape strings for use in JavaScript onclick handlers (single-quoted)
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+    }
+
     // ==================== SECURITY TAB FUNCTIONS ====================
 
     let currentUser = null;
@@ -1047,7 +1057,7 @@
               </div>
               <div style="display: flex; gap: 8px;">
                 ${isLocked ? `<button class="btn-icon" onclick="unlockUser(${user.id})" title="Unlock">🔓</button>` : ''}
-                <button class="btn-icon" onclick="resetUserPassword(${user.id}, '${escapeHtml(user.email)}')" title="Reset Password">🔑</button>
+                <button class="btn-icon" onclick="resetUserPassword(${user.id}, '${escapeJsString(user.email)}')" title="Reset Password">🔑</button>
                 ${user.id !== currentUser.id ? `
                   <button class="btn-icon" onclick="toggleUserActive(${user.id}, ${isActive})" title="${isActive ? 'Deactivate' : 'Activate'}">${isActive ? '🚫' : '✅'}</button>
                 ` : ''}
