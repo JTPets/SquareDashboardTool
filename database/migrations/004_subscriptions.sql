@@ -92,8 +92,8 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
 
 -- Insert default subscription plans (intro pricing)
 INSERT INTO subscription_plans (plan_key, name, description, price_cents, billing_frequency, is_intro_pricing) VALUES
-    ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing for early adopters!', 999, 'MONTHLY', TRUE),
-    ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $20/year! Introductory pricing for early adopters!', 9999, 'ANNUAL', TRUE)
+    ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing for early adopters!', 2999, 'MONTHLY', TRUE),
+    ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $60/year! Introductory pricing for early adopters!', 29999, 'ANNUAL', TRUE)
 ON CONFLICT (plan_key) DO UPDATE SET
     price_cents = EXCLUDED.price_cents,
     description = EXCLUDED.description,
