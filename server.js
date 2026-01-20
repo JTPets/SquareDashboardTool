@@ -3242,6 +3242,7 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                     i.seo_description,
                     i.images as item_images,
                     i.present_at_all_locations as item_present_at_all,
+                    i.present_at_location_ids as item_present_at_location_ids,
                     v.present_at_all_locations as variation_present_at_all,
                     -- Check for vendor assignment
                     (SELECT COUNT(*) FROM variation_vendors vv WHERE vv.variation_id = v.id AND vv.merchant_id = v.merchant_id) as vendor_count,
@@ -3333,12 +3334,20 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                 -- Location mismatch: variation enabled at all locations but parent item is not
                 (variation_present_at_all = TRUE AND item_present_at_all = FALSE) as location_mismatch,
                 -- Sales channel flags
+                -- POS disabled: item is NOT at all locations AND NOT at any specific locations
                 (
                     (item_present_at_all = FALSE OR item_present_at_all IS NULL)
+                    AND (item_present_at_location_ids IS NULL OR item_present_at_location_ids = '[]'::jsonb OR jsonb_array_length(item_present_at_location_ids) = 0)
+                ) as pos_disabled,
+                (available_online = FALSE OR available_online IS NULL) as online_disabled,
+                -- Any channel off: truly disabled from POS OR disabled from online
+                (
+                    (
+                        (item_present_at_all = FALSE OR item_present_at_all IS NULL)
+                        AND (item_present_at_location_ids IS NULL OR item_present_at_location_ids = '[]'::jsonb OR jsonb_array_length(item_present_at_location_ids) = 0)
+                    )
                     OR (available_online = FALSE OR available_online IS NULL)
-                ) as any_channel_off,
-                (item_present_at_all = FALSE OR item_present_at_all IS NULL) as pos_disabled,
-                (available_online = FALSE OR available_online IS NULL) as online_disabled
+                ) as any_channel_off
             FROM variation_data
             ORDER BY item_name, variation_name
         `;
