@@ -757,8 +757,8 @@ async function ensureSchema() {
         // Insert default plans (intro pricing)
         await query(`
             INSERT INTO subscription_plans (plan_key, name, description, price_cents, billing_frequency, is_intro_pricing) VALUES
-                ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing!', 999, 'MONTHLY', TRUE),
-                ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $20/year!', 9999, 'ANNUAL', TRUE)
+                ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing!', 2999, 'MONTHLY', TRUE),
+                ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $60/year!', 29999, 'ANNUAL', TRUE)
             ON CONFLICT (plan_key) DO NOTHING
         `);
 
