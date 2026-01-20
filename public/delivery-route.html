@@ -812,19 +812,7 @@
                     <span class="toggle-arrow" id="arrow-${stop.id}">▼</span>
                   </button>
                   <div class="order-items-list" id="items-${stop.id}" style="display: none;">
-                    ${stop.square_order_data.lineItems.map(item => `
-                      <div class="order-item">
-                        <span class="item-qty">${item.quantity}x</span>
-                        <span class="item-name">${escapeHtml(item.name)}${item.variationName ? ` (${escapeHtml(item.variationName)})` : ''}</span>
-                        ${item.gtin ? `<span class="item-gtin">[${escapeHtml(item.gtin)}]</span>` : ''}
-                        ${item.modifiers && item.modifiers.length > 0 ? `
-                          <div class="item-modifiers">
-                            ${item.modifiers.map(m => `<span class="modifier">+ ${escapeHtml(m.name)}</span>`).join('')}
-                          </div>
-                        ` : ''}
-                        ${item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : ''}
-                      </div>
-                    `).join('')}
+                    ${renderLineItems(stop.square_order_data.lineItems, stop.id)}
                     ${stop.square_order_data.totalMoney ? `
                       <div class="order-total">
                         <strong>Total:</strong> $${(Number(stop.square_order_data.totalMoney.amount) / 100).toFixed(2)}
@@ -1197,6 +1185,52 @@
         .replace(/'/g, "\\'")    // Escape single quotes
         .replace(/\n/g, '\\n')   // Escape newlines
         .replace(/\r/g, '\\r');  // Escape carriage returns
+    }
+
+    // Render line items with error handling for each item
+    function renderLineItems(lineItems, orderId) {
+      if (!lineItems || !Array.isArray(lineItems)) {
+        console.error(`Order ${orderId}: lineItems is not an array:`, lineItems);
+        return '<div class="order-item" style="color: #ef4444;">Error: Invalid items data</div>';
+      }
+
+      return lineItems.map((item, idx) => {
+        try {
+          // Debug log for each item
+          if (!item.name) {
+            console.warn(`Order ${orderId} item ${idx}: missing name`, item);
+          }
+
+          const qty = item.quantity || '?';
+          const name = escapeHtml(item.name || 'Unknown Item');
+          const variation = item.variationName ? ` (${escapeHtml(item.variationName)})` : '';
+          const gtin = item.gtin ? `<span class="item-gtin">[${escapeHtml(item.gtin)}]</span>` : '';
+
+          let modifiersHtml = '';
+          if (item.modifiers && Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+            modifiersHtml = `
+              <div class="item-modifiers">
+                ${item.modifiers.map(m => `<span class="modifier">+ ${escapeHtml(m?.name || 'Unknown')}</span>`).join('')}
+              </div>
+            `;
+          }
+
+          const noteHtml = item.note ? `<div class="item-note">📝 ${escapeHtml(item.note)}</div>` : '';
+
+          return `
+            <div class="order-item">
+              <span class="item-qty">${qty}x</span>
+              <span class="item-name">${name}${variation}</span>
+              ${gtin}
+              ${modifiersHtml}
+              ${noteHtml}
+            </div>
+          `;
+        } catch (itemError) {
+          console.error(`Order ${orderId} item ${idx} render error:`, itemError, item);
+          return `<div class="order-item" style="color: #ef4444;">Error rendering item ${idx + 1}</div>`;
+        }
+      }).join('');
     }
 
     // Initial load
