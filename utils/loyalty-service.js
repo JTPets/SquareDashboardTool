@@ -4570,6 +4570,202 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
     return results;
 }
 
+/**
+ * Run loyalty catchup for customers using Square's internal order linkage.
+ *
+ * This does a "reverse lookup" - instead of finding customer from order,
+ * we take known customers and ask Square for their orders. Square internally
+ * links orders to customers via payment → loyalty → phone, even when the
+ * order itself doesn't have customer_id set.
+ *
+ * @param {Object} params
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string[]} [params.customerIds] - Specific customer IDs to process (default: all active)
+ * @param {number} [params.periodDays=30] - How many days of history to check
+ * @param {number} [params.maxCustomers=100] - Max customers to process (for rate limiting)
+ * @returns {Promise<Object>} Catchup results
+ */
+async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 30, maxCustomers = 100 }) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    const results = {
+        customersProcessed: 0,
+        ordersFound: 0,
+        ordersAlreadyTracked: 0,
+        ordersNewlyTracked: 0,
+        errors: []
+    };
+
+    logger.info('Starting loyalty catchup', { merchantId, periodDays, maxCustomers });
+
+    const accessToken = await getSquareAccessToken(merchantId);
+    if (!accessToken) {
+        throw new Error('No access token available');
+    }
+
+    // Get customers to process
+    let customers;
+    if (customerIds && customerIds.length > 0) {
+        customers = customerIds.map(id => ({ square_customer_id: id }));
+    } else {
+        // Get customers with loyalty activity (have made purchases or have rewards)
+        const customersResult = await db.query(`
+            SELECT DISTINCT square_customer_id
+            FROM (
+                SELECT square_customer_id FROM loyalty_purchase_events WHERE merchant_id = $1
+                UNION
+                SELECT square_customer_id FROM loyalty_rewards WHERE merchant_id = $1
+            ) AS active_customers
+            LIMIT $2
+        `, [merchantId, maxCustomers]);
+        customers = customersResult.rows;
+    }
+
+    if (customers.length === 0) {
+        logger.info('No customers to process for loyalty catchup', { merchantId });
+        return results;
+    }
+
+    // Get merchant's location IDs
+    const locationsResult = await db.query(`
+        SELECT id FROM locations WHERE merchant_id = $1 AND active = TRUE
+    `, [merchantId]);
+    const locationIds = locationsResult.rows.map(r => r.id);
+
+    if (locationIds.length === 0) {
+        throw new Error('No active locations found for merchant');
+    }
+
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - periodDays);
+
+    // Process each customer
+    for (const customer of customers) {
+        const squareCustomerId = customer.square_customer_id;
+        results.customersProcessed++;
+
+        try {
+            // Search Square for this customer's orders (using their internal linkage)
+            const orders = [];
+            let cursor = null;
+
+            do {
+                const requestBody = {
+                    location_ids: locationIds,
+                    query: {
+                        filter: {
+                            customer_filter: {
+                                customer_ids: [squareCustomerId]
+                            },
+                            state_filter: {
+                                states: ['COMPLETED']
+                            },
+                            date_time_filter: {
+                                closed_at: {
+                                    start_at: startDate.toISOString(),
+                                    end_at: endDate.toISOString()
+                                }
+                            }
+                        },
+                        sort: {
+                            sort_field: 'CLOSED_AT',
+                            sort_order: 'DESC'
+                        }
+                    },
+                    limit: 50
+                };
+
+                if (cursor) {
+                    requestBody.cursor = cursor;
+                }
+
+                const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                        'Square-Version': '2025-01-16'
+                    },
+                    body: JSON.stringify(requestBody)
+                }, 15000);
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`Square API error: ${JSON.stringify(errorData)}`);
+                }
+
+                const data = await response.json();
+                orders.push(...(data.orders || []));
+                cursor = data.cursor;
+
+            } while (cursor);
+
+            results.ordersFound += orders.length;
+
+            // Process each order
+            for (const order of orders) {
+                // Check if already tracked
+                const alreadyTracked = await isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
+                if (alreadyTracked) {
+                    results.ordersAlreadyTracked++;
+                    continue;
+                }
+
+                // Create effective order with the customer_id we know
+                const effectiveOrder = {
+                    ...order,
+                    customer_id: squareCustomerId
+                };
+
+                // Process through normal loyalty flow
+                try {
+                    const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId, {
+                        customerSourceOverride: 'catchup_reverse_lookup'
+                    });
+
+                    if (loyaltyResult.purchasesRecorded?.length > 0) {
+                        results.ordersNewlyTracked++;
+                        logger.debug('Catchup: tracked new order', {
+                            orderId: order.id,
+                            customerId: squareCustomerId,
+                            purchases: loyaltyResult.purchasesRecorded.length
+                        });
+                    }
+                } catch (orderError) {
+                    logger.debug('Catchup: order processing failed', {
+                        orderId: order.id,
+                        error: orderError.message
+                    });
+                }
+            }
+
+        } catch (customerError) {
+            logger.warn('Catchup: customer processing failed', {
+                customerId: squareCustomerId,
+                error: customerError.message
+            });
+            results.errors.push({
+                customerId: squareCustomerId,
+                error: customerError.message
+            });
+        }
+
+        // Small delay between customers to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    logger.info('Loyalty catchup complete', {
+        merchantId,
+        ...results
+    });
+
+    return results;
+}
+
 // ============================================================================
 // EXPORTS
 // ============================================================================
@@ -4641,6 +4837,9 @@ module.exports = {
     // Manual Customer Order Audit
     getCustomerOrderHistoryForAudit,
     addOrdersToLoyaltyTracking,
+
+    // Background Loyalty Catchup (reverse lookup)
+    runLoyaltyCatchup,
 
     // Discount Validation & Expiration
     validateEarnedRewardsDiscounts,

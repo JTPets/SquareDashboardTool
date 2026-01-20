@@ -13047,6 +13047,43 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 });
 
 /**
+ * POST /api/loyalty/catchup
+ * Run "reverse lookup" loyalty catchup for known customers.
+ *
+ * Traditional backfill (order→customer) fails when orders don't have customer_id.
+ * This endpoint does the reverse: customer→orders using Square's internal linkage
+ * (payment→loyalty→phone→customer).
+ *
+ * Square's Orders Search API can find orders by customer_id even when the order
+ * itself doesn't have customer_id set, because Square internally links them via
+ * payment card recognition and loyalty accounts.
+ */
+app.post('/api/loyalty/catchup', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { days = 30, customerIds = null, maxCustomers = 100 } = req.body;
+
+        logger.info('Starting loyalty catchup via API', { merchantId, days, maxCustomers });
+
+        const result = await loyaltyService.runLoyaltyCatchup({
+            merchantId,
+            customerIds,
+            periodDays: days,
+            maxCustomers
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Error during loyalty catchup', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/loyalty/debug/recent-orders
  * Debug endpoint to fetch last 5 orders from Square with ALL raw data
  * Used to inspect where customer information is stored
