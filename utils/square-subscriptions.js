@@ -94,7 +94,7 @@ async function setupSubscriptionPlans() {
             logger.info(`Created Square subscription plan: ${plan.plan_key}`, planResult);
 
         } catch (error) {
-            logger.error(`Failed to create Square plan: ${plan.plan_key}`, { error: error.message });
+            logger.error(`Failed to create Square plan: ${plan.plan_key}`, { error: error.message, stack: error.stack });
             results.errors.push({
                 planKey: plan.plan_key,
                 error: error.message

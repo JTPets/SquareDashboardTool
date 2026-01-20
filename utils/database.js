@@ -129,7 +129,7 @@ async function transaction(callback) {
         return result;
     } catch (error) {
         await client.query('ROLLBACK');
-        logger.error('Transaction error', { error: error.message });
+        logger.error('Transaction error', { error: error.message, stack: error.stack });
         throw error;
     } finally {
         client.release();
@@ -192,7 +192,7 @@ async function batchUpsert(table, records, conflictColumns, updateColumns) {
         return totalAffected;
     } catch (error) {
         await client.query('ROLLBACK');
-        logger.error('Batch upsert error', { error: error.message });
+        logger.error('Batch upsert error', { error: error.message, stack: error.stack });
         throw error;
     } finally {
         client.release();
@@ -209,7 +209,7 @@ async function testConnection() {
         logger.info('Database connection successful', { timestamp: result.rows[0].now });
         return true;
     } catch (error) {
-        logger.error('Database connection failed', { error: error.message });
+        logger.error('Database connection failed', { error: error.message, stack: error.stack });
         return false;
     }
 }
@@ -406,7 +406,7 @@ async function ensureSchema() {
                         error: err.message
                     });
                 } else {
-                    logger.error(`Failed to add ${migration.column} column to variation_expiration`, { error: err.message });
+                    logger.error(`Failed to add ${migration.column} column to variation_expiration`, { error: err.message, stack: err.stack });
                 }
             }
         }
@@ -480,7 +480,7 @@ async function ensureSchema() {
                     appliedCount++;
                 }
             } catch (err) {
-                logger.error(`Failed to add ${migration.column} column`, { error: err.message });
+                logger.error(`Failed to add ${migration.column} column`, { error: err.message, stack: err.stack });
             }
         }
 
@@ -1956,7 +1956,7 @@ async function ensureSchema() {
                     appliedCount++;
                 }
             } catch (err) {
-                logger.error(`Failed to add ${migration.column} column to merchant_settings`, { error: err.message });
+                logger.error(`Failed to add ${migration.column} column to merchant_settings`, { error: err.message, stack: err.stack });
             }
         }
     }
@@ -1977,9 +1977,7 @@ async function ensureSchema() {
                 appliedCount++;
             }
         } catch (error) {
-            logger.error(`Schema migration failed: ${migration.table}.${migration.column}`, {
-                error: error.message
-            });
+            logger.error(`Schema migration failed: ${migration.table}.${migration.column}`, { error: error.message, stack: error.stack });
             // Continue with other migrations, don't fail completely
         }
     }
@@ -2369,7 +2367,7 @@ async function getMerchantSettings(merchantId) {
             logger.warn('merchant_settings table does not exist yet, using defaults');
             return { ...DEFAULT_MERCHANT_SETTINGS };
         }
-        logger.error('Failed to get merchant settings', { merchantId, error: error.message });
+        logger.error('Failed to get merchant settings', { merchantId, error: error.message, stack: error.stack });
         return { ...DEFAULT_MERCHANT_SETTINGS };
     }
 }

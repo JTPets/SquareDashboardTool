@@ -316,6 +316,7 @@ app.get('/api/health', async (req, res) => {
             version: '1.0.0'
         });
     } catch (error) {
+        logger.error('Health check failed', { error: error.message, stack: error.stack });
         res.status(500).json({
             status: 'error',
             database: 'error',
@@ -419,6 +420,7 @@ app.get('/api/config', requireAuth, async (req, res) => {
             const locations = await squareApi.getLocations();
             squareConnected = locations && locations.length > 0;
         } catch (e) {
+            logger.warn('Square connection check failed', { error: e.message, merchantId: req.merchantContext?.id });
             squareConnected = false;
         }
 
@@ -460,7 +462,7 @@ app.get('/api/config', requireAuth, async (req, res) => {
             usingMerchantSettings: !!merchantSettings
         });
     } catch (error) {
-        logger.error('Failed to get config', { error: error.message });
+        logger.error('Failed to get config', { error: error.message, stack: error.stack, merchantId: req.merchantContext?.id });
         res.status(500).json({ error: 'Failed to get configuration' });
     }
 });
@@ -485,7 +487,7 @@ app.get('/api/settings/merchant', requireAuth, requireMerchant, async (req, res)
         });
 
     } catch (error) {
-        logger.error('Failed to get merchant settings', { error: error.message });
+        logger.error('Failed to get merchant settings', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -541,7 +543,7 @@ app.put('/api/settings/merchant', requireAuth, requireMerchant, async (req, res)
         });
 
     } catch (error) {
-        logger.error('Failed to update merchant settings', { error: error.message });
+        logger.error('Failed to update merchant settings', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -591,7 +593,7 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
         res.json({ logs, count: logs.length });
 
     } catch (error) {
-        logger.error('Failed to read logs', { error: error.message });
+        logger.error('Failed to read logs', { error: error.message, stack: error.stack });
         res.json({ logs: [], count: 0, error: error.message });
     }
 });
@@ -630,6 +632,7 @@ app.get('/api/logs/download', requireAdmin, async (req, res) => {
         res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
 
     } catch (error) {
+        logger.error('Log file download failed', { error: error.message, stack: error.stack });
         res.status(404).json({ error: 'Log file not found' });
     }
 });
@@ -717,7 +720,7 @@ app.post('/api/test-backup-email', requireAdmin, async (req, res) => {
         await runAutomatedBackup();
         res.json({ success: true, message: 'Test backup email sent successfully' });
     } catch (error) {
-        logger.error('Test backup email failed', { error: error.message });
+        logger.error('Test backup email failed', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -767,7 +770,7 @@ async function resolveImageUrls(variationImages, itemImages = null) {
             return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
         });
     } catch (error) {
-        logger.error('Error resolving image URLs', { error: error.message });
+        logger.error('Error resolving image URLs', { error: error.message, stack: error.stack });
         // Return fallback URLs from environment variables
         return imageIds.map(id =>
             `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`
@@ -822,7 +825,7 @@ async function batchResolveImageUrls(items) {
             }
         });
     } catch (error) {
-        logger.error('Error in batch image URL resolution', { error: error.message });
+        logger.error('Error in batch image URL resolution', { error: error.message, stack: error.stack });
     }
 
     // Build result map for each item
@@ -1081,6 +1084,7 @@ async function runSmartSync({ merchantId } = {}) {
             synced.push('locations');
             summary.locations = result;
         } catch (error) {
+            logger.error('Location sync failed', { merchantId, error: error.message, stack: error.stack });
             errors.push({ type: 'locations', error: error.message });
         }
     } else {
@@ -1097,6 +1101,7 @@ async function runSmartSync({ merchantId } = {}) {
             synced.push('vendors');
             summary.vendors = result;
         } catch (error) {
+            logger.error('Vendor sync failed', { merchantId, error: error.message, stack: error.stack });
             errors.push({ type: 'vendors', error: error.message });
         }
     } else {
@@ -1150,7 +1155,7 @@ async function runSmartSync({ merchantId } = {}) {
             synced.push('inventory');
             summary.inventory = result;
         } catch (error) {
-            logger.error('Inventory sync error', { merchantId, error: error.message });
+            logger.error('Inventory sync error', { merchantId, error: error.message, stack: error.stack });
             errors.push({ type: 'inventory', error: error.message });
         }
     } else {
@@ -1194,7 +1199,7 @@ async function runSmartSync({ merchantId } = {}) {
             summary.sales_365d = result['365d'];
             summary.salesVelocityOptimization = 'tier1_365d_full_fetch';
         } catch (error) {
-            logger.error('Sales velocity sync error (365d)', { error: error.message });
+            logger.error('Sales velocity sync error (365d)', { error: error.message, stack: error.stack });
             errors.push({ type: 'sales_velocity_365d', error: error.message });
         }
     } else if (sales182Check.needed) {
@@ -1227,7 +1232,7 @@ async function runSmartSync({ merchantId } = {}) {
             const hoursRemaining365 = Math.max(0, intervals.sales_365d - parseFloat(sales365Check.hoursSince));
             skipped.sales_365d = `Last synced ${sales365Check.hoursSince}h ago, next in ${hoursRemaining365.toFixed(1)}h`;
         } catch (error) {
-            logger.error('Sales velocity sync error (182d)', { error: error.message });
+            logger.error('Sales velocity sync error (182d)', { error: error.message, stack: error.stack });
             errors.push({ type: 'sales_velocity_182d', error: error.message });
         }
     } else if (sales91Check.needed) {
@@ -1428,7 +1433,7 @@ app.get('/api/sync-intervals', requireAuth, async (req, res) => {
             cronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *'
         });
     } catch (error) {
-        logger.error('Get sync intervals error', { error: error.message });
+        logger.error('Get sync intervals error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2470,7 +2475,7 @@ app.get('/api/expiry-discounts/status', requireAuth, requireMerchant, async (req
         const summary = await expiryDiscount.getDiscountStatusSummary(merchantId);
         res.json(summary);
     } catch (error) {
-        logger.error('Get expiry discount status error', { error: error.message });
+        logger.error('Get expiry discount status error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2494,7 +2499,7 @@ app.get('/api/expiry-discounts/tiers', requireAuth, requireMerchant, async (req,
         `, [merchantId]);
         res.json({ tiers: result.rows });
     } catch (error) {
-        logger.error('Get expiry discount tiers error', { error: error.message });
+        logger.error('Get expiry discount tiers error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2547,7 +2552,7 @@ app.patch('/api/expiry-discounts/tiers/:id', requireAuth, requireMerchant, async
         res.json({ tier: result.rows[0] });
 
     } catch (error) {
-        logger.error('Update expiry discount tier error', { error: error.message });
+        logger.error('Update expiry discount tier error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2666,7 +2671,7 @@ app.get('/api/expiry-discounts/variations', requireAuth, requireMerchant, async 
         });
 
     } catch (error) {
-        logger.error('Get expiry discount variations error', { error: error.message });
+        logger.error('Get expiry discount variations error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2694,7 +2699,7 @@ app.post('/api/expiry-discounts/evaluate', requireAuth, requireMerchant, async (
         });
 
     } catch (error) {
-        logger.error('Expiry evaluation error', { error: error.message });
+        logger.error('Expiry evaluation error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2718,7 +2723,7 @@ app.post('/api/expiry-discounts/apply', requireAuth, requireMerchant, async (req
         });
 
     } catch (error) {
-        logger.error('Discount application error', { error: error.message });
+        logger.error('Discount application error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2767,7 +2772,7 @@ app.post('/api/expiry-discounts/run', requireAuth, requireMerchant, async (req, 
         res.json(result);
 
     } catch (error) {
-        logger.error('Expiry discount automation error', { error: error.message });
+        logger.error('Expiry discount automation error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2789,7 +2794,7 @@ app.post('/api/expiry-discounts/init-square', requireAuth, requireMerchant, asyn
         });
 
     } catch (error) {
-        logger.error('Square discount init error', { error: error.message });
+        logger.error('Square discount init error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2811,7 +2816,7 @@ app.get('/api/expiry-discounts/audit-log', requireAuth, requireMerchant, async (
         res.json({ logs });
 
     } catch (error) {
-        logger.error('Get audit log error', { error: error.message });
+        logger.error('Get audit log error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2841,7 +2846,7 @@ app.get('/api/expiry-discounts/settings', requireAuth, requireMerchant, async (r
         res.json({ settings });
 
     } catch (error) {
-        logger.error('Get expiry discount settings error', { error: error.message });
+        logger.error('Get expiry discount settings error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2864,7 +2869,7 @@ app.patch('/api/expiry-discounts/settings', requireAuth, requireMerchant, async 
         res.json({ success: true, message: 'Settings updated' });
 
     } catch (error) {
-        logger.error('Update expiry discount settings error', { error: error.message });
+        logger.error('Update expiry discount settings error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2883,7 +2888,7 @@ app.get('/api/expiry-discounts/validate', requireAuth, requireMerchant, async (r
         });
         res.json(result);
     } catch (error) {
-        logger.error('Validate expiry discounts error', { error: error.message });
+        logger.error('Validate expiry discounts error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -2909,7 +2914,7 @@ app.post('/api/expiry-discounts/validate-and-fix', requireAuth, requireMerchant,
 
         res.json(result);
     } catch (error) {
-        logger.error('Validate and fix expiry discounts error', { error: error.message });
+        logger.error('Validate and fix expiry discounts error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3487,7 +3492,7 @@ app.get('/api/square/custom-attributes', requireAuth, requireMerchant, async (re
             definitions
         });
     } catch (error) {
-        logger.error('List custom attributes error', { error: error.message });
+        logger.error('List custom attributes error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3530,7 +3535,7 @@ app.post('/api/debug/restore-deleted-items', requireAuth, requireMerchant, async
             message: `Restored ${itemsResult.rowCount} items and ${variationsResult.rowCount} variations`
         });
     } catch (error) {
-        logger.error('Restore deleted items error', { error: error.message });
+        logger.error('Restore deleted items error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3580,7 +3585,7 @@ app.get('/api/debug/expiry-status', requireAuth, requireMerchant, async (req, re
             query_params: { sku, variation_id }
         });
     } catch (error) {
-        logger.error('Debug expiry status error', { error: error.message });
+        logger.error('Debug expiry status error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3597,7 +3602,7 @@ app.post('/api/square/custom-attributes/init', requireAuth, requireMerchant, asy
         const result = await squareApi.initializeCustomAttributes({ merchantId });
         res.json(result);
     } catch (error) {
-        logger.error('Init custom attributes error', { error: error.message });
+        logger.error('Init custom attributes error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3618,7 +3623,7 @@ app.post('/api/square/custom-attributes/definition', requireAuth, requireMerchan
         const result = await squareApi.upsertCustomAttributeDefinition(definition, { merchantId });
         res.json(result);
     } catch (error) {
-        logger.error('Create custom attribute definition error', { error: error.message });
+        logger.error('Create custom attribute definition error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3674,7 +3679,7 @@ app.post('/api/square/custom-attributes/push/case-pack', requireAuth, requireMer
         const result = await squareApi.pushCasePackToSquare({ merchantId });
         res.json(result);
     } catch (error) {
-        logger.error('Push case pack error', { error: error.message });
+        logger.error('Push case pack error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3690,7 +3695,7 @@ app.post('/api/square/custom-attributes/push/brand', requireAuth, requireMerchan
         const result = await squareApi.pushBrandsToSquare({ merchantId });
         res.json(result);
     } catch (error) {
-        logger.error('Push brands error', { error: error.message });
+        logger.error('Push brands error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3706,7 +3711,7 @@ app.post('/api/square/custom-attributes/push/expiry', requireAuth, requireMercha
         const result = await squareApi.pushExpiryDatesToSquare({ merchantId });
         res.json(result);
     } catch (error) {
-        logger.error('Push expiry dates error', { error: error.message });
+        logger.error('Push expiry dates error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3754,7 +3759,7 @@ app.post('/api/square/custom-attributes/push/all', requireAuth, requireMerchant,
 
         res.json(results);
     } catch (error) {
-        logger.error('Push all custom attributes error', { error: error.message });
+        logger.error('Push all custom attributes error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3773,7 +3778,7 @@ app.get('/api/google/status', requireAuth, requireMerchant, async (req, res) => 
         const status = await googleSheets.getAuthStatus(merchantId);
         res.json(status);
     } catch (error) {
-        logger.error('Google status error', { error: error.message });
+        logger.error('Google status error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3793,7 +3798,7 @@ app.get('/api/google/auth', requireAuth, requireMerchant, async (req, res) => {
         });
         res.redirect(authUrl);
     } catch (error) {
-        logger.error('Google auth error', { error: error.message });
+        logger.error('Google auth error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -3834,7 +3839,7 @@ app.get('/api/google/callback', async (req, res) => {
         logger.info('Google OAuth successful for merchant', { merchantId, publicUrl });
         res.redirect(`${publicUrl}/gmc-feed.html?google_connected=true`);
     } catch (error) {
-        logger.error('Google callback error', { error: error.message });
+        logger.error('Google callback error', { error: error.message, stack: error.stack });
         res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(error.message)}`);
     }
 });
@@ -3849,7 +3854,7 @@ app.post('/api/google/disconnect', requireAuth, requireMerchant, async (req, res
         await googleSheets.disconnect(merchantId);
         res.json({ success: true, message: 'Google account disconnected' });
     } catch (error) {
-        logger.error('Google disconnect error', { error: error.message });
+        logger.error('Google disconnect error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -4914,7 +4919,7 @@ app.get('/api/gmc/api-settings', requireAuth, requireMerchant, async (req, res) 
         const settings = await gmcApi.getGmcApiSettings(merchantId);
         res.json({ success: true, settings });
     } catch (error) {
-        logger.error('GMC API settings fetch error', { error: error.message });
+        logger.error('GMC API settings fetch error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -4935,7 +4940,7 @@ app.put('/api/gmc/api-settings', requireAuth, requireMerchant, async (req, res) 
         await gmcApi.saveGmcApiSettings(merchantId, settings);
         res.json({ success: true, message: 'GMC API settings saved' });
     } catch (error) {
-        logger.error('GMC API settings save error', { error: error.message });
+        logger.error('GMC API settings save error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -4950,7 +4955,7 @@ app.post('/api/gmc/api/test-connection', requireAuth, requireMerchant, async (re
         const result = await gmcApi.testConnection(merchantId);
         res.json(result);
     } catch (error) {
-        logger.error('GMC API test connection error', { error: error.message });
+        logger.error('GMC API test connection error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -4979,7 +4984,7 @@ app.get('/api/gmc/api/data-source-info', requireAuth, requireMerchant, async (re
 
         res.json({ success: true, dataSource: dataSourceInfo, settings });
     } catch (error) {
-        logger.error('GMC data source info error', { error: error.message });
+        logger.error('GMC data source info error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -5016,7 +5021,7 @@ app.get('/api/gmc/api/sync-status', requireAuth, requireMerchant, async (req, re
         const status = await gmcApi.getLastSyncStatus(merchantId);
         res.json({ success: true, status });
     } catch (error) {
-        logger.error('Get GMC sync status error', { error: error.message });
+        logger.error('Get GMC sync status error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -5032,7 +5037,7 @@ app.get('/api/gmc/api/sync-history', requireAuth, requireMerchant, async (req, r
         const history = await gmcApi.getSyncHistory(merchantId, limit);
         res.json({ success: true, history });
     } catch (error) {
-        logger.error('Get GMC sync history error', { error: error.message });
+        logger.error('Get GMC sync history error', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -6234,7 +6239,7 @@ async function generateDailyBatch(merchantId) {
         };
 
     } catch (error) {
-        logger.error('Daily batch generation failed', { merchantId, error: error.message });
+        logger.error('Daily batch generation failed', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -6443,7 +6448,7 @@ async function sendCycleCountReport() {
         return { sent: true, items_count: items.rows.length, accuracy_rate: accuracyRate };
 
     } catch (error) {
-        logger.error('Send cycle count report failed', { error: error.message });
+        logger.error('Send cycle count report failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -6683,7 +6688,7 @@ app.post('/api/cycle-counts/:id/complete', requireAuth, requireMerchant, async (
 
             // Trigger email report asynchronously (don't wait for it)
             sendCycleCountReport().catch(error => {
-                logger.error('Auto email report failed', { error: error.message });
+                logger.error('Auto email report failed', { error: error.message, stack: error.stack });
             });
         }
 
@@ -7146,7 +7151,7 @@ app.post('/api/cycle-counts/generate-batch', requireAuth, requireMerchant, async
         });
 
     } catch (error) {
-        logger.error('Manual batch generation failed', { error: error.message });
+        logger.error('Manual batch generation failed', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8026,7 +8031,7 @@ app.get('/api/subscriptions/plans', async (req, res) => {
             trialDays: subscriptionHandler.TRIAL_DAYS
         });
     } catch (error) {
-        logger.error('Get plans error', { error: error.message });
+        logger.error('Get plans error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8100,7 +8105,7 @@ app.post('/api/subscriptions/promo/validate', async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Promo code validation error', { error: error.message });
+        logger.error('Promo code validation error', { error: error.message, stack: error.stack });
         res.status(500).json({ valid: false, error: 'Failed to validate promo code' });
     }
 });
@@ -8530,7 +8535,7 @@ app.get('/api/subscriptions/status', async (req, res) => {
         res.json(status);
 
     } catch (error) {
-        logger.error('Check subscription status error', { error: error.message });
+        logger.error('Check subscription status error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8592,7 +8597,7 @@ app.post('/api/subscriptions/cancel', requireAuth, async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Cancel subscription error', { error: error.message });
+        logger.error('Cancel subscription error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8666,7 +8671,7 @@ app.post('/api/subscriptions/refund', requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('Process refund error', { error: error.message });
+        logger.error('Process refund error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8689,7 +8694,7 @@ app.get('/api/subscriptions/admin/list', requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('List subscribers error', { error: error.message });
+        logger.error('List subscribers error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8710,7 +8715,7 @@ app.get('/api/subscriptions/admin/plans', requireAdmin, async (req, res) => {
         });
 
     } catch (error) {
-        logger.error('List subscription plans error', { error: error.message });
+        logger.error('List subscription plans error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8833,7 +8838,7 @@ app.get('/api/webhooks/events', requireAuth, requireAdmin, async (req, res) => {
             stats: stats.rows[0]
         });
     } catch (error) {
-        logger.error('Error fetching webhook events', { error: error.message });
+        logger.error('Error fetching webhook events', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -8900,7 +8905,7 @@ app.get('/api/webhooks/event-types', requireAuth, async (req, res) => {
             recommended: squareWebhooks.getRecommendedEventTypes()
         });
     } catch (error) {
-        logger.error('Error getting webhook event types', { error: error.message });
+        logger.error('Error getting webhook event types', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10306,7 +10311,9 @@ app.post('/api/webhooks/square', async (req, res) => {
                     error_message = $1,
                     processing_time_ms = $2
                 WHERE id = $3
-            `, [error.message, processingTime, webhookEventId]).catch(() => {});
+            `, [error.message, processingTime, webhookEventId]).catch(dbErr => {
+                logger.error('Failed to update webhook_events status', { webhookEventId, error: dbErr.message, stack: dbErr.stack });
+            });
         }
 
         res.status(500).json({ error: error.message });
@@ -10682,7 +10689,7 @@ app.get('/api/delivery/orders/:id/customer', requireAuth, requireMerchant, async
 
         res.json(customerData);
     } catch (error) {
-        logger.error('Error fetching customer info', { error: error.message });
+        logger.error('Error fetching customer info', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10742,7 +10749,7 @@ app.patch('/api/delivery/orders/:id/customer-note', deliveryRateLimit, requireAu
             customer_note: note
         });
     } catch (error) {
-        logger.error('Error updating customer note', { error: error.message });
+        logger.error('Error updating customer note', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10770,7 +10777,7 @@ app.patch('/api/delivery/orders/:id/notes', deliveryRateLimit, requireAuth, requ
             notes: notes
         });
     } catch (error) {
-        logger.error('Error updating order notes', { error: error.message });
+        logger.error('Error updating order notes', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10900,7 +10907,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
 
         res.json(stats);
     } catch (error) {
-        logger.error('Error fetching customer stats', { error: error.message });
+        logger.error('Error fetching customer stats', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10931,7 +10938,7 @@ app.post('/api/delivery/orders/:id/pod', deliveryRateLimit, requireAuth, require
 
         res.status(201).json({ pod });
     } catch (error) {
-        logger.error('Error uploading POD', { error: error.message });
+        logger.error('Error uploading POD', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10959,7 +10966,7 @@ app.get('/api/delivery/pod/:id', requireAuth, requireMerchant, async (req, res) 
         res.setHeader('Content-Disposition', `inline; filename="${pod.original_filename || 'pod.jpg'}"`);
         res.sendFile(pod.full_path);
     } catch (error) {
-        logger.error('Error serving POD', { error: error.message });
+        logger.error('Error serving POD', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -10981,7 +10988,7 @@ app.post('/api/delivery/route/generate', deliveryStrictRateLimit, requireAuth, r
 
         res.status(201).json({ route });
     } catch (error) {
-        logger.error('Error generating route', { error: error.message });
+        logger.error('Error generating route', { error: error.message, stack: error.stack });
         res.status(400).json({ error: error.message });
     }
 });
@@ -11005,7 +11012,7 @@ app.get('/api/delivery/route/active', requireAuth, requireMerchant, async (req, 
 
         res.json({ route, orders });
     } catch (error) {
-        logger.error('Error fetching active route', { error: error.message });
+        logger.error('Error fetching active route', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11025,7 +11032,7 @@ app.get('/api/delivery/route/:id', requireAuth, requireMerchant, async (req, res
 
         res.json({ route });
     } catch (error) {
-        logger.error('Error fetching route', { error: error.message });
+        logger.error('Error fetching route', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11052,7 +11059,7 @@ app.post('/api/delivery/route/finish', requireAuth, requireMerchant, async (req,
 
         res.json({ result });
     } catch (error) {
-        logger.error('Error finishing route', { error: error.message });
+        logger.error('Error finishing route', { error: error.message, stack: error.stack });
         res.status(400).json({ error: error.message });
     }
 });
@@ -11070,7 +11077,7 @@ app.post('/api/delivery/geocode', deliveryStrictRateLimit, requireAuth, requireM
 
         res.json({ result });
     } catch (error) {
-        logger.error('Error geocoding orders', { error: error.message });
+        logger.error('Error geocoding orders', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11184,7 +11191,7 @@ app.get('/api/delivery/audit', requireAuth, requireMerchant, async (req, res) =>
 
         res.json({ entries });
     } catch (error) {
-        logger.error('Error fetching audit log', { error: error.message });
+        logger.error('Error fetching audit log', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11384,7 +11391,7 @@ app.get('/api/loyalty/offers', requireAuth, requireMerchant, async (req, res) =>
 
         res.json({ offers });
     } catch (error) {
-        logger.error('Error fetching loyalty offers', { error: error.message });
+        logger.error('Error fetching loyalty offers', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11426,7 +11433,7 @@ app.post('/api/loyalty/offers', requireAuth, requireMerchant, requireWriteAccess
 
         res.status(201).json({ offer });
     } catch (error) {
-        logger.error('Error creating loyalty offer', { error: error.message });
+        logger.error('Error creating loyalty offer', { error: error.message, stack: error.stack });
         if (error.message.includes('unique') || error.message.includes('duplicate')) {
             return res.status(409).json({
                 error: 'An offer for this brand and size group already exists'
@@ -11454,7 +11461,7 @@ app.get('/api/loyalty/offers/:id', requireAuth, requireMerchant, async (req, res
 
         res.json({ offer, variations });
     } catch (error) {
-        logger.error('Error fetching loyalty offer', { error: error.message });
+        logger.error('Error fetching loyalty offer', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11485,7 +11492,7 @@ app.patch('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWriteA
 
         res.json({ offer });
     } catch (error) {
-        logger.error('Error updating loyalty offer', { error: error.message });
+        logger.error('Error updating loyalty offer', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11513,7 +11520,7 @@ app.delete('/api/loyalty/offers/:id', requireAuth, requireMerchant, requireWrite
 
         res.json(result);
     } catch (error) {
-        logger.error('Error deleting loyalty offer', { error: error.message });
+        logger.error('Error deleting loyalty offer', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11547,7 +11554,7 @@ app.post('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, req
 
         res.json({ added });
     } catch (error) {
-        logger.error('Error adding qualifying variations', { error: error.message });
+        logger.error('Error adding qualifying variations', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11562,7 +11569,7 @@ app.get('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, asyn
         const variations = await loyaltyService.getQualifyingVariations(req.params.id, merchantId);
         res.json({ variations });
     } catch (error) {
-        logger.error('Error fetching qualifying variations', { error: error.message });
+        logger.error('Error fetching qualifying variations', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11598,7 +11605,7 @@ app.delete('/api/loyalty/offers/:offerId/variations/:variationId', requireAuth, 
 
         res.json({ success: true });
     } catch (error) {
-        logger.error('Error removing qualifying variation', { error: error.message });
+        logger.error('Error removing qualifying variation', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11613,7 +11620,7 @@ app.get('/api/loyalty/customer/:customerId', requireAuth, requireMerchant, async
         const status = await loyaltyService.getCustomerLoyaltyStatus(req.params.customerId, merchantId);
         res.json(status);
     } catch (error) {
-        logger.error('Error fetching customer loyalty status', { error: error.message });
+        logger.error('Error fetching customer loyalty status', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11635,7 +11642,7 @@ app.get('/api/loyalty/customer/:customerId/history', requireAuth, requireMerchan
 
         res.json(history);
     } catch (error) {
-        logger.error('Error fetching customer loyalty history', { error: error.message });
+        logger.error('Error fetching customer loyalty history', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11650,7 +11657,7 @@ app.get('/api/loyalty/customer/:customerId/rewards', requireAuth, requireMerchan
         const rewards = await loyaltyService.getCustomerEarnedRewards(req.params.customerId, merchantId);
         res.json({ rewards });
     } catch (error) {
-        logger.error('Error fetching customer rewards', { error: error.message });
+        logger.error('Error fetching customer rewards', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11674,7 +11681,7 @@ app.get('/api/loyalty/customer/:customerId/audit-history', requireAuth, requireM
 
         res.json(result);
     } catch (error) {
-        logger.error('Error fetching customer audit history', { error: error.message });
+        logger.error('Error fetching customer audit history', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11704,7 +11711,7 @@ app.post('/api/loyalty/customer/:customerId/add-orders', requireAuth, requireMer
             ...result
         });
     } catch (error) {
-        logger.error('Error adding orders to loyalty tracking', { error: error.message });
+        logger.error('Error adding orders to loyalty tracking', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11738,7 +11745,7 @@ app.post('/api/loyalty/rewards/:rewardId/redeem', requireAuth, requireMerchant, 
 
         res.json(result);
     } catch (error) {
-        logger.error('Error redeeming reward', { error: error.message });
+        logger.error('Error redeeming reward', { error: error.message, stack: error.stack });
         if (error.message.includes('Cannot redeem')) {
             return res.status(400).json({ error: error.message });
         }
@@ -11792,7 +11799,7 @@ app.get('/api/loyalty/rewards', requireAuth, requireMerchant, async (req, res) =
 
         res.json({ rewards: result.rows });
     } catch (error) {
-        logger.error('Error fetching rewards', { error: error.message });
+        logger.error('Error fetching rewards', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11848,7 +11855,7 @@ app.get('/api/loyalty/redemptions', requireAuth, requireMerchant, async (req, re
 
         res.json({ redemptions: result.rows });
     } catch (error) {
-        logger.error('Error fetching redemptions', { error: error.message });
+        logger.error('Error fetching redemptions', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11872,7 +11879,7 @@ app.get('/api/loyalty/audit', requireAuth, requireMerchant, async (req, res) => 
 
         res.json({ entries });
     } catch (error) {
-        logger.error('Error fetching loyalty audit log', { error: error.message });
+        logger.error('Error fetching loyalty audit log', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11943,7 +11950,7 @@ app.get('/api/loyalty/stats', requireAuth, requireMerchant, async (req, res) => 
             }
         });
     } catch (error) {
-        logger.error('Error fetching loyalty stats', { error: error.message });
+        logger.error('Error fetching loyalty stats', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -11986,7 +11993,7 @@ app.get('/api/loyalty/square-program', requireAuth, requireMerchant, async (req,
         });
 
     } catch (error) {
-        logger.error('Error fetching Square Loyalty program', { error: error.message });
+        logger.error('Error fetching Square Loyalty program', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12026,7 +12033,7 @@ app.put('/api/loyalty/offers/:id/square-tier', requireAuth, requireMerchant, req
         });
 
     } catch (error) {
-        logger.error('Error linking offer to Square tier', { error: error.message });
+        logger.error('Error linking offer to Square tier', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12100,7 +12107,7 @@ app.post('/api/loyalty/rewards/:id/create-square-reward', requireAuth, requireMe
         res.json(result);
 
     } catch (error) {
-        logger.error('Error creating Square reward', { error: error.message });
+        logger.error('Error creating Square reward', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12211,7 +12218,7 @@ app.post('/api/loyalty/rewards/sync-to-pos', requireAuth, requireMerchant, requi
         });
 
     } catch (error) {
-        logger.error('Error bulk syncing rewards to POS', { error: error.message });
+        logger.error('Error bulk syncing rewards to POS', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12249,7 +12256,7 @@ app.get('/api/loyalty/rewards/pending-sync', requireAuth, requireMerchant, async
         });
 
     } catch (error) {
-        logger.error('Error getting pending sync count', { error: error.message });
+        logger.error('Error getting pending sync count', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12337,7 +12344,7 @@ app.get('/api/loyalty/debug', requireAuth, requireMerchant, requireWriteAccess, 
             }
         });
     } catch (error) {
-        logger.error('Error in loyalty debug endpoint', { error: error.message });
+        logger.error('Error in loyalty debug endpoint', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12428,7 +12435,7 @@ app.post('/api/loyalty/process-order/:orderId', requireAuth, requireMerchant, re
         });
 
     } catch (error) {
-        logger.error('Error manually processing order for loyalty', { error: error.message });
+        logger.error('Error manually processing order for loyalty', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12457,7 +12464,7 @@ app.get('/api/loyalty/customer/:customerId', requireAuth, requireMerchant, async
         });
 
     } catch (error) {
-        logger.error('Error fetching customer details', { error: error.message });
+        logger.error('Error fetching customer details', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -12634,7 +12641,7 @@ app.get('/api/loyalty/customers/search', requireAuth, requireMerchant, async (re
         });
 
     } catch (error) {
-        logger.error('Error searching customers', { error: error.message });
+        logger.error('Error searching customers', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13024,7 +13031,7 @@ app.get('/api/loyalty/debug/all-loyalty-events', requireAuth, requireMerchant, r
         });
 
     } catch (error) {
-        logger.error('Error fetching all loyalty events', { error: error.message });
+        logger.error('Error fetching all loyalty events', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13086,7 +13093,7 @@ app.get('/api/loyalty/debug/loyalty-events/:orderId', requireAuth, requireMercha
         });
 
     } catch (error) {
-        logger.error('Error in loyalty events debug', { error: error.message });
+        logger.error('Error in loyalty events debug', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13236,7 +13243,7 @@ app.get('/api/loyalty/debug/matching', requireAuth, requireMerchant, requireWrit
         });
 
     } catch (error) {
-        logger.error('Error in matching debug', { error: error.message });
+        logger.error('Error in matching debug', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13465,7 +13472,7 @@ app.get('/api/loyalty/debug/customer-identification', requireAuth, requireMercha
         });
 
     } catch (error) {
-        logger.error('Error in customer identification debug', { error: error.message });
+        logger.error('Error in customer identification debug', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13560,7 +13567,7 @@ app.post('/api/loyalty/process-expired', requireAuth, requireMerchant, requireWr
             expiredEarnedRewards: earnedResult
         });
     } catch (error) {
-        logger.error('Error processing expired entries', { error: error.message });
+        logger.error('Error processing expired entries', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13580,7 +13587,7 @@ app.get('/api/loyalty/discounts/validate', requireAuth, requireMerchant, async (
 
         res.json(result);
     } catch (error) {
-        logger.error('Error validating discounts', { error: error.message });
+        logger.error('Error validating discounts', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13608,7 +13615,7 @@ app.post('/api/loyalty/discounts/validate-and-fix', requireAuth, requireMerchant
 
         res.json(result);
     } catch (error) {
-        logger.error('Error validating and fixing discounts', { error: error.message });
+        logger.error('Error validating and fixing discounts', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13637,7 +13644,7 @@ app.get('/api/loyalty/settings', requireAuth, requireMerchant, async (req, res) 
 
         res.json({ settings });
     } catch (error) {
-        logger.error('Error fetching loyalty settings', { error: error.message });
+        logger.error('Error fetching loyalty settings', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13659,7 +13666,7 @@ app.put('/api/loyalty/settings', requireAuth, requireMerchant, requireWriteAcces
 
         res.json({ success: true });
     } catch (error) {
-        logger.error('Error updating loyalty settings', { error: error.message });
+        logger.error('Error updating loyalty settings', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13692,7 +13699,7 @@ app.get('/api/loyalty/reports/vendor-receipt/:redemptionId', requireAuth, requir
             filename: receipt.filename
         });
     } catch (error) {
-        logger.error('Error generating vendor receipt', { error: error.message });
+        logger.error('Error generating vendor receipt', { error: error.message, stack: error.stack });
         if (error.message === 'Redemption not found') {
             return res.status(404).json({ error: 'Redemption not found' });
         }
@@ -13720,7 +13727,7 @@ app.get('/api/loyalty/reports/redemptions/csv', requireAuth, requireMerchant, as
         res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
         res.send(result.csv);
     } catch (error) {
-        logger.error('Error generating redemptions CSV', { error: error.message });
+        logger.error('Error generating redemptions CSV', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13745,7 +13752,7 @@ app.get('/api/loyalty/reports/audit/csv', requireAuth, requireMerchant, async (r
         res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
         res.send(result.csv);
     } catch (error) {
-        logger.error('Error generating audit CSV', { error: error.message });
+        logger.error('Error generating audit CSV', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13768,7 +13775,7 @@ app.get('/api/loyalty/reports/summary/csv', requireAuth, requireMerchant, async 
         res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
         res.send(result.csv);
     } catch (error) {
-        logger.error('Error generating summary CSV', { error: error.message });
+        logger.error('Error generating summary CSV', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13791,7 +13798,7 @@ app.get('/api/loyalty/reports/customers/csv', requireAuth, requireMerchant, asyn
         res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
         res.send(result.csv);
     } catch (error) {
-        logger.error('Error generating customers CSV', { error: error.message });
+        logger.error('Error generating customers CSV', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -13811,7 +13818,7 @@ app.get('/api/loyalty/reports/redemption/:redemptionId', requireAuth, requireMer
 
         res.json({ redemption: details });
     } catch (error) {
-        logger.error('Error fetching redemption details', { error: error.message });
+        logger.error('Error fetching redemption details', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
@@ -14045,7 +14052,7 @@ async function startServer() {
 
                 logger.info('Scheduled batch generation completed for all merchants', { merchantCount: merchants.length, results });
             } catch (error) {
-                logger.error('Scheduled batch generation failed', { error: error.message });
+                logger.error('Scheduled batch generation failed', { error: error.message, stack: error.stack });
                 await emailNotifier.sendAlert(
                     'Cycle Count Batch Generation Failed',
                     `Failed to generate daily cycle count batch:\n\n${error.message}\n\nStack: ${error.stack}`
@@ -14104,7 +14111,7 @@ async function startServer() {
                     );
                 }
             } catch (error) {
-                logger.error('Scheduled smart sync failed', { error: error.message });
+                logger.error('Scheduled smart sync failed', { error: error.message, stack: error.stack });
                 await emailNotifier.sendAlert(
                     'Database Sync Failed',
                     `Failed to run scheduled database sync:\n\n${error.message}\n\nStack: ${error.stack}`
@@ -14177,7 +14184,7 @@ async function startServer() {
                         failed: failures.length
                     });
                 } catch (error) {
-                    logger.error('Scheduled GMC sync failed', { error: error.message });
+                    logger.error('Scheduled GMC sync failed', { error: error.message, stack: error.stack });
                     await emailNotifier.sendAlert(
                         'GMC Sync Failed',
                         `Failed to run scheduled GMC sync:\n\n${error.message}\n\nStack: ${error.stack}`
@@ -14199,7 +14206,7 @@ async function startServer() {
                 await runAutomatedBackup();
                 logger.info('Scheduled database backup completed successfully');
             } catch (error) {
-                logger.error('Scheduled database backup failed', { error: error.message });
+                logger.error('Scheduled database backup failed', { error: error.message, stack: error.stack });
                 await emailNotifier.sendAlert(
                     'Automated Database Backup Failed',
                     `Failed to run scheduled database backup:\n\n${error.message}\n\nStack: ${error.stack}`
@@ -14297,7 +14304,7 @@ async function startServer() {
                 }
 
             } catch (error) {
-                logger.error('Scheduled expiry discount automation failed', { error: error.message });
+                logger.error('Scheduled expiry discount automation failed', { error: error.message, stack: error.stack });
                 await emailNotifier.sendAlert(
                     'Expiry Discount Automation Failed',
                     `Failed to run scheduled expiry discount automation:\n\n${error.message}\n\nStack: ${error.stack}`
@@ -14345,7 +14352,7 @@ async function startServer() {
                     }
                 }
             } catch (error) {
-                logger.error('Startup batch check failed', { error: error.message });
+                logger.error('Startup batch check failed', { error: error.message, stack: error.stack });
             }
         })();
 
@@ -14430,7 +14437,7 @@ async function startServer() {
                     );
                 }
             } catch (error) {
-                logger.error('Startup sync check failed', { error: error.message });
+                logger.error('Startup sync check failed', { error: error.message, stack: error.stack });
                 // Don't send alert for startup check failures - not critical
             }
         })();
@@ -14483,7 +14490,7 @@ async function gracefulShutdown(signal) {
         clearTimeout(forceExitTimeout);
         process.exit(0);
     } catch (error) {
-        logger.error('Error during shutdown', { error: error.message });
+        logger.error('Error during shutdown', { error: error.message, stack: error.stack });
         clearTimeout(forceExitTimeout);
         process.exit(1);
     }

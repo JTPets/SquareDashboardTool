@@ -2360,7 +2360,7 @@ async function listCustomAttributeDefinitions(options = {}) {
         logger.info('Custom attribute definitions fetched', { count: definitions.length });
         return definitions;
     } catch (error) {
-        logger.error('Failed to list custom attribute definitions', { error: error.message });
+        logger.error('Failed to list custom attribute definitions', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -2810,7 +2810,7 @@ async function pushCasePackToSquare(options = {}) {
         logger.info('Pushing case pack quantities', { count: updates.length, merchantId });
         return await batchUpdateCustomAttributeValues(updates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push case pack quantities', { merchantId, error: error.message });
+        logger.error('Failed to push case pack quantities', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -2858,7 +2858,7 @@ async function pushBrandsToSquare(options = {}) {
         logger.info('Pushing brand assignments', { count: updates.length, merchantId });
         return await batchUpdateCustomAttributeValues(updates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push brand assignments', { merchantId, error: error.message });
+        logger.error('Failed to push brand assignments', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -2935,7 +2935,7 @@ async function pushExpiryDatesToSquare(options = {}) {
         logger.info('Pushing expiry dates', { count: validUpdates.length, merchantId });
         return await batchUpdateCustomAttributeValues(validUpdates, { merchantId });
     } catch (error) {
-        logger.error('Failed to push expiry dates', { merchantId, error: error.message });
+        logger.error('Failed to push expiry dates', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }

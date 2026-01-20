@@ -535,7 +535,7 @@ async function initializeSquareDiscounts(merchantId) {
         return results;
 
     } catch (error) {
-        logger.error('Square discount initialization failed', { error: error.message });
+        logger.error('Square discount initialization failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -837,7 +837,7 @@ async function applyDiscounts(options = {}) {
         return results;
 
     } catch (error) {
-        logger.error('Discount application failed', { error: error.message });
+        logger.error('Discount application failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
@@ -1135,7 +1135,7 @@ async function runExpiryDiscountAutomation(options = {}) {
                 results.discountInit = await initializeSquareDiscounts(merchantId);
             } catch (error) {
                 results.errors.push({ step: 'discountInit', error: error.message });
-                logger.error('Discount initialization failed', { error: error.message });
+                logger.error('Discount initialization failed', { error: error.message, stack: error.stack });
             }
         }
 
@@ -1159,7 +1159,7 @@ async function runExpiryDiscountAutomation(options = {}) {
                 results.discountApplication = await applyDiscounts({ merchantId, dryRun });
             } catch (error) {
                 results.errors.push({ step: 'discountApplication', error: error.message });
-                logger.error('Discount application failed', { error: error.message });
+                logger.error('Discount application failed', { error: error.message, stack: error.stack });
             }
         }
 
@@ -1684,7 +1684,7 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
         return results;
 
     } catch (error) {
-        logger.error('Expiry discount validation failed', { error: error.message });
+        logger.error('Expiry discount validation failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }

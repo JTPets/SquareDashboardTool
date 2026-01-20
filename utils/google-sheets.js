@@ -130,7 +130,7 @@ function parseAuthState(state) {
         const decoded = Buffer.from(state, 'base64').toString('utf8');
         return JSON.parse(decoded);
     } catch (error) {
-        logger.error('Failed to parse Google OAuth state', { error: error.message });
+        logger.error('Failed to parse Google OAuth state', { error: error.message, stack: error.stack });
         throw new Error('Invalid OAuth state parameter');
     }
 }

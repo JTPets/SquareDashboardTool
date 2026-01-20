@@ -482,6 +482,7 @@ async function generateRoute(merchantId, userId, options = {}) {
         return { ...route, orders };
 
     } catch (err) {
+        logger.error('Route generation transaction failed', { merchantId, error: err.message, stack: err.stack });
         await client.query('ROLLBACK');
         throw err;
     } finally {
@@ -562,6 +563,7 @@ async function finishRoute(merchantId, routeId, userId) {
         };
 
     } catch (err) {
+        logger.error('Finish route transaction failed', { merchantId, routeId, error: err.message, stack: err.stack });
         await client.query('ROLLBACK');
         throw err;
     } finally {
@@ -663,7 +665,7 @@ async function optimizeRoute(settings, orders) {
         };
 
     } catch (err) {
-        logger.error('ORS optimization error', { error: err.message });
+        logger.error('ORS optimization error', { error: err.message, stack: err.stack });
         throw err;
     }
 }

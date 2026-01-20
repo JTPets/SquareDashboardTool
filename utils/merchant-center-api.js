@@ -58,7 +58,7 @@ async function getAuthClient(merchantId) {
             `, [newTokens.access_token, newTokens.expiry_date, merchantId]);
             logger.info('Refreshed Google OAuth tokens for merchant', { merchantId });
         } catch (err) {
-            logger.error('Failed to save refreshed tokens', { error: err.message });
+            logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack });
         }
     });
 
@@ -235,7 +235,7 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
         });
         return response;
     } catch (error) {
-        logger.error('Failed to get data source info', { error: error.message });
+        logger.error('Failed to get data source info', { error: error.message, stack: error.stack });
         return null;
     }
 }
@@ -1072,7 +1072,7 @@ async function testConnection(merchantId) {
             accountId: gmcMerchantId
         };
     } catch (error) {
-        logger.error('GMC API connection test failed', { error: error.message, merchantId });
+        logger.error('GMC API connection test failed', { error: error.message, stack: error.stack, merchantId });
         return {
             success: false,
             error: error.message

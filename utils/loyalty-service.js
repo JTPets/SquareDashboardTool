@@ -189,7 +189,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
         };
 
     } catch (error) {
-        logger.error('Error prefetching loyalty events', { error: error.message, merchantId });
+        logger.error('Error prefetching loyalty events', { error: error.message, stack: error.stack, merchantId });
         return { events: [], byOrderId: {}, byTimestamp: [], loyaltyAccounts: {} };
     }
 }
@@ -2355,7 +2355,7 @@ async function processExpiredWindowEntries(merchantId) {
         }
     } catch (error) {
         await client.query('ROLLBACK');
-        logger.error('Error processing expired entries', { error: error.message });
+        logger.error('Error processing expired entries', { error: error.message, stack: error.stack });
         throw error;
     } finally {
         client.release();
@@ -3106,7 +3106,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
         return { success: true, groupId, groupName };
 
     } catch (error) {
-        logger.error('Error creating customer group', { error: error.message, merchantId });
+        logger.error('Error creating customer group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3161,7 +3161,7 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
         return { success: true };
 
     } catch (error) {
-        logger.error('Error adding customer to group', { error: error.message, merchantId });
+        logger.error('Error adding customer to group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3216,7 +3216,7 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
         return { success: true };
 
     } catch (error) {
-        logger.error('Error removing customer from group', { error: error.message, merchantId });
+        logger.error('Error removing customer from group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3265,7 +3265,7 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
         return { success: true };
 
     } catch (error) {
-        logger.error('Error deleting customer group', { error: error.message, merchantId });
+        logger.error('Error deleting customer group', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3442,7 +3442,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         };
 
     } catch (error) {
-        logger.error('Error creating reward discount', { error: error.message, merchantId });
+        logger.error('Error creating reward discount', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3499,7 +3499,7 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
         return { success: true, results };
 
     } catch (error) {
-        logger.error('Error deleting reward discount objects', { error: error.message, merchantId });
+        logger.error('Error deleting reward discount objects', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3628,7 +3628,7 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
         };
 
     } catch (error) {
-        logger.error('Error creating Square Customer Group Discount', { error: error.message, merchantId });
+        logger.error('Error creating Square Customer Group Discount', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }
@@ -3721,7 +3721,7 @@ async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId
         return { success: true };
 
     } catch (error) {
-        logger.error('Error cleaning up Square Customer Group Discount', { error: error.message, merchantId });
+        logger.error('Error cleaning up Square Customer Group Discount', { error: error.message, stack: error.stack, merchantId });
         return { success: false, error: error.message };
     }
 }

@@ -168,10 +168,7 @@ async function listWebhookSubscriptions(merchantId) {
 
         return data.subscriptions || [];
     } catch (error) {
-        logger.error('Failed to list webhook subscriptions', {
-            merchantId,
-            error: error.message
-        });
+        logger.error('Failed to list webhook subscriptions', { merchantId, error: error.message, stack: error.stack });
         throw error;
     }
 }
