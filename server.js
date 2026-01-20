@@ -10912,14 +10912,15 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
         }
 
         // Process payment status
+        // Note: Square SDK v43+ returns BigInt for money amounts, must convert to Number
         if (squareOrderResult.status === 'fulfilled' && squareOrderResult.value?.order) {
             const squareOrder = squareOrderResult.value.order;
-            const totalMoney = squareOrder.totalMoney?.amount || squareOrder.total_money?.amount || 0;
+            const totalMoney = Number(squareOrder.totalMoney?.amount || squareOrder.total_money?.amount || 0);
             const tenders = squareOrder.tenders || [];
 
             let amountPaid = 0;
             for (const tender of tenders) {
-                amountPaid += tender.amountMoney?.amount || tender.amount_money?.amount || 0;
+                amountPaid += Number(tender.amountMoney?.amount || tender.amount_money?.amount || 0);
             }
 
             stats.total_amount = totalMoney;
