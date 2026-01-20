@@ -879,6 +879,10 @@ async function syncVariation(obj, merchantId) {
 
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
         for (const vendorInfo of data.vendor_information) {
+            // Skip entries without a vendor_id (vendor not assigned)
+            if (!vendorInfo.vendor_id) {
+                continue;
+            }
             try {
                 await db.query(`
                     INSERT INTO variation_vendors (
