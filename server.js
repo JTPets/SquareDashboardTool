@@ -11314,9 +11314,21 @@ app.post('/api/delivery/sync', deliveryStrictRateLimit, requireAuth, requireMerc
                 if (result) {
                     imported++;
                 } else {
+                    logger.warn('Delivery order skipped - no address or ingest returned null', {
+                        merchantId,
+                        squareOrderId: order.id,
+                        state: order.state,
+                        hasFulfillments: !!order.fulfillments?.length
+                    });
                     skipped++;
                 }
             } catch (orderError) {
+                logger.error('Failed to ingest delivery order', {
+                    merchantId,
+                    squareOrderId: order.id,
+                    error: orderError.message,
+                    stack: orderError.stack
+                });
                 errors.push({ orderId: order.id, error: orderError.message });
             }
         }

@@ -1080,7 +1080,7 @@ async function ingestSquareOrder(merchantId, squareOrder) {
             return { ...existing, ...updates };
         }
 
-        logger.debug('Square order already ingested', { merchantId, squareOrderId: squareOrder.id });
+        logger.info('Square order already ingested - no updates needed', { merchantId, squareOrderId: squareOrder.id, existingStatus: existing.status });
         return existing;
     }
 
@@ -1134,7 +1134,12 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     }
 
     if (!address) {
-        logger.warn('Square order has no delivery address', { squareOrderId: squareOrder.id });
+        logger.warn('Square order has no delivery address - skipping', {
+            merchantId,
+            squareOrderId: squareOrder.id,
+            fulfillmentTypes: squareOrder.fulfillments?.map(f => f.type),
+            customerName
+        });
         return null;
     }
 
