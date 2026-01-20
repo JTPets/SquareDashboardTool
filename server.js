@@ -9383,7 +9383,7 @@ app.post('/api/webhooks/square', async (req, res) => {
                         const catchupResult = await loyaltyService.runLoyaltyCatchup({
                             merchantId: internalMerchantId,
                             customerIds: [customerId],
-                            periodDays: 7,
+                            periodDays: 1, // 24 hours - loyalty events happen same-day
                             maxCustomers: 1
                         });
 
@@ -10325,7 +10325,7 @@ app.post('/api/webhooks/square', async (req, res) => {
                                         const catchupResult = await loyaltyService.runLoyaltyCatchup({
                                             merchantId: internalMerchantId,
                                             customerIds: [customerId],
-                                            periodDays: 7,
+                                            periodDays: 1, // 24 hours - loyalty events happen same-day
                                             maxCustomers: 1
                                         });
 
@@ -10377,7 +10377,7 @@ app.post('/api/webhooks/square', async (req, res) => {
                         const catchupResult = await loyaltyService.runLoyaltyCatchup({
                             merchantId: internalMerchantId,
                             customerIds: [customerId],
-                            periodDays: 7,
+                            periodDays: 1, // 24 hours - loyalty events happen same-day
                             maxCustomers: 1
                         });
 
@@ -10428,7 +10428,7 @@ app.post('/api/webhooks/square', async (req, res) => {
                         const catchupResult = await loyaltyService.runLoyaltyCatchup({
                             merchantId: internalMerchantId,
                             customerIds: [customerId],
-                            periodDays: 30, // Longer period for gift cards (may have been used before linking)
+                            periodDays: 7, // 1 week for gift cards (may be used before linking)
                             maxCustomers: 1
                         });
 
