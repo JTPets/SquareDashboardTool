@@ -10873,8 +10873,8 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
             (async () => {
                 try {
                     // Use 'main' keyword to retrieve the seller's loyalty program
-                    // (listLoyaltyPrograms is deprecated)
-                    const programResponse = await squareClient.loyalty.programs.retrieve({
+                    // Square SDK v43+ uses .get() not .retrieve()
+                    const programResponse = await squareClient.loyalty.programs.get({
                         programId: 'main'
                     });
 
@@ -10890,7 +10890,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
                             const account = accountsResponse.loyaltyAccounts[0];
                             return {
                                 isMember: true,
-                                balance: account.balance || 0
+                                balance: Number(account.balance || 0)
                             };
                         }
                     }
