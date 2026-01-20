@@ -753,11 +753,12 @@
 
       // Render stops
       document.getElementById('stopList').innerHTML = stops.map((stop, index) => {
-        const isCurrent = index === currentIndex;
-        const isCompleted = stop.status === 'completed';
-        const isSkipped = stop.status === 'skipped';
+        try {
+          const isCurrent = index === currentIndex;
+          const isCompleted = stop.status === 'completed';
+          const isSkipped = stop.status === 'skipped';
 
-        return `
+          return `
           <div class="stop-card ${isCompleted ? 'completed' : ''} ${isCurrent ? 'current' : ''} ${isSkipped ? 'skipped' : ''}">
             <div class="stop-header">
               <div class="stop-number">${isCompleted ? '✓' : stop.route_position || index + 1}</div>
@@ -770,7 +771,7 @@
               <span class="stop-status status-${stop.status}">${stop.status}</span>
             </div>
             <div class="stop-body">
-              <div class="stop-address" onclick="openInMaps('${escapeHtml(stop.address)}')">
+              <div class="stop-address" onclick="openInMaps('${escapeJsString(stop.address)}')">
                 <span class="icon">📍</span>
                 <span class="text">${escapeHtml(stop.address)}</span>
                 <span class="arrow">›</span>
@@ -785,7 +786,7 @@
 
               ${stop.customer_note ? `
                 <div class="stop-customer-notes">
-                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '${escapeHtml(stop.customer_note || '')}')">Edit</button>
+                  <button class="edit-btn" onclick="editCustomerNote('${stop.id}', '${escapeJsString(stop.customer_note || '')}')">Edit</button>
                   <strong>🏠 Customer Info:</strong>
                   ${escapeHtml(stop.customer_note)}
                 </div>
@@ -860,6 +861,29 @@
             </div>
           </div>
         `;
+        } catch (renderError) {
+          console.error(`Error rendering stop ${index + 1} (${stop?.customer_name || 'unknown'}):`, renderError);
+          return `
+          <div class="stop-card" style="border: 2px solid #ef4444;">
+            <div class="stop-header">
+              <div class="stop-number" style="background: #ef4444;">${index + 1}</div>
+              <div class="stop-customer">
+                <h3>${escapeHtml(stop?.customer_name || 'Unknown Customer')}</h3>
+                <div class="customer-badges">
+                  <span class="badge badge-unpaid">Render Error</span>
+                </div>
+              </div>
+            </div>
+            <div class="stop-body">
+              <p style="color: #ef4444;">Error displaying this stop. Check console for details.</p>
+              ${stop?.address ? `<div class="stop-address" onclick="openInMaps('${escapeJsString(stop.address)}')">
+                <span class="icon">📍</span>
+                <span class="text">${escapeHtml(stop.address)}</span>
+              </div>` : ''}
+            </div>
+          </div>
+        `;
+        }
       }).join('');
 
       // Fetch customer stats for all stops with Square customer IDs
@@ -1162,6 +1186,17 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Escape text for use inside JavaScript single-quoted strings in onclick handlers
+    // This prevents single quotes and backslashes from breaking the JS syntax
+    function escapeJsString(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/\\/g, '\\\\')  // Escape backslashes first
+        .replace(/'/g, "\\'")    // Escape single quotes
+        .replace(/\n/g, '\\n')   // Escape newlines
+        .replace(/\r/g, '\\r');  // Escape carriage returns
     }
 
     // Initial load
