@@ -220,9 +220,10 @@ CREATE TABLE variation_vendors (
     currency TEXT DEFAULT 'CAD',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    merchant_id INTEGER REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
-    UNIQUE(variation_id, vendor_id)
+    UNIQUE(variation_id, vendor_id, merchant_id)
 );
 
 -- 9. Current inventory counts from Square
@@ -254,9 +255,10 @@ CREATE TABLE sales_velocity (
     weekly_avg_quantity DECIMAL(10,4) DEFAULT 0,
     monthly_avg_quantity DECIMAL(10,4) DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    merchant_id INTEGER REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
-    UNIQUE(variation_id, location_id, period_days)
+    UNIQUE(variation_id, location_id, period_days, merchant_id)
 );
 
 -- 11. Location-specific settings for variations
@@ -271,9 +273,10 @@ CREATE TABLE variation_location_settings (
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    merchant_id INTEGER REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
-    UNIQUE(variation_id, location_id)
+    UNIQUE(variation_id, location_id, merchant_id)
 );
 
 -- 12. Purchase orders for inventory ordering

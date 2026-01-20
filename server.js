@@ -13849,22 +13849,61 @@ async function startServer() {
         // The startup backfill for NULL merchant_id and orphan user linking has been removed.
         // Multi-tenant migration is complete. Records without merchant_id will fail as expected.
 
-        // Ensure Square custom attributes exist (for expiry tracking, brands, etc.)
+        // Ensure Square custom attributes exist for all active merchants
+        // (expiry tracking, brands, case_pack_quantity, etc.)
         try {
-            logger.info('Checking Square custom attributes...');
-            const attrResult = await squareApi.initializeCustomAttributes();
-            if (attrResult.created > 0 || attrResult.updated > 0) {
-                logger.info('Square custom attributes initialized', {
-                    created: attrResult.created,
-                    updated: attrResult.updated,
-                    skipped: attrResult.skipped
+            const merchantsResult = await db.query(
+                'SELECT id, business_name FROM merchants WHERE is_active = TRUE'
+            );
+
+            if (merchantsResult.rows.length > 0) {
+                logger.info('Initializing Square custom attributes for all merchants...', {
+                    merchantCount: merchantsResult.rows.length
+                });
+
+                let totalCreated = 0;
+                let totalUpdated = 0;
+                let totalErrors = 0;
+
+                for (const merchant of merchantsResult.rows) {
+                    try {
+                        const attrResult = await squareApi.initializeCustomAttributes({ merchantId: merchant.id });
+                        if (attrResult.definitions) {
+                            const created = attrResult.definitions.filter(d => d.status === 'created').length;
+                            const updated = attrResult.definitions.filter(d => d.status === 'updated').length;
+                            totalCreated += created;
+                            totalUpdated += updated;
+
+                            if (created > 0 || updated > 0) {
+                                logger.info('Custom attributes initialized for merchant', {
+                                    merchantId: merchant.id,
+                                    businessName: merchant.business_name,
+                                    created,
+                                    updated
+                                });
+                            }
+                        }
+                    } catch (merchantError) {
+                        totalErrors++;
+                        logger.warn('Could not initialize custom attributes for merchant', {
+                            merchantId: merchant.id,
+                            businessName: merchant.business_name,
+                            error: merchantError.message
+                        });
+                    }
+                }
+
+                logger.info('Square custom attributes initialization complete', {
+                    merchants: merchantsResult.rows.length,
+                    totalCreated,
+                    totalUpdated,
+                    totalErrors
                 });
             } else {
-                logger.info('Square custom attributes already configured');
+                logger.info('No active merchants - skipping custom attribute initialization');
             }
         } catch (squareAttrError) {
             // Don't fail startup if Square attributes can't be created
-            // They may be created later when Square credentials are configured
             logger.warn('Could not initialize Square custom attributes', {
                 error: squareAttrError.message
             });
