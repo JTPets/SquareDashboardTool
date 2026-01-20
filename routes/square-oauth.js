@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const { SquareClient, SquareEnvironment } = require('square');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
+const squareApi = require('../utils/square-api');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 
@@ -257,6 +258,28 @@ router.get('/callback', async (req, res) => {
             merchantId: newMerchantId,
             businessName: businessName
         });
+
+        // Initialize custom attributes for this new merchant (async, don't block redirect)
+        // This ensures expiration_date, brand, case_pack_quantity, etc. are available
+        squareApi.initializeCustomAttributes({ merchantId: newMerchantId })
+            .then(result => {
+                const created = result.definitions?.filter(d => d.status === 'created').length || 0;
+                const updated = result.definitions?.filter(d => d.status === 'updated').length || 0;
+                if (created > 0 || updated > 0) {
+                    logger.info('Custom attributes initialized for new merchant', {
+                        merchantId: newMerchantId,
+                        businessName,
+                        created,
+                        updated
+                    });
+                }
+            })
+            .catch(err => {
+                logger.warn('Could not auto-initialize custom attributes for new merchant', {
+                    merchantId: newMerchantId,
+                    error: err.message
+                });
+            });
 
         // Redirect to original destination
         const redirectUri = stateRecord.redirect_uri || '/dashboard.html';
