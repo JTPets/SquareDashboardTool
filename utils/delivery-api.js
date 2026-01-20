@@ -24,6 +24,18 @@ const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Safely stringify objects containing BigInt values
+ * Square SDK returns BigInt for money amounts which JSON.stringify can't handle
+ * @param {*} obj - Object to stringify
+ * @returns {string} JSON string
+ */
+function safeJsonStringify(obj) {
+    return JSON.stringify(obj, (key, value) =>
+        typeof value === 'bigint' ? Number(value) : value
+    );
+}
+
+/**
  * Validate UUID format
  * @param {string} id - ID to validate
  * @param {string} fieldName - Field name for error message
@@ -166,7 +178,7 @@ async function createOrder(merchantId, orderData) {
             merchantId, squareOrderId, squareCustomerId, customerName, address,
             addressLat, addressLng, phone, notes, customerNote, status,
             addressLat && addressLng ? new Date() : null,
-            squareOrderData ? JSON.stringify(squareOrderData) : null
+            squareOrderData ? safeJsonStringify(squareOrderData) : null
         ]
     );
 
@@ -202,7 +214,7 @@ async function updateOrder(merchantId, orderId, updates) {
         const snakeKey = key.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
         if (allowedFields.includes(snakeKey)) {
             // Serialize JSONB fields
-            const paramValue = snakeKey === 'square_order_data' && value ? JSON.stringify(value) : value;
+            const paramValue = snakeKey === 'square_order_data' && value ? safeJsonStringify(value) : value;
             params.push(paramValue);
             setClauses.push(`${snakeKey} = $${params.length}`);
         }
