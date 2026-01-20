@@ -10275,6 +10275,53 @@ app.post('/api/webhooks/square', async (req, res) => {
                                 logger.debug('Order already processed for loyalty, skipping', { orderId });
                                 syncResults.loyaltyEventSkipped = { orderId, reason: 'already_processed' };
                             }
+                        } else if (loyaltyAccountId) {
+                            // No order_id in this event, but we have a loyalty account -
+                            // Do a reverse lookup to catch any orders Square internally linked
+                            logger.info('Loyalty event without order_id - doing reverse lookup', {
+                                loyaltyAccountId,
+                                eventType: loyaltyEvent.type
+                            });
+
+                            // Get customer_id from loyalty account
+                            const accessToken = await loyaltyService.getSquareAccessToken(internalMerchantId);
+                            if (accessToken) {
+                                const accountResponse = await fetch(
+                                    `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
+                                    {
+                                        headers: {
+                                            'Authorization': `Bearer ${accessToken}`,
+                                            'Content-Type': 'application/json',
+                                            'Square-Version': '2025-01-16'
+                                        }
+                                    }
+                                );
+
+                                if (accountResponse.ok) {
+                                    const accountData = await accountResponse.json();
+                                    const customerId = accountData.loyalty_account?.customer_id;
+
+                                    if (customerId) {
+                                        const catchupResult = await loyaltyService.runLoyaltyCatchup({
+                                            merchantId: internalMerchantId,
+                                            customerIds: [customerId],
+                                            periodDays: 7,
+                                            maxCustomers: 1
+                                        });
+
+                                        if (catchupResult.ordersNewlyTracked > 0) {
+                                            logger.info('Loyalty catchup found untracked orders via event webhook', {
+                                                customerId,
+                                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                                            });
+                                            syncResults.loyaltyCatchup = {
+                                                customerId,
+                                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                                            };
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } catch (loyaltyEventError) {
                         logger.error('Loyalty event webhook processing failed', {
@@ -10286,9 +10333,53 @@ app.post('/api/webhooks/square', async (req, res) => {
                 }
                 break;
 
-            // Acknowledged but not processed - these don't require action from us
+            // When loyalty account is updated (e.g., customer's card gets linked to their account),
+            // do a reverse lookup to catch any recent orders that Square internally linked
             case 'loyalty.account.updated':
             case 'loyalty.account.created':
+                if (!internalMerchantId) {
+                    logger.debug('Loyalty account webhook - merchant not found, skipping');
+                    break;
+                }
+                try {
+                    const loyaltyAccount = data;
+                    const customerId = loyaltyAccount.customer_id;
+
+                    if (customerId) {
+                        logger.info('Loyalty account updated - checking for untracked orders', {
+                            loyaltyAccountId: loyaltyAccount.id,
+                            customerId,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Do a reverse lookup for this specific customer's recent orders (last 7 days)
+                        // This catches orders that Square internally linked via payment→loyalty
+                        const catchupResult = await loyaltyService.runLoyaltyCatchup({
+                            merchantId: internalMerchantId,
+                            customerIds: [customerId],
+                            periodDays: 7,
+                            maxCustomers: 1
+                        });
+
+                        if (catchupResult.ordersNewlyTracked > 0) {
+                            logger.info('Loyalty catchup found untracked orders via account webhook', {
+                                customerId,
+                                ordersFound: catchupResult.ordersFound,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            });
+                            syncResults.loyaltyCatchup = {
+                                customerId,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            };
+                        }
+                    }
+                } catch (loyaltyAccountError) {
+                    logger.warn('Loyalty account webhook catchup failed', {
+                        error: loyaltyAccountError.message
+                    });
+                }
+                break;
+
             case 'loyalty.program.updated':
                 logger.debug('Webhook event acknowledged but not processed', { type: event.type });
                 syncResults.acknowledged = true;
@@ -13042,6 +13133,43 @@ app.post('/api/loyalty/backfill', requireAuth, requireMerchant, requireWriteAcce
 
     } catch (error) {
         logger.error('Error during loyalty backfill', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/loyalty/catchup
+ * Run "reverse lookup" loyalty catchup for known customers.
+ *
+ * Traditional backfill (order→customer) fails when orders don't have customer_id.
+ * This endpoint does the reverse: customer→orders using Square's internal linkage
+ * (payment→loyalty→phone→customer).
+ *
+ * Square's Orders Search API can find orders by customer_id even when the order
+ * itself doesn't have customer_id set, because Square internally links them via
+ * payment card recognition and loyalty accounts.
+ */
+app.post('/api/loyalty/catchup', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const { days = 30, customerIds = null, maxCustomers = 100 } = req.body;
+
+        logger.info('Starting loyalty catchup via API', { merchantId, days, maxCustomers });
+
+        const result = await loyaltyService.runLoyaltyCatchup({
+            merchantId,
+            customerIds,
+            periodDays: days,
+            maxCustomers
+        });
+
+        res.json({
+            success: true,
+            ...result
+        });
+
+    } catch (error) {
+        logger.error('Error during loyalty catchup', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
