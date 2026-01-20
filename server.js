@@ -11862,6 +11862,14 @@ app.post('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, req
 
         res.json({ added });
     } catch (error) {
+        // Return 409 Conflict for variation conflicts with detailed info
+        if (error.code === 'VARIATION_CONFLICT') {
+            return res.status(409).json({
+                error: error.message,
+                code: 'VARIATION_CONFLICT',
+                conflicts: error.conflicts
+            });
+        }
         logger.error('Error adding qualifying variations', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
@@ -11878,6 +11886,43 @@ app.get('/api/loyalty/offers/:id/variations', requireAuth, requireMerchant, asyn
         res.json({ variations });
     } catch (error) {
         logger.error('Error fetching qualifying variations', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/loyalty/variations/assignments
+ * Get all variation assignments across all offers for this merchant
+ * Used by UI to show which variations are already assigned to offers
+ */
+app.get('/api/loyalty/variations/assignments', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await db.query(`
+            SELECT qv.variation_id, qv.item_name, qv.variation_name,
+                   o.id as offer_id, o.offer_name, o.brand_name, o.size_group
+            FROM loyalty_qualifying_variations qv
+            JOIN loyalty_offers o ON qv.offer_id = o.id
+            WHERE qv.merchant_id = $1
+              AND qv.is_active = TRUE
+              AND o.is_active = TRUE
+            ORDER BY o.offer_name, qv.item_name
+        `, [merchantId]);
+
+        // Return as a map for easy lookup by variation_id
+        const assignments = {};
+        for (const row of result.rows) {
+            assignments[row.variation_id] = {
+                offerId: row.offer_id,
+                offerName: row.offer_name,
+                brandName: row.brand_name,
+                sizeGroup: row.size_group
+            };
+        }
+
+        res.json({ assignments });
+    } catch (error) {
+        logger.error('Error fetching variation assignments', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
     }
 });
