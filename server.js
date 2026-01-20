@@ -3233,6 +3233,7 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                     i.description,
                     i.category_id,
                     i.category_name,
+                    i.product_type,
                     i.taxable,
                     i.tax_ids,
                     i.visibility,
@@ -3302,19 +3303,23 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                     ELSE NULL
                 END as days_of_stock,
                 -- Calculate audit flags (focused on actual data quality issues)
+                -- Note: Services (APPOINTMENTS_SERVICE) and gift cards are excluded from inventory/vendor checks
                 (category_id IS NULL OR category_name IS NULL OR category_name = '') as missing_category,
                 (taxable = FALSE OR taxable IS NULL) as not_taxable,
                 (price_money IS NULL OR price_money = 0) as missing_price,
                 (description IS NULL OR description = '') as missing_description,
                 (item_images IS NULL OR item_images::text = '[]' OR item_images::text = 'null') as missing_item_image,
                 (variation_images IS NULL OR variation_images::text = '[]' OR variation_images::text = 'null') as missing_variation_image,
-                (sku IS NULL OR sku = '') as missing_sku,
-                (upc IS NULL OR upc = '') as missing_upc,
-                (track_inventory = FALSE OR track_inventory IS NULL) as stock_tracking_off,
+                -- SKU/UPC only required for physical products (not services or gift cards)
+                ((sku IS NULL OR sku = '') AND (product_type IS NULL OR product_type = 'REGULAR')) as missing_sku,
+                ((upc IS NULL OR upc = '') AND (product_type IS NULL OR product_type = 'REGULAR')) as missing_upc,
+                -- Inventory checks only for physical products
+                ((track_inventory = FALSE OR track_inventory IS NULL) AND (product_type IS NULL OR product_type = 'REGULAR')) as stock_tracking_off,
                 -- Inventory alerts not enabled - check both variation-level AND location-level settings
                 (
                     (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY')
                     AND (location_stock_alert_min IS NULL OR location_stock_alert_min = 0)
+                    AND (product_type IS NULL OR product_type = 'REGULAR')
                 ) as inventory_alerts_off,
                 -- No reorder threshold: Out of stock AND no minimum threshold set anywhere
                 -- Check: Square's inventory_alert, global stock_alert_min, OR location-specific stock_alert_min
@@ -3323,9 +3328,11 @@ app.get('/api/catalog-audit', requireAuth, requireMerchant, async (req, res) => 
                     AND (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                     AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                     AND (location_stock_alert_min IS NULL)
+                    AND (product_type IS NULL OR product_type = 'REGULAR')
                 ) as no_reorder_threshold,
-                (vendor_count = 0) as missing_vendor,
-                (unit_cost_cents IS NULL AND UPPER(variation_name) NOT LIKE '%SAMPLE%') as missing_cost,  -- Excludes SAMPLE variations (samples are free)
+                -- Vendor/cost only required for physical products
+                (vendor_count = 0 AND (product_type IS NULL OR product_type = 'REGULAR')) as missing_vendor,
+                (unit_cost_cents IS NULL AND UPPER(variation_name) NOT LIKE '%SAMPLE%' AND (product_type IS NULL OR product_type = 'REGULAR')) as missing_cost,  -- Excludes SAMPLE variations (samples are free)
                 -- SEO fields
                 (seo_title IS NULL OR seo_title = '') as missing_seo_title,
                 (seo_description IS NULL OR seo_description = '') as missing_seo_description,
