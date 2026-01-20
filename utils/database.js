@@ -1650,13 +1650,13 @@ async function ensureSchema() {
 
             if (oldConstraintCheck.rows.length > 0) {
                 await query('ALTER TABLE variation_location_settings DROP CONSTRAINT variation_location_settings_variation_id_location_id_key');
-                await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_var_loc_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
+                await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_variation_location_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
                 logger.info('Updated variation_location_settings unique constraint to include merchant_id');
                 appliedCount++;
             } else {
                 const newConstraintCheck = await query(`
                     SELECT constraint_name FROM information_schema.table_constraints
-                    WHERE table_name = 'variation_location_settings' AND constraint_name = 'variation_location_settings_var_loc_merchant_unique'
+                    WHERE table_name = 'variation_location_settings' AND constraint_name = 'variation_location_settings_variation_location_merchant_unique'
                 `);
 
                 if (newConstraintCheck.rows.length === 0) {
@@ -1668,7 +1668,7 @@ async function ensureSchema() {
                         AND ccu.column_name IN ('variation_id', 'location_id')
                     `);
                     if (anyConstraint.rows.length === 0) {
-                        await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_var_loc_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
+                        await query('ALTER TABLE variation_location_settings ADD CONSTRAINT variation_location_settings_variation_location_merchant_unique UNIQUE (variation_id, location_id, merchant_id)');
                         logger.info('Added variation_location_settings unique constraint on (variation_id, location_id, merchant_id)');
                         appliedCount++;
                     }
@@ -1693,13 +1693,13 @@ async function ensureSchema() {
 
             if (oldConstraintCheck.rows.length > 0) {
                 await query('ALTER TABLE variation_vendors DROP CONSTRAINT variation_vendors_variation_id_vendor_id_key');
-                await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_var_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
+                await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_variation_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
                 logger.info('Updated variation_vendors unique constraint to include merchant_id');
                 appliedCount++;
             } else {
                 const newConstraintCheck = await query(`
                     SELECT constraint_name FROM information_schema.table_constraints
-                    WHERE table_name = 'variation_vendors' AND constraint_name = 'variation_vendors_var_vendor_merchant_unique'
+                    WHERE table_name = 'variation_vendors' AND constraint_name = 'variation_vendors_variation_vendor_merchant_unique'
                 `);
 
                 if (newConstraintCheck.rows.length === 0) {
@@ -1710,7 +1710,7 @@ async function ensureSchema() {
                         AND ccu.column_name IN ('variation_id', 'vendor_id')
                     `);
                     if (anyConstraint.rows.length === 0) {
-                        await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_var_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
+                        await query('ALTER TABLE variation_vendors ADD CONSTRAINT variation_vendors_variation_vendor_merchant_unique UNIQUE (variation_id, vendor_id, merchant_id)');
                         logger.info('Added variation_vendors unique constraint on (variation_id, vendor_id, merchant_id)');
                         appliedCount++;
                     }
@@ -1735,13 +1735,13 @@ async function ensureSchema() {
 
             if (oldConstraintCheck.rows.length > 0) {
                 await query('ALTER TABLE sales_velocity DROP CONSTRAINT sales_velocity_variation_id_location_id_period_days_key');
-                await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_var_loc_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
+                await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_variation_location_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
                 logger.info('Updated sales_velocity unique constraint to include merchant_id');
                 appliedCount++;
             } else {
                 const newConstraintCheck = await query(`
                     SELECT constraint_name FROM information_schema.table_constraints
-                    WHERE table_name = 'sales_velocity' AND constraint_name = 'sales_velocity_var_loc_period_merchant_unique'
+                    WHERE table_name = 'sales_velocity' AND constraint_name = 'sales_velocity_variation_location_period_merchant_unique'
                 `);
 
                 if (newConstraintCheck.rows.length === 0) {
@@ -1752,7 +1752,7 @@ async function ensureSchema() {
                         AND ccu.column_name IN ('variation_id', 'location_id', 'period_days')
                     `);
                     if (anyConstraint.rows.length === 0) {
-                        await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_var_loc_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
+                        await query('ALTER TABLE sales_velocity ADD CONSTRAINT sales_velocity_variation_location_period_merchant_unique UNIQUE (variation_id, location_id, period_days, merchant_id)');
                         logger.info('Added sales_velocity unique constraint on (variation_id, location_id, period_days, merchant_id)');
                         appliedCount++;
                     }
