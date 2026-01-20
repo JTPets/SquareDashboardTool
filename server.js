@@ -11054,13 +11054,24 @@ app.get('/api/delivery/route/active', requireAuth, requireMerchant, async (req, 
         const merchantId = req.merchantContext.id;
         const { routeDate } = req.query;
 
+        logger.debug('Fetching active delivery route', { merchantId, routeDate });
+
         const route = await deliveryApi.getActiveRoute(merchantId, routeDate);
 
         if (!route) {
             return res.json({ route: null, orders: [] });
         }
 
-        const orders = await deliveryApi.getOrders(merchantId, { routeId: route.id });
+        // Use getRouteWithOrders to get orders with GTIN enrichment
+        const routeWithOrders = await deliveryApi.getRouteWithOrders(merchantId, route.id);
+        const orders = routeWithOrders?.orders || [];
+
+        logger.debug('Active route fetched', {
+            merchantId,
+            routeId: route.id,
+            orderCount: orders.length,
+            ordersWithItems: orders.filter(o => o.square_order_data?.lineItems?.length > 0).length
+        });
 
         res.json({ route, orders });
     } catch (error) {
