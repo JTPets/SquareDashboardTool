@@ -9377,8 +9377,28 @@ app.post('/api/webhooks/square', async (req, res) => {
                                 ordersUpdated: updateResult.rowCount
                             };
                         }
+
+                        // Also do loyalty catchup - customer phone/email might have changed,
+                        // allowing us to link previously untracked orders
+                        const catchupResult = await loyaltyService.runLoyaltyCatchup({
+                            merchantId: internalMerchantId,
+                            customerIds: [customerId],
+                            periodDays: 7,
+                            maxCustomers: 1
+                        });
+
+                        if (catchupResult.ordersNewlyTracked > 0) {
+                            logger.info('Loyalty catchup found untracked orders via customer.updated', {
+                                customerId,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            });
+                            syncResults.loyaltyCatchup = {
+                                customerId,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            };
+                        }
                     } catch (syncError) {
-                        logger.error('Customer notes sync failed', { error: syncError.message });
+                        logger.error('Customer webhook processing failed', { error: syncError.message });
                         syncResults.error = syncError.message;
                     }
                 }
@@ -10383,6 +10403,53 @@ app.post('/api/webhooks/square', async (req, res) => {
             case 'loyalty.program.updated':
                 logger.debug('Webhook event acknowledged but not processed', { type: event.type });
                 syncResults.acknowledged = true;
+                break;
+
+            // ==================== GIFT CARD WEBHOOKS ====================
+            // When a gift card is linked to a customer, catch up any purchases made with that card
+            case 'gift_card.customer_linked':
+                if (!internalMerchantId) {
+                    logger.debug('Gift card webhook - merchant not found, skipping');
+                    break;
+                }
+                try {
+                    const giftCardData = data;
+                    const customerId = giftCardData.customer_id;
+
+                    if (customerId) {
+                        logger.info('Gift card linked to customer - checking for untracked orders', {
+                            giftCardId: giftCardData.id,
+                            customerId,
+                            merchantId: internalMerchantId
+                        });
+
+                        // Do a reverse lookup - any orders paid with this gift card
+                        // should now be attributable to this customer
+                        const catchupResult = await loyaltyService.runLoyaltyCatchup({
+                            merchantId: internalMerchantId,
+                            customerIds: [customerId],
+                            periodDays: 30, // Longer period for gift cards (may have been used before linking)
+                            maxCustomers: 1
+                        });
+
+                        if (catchupResult.ordersNewlyTracked > 0) {
+                            logger.info('Loyalty catchup found untracked orders via gift_card.customer_linked', {
+                                customerId,
+                                giftCardId: giftCardData.id,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            });
+                            syncResults.loyaltyCatchup = {
+                                customerId,
+                                giftCardId: giftCardData.id,
+                                ordersNewlyTracked: catchupResult.ordersNewlyTracked
+                            };
+                        }
+                    }
+                } catch (giftCardError) {
+                    logger.warn('Gift card webhook catchup failed', {
+                        error: giftCardError.message
+                    });
+                }
                 break;
 
             default:
