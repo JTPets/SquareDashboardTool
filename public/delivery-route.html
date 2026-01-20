@@ -948,8 +948,11 @@
       if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
         // Try Apple Maps first, fall back to Google Maps
         window.location.href = `maps://maps.apple.com/?q=${encodedAddress}`;
+      } else if (/Android/.test(navigator.userAgent)) {
+        // Android - use geo: URI to trigger system app chooser (Waze, Google Maps, etc.)
+        window.location.href = `geo:0,0?q=${encodedAddress}`;
       } else {
-        // Android and others - use Google Maps
+        // Desktop/others - open Google Maps in new tab
         window.open(`https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, '_blank');
       }
     }
