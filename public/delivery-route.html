@@ -1189,12 +1189,20 @@
 
     // Render line items with error handling for each item
     function renderLineItems(lineItems, orderId) {
+      // Debug: log what we're rendering
+      console.log(`renderLineItems for order ${orderId}:`, lineItems);
+
       if (!lineItems || !Array.isArray(lineItems)) {
         console.error(`Order ${orderId}: lineItems is not an array:`, lineItems);
         return '<div class="order-item" style="color: #ef4444;">Error: Invalid items data</div>';
       }
 
-      return lineItems.map((item, idx) => {
+      if (lineItems.length === 0) {
+        console.warn(`Order ${orderId}: lineItems array is empty`);
+        return '<div class="order-item" style="color: #f59e0b;">No items in this order</div>';
+      }
+
+      const result = lineItems.map((item, idx) => {
         try {
           // Debug log for each item
           if (!item.name) {
@@ -1231,6 +1239,9 @@
           return `<div class="order-item" style="color: #ef4444;">Error rendering item ${idx + 1}</div>`;
         }
       }).join('');
+
+      console.log(`renderLineItems result for ${orderId}: ${result.length} chars`);
+      return result;
     }
 
     // Initial load
