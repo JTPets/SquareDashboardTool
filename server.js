@@ -10847,7 +10847,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
                             }
                         }
                     },
-                    limit: 1
+                    limit: BigInt(1)
                 });
                 if (searchResult.customers && searchResult.customers.length > 0) {
                     customerId = searchResult.customers[0].id;
