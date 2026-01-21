@@ -3181,7 +3181,9 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
         }
 
         // Create a unique group name for this specific reward
-        const groupName = `FBP Reward #${internalRewardId}: ${offerName}`.substring(0, 255);
+        // Square group names: alphanumeric, spaces, hyphens, underscores only
+        const sanitizedOfferName = offerName.replace(/[^a-zA-Z0-9\s\-_]/g, '').trim();
+        const groupName = `FBP Reward ${internalRewardId} - ${sanitizedOfferName}`.substring(0, 255);
 
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/groups', {
             method: 'POST',
