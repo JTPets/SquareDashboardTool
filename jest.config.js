@@ -31,7 +31,7 @@ module.exports = {
     // Coverage thresholds - only enforce on tested files
     // Global thresholds disabled until more tests are written
     coverageThreshold: {
-        // Enforce high coverage on security-critical files that have tests
+        // Security utilities - high coverage required
         './utils/password.js': {
             branches: 80,
             functions: 100,
@@ -43,10 +43,23 @@ module.exports = {
             functions: 100,
             lines: 100,
             statements: 100
+        },
+        // Authentication middleware - critical access control
+        './middleware/auth.js': {
+            branches: 70,
+            functions: 80,
+            lines: 80,
+            statements: 80
+        },
+        // Merchant middleware - multi-tenant isolation (some functions need DB mocking)
+        './middleware/merchant.js': {
+            branches: 20,
+            functions: 40,
+            lines: 25,
+            statements: 25
         }
         // Add more files here as tests are written:
-        // './middleware/auth.js': { branches: 80, functions: 80, lines: 80, statements: 80 },
-        // './routes/auth.js': { branches: 80, functions: 80, lines: 80, statements: 80 },
+        // './routes/auth.js': { branches: 60, functions: 60, lines: 60, statements: 60 },
     },
 
     // Coverage reporters
