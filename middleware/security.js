@@ -49,6 +49,9 @@ function configureHelmet() {
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
+                // Allow inline event handlers (onclick, onsubmit, etc.) for compatibility
+                // This is needed because many HTML files use onclick attributes
+                scriptSrcAttr: ["'unsafe-inline'"],
                 // Only upgrade HTTP to HTTPS if FORCE_HTTPS=true (requires HTTPS to be configured)
                 upgradeInsecureRequests: forceHttps ? [] : null,
             },
