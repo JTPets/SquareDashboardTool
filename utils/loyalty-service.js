@@ -3958,6 +3958,8 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     merchantId,
                     rewardId: reward.id
                 });
+            } else {
+                result.details.fixError = createResult.error;
             }
         }
 
@@ -4008,6 +4010,8 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     if (createResult.success) {
                         result.fixed = true;
                         result.fixAction = 'RECREATED_DISCOUNT';
+                    } else {
+                        result.details.fixError = createResult.error;
                     }
                 }
 
@@ -4059,6 +4063,8 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     if (createResult.success) {
                         result.fixed = true;
                         result.fixAction = 'RECREATED_DELETED_DISCOUNT';
+                    } else {
+                        result.details.fixError = createResult.error;
                     }
                 }
 
