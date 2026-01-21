@@ -35,7 +35,7 @@ const logger = require('../utils/logger');
 const gmcFeed = require('../utils/gmc-feed');
 const gmcApi = require('../utils/merchant-center-api');
 const squareApi = require('../utils/square-api');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const { configureSensitiveOperationRateLimit } = require('../middleware/security');
 const validators = require('../middleware/validators/gmc');
@@ -174,7 +174,7 @@ router.get('/feed-url', requireAuth, requireMerchant, async (req, res) => {
  * Regenerate the GMC feed token (invalidates old feed URLs)
  * V006 fix: Rate limited to prevent abuse
  */
-router.post('/regenerate-token', sensitiveOperationRateLimit, requireAuth, requireMerchant, async (req, res) => {
+router.post('/regenerate-token', sensitiveOperationRateLimit, requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const newToken = crypto.randomBytes(32).toString('hex');
@@ -222,7 +222,7 @@ router.get('/settings', requireAuth, requireMerchant, async (req, res) => {
  * PUT /api/gmc/settings
  * Update GMC feed settings
  */
-router.put('/settings', requireAuth, requireMerchant, validators.updateSettings, async (req, res) => {
+router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, validators.updateSettings, async (req, res) => {
     try {
         const { settings } = req.body;
         const merchantId = req.merchantContext.id;
@@ -266,7 +266,7 @@ router.get('/brands', requireAuth, requireMerchant, async (req, res) => {
  * POST /api/gmc/brands/import
  * Import brands from array
  */
-router.post('/brands/import', requireAuth, requireMerchant, validators.importBrands, async (req, res) => {
+router.post('/brands/import', requireAuth, requireMerchant, requireWriteAccess, validators.importBrands, async (req, res) => {
     try {
         const { brands } = req.body;
         const merchantId = req.merchantContext.id;
@@ -283,7 +283,7 @@ router.post('/brands/import', requireAuth, requireMerchant, validators.importBra
  * POST /api/gmc/brands
  * Create a new brand
  */
-router.post('/brands', requireAuth, requireMerchant, validators.createBrand, async (req, res) => {
+router.post('/brands', requireAuth, requireMerchant, requireWriteAccess, validators.createBrand, async (req, res) => {
     try {
         const { name, logo_url, website } = req.body;
         const merchantId = req.merchantContext.id;
@@ -307,7 +307,7 @@ router.post('/brands', requireAuth, requireMerchant, validators.createBrand, asy
  * Assign a brand to an item
  * Automatically syncs brand to Square custom attribute
  */
-router.put('/items/:itemId/brand', requireAuth, requireMerchant, validators.assignItemBrand, async (req, res) => {
+router.put('/items/:itemId/brand', requireAuth, requireMerchant, requireWriteAccess, validators.assignItemBrand, async (req, res) => {
     try {
         const { itemId } = req.params;
         const { brand_id } = req.body;
@@ -376,7 +376,7 @@ router.put('/items/:itemId/brand', requireAuth, requireMerchant, validators.assi
  * POST /api/gmc/brands/auto-detect
  * Auto-detect brands from item names for items missing brand assignments
  */
-router.post('/brands/auto-detect', requireAuth, requireMerchant, validators.autoDetectBrands, async (req, res) => {
+router.post('/brands/auto-detect', requireAuth, requireMerchant, requireWriteAccess, validators.autoDetectBrands, async (req, res) => {
     try {
         const { brands: brandList } = req.body;
         const merchantId = req.merchantContext.id;
@@ -478,7 +478,7 @@ router.post('/brands/auto-detect', requireAuth, requireMerchant, validators.auto
  * POST /api/gmc/brands/bulk-assign
  * Bulk assign brands to items and sync to Square
  */
-router.post('/brands/bulk-assign', requireAuth, requireMerchant, validators.bulkAssignBrands, async (req, res) => {
+router.post('/brands/bulk-assign', requireAuth, requireMerchant, requireWriteAccess, validators.bulkAssignBrands, async (req, res) => {
     try {
         const { assignments } = req.body;
         const merchantId = req.merchantContext.id;
@@ -666,7 +666,7 @@ router.get('/taxonomy/fetch-google', requireAdmin, async (req, res) => {
  * PUT /api/gmc/categories/:categoryId/taxonomy
  * Map a Square category to a Google taxonomy
  */
-router.put('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, validators.mapCategoryTaxonomy, async (req, res) => {
+router.put('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, requireWriteAccess, validators.mapCategoryTaxonomy, async (req, res) => {
     try {
         const { categoryId } = req.params;
         const { google_taxonomy_id } = req.body;
@@ -702,7 +702,7 @@ router.put('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, val
  * DELETE /api/gmc/categories/:categoryId/taxonomy
  * Remove a category's Google taxonomy mapping
  */
-router.delete('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, validators.deleteCategoryTaxonomy, async (req, res) => {
+router.delete('/categories/:categoryId/taxonomy', requireAuth, requireMerchant, requireWriteAccess, validators.deleteCategoryTaxonomy, async (req, res) => {
     try {
         const { categoryId } = req.params;
         const merchantId = req.merchantContext.id;
@@ -744,7 +744,7 @@ router.get('/category-mappings', requireAuth, requireMerchant, async (req, res) 
  * PUT /api/gmc/category-taxonomy
  * Map a category (by name) to a Google taxonomy
  */
-router.put('/category-taxonomy', requireAuth, requireMerchant, validators.mapCategoryTaxonomyByName, async (req, res) => {
+router.put('/category-taxonomy', requireAuth, requireMerchant, requireWriteAccess, validators.mapCategoryTaxonomyByName, async (req, res) => {
     try {
         const { category_name, google_taxonomy_id } = req.body;
         const merchantId = req.merchantContext.id;
@@ -785,7 +785,7 @@ router.put('/category-taxonomy', requireAuth, requireMerchant, validators.mapCat
  * DELETE /api/gmc/category-taxonomy
  * Remove a category's Google taxonomy mapping (by name)
  */
-router.delete('/category-taxonomy', requireAuth, requireMerchant, validators.deleteCategoryTaxonomyByName, async (req, res) => {
+router.delete('/category-taxonomy', requireAuth, requireMerchant, requireWriteAccess, validators.deleteCategoryTaxonomyByName, async (req, res) => {
     try {
         const { category_name } = req.body;
         const merchantId = req.merchantContext.id;
@@ -847,7 +847,7 @@ router.get('/location-settings', requireAuth, requireMerchant, async (req, res) 
  * PUT /api/gmc/location-settings/:locationId
  * Update GMC settings for a specific location
  */
-router.put('/location-settings/:locationId', requireAuth, requireMerchant, validators.updateLocationSettings, async (req, res) => {
+router.put('/location-settings/:locationId', requireAuth, requireMerchant, requireWriteAccess, validators.updateLocationSettings, async (req, res) => {
     try {
         const { locationId } = req.params;
         const { google_store_code, enabled } = req.body;
@@ -1057,7 +1057,7 @@ router.get('/api-settings', requireAuth, requireMerchant, async (req, res) => {
  * PUT /api/gmc/api-settings
  * Save GMC API settings
  */
-router.put('/api-settings', requireAuth, requireMerchant, validators.updateApiSettings, async (req, res) => {
+router.put('/api-settings', requireAuth, requireMerchant, requireWriteAccess, validators.updateApiSettings, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const { settings } = req.body;
@@ -1118,7 +1118,7 @@ router.get('/api/data-source-info', requireAuth, requireMerchant, async (req, re
  * POST /api/gmc/api/sync-products
  * Sync product catalog to Google Merchant Center
  */
-router.post('/api/sync-products', requireAuth, requireMerchant, async (req, res) => {
+router.post('/api/sync-products', requireAuth, requireMerchant, requireWriteAccess, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
