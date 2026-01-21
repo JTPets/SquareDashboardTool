@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Driver Route</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      line-height: 1.4;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      color: white;
+      padding: 15px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .merchant-name {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    /* Progress Bar */
+    .progress-section {
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .progress-bar {
+      height: 8px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #fbbf24;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    /* Route Stats */
+    .route-stats {
+      display: flex;
+      gap: 20px;
+      padding: 12px 20px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .route-stats span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Stop List */
+    .stop-list {
+      padding: 15px;
+    }
+    .stop-card {
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .stop-card.completed {
+      opacity: 0.6;
+    }
+    .stop-card.current {
+      border: 2px solid #059669;
+      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+    }
+    .stop-card.skipped {
+      border-left: 4px solid #f59e0b;
+    }
+
+    .stop-header {
+      display: flex;
+      align-items: center;
+      padding: 15px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .stop-number {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #059669;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 16px;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+    .stop-card.completed .stop-number {
+      background: #10b981;
+    }
+    .stop-card.skipped .stop-number {
+      background: #f59e0b;
+    }
+    .stop-customer {
+      flex: 1;
+    }
+    .stop-customer h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .stop-status {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+    .status-active { background: #dbeafe; color: #1d4ed8; }
+    .status-completed { background: #d1fae5; color: #065f46; }
+    .status-skipped { background: #fef3c7; color: #92400e; }
+    .status-delivered { background: #d1fae5; color: #065f46; }
+
+    .stop-body {
+      padding: 15px;
+    }
+
+    /* Address with map link */
+    .stop-address {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      padding: 12px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .stop-address:hover {
+      background: #e5e7eb;
+    }
+    .stop-address .icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .stop-address .text {
+      flex: 1;
+      font-size: 15px;
+      color: #374151;
+    }
+    .stop-address .arrow {
+      color: #9ca3af;
+      font-size: 20px;
+    }
+
+    /* Phone link */
+    .stop-phone {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      text-decoration: none;
+      color: #374151;
+    }
+    .stop-phone:hover {
+      background: #e5e7eb;
+    }
+    .stop-phone .icon {
+      font-size: 18px;
+    }
+
+    /* Order Notes */
+    .stop-notes {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #92400e;
+    }
+    .stop-notes strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* Customer Notes */
+    .stop-customer-notes {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    .stop-customer-notes strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* Order Items */
+    .stop-order-items {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .order-items-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: #166534;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .toggle-arrow {
+      transition: transform 0.2s;
+    }
+    .toggle-arrow.open {
+      transform: rotate(180deg);
+    }
+    .order-items-list {
+      margin-top: 12px;
+      border-top: 1px solid #bbf7d0;
+      padding-top: 12px;
+      display: none;
+    }
+    .order-items-list.visible { display: block; }
+    .order-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #dcfce7;
+    }
+    .order-item:last-child {
+      border-bottom: none;
+    }
+    .item-qty {
+      display: inline-block;
+      background: #166534;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    .item-name {
+      font-weight: 500;
+      color: #14532d;
+    }
+    .item-modifiers {
+      margin-top: 4px;
+      padding-left: 40px;
+    }
+    .modifier {
+      display: block;
+      font-size: 12px;
+      color: #15803d;
+    }
+
+    /* POD Section */
+    .stop-pod {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #d1fae5;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #065f46;
+    }
+    .stop-pod img {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    /* Actions */
+    .stop-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      min-width: 100px;
+      padding: 14px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s, background 0.2s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .btn-primary { background: #059669; color: white; }
+    .btn-primary:hover { background: #047857; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+    .btn-warning { background: #f59e0b; color: white; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-finish { background: #7c3aed; color: white; }
+    .btn-finish:hover { background: #6d28d9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Finish Route Section */
+    .finish-section {
+      padding: 20px 15px;
+      background: white;
+      border-top: 2px solid #e5e7eb;
+      margin-top: 20px;
+    }
+    .finish-section h3 {
+      font-size: 16px;
+      margin-bottom: 15px;
+      color: #374151;
+    }
+    .driver-input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .driver-input:focus {
+      outline: none;
+      border-color: #059669;
+    }
+
+    /* Error State */
+    .error-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #991b1b;
+    }
+    .error-state h2 {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    .error-state p {
+      color: #6b7280;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h2 {
+      font-size: 20px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    /* Success State */
+    .success-state {
+      text-align: center;
+      padding: 60px 20px;
+    }
+    .success-state .icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    .success-state h2 {
+      font-size: 24px;
+      color: #059669;
+      margin-bottom: 10px;
+    }
+    .success-state p {
+      color: #6b7280;
+    }
+    .success-stats {
+      background: #f0fdf4;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+      text-align: left;
+    }
+    .success-stats div {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #bbf7d0;
+    }
+    .success-stats div:last-child {
+      border-bottom: none;
+    }
+
+    /* POD Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      display: none;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      max-width: 400px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      padding: 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 { font-size: 18px; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 28px;
+      cursor: pointer;
+      color: #6b7280;
+      line-height: 1;
+    }
+    .modal-body { padding: 20px; }
+
+    .pod-preview {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    .pod-preview.visible { display: block; }
+
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+    .file-input-wrapper input[type=file] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .upload-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      color: #6b7280;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-area:hover {
+      border-color: #059669;
+      background: #f0fdf4;
+    }
+    .upload-area .icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+
+    .modal-footer {
+      padding: 15px 20px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 10px;
+    }
+    .modal-footer .btn { flex: 1; }
+
+    /* Loading Overlay */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      display: none;
+    }
+    .loading-overlay.active { display: flex; }
+    .loading-spinner {
+      text-align: center;
+    }
+    .loading-spinner .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e5e7eb;
+      border-top-color: #059669;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1f2937;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 3000;
+      display: none;
+    }
+    .toast.visible { display: block; }
+    .toast.success { background: #10b981; }
+    .toast.error { background: #ef4444; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <h1 id="routeTitle">Delivery Route</h1>
+        <div class="merchant-name" id="merchantName"></div>
+      </div>
+    </div>
+    <div class="progress-section">
+      <div class="progress-text">
+        <span id="progressLabel">Loading...</span>
+        <span id="progressCount">0/0</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="route-stats" id="routeStats" style="display: none;">
+    <span id="distanceDisplay"></span>
+    <span id="durationDisplay"></span>
+  </div>
+
+  <div class="stop-list" id="stopList">
+    <div class="empty-state">
+      <h2>Loading route...</h2>
+    </div>
+  </div>
+
+  <!-- Finish Route Section -->
+  <div class="finish-section" id="finishSection" style="display: none;">
+    <h3>All deliveries complete? Finish this route:</h3>
+    <input type="text" class="driver-input" id="driverName" placeholder="Your name (optional)">
+    <input type="text" class="driver-input" id="driverNotes" placeholder="Any notes about the route (optional)">
+    <button class="btn btn-finish" onclick="finishRoute()" style="width: 100%;">
+      Finish Route
+    </button>
+  </div>
+
+  <!-- POD Modal -->
+  <div class="modal-overlay" id="podModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Proof of Delivery</h2>
+        <button class="modal-close" onclick="closePodModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <img id="podPreview" class="pod-preview" src="" alt="POD Preview">
+        <div class="file-input-wrapper">
+          <div class="upload-area" id="uploadArea">
+            <div class="icon">📷</div>
+            <div>Tap to take photo or select from gallery</div>
+          </div>
+          <input type="file" id="podFileInput" accept="image/*" capture="environment" onchange="handlePodFileSelect(event)">
+        </div>
+        <div id="locationStatus" style="font-size: 12px; color: #6b7280; margin-top: 10px; text-align: center;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closePodModal()">Cancel</button>
+        <button class="btn btn-primary" id="uploadPodBtn" onclick="uploadPod()" disabled>Upload Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner">
+      <div class="spinner"></div>
+      <div id="loadingText">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Get token from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    let route = null;
+    let stops = [];
+    let currentPodOrderId = null;
+    let currentPodFile = null;
+    let currentLocation = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!token) {
+        showError('No access token provided', 'Please use the link provided by the merchant.');
+        return;
+      }
+      loadRoute();
+    });
+
+    async function loadRoute() {
+      try {
+        const response = await fetch(`/api/driver/${token}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          showError(data.error || 'Failed to load route', 'This link may have expired or been revoked.');
+          return;
+        }
+
+        route = data.route;
+        stops = data.orders || [];
+
+        renderRoute();
+      } catch (error) {
+        console.error('Error loading route:', error);
+        showError('Failed to load route', 'Please check your internet connection and try again.');
+      }
+    }
+
+    function showError(title, message) {
+      document.getElementById('stopList').innerHTML = `
+        <div class="error-state">
+          <h2>${title}</h2>
+          <p>${message}</p>
+        </div>
+      `;
+      document.getElementById('finishSection').style.display = 'none';
+    }
+
+    function showSuccess(result) {
+      document.querySelector('.header').style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+      document.getElementById('progressLabel').textContent = 'Route Complete!';
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('finishSection').style.display = 'none';
+
+      document.getElementById('stopList').innerHTML = `
+        <div class="success-state">
+          <div class="icon">🎉</div>
+          <h2>Route Completed!</h2>
+          <p>Thank you for your deliveries today.</p>
+          <div class="success-stats">
+            <div><span>Completed:</span><strong>${result.completed}</strong></div>
+            <div><span>Skipped:</span><strong>${result.skipped}</strong></div>
+            <div><span>Total Stops:</span><strong>${route.totalStops}</strong></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRoute() {
+      // Update header
+      document.getElementById('merchantName').textContent = route.merchantName;
+      document.getElementById('routeTitle').textContent = `Route - ${formatDate(route.date)}`;
+
+      // Update stats
+      if (route.distanceKm || route.estimatedMinutes) {
+        document.getElementById('routeStats').style.display = 'flex';
+        document.getElementById('distanceDisplay').innerHTML = route.distanceKm
+          ? `📍 ${route.distanceKm.toFixed(1)} km`
+          : '';
+        document.getElementById('durationDisplay').innerHTML = route.estimatedMinutes
+          ? `⏱️ ~${route.estimatedMinutes} min`
+          : '';
+      }
+
+      // Calculate progress
+      const completed = stops.filter(s => s.status === 'completed' || s.status === 'delivered').length;
+      const total = stops.length;
+      const percent = total > 0 ? (completed / total * 100) : 0;
+
+      document.getElementById('progressLabel').textContent = `${completed} of ${total} completed`;
+      document.getElementById('progressCount').textContent = `${completed}/${total}`;
+      document.getElementById('progressFill').style.width = `${percent}%`;
+
+      // Show finish section if there are stops
+      if (total > 0) {
+        document.getElementById('finishSection').style.display = 'block';
+      }
+
+      // Render stops
+      if (stops.length === 0) {
+        document.getElementById('stopList').innerHTML = `
+          <div class="empty-state">
+            <h2>No Stops</h2>
+            <p>This route has no deliveries.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Find first non-completed stop
+      const currentIndex = stops.findIndex(s => s.status === 'active');
+
+      const html = stops.map((stop, index) => {
+        const isCurrent = index === currentIndex;
+        const isCompleted = stop.status === 'completed' || stop.status === 'delivered';
+        const isSkipped = stop.status === 'skipped';
+
+        let cardClass = 'stop-card';
+        if (isCompleted) cardClass += ' completed';
+        if (isCurrent) cardClass += ' current';
+        if (isSkipped) cardClass += ' skipped';
+
+        const statusClass = `status-${stop.status}`;
+        const statusText = stop.status.charAt(0).toUpperCase() + stop.status.slice(1);
+
+        // Build order items HTML
+        let orderItemsHtml = '';
+        if (stop.orderData?.lineItems && stop.orderData.lineItems.length > 0) {
+          const itemCount = stop.orderData.lineItems.reduce((sum, item) => sum + parseInt(item.quantity || 1), 0);
+          orderItemsHtml = `
+            <div class="stop-order-items">
+              <button class="order-items-toggle" onclick="toggleOrderItems(this)">
+                <span>📦 ${itemCount} item${itemCount !== 1 ? 's' : ''}</span>
+                <span class="toggle-arrow">▼</span>
+              </button>
+              <div class="order-items-list">
+                ${stop.orderData.lineItems.map(item => `
+                  <div class="order-item">
+                    <span class="item-qty">${item.quantity}x</span>
+                    <span class="item-name">${escapeHtml(item.name)}${item.variationName ? ` - ${escapeHtml(item.variationName)}` : ''}</span>
+                    ${item.modifiers && item.modifiers.length > 0 ? `
+                      <div class="item-modifiers">
+                        ${item.modifiers.map(m => `<span class="modifier">+ ${escapeHtml(m.name)}</span>`).join('')}
+                      </div>
+                    ` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="${cardClass}" data-id="${stop.id}">
+            <div class="stop-header">
+              <div class="stop-number">${stop.position || index + 1}</div>
+              <div class="stop-customer">
+                <h3>${escapeHtml(stop.customerName)}</h3>
+              </div>
+              <span class="stop-status ${statusClass}">${statusText}</span>
+            </div>
+            <div class="stop-body">
+              <div class="stop-address" onclick="openMaps('${escapeHtml(stop.address)}')">
+                <span class="icon">📍</span>
+                <span class="text">${escapeHtml(stop.address)}</span>
+                <span class="arrow">→</span>
+              </div>
+
+              ${stop.phone ? `
+                <a href="tel:${stop.phone}" class="stop-phone">
+                  <span class="icon">📞</span>
+                  <span>${escapeHtml(stop.phone)}</span>
+                </a>
+              ` : ''}
+
+              ${stop.customerNote ? `
+                <div class="stop-customer-notes">
+                  <strong>📝 Customer Info</strong>
+                  ${escapeHtml(stop.customerNote)}
+                </div>
+              ` : ''}
+
+              ${stop.notes ? `
+                <div class="stop-notes">
+                  <strong>📋 Order Notes</strong>
+                  ${escapeHtml(stop.notes)}
+                </div>
+              ` : ''}
+
+              ${orderItemsHtml}
+
+              ${stop.hasPod ? `
+                <div class="stop-pod">
+                  <span>✅ POD captured</span>
+                </div>
+              ` : ''}
+
+              ${!isCompleted && !isSkipped ? `
+                <div class="stop-actions">
+                  <button class="btn btn-secondary" onclick="openPodModal('${stop.id}')">
+                    📷 Photo
+                  </button>
+                  <button class="btn btn-warning" onclick="skipStop('${stop.id}')">
+                    ⏭️ Skip
+                  </button>
+                  <button class="btn btn-success" onclick="completeStop('${stop.id}')">
+                    ✅ Complete
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('stopList').innerHTML = html;
+    }
+
+    function toggleOrderItems(button) {
+      const list = button.nextElementSibling;
+      const arrow = button.querySelector('.toggle-arrow');
+      list.classList.toggle('visible');
+      arrow.classList.toggle('open');
+    }
+
+    function openMaps(address) {
+      const encoded = encodeURIComponent(address);
+      // Try to detect iOS vs Android
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        window.open(`maps://maps.apple.com/?q=${encoded}`, '_blank');
+      } else {
+        window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, '_blank');
+      }
+    }
+
+    async function completeStop(orderId) {
+      if (!confirm('Mark this delivery as complete?')) return;
+
+      showLoading('Completing delivery...');
+      try {
+        const response = await fetch(`/api/driver/${token}/orders/${orderId}/complete`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to complete');
+        }
+
+        showToast('Delivery completed!', 'success');
+        await loadRoute();
+      } catch (error) {
+        console.error('Error:', error);
+        showToast(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function skipStop(orderId) {
+      if (!confirm('Skip this delivery? It will be returned to the queue.')) return;
+
+      showLoading('Skipping...');
+      try {
+        const response = await fetch(`/api/driver/${token}/orders/${orderId}/skip`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to skip');
+        }
+
+        showToast('Delivery skipped', 'success');
+        await loadRoute();
+      } catch (error) {
+        console.error('Error:', error);
+        showToast(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    // POD Modal Functions
+    function openPodModal(orderId) {
+      currentPodOrderId = orderId;
+      currentPodFile = null;
+      document.getElementById('podPreview').classList.remove('visible');
+      document.getElementById('uploadArea').style.display = 'block';
+      document.getElementById('uploadPodBtn').disabled = true;
+      document.getElementById('podFileInput').value = '';
+      document.getElementById('podModal').classList.add('active');
+
+      // Try to get location
+      document.getElementById('locationStatus').textContent = 'Getting location...';
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            currentLocation = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            };
+            document.getElementById('locationStatus').textContent = '📍 Location captured';
+          },
+          (error) => {
+            currentLocation = null;
+            document.getElementById('locationStatus').textContent = '⚠️ Location not available';
+          },
+          { timeout: 10000, enableHighAccuracy: true }
+        );
+      } else {
+        document.getElementById('locationStatus').textContent = '⚠️ Location not supported';
+      }
+    }
+
+    function closePodModal() {
+      document.getElementById('podModal').classList.remove('active');
+      currentPodOrderId = null;
+      currentPodFile = null;
+      currentLocation = null;
+    }
+
+    function handlePodFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      currentPodFile = file;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const preview = document.getElementById('podPreview');
+        preview.src = e.target.result;
+        preview.classList.add('visible');
+        document.getElementById('uploadArea').style.display = 'none';
+        document.getElementById('uploadPodBtn').disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function uploadPod() {
+      if (!currentPodFile || !currentPodOrderId) return;
+
+      showLoading('Uploading photo...');
+      closePodModal();
+
+      try {
+        const formData = new FormData();
+        formData.append('photo', currentPodFile);
+        if (currentLocation) {
+          formData.append('latitude', currentLocation.latitude);
+          formData.append('longitude', currentLocation.longitude);
+        }
+
+        const response = await fetch(`/api/driver/${token}/orders/${currentPodOrderId}/pod`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Upload failed');
+        }
+
+        showToast('Photo uploaded!', 'success');
+        await loadRoute();
+      } catch (error) {
+        console.error('Error:', error);
+        showToast(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    async function finishRoute() {
+      const completed = stops.filter(s => s.status === 'completed' || s.status === 'delivered').length;
+      const pending = stops.filter(s => s.status === 'active').length;
+
+      let confirmMsg = `Finish this route?\n\nCompleted: ${completed}\nPending: ${pending}`;
+      if (pending > 0) {
+        confirmMsg += '\n\nPending deliveries will be returned to the queue.';
+      }
+
+      if (!confirm(confirmMsg)) return;
+
+      showLoading('Finishing route...');
+
+      try {
+        const driverName = document.getElementById('driverName').value.trim();
+        const driverNotes = document.getElementById('driverNotes').value.trim();
+
+        const response = await fetch(`/api/driver/${token}/finish`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driverName, driverNotes })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to finish route');
+        }
+
+        showSuccess(data.result);
+      } catch (error) {
+        console.error('Error:', error);
+        showToast(error.message, 'error');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    // Utility functions
+    function formatDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showLoading(text = 'Loading...') {
+      document.getElementById('loadingText').textContent = text;
+      document.getElementById('loadingOverlay').classList.add('active');
+    }
+
+    function hideLoading() {
+      document.getElementById('loadingOverlay').classList.remove('active');
+    }
+
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast visible ' + type;
+      setTimeout(() => { toast.classList.remove('visible'); }, 3000);
+    }
+  </script>
+</body>
+</html>
