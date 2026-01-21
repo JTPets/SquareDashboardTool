@@ -1601,14 +1601,13 @@ app.get('/api/variations', requireAuth, requireMerchant, async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs for each variation (with item fallback)
-        const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
-            return {
-                ...variation,
-                item_images: undefined,  // Remove from response
-                image_urls: imageUrls
-            };
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+
+        const variations = result.rows.map((variation, index) => ({
+            ...variation,
+            item_images: undefined,  // Remove from response
+            image_urls: imageUrlMap.get(index) || []
         }));
 
         res.json({
@@ -1660,14 +1659,13 @@ app.get('/api/variations-with-costs', requireAuth, requireMerchant, async (req, 
 
         const result = await db.query(query, [merchantId]);
 
-        // Resolve image URLs for each variation (with item fallback)
-        const variations = await Promise.all(result.rows.map(async (variation) => {
-            const imageUrls = await resolveImageUrls(variation.images, variation.item_images);
-            return {
-                ...variation,
-                item_images: undefined,  // Remove from response
-                image_urls: imageUrls
-            };
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+
+        const variations = result.rows.map((variation, index) => ({
+            ...variation,
+            item_images: undefined,  // Remove from response
+            image_urls: imageUrlMap.get(index) || []
         }));
 
         res.json({
@@ -3018,15 +3016,14 @@ app.get('/api/inventory', requireAuth, requireMerchant, async (req, res) => {
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs using the same helper as reorder suggestions
-        const inventoryWithImages = await Promise.all(result.rows.map(async (row) => {
-            const imageUrls = await resolveImageUrls(row.images, row.item_images);
-            return {
-                ...row,
-                image_urls: imageUrls,
-                images: undefined,  // Remove raw image IDs from response
-                item_images: undefined  // Remove from response
-            };
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+
+        const inventoryWithImages = result.rows.map((row, index) => ({
+            ...row,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,  // Remove raw image IDs from response
+            item_images: undefined  // Remove from response
         }));
 
         res.json({
@@ -3075,15 +3072,14 @@ app.get('/api/low-stock', requireAuth, requireMerchant, async (req, res) => {
 
         const result = await db.query(query, [merchantId]);
 
-        // Resolve image URLs (with item fallback)
-        const items = await Promise.all(result.rows.map(async (row) => {
-            const imageUrls = await resolveImageUrls(row.images, row.item_images);
-            return {
-                ...row,
-                image_urls: imageUrls,
-                images: undefined,  // Remove raw image IDs from response
-                item_images: undefined  // Remove from response
-            };
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+
+        const items = result.rows.map((row, index) => ({
+            ...row,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,  // Remove raw image IDs from response
+            item_images: undefined  // Remove from response
         }));
 
         res.json({
@@ -3178,15 +3174,14 @@ app.get('/api/deleted-items', requireAuth, requireMerchant, async (req, res) => 
 
         const result = await db.query(query, params);
 
-        // Resolve image URLs (with item fallback)
-        const items = await Promise.all(result.rows.map(async (row) => {
-            const imageUrls = await resolveImageUrls(row.images, row.item_images);
-            return {
-                ...row,
-                image_urls: imageUrls,
-                images: undefined,  // Remove raw image IDs from response
-                item_images: undefined  // Remove from response
-            };
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(result.rows);
+
+        const items = result.rows.map((row, index) => ({
+            ...row,
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,  // Remove raw image IDs from response
+            item_images: undefined  // Remove from response
         }));
 
         // Count by status
@@ -6483,18 +6478,16 @@ app.get('/api/cycle-counts/pending', requireAuth, requireMerchant, async (req, r
         // Combine priority and daily batch items
         const allItems = [...priorityItems.rows, ...dailyBatchItems.rows];
 
-        // Resolve image URLs for all items and ensure proper field mapping
-        const itemsWithImages = await Promise.all(allItems.map(async (item) => {
-            const imageUrls = await resolveImageUrls(item.images, item.item_images);
+        // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
+        const imageUrlMap = await batchResolveImageUrls(allItems);
 
-            return {
-                ...item,
-                variation_name: item.name, // Explicitly map variation name (v.name -> variation_name)
-                image_urls: imageUrls,
-                images: undefined,
-                item_images: undefined,
-                name: undefined // Remove to avoid confusion with item_name
-            };
+        const itemsWithImages = allItems.map((item, index) => ({
+            ...item,
+            variation_name: item.name, // Explicitly map variation name (v.name -> variation_name)
+            image_urls: imageUrlMap.get(index) || [],
+            images: undefined,
+            item_images: undefined,
+            name: undefined // Remove to avoid confusion with item_name
         }));
 
         // Filter out items without valid IDs and log them
