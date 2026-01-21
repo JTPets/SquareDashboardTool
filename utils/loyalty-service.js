@@ -3182,8 +3182,12 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
 
         // Create a unique group name for this specific reward
         // Square group names: alphanumeric, spaces, hyphens, underscores only
-        const sanitizedOfferName = offerName.replace(/[^a-zA-Z0-9\s\-_]/g, '').trim();
-        const groupName = `FBP Reward ${internalRewardId} - ${sanitizedOfferName}`.substring(0, 255);
+        // Sanitize reward ID too (could be UUID with hyphens)
+        const sanitizedRewardId = String(internalRewardId).replace(/[^a-zA-Z0-9]/g, '').substring(0, 12);
+        const timestamp = Date.now().toString(36); // Base36 for shorter suffix
+        const groupName = `FBP ${sanitizedRewardId} ${timestamp}`.substring(0, 255);
+
+        logger.info('Creating customer group with name', { groupName, internalRewardId, merchantId });
 
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/groups', {
             method: 'POST',
@@ -3205,9 +3209,19 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
             logger.error('Failed to create customer group', {
                 status: response.status,
                 error: errText,
-                merchantId
+                merchantId,
+                groupName
             });
-            return { success: false, error: `Square API error: ${response.status}` };
+            // Parse Square error for better message
+            let errorDetail = `Square API error: ${response.status}`;
+            try {
+                const errJson = JSON.parse(errText);
+                if (errJson.errors?.[0]) {
+                    const err = errJson.errors[0];
+                    errorDetail = `${err.code}: ${err.detail || err.category}`;
+                }
+            } catch (e) { /* use default message */ }
+            return { success: false, error: errorDetail };
         }
 
         const data = await response.json();
