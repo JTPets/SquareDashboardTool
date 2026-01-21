@@ -3110,6 +3110,59 @@ async function getSquareAccessToken(merchantId) {
 }
 
 /**
+ * Get Square Loyalty Program for a merchant
+ * Returns the Square Loyalty program configuration including reward tiers
+ *
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Square Loyalty program object or null if not set up
+ */
+async function getSquareLoyaltyProgram(merchantId) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            logger.warn('No access token for merchant when fetching loyalty program', { merchantId });
+            return null;
+        }
+
+        const response = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/programs/main', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2025-01-16'
+            }
+        }, 10000); // 10 second timeout
+
+        if (response.status === 404) {
+            // No loyalty program configured
+            logger.info('No Square Loyalty program found for merchant', { merchantId });
+            return null;
+        }
+
+        if (!response.ok) {
+            const errText = await response.text();
+            logger.error('Error fetching Square Loyalty program', {
+                status: response.status,
+                error: errText,
+                merchantId
+            });
+            return null;
+        }
+
+        const data = await response.json();
+        return data.program || null;
+
+    } catch (error) {
+        logger.error('Error fetching Square Loyalty program', {
+            error: error.message,
+            stack: error.stack,
+            merchantId
+        });
+        return null;
+    }
+}
+
+/**
  * Create a Customer Group in Square for a specific reward
  * Each reward gets its own group so we can track/remove individually
  *
@@ -4882,6 +4935,7 @@ module.exports = {
     updateCustomerStats,
 
     // Square Customer Group Discount Integration (replaces old Loyalty API)
+    getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
     detectRewardRedemptionFromOrder,
