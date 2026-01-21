@@ -11623,6 +11623,209 @@ async function getLocationIds(merchantId) {
     return result.rows.map(r => r.square_location_id);
 }
 
+// ==================== PUBLIC DRIVER API (Token-based) ====================
+// These endpoints allow contract drivers to access routes via shareable tokens
+// No authentication required - token validates access
+
+/**
+ * POST /api/delivery/route/:id/share
+ * Generate a shareable token URL for a route
+ */
+app.post('/api/delivery/route/:id/share', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const routeId = req.params.id;
+        const { expiresInHours } = req.body;
+
+        const token = await deliveryApi.generateRouteToken(merchantId, routeId, req.session.user.id, {
+            expiresInHours: expiresInHours || 24
+        });
+
+        // Generate the full URL
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const shareUrl = `${baseUrl}/driver.html?token=${token.token}`;
+
+        res.json({
+            token,
+            shareUrl,
+            expiresAt: token.expires_at
+        });
+    } catch (error) {
+        logger.error('Error generating route share token', { error: error.message, stack: error.stack });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/delivery/route/:id/token
+ * Get active token for a route (if exists)
+ */
+app.get('/api/delivery/route/:id/token', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const routeId = req.params.id;
+
+        const token = await deliveryApi.getActiveRouteToken(merchantId, routeId);
+
+        if (token) {
+            const baseUrl = `${req.protocol}://${req.get('host')}`;
+            const shareUrl = `${baseUrl}/driver.html?token=${token.token}`;
+            res.json({ token, shareUrl });
+        } else {
+            res.json({ token: null });
+        }
+    } catch (error) {
+        logger.error('Error getting route token', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/delivery/route/:id/token
+ * Revoke active token for a route
+ */
+app.delete('/api/delivery/route/:id/token', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const routeId = req.params.id;
+
+        const token = await deliveryApi.getActiveRouteToken(merchantId, routeId);
+        if (token) {
+            await deliveryApi.revokeRouteToken(merchantId, token.id);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('Error revoking route token', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/driver/:token
+ * PUBLIC: Get route data for contract driver (no auth)
+ */
+app.get('/api/driver/:token', async (req, res) => {
+    try {
+        const result = await deliveryApi.getRouteOrdersByToken(req.params.token);
+
+        if (!result) {
+            return res.status(404).json({ error: 'Invalid token' });
+        }
+
+        if (!result.valid) {
+            return res.status(403).json({ error: result.reason || 'Token is no longer valid' });
+        }
+
+        // Return only necessary data (hide internal IDs where possible)
+        res.json({
+            route: {
+                date: result.route_date,
+                totalStops: result.total_stops,
+                distanceKm: result.total_distance_km,
+                estimatedMinutes: result.estimated_duration_min,
+                merchantName: result.merchant_name
+            },
+            orders: result.orders.map(o => ({
+                id: o.id,
+                position: o.route_position,
+                customerName: o.customer_name,
+                address: o.address,
+                phone: o.phone,
+                notes: o.notes,
+                customerNote: o.customer_note,
+                status: o.status,
+                hasPod: !!o.pod_photo_path,
+                orderData: o.square_order_data
+            }))
+        });
+    } catch (error) {
+        logger.error('Error fetching driver route', { error: error.message });
+        res.status(500).json({ error: 'Failed to load route' });
+    }
+});
+
+/**
+ * POST /api/driver/:token/orders/:orderId/complete
+ * PUBLIC: Mark order as completed (contract driver)
+ */
+app.post('/api/driver/:token/orders/:orderId/complete', async (req, res) => {
+    try {
+        const order = await deliveryApi.completeOrderByToken(req.params.token, req.params.orderId);
+        res.json({ success: true, order: { id: order.id, status: order.status } });
+    } catch (error) {
+        logger.error('Error completing order via token', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/driver/:token/orders/:orderId/skip
+ * PUBLIC: Skip order (contract driver)
+ */
+app.post('/api/driver/:token/orders/:orderId/skip', async (req, res) => {
+    try {
+        const order = await deliveryApi.skipOrderByToken(req.params.token, req.params.orderId);
+        res.json({ success: true, order: { id: order.id, status: order.status } });
+    } catch (error) {
+        logger.error('Error skipping order via token', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/driver/:token/orders/:orderId/pod
+ * PUBLIC: Upload POD photo (contract driver)
+ */
+app.post('/api/driver/:token/orders/:orderId/pod', upload.single('photo'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No photo uploaded' });
+        }
+
+        const metadata = {
+            originalFilename: req.file.originalname,
+            mimeType: req.file.mimetype,
+            latitude: req.body.latitude ? parseFloat(req.body.latitude) : null,
+            longitude: req.body.longitude ? parseFloat(req.body.longitude) : null
+        };
+
+        const pod = await deliveryApi.savePodByToken(req.params.token, req.params.orderId, req.file.buffer, metadata);
+
+        res.json({
+            success: true,
+            pod: { id: pod.id, capturedAt: pod.captured_at }
+        });
+    } catch (error) {
+        logger.error('Error uploading POD via token', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/driver/:token/finish
+ * PUBLIC: Finish route and retire token (contract driver)
+ */
+app.post('/api/driver/:token/finish', async (req, res) => {
+    try {
+        const { driverName, driverNotes } = req.body;
+
+        const result = await deliveryApi.finishRouteByToken(req.params.token, {
+            driverName,
+            driverNotes
+        });
+
+        res.json({
+            success: true,
+            result,
+            message: 'Route completed. Thank you for your deliveries!'
+        });
+    } catch (error) {
+        logger.error('Error finishing route via token', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
 // ==================== LOYALTY ADDON API ====================
 // Frequent Buyer Program - Digitizes brand-defined loyalty programs
 // BUSINESS RULES: One offer = one brand + size group, never mix sizes, full redemption only

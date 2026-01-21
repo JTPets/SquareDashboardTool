@@ -573,6 +573,7 @@
     <div class="header-top">
       <h1 id="routeTitle">Today's Route</h1>
       <div style="display: flex; gap: 15px; align-items: center;">
+        <a href="#" class="back-link" onclick="openShareModal(); return false;">Share</a>
         <a href="/delivery-history.html" class="back-link">History</a>
         <a href="/delivery.html" class="back-link">Back</a>
       </div>
@@ -640,6 +641,51 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeNoteModal()">Cancel</button>
         <button class="btn btn-success" onclick="saveCustomerNote()">Save to Customer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Route Modal -->
+  <div class="modal-overlay" id="shareModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Share Route</h2>
+        <button class="modal-close" onclick="closeShareModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
+          Generate a secure link to share this route with a contract driver. They can complete deliveries without needing an account.
+        </p>
+        <div id="shareContent">
+          <div id="noShareToken" style="text-align: center; padding: 20px;">
+            <button class="btn btn-primary" onclick="generateShareLink()" style="width: 100%;">
+              Generate Share Link
+            </button>
+          </div>
+          <div id="hasShareToken" style="display: none;">
+            <div style="background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+              <div style="font-size: 12px; color: #6b7280; margin-bottom: 5px;">Share URL:</div>
+              <input type="text" id="shareUrlInput" readonly style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background: white;">
+            </div>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+              <button class="btn btn-primary" onclick="copyShareUrl()" style="flex: 1;">
+                📋 Copy Link
+              </button>
+              <button class="btn btn-secondary" onclick="regenerateShareLink()" style="flex: 1;">
+                🔄 New Link
+              </button>
+            </div>
+            <div style="font-size: 12px; color: #6b7280; text-align: center;">
+              Expires: <span id="shareExpiry"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeShareModal()" style="flex: 1;">Close</button>
+        <button class="btn btn-warning" id="revokeBtn" onclick="revokeShareLink()" style="flex: 1; display: none;">
+          Revoke Access
+        </button>
       </div>
     </div>
   </div>
@@ -1248,6 +1294,121 @@
 
       console.log(`renderLineItems result for ${orderId}: ${result.length} chars`);
       return result;
+    }
+
+    // Share Route Functions
+    let currentShareToken = null;
+
+    async function openShareModal() {
+      if (!route) {
+        showToast('No active route to share', 'error');
+        return;
+      }
+
+      document.getElementById('shareModal').classList.add('active');
+
+      // Check if there's an existing token
+      try {
+        const response = await fetch(`/api/delivery/route/${route.id}/token`);
+        const data = await response.json();
+
+        if (data.token) {
+          currentShareToken = data.token;
+          showExistingShareToken(data.shareUrl, data.token.expires_at);
+        } else {
+          showNoShareToken();
+        }
+      } catch (error) {
+        console.error('Error checking share token:', error);
+        showNoShareToken();
+      }
+    }
+
+    function closeShareModal() {
+      document.getElementById('shareModal').classList.remove('active');
+    }
+
+    function showNoShareToken() {
+      document.getElementById('noShareToken').style.display = 'block';
+      document.getElementById('hasShareToken').style.display = 'none';
+      document.getElementById('revokeBtn').style.display = 'none';
+      currentShareToken = null;
+    }
+
+    function showExistingShareToken(shareUrl, expiresAt) {
+      document.getElementById('noShareToken').style.display = 'none';
+      document.getElementById('hasShareToken').style.display = 'block';
+      document.getElementById('revokeBtn').style.display = 'block';
+      document.getElementById('shareUrlInput').value = shareUrl;
+      document.getElementById('shareExpiry').textContent = new Date(expiresAt).toLocaleString();
+    }
+
+    async function generateShareLink() {
+      if (!route) return;
+
+      showLoading(true);
+      try {
+        const response = await fetch(`/api/delivery/route/${route.id}/share`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expiresInHours: 24 })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to generate link');
+        }
+
+        const data = await response.json();
+        currentShareToken = data.token;
+        showExistingShareToken(data.shareUrl, data.expiresAt);
+        showToast('Share link generated!', 'success');
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function regenerateShareLink() {
+      if (!confirm('Generate a new link? This will invalidate the previous one.')) return;
+      await generateShareLink();
+    }
+
+    async function copyShareUrl() {
+      const input = document.getElementById('shareUrlInput');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        showToast('Link copied!', 'success');
+      } catch (err) {
+        // Fallback for older browsers
+        input.select();
+        document.execCommand('copy');
+        showToast('Link copied!', 'success');
+      }
+    }
+
+    async function revokeShareLink() {
+      if (!confirm('Revoke this share link? The driver will lose access immediately.')) return;
+      if (!route) return;
+
+      showLoading(true);
+      try {
+        const response = await fetch(`/api/delivery/route/${route.id}/token`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to revoke');
+        }
+
+        showNoShareToken();
+        showToast('Share link revoked', 'success');
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        showLoading(false);
+      }
     }
 
     // Initial load
