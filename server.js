@@ -31,6 +31,7 @@ const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-
 const deliveryApi = require('./utils/delivery-api');
 const loyaltyService = require('./utils/loyalty-service');
 const loyaltyReports = require('./utils/loyalty-reports');
+const gmcApi = require('./utils/merchant-center-api');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
