@@ -10454,13 +10454,15 @@ app.post('/api/webhooks/square', async (req, res) => {
  */
 app.get('/api/delivery/orders', requireAuth, requireMerchant, async (req, res) => {
     try {
-        const { status, routeDate, routeId, includeCompleted, limit, offset } = req.query;
+        const { status, routeDate, routeId, dateFrom, dateTo, includeCompleted, limit, offset } = req.query;
         const merchantId = req.merchantContext.id;
 
         const orders = await deliveryApi.getOrders(merchantId, {
             status: status ? status.split(',') : null,
             routeDate,
             routeId,
+            dateFrom,
+            dateTo,
             includeCompleted: includeCompleted === 'true',
             limit: parseInt(limit) || 100,
             offset: parseInt(offset) || 0

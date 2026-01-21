@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery History - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #1f2937;
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-secondary.header-btn { background: rgba(255,255,255,0.2); }
+    .btn-secondary.header-btn:hover { background: rgba(255,255,255,0.3); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      gap: 15px;
+      padding: 15px 20px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .filter-group label {
+      font-size: 13px;
+      color: #374151;
+      font-weight: 500;
+    }
+    .filter-input {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .filter-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+    }
+
+    /* Stats Bar */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      padding: 15px 20px;
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+    }
+    .stat {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    /* Content */
+    .content {
+      padding: 20px;
+    }
+
+    /* Order Grid */
+    .order-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    /* Order Card */
+    .order-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      background: white;
+      transition: box-shadow 0.2s;
+    }
+    .order-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .order-card-header {
+      padding: 12px 15px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .order-card-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+    .order-card-header .date {
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .order-card-body {
+      padding: 15px;
+    }
+    .order-address {
+      font-size: 14px;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .order-meta {
+      font-size: 12px;
+      color: #6b7280;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* POD Section */
+    .pod-section {
+      padding: 12px 15px;
+      background: #f0fdf4;
+      border-top: 1px solid #bbf7d0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pod-section.no-pod {
+      background: #fef3c7;
+      border-top-color: #fde68a;
+    }
+    .pod-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #166534;
+    }
+    .pod-section.no-pod .pod-info {
+      color: #92400e;
+    }
+    .pod-thumbnail {
+      width: 60px;
+      height: 60px;
+      border-radius: 4px;
+      object-fit: cover;
+      cursor: pointer;
+      border: 2px solid #10b981;
+      transition: transform 0.2s;
+    }
+    .pod-thumbnail:hover {
+      transform: scale(1.1);
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+
+    /* Alert */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .alert-error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal {
+      background: white;
+      border-radius: 8px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 15px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+      line-height: 1;
+    }
+    .modal-close:hover { color: #111827; }
+    .modal-body {
+      padding: 20px;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-body img {
+      max-width: 100%;
+      max-height: 70vh;
+      border-radius: 4px;
+    }
+    .modal-footer {
+      padding: 15px 20px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .filter-group { flex-direction: column; align-items: flex-start; }
+      .stats-bar { flex-direction: column; gap: 10px; }
+      .order-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Delivery History</h1>
+      <div class="header-actions">
+        <a href="/delivery.html" class="btn btn-primary">Back to Scheduler</a>
+        <a href="/delivery-route.html" class="btn btn-secondary header-btn">Driver View</a>
+        <a href="/dashboard.html" class="btn btn-secondary header-btn">Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label for="dateFrom">From:</label>
+        <input type="date" id="dateFrom" class="filter-input">
+      </div>
+      <div class="filter-group">
+        <label for="dateTo">To:</label>
+        <input type="date" id="dateTo" class="filter-input">
+      </div>
+      <button class="btn btn-primary" onclick="loadHistory()">Search</button>
+      <button class="btn btn-secondary" onclick="setQuickRange('today')">Today</button>
+      <button class="btn btn-secondary" onclick="setQuickRange('week')">Last 7 Days</button>
+      <button class="btn btn-secondary" onclick="setQuickRange('month')">Last 30 Days</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">Total Deliveries</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statWithPod">0</div>
+        <div class="stat-label">With POD Photo</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statWithoutPod">0</div>
+        <div class="stat-label">Without POD</div>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <div id="alertArea"></div>
+      <div id="ordersContainer">
+        <div class="loading">Select a date range and click Search to view delivery history.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POD Photo Modal -->
+  <div class="modal-overlay" id="podModal" onclick="closePodModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="podModalTitle">Proof of Delivery</h2>
+        <button class="modal-close" onclick="closePodModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <img id="podModalImage" src="" alt="Proof of Delivery">
+      </div>
+      <div class="modal-footer">
+        <span id="podModalInfo"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let orders = [];
+
+    // Initialize with last 7 days
+    document.addEventListener('DOMContentLoaded', () => {
+      setQuickRange('week');
+      loadHistory();
+    });
+
+    function setQuickRange(range) {
+      const today = new Date();
+      const dateTo = today.toISOString().split('T')[0];
+      let dateFrom;
+
+      if (range === 'today') {
+        dateFrom = dateTo;
+      } else if (range === 'week') {
+        const weekAgo = new Date(today);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        dateFrom = weekAgo.toISOString().split('T')[0];
+      } else if (range === 'month') {
+        const monthAgo = new Date(today);
+        monthAgo.setDate(monthAgo.getDate() - 30);
+        dateFrom = monthAgo.toISOString().split('T')[0];
+      }
+
+      document.getElementById('dateFrom').value = dateFrom;
+      document.getElementById('dateTo').value = dateTo;
+    }
+
+    async function loadHistory() {
+      const dateFrom = document.getElementById('dateFrom').value;
+      const dateTo = document.getElementById('dateTo').value;
+
+      if (!dateFrom || !dateTo) {
+        showAlert('Please select both start and end dates', 'error');
+        return;
+      }
+
+      const container = document.getElementById('ordersContainer');
+      container.innerHTML = '<div class="loading">Loading delivery history...</div>';
+
+      try {
+        const params = new URLSearchParams({
+          status: 'completed',
+          includeCompleted: 'true',
+          dateFrom,
+          dateTo,
+          limit: '500'
+        });
+
+        const response = await fetch(`/api/delivery/orders?${params}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch delivery history');
+        }
+
+        const data = await response.json();
+        orders = data.orders || [];
+
+        renderOrders();
+        updateStats();
+      } catch (error) {
+        console.error('Error loading history:', error);
+        showAlert('Failed to load delivery history: ' + error.message, 'error');
+        container.innerHTML = '<div class="empty-state"><h3>Error loading history</h3><p>Please try again.</p></div>';
+      }
+    }
+
+    function updateStats() {
+      const total = orders.length;
+      const withPod = orders.filter(o => o.pod_id).length;
+      const withoutPod = total - withPod;
+
+      document.getElementById('statTotal').textContent = total;
+      document.getElementById('statWithPod').textContent = withPod;
+      document.getElementById('statWithoutPod').textContent = withoutPod;
+    }
+
+    function renderOrders() {
+      const container = document.getElementById('ordersContainer');
+
+      if (orders.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <h3>No deliveries found</h3>
+            <p>No completed deliveries in the selected date range.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="order-grid">
+          ${orders.map(order => renderOrderCard(order)).join('')}
+        </div>
+      `;
+    }
+
+    function renderOrderCard(order) {
+      const date = order.updated_at ? new Date(order.updated_at).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      }) : 'Unknown date';
+
+      const hasPod = !!order.pod_id;
+      const podTime = order.pod_captured_at ? new Date(order.pod_captured_at).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
+      }) : '';
+
+      return `
+        <div class="order-card">
+          <div class="order-card-header">
+            <h3>${escapeHtml(order.customer_name)}</h3>
+            <div class="date">${date}</div>
+          </div>
+          <div class="order-card-body">
+            <div class="order-address">${escapeHtml(order.address)}</div>
+            <div class="order-meta">
+              ${order.phone ? `<span>Phone: ${escapeHtml(order.phone)}</span>` : ''}
+              ${order.square_order_id ? `<span>Square Order</span>` : '<span>Manual Order</span>'}
+            </div>
+          </div>
+          <div class="pod-section ${hasPod ? '' : 'no-pod'}">
+            <div class="pod-info">
+              ${hasPod ? `<span>POD captured at ${podTime}</span>` : '<span>No POD photo</span>'}
+            </div>
+            ${hasPod ? `
+              <img
+                class="pod-thumbnail"
+                src="/api/delivery/pod/${order.pod_id}"
+                alt="POD"
+                onclick="openPodModal('${escapeJsString(order.pod_id)}', '${escapeJsString(order.customer_name)}', '${podTime}')"
+                onerror="this.style.display='none'"
+              >
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function openPodModal(podId, customerName, captureTime) {
+      document.getElementById('podModalTitle').textContent = `POD - ${customerName}`;
+      document.getElementById('podModalImage').src = `/api/delivery/pod/${podId}`;
+      document.getElementById('podModalInfo').textContent = captureTime ? `Captured at ${captureTime}` : '';
+      document.getElementById('podModal').classList.add('active');
+    }
+
+    function closePodModal(event) {
+      if (!event || event.target.id === 'podModal') {
+        document.getElementById('podModal').classList.remove('active');
+      }
+    }
+
+    function showAlert(message, type) {
+      const alertArea = document.getElementById('alertArea');
+      alertArea.innerHTML = `<div class="alert alert-${type}">${escapeHtml(message)}</div>`;
+      setTimeout(() => { alertArea.innerHTML = ''; }, 5000);
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function escapeJsString(str) {
+      if (!str) return '';
+      return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closePodModal();
+      }
+    });
+  </script>
+</body>
+</html>
