@@ -414,11 +414,16 @@ app.get('/api/merchants/context', requireAuth, async (req, res) => {
  */
 app.get('/api/config', requireAuth, async (req, res) => {
     try {
-        // Check Square connection
+        // Check Square connection by checking if merchant has locations synced
         let squareConnected = false;
         try {
-            const locations = await squareApi.getLocations();
-            squareConnected = locations && locations.length > 0;
+            if (req.merchantContext?.id) {
+                const result = await db.query(
+                    'SELECT id FROM locations WHERE merchant_id = $1 LIMIT 1',
+                    [req.merchantContext.id]
+                );
+                squareConnected = result.rows.length > 0;
+            }
         } catch (e) {
             logger.warn('Square connection check failed', { error: e.message, merchantId: req.merchantContext?.id });
             squareConnected = false;
@@ -10109,7 +10114,16 @@ app.post('/api/webhooks/square', async (req, res) => {
                         break;
                     }
                     try {
-                        const loyaltyEvent = data;
+                        // Square webhook structure: event.data.object.loyalty_event
+                        const loyaltyEvent = data.loyalty_event;
+
+                        if (!loyaltyEvent) {
+                            logger.warn('Loyalty event webhook missing loyalty_event in payload', {
+                                dataKeys: Object.keys(data),
+                                merchantId: internalMerchantId
+                            });
+                            break;
+                        }
 
                         // Extract order_id from the loyalty event (can be in different places depending on event type)
                         const orderId = loyaltyEvent.accumulate_points?.order_id
@@ -10207,7 +10221,7 @@ app.post('/api/webhooks/square', async (req, res) => {
                                     }
                                 }
                             } else {
-                                logger.debug('Order already processed for loyalty, skipping', { orderId });
+                                logger.info('Loyalty event skipped - order already processed', { orderId, merchantId: internalMerchantId });
                                 syncResults.loyaltyEventSkipped = { orderId, reason: 'already_processed' };
                             }
                         } else if (loyaltyAccountId) {
@@ -10257,6 +10271,14 @@ app.post('/api/webhooks/square', async (req, res) => {
                                     }
                                 }
                             }
+                        } else {
+                            // No loyaltyAccountId - can't process this event
+                            logger.info('Loyalty event skipped - no loyalty account ID in event', {
+                                orderId,
+                                eventType: loyaltyEvent.type,
+                                merchantId: internalMerchantId
+                            });
+                            syncResults.loyaltyEventSkipped = { reason: 'no_loyalty_account_id' };
                         }
                     } catch (loyaltyEventError) {
                         logger.error('Loyalty event webhook processing failed', {
@@ -10277,7 +10299,17 @@ app.post('/api/webhooks/square', async (req, res) => {
                     break;
                 }
                 try {
-                    const loyaltyAccount = data;
+                    // Square webhook structure: event.data.object.loyalty_account
+                    const loyaltyAccount = data.loyalty_account;
+
+                    if (!loyaltyAccount) {
+                        logger.warn('Loyalty account webhook missing loyalty_account in payload', {
+                            dataKeys: Object.keys(data),
+                            merchantId: internalMerchantId
+                        });
+                        break;
+                    }
+
                     const customerId = loyaltyAccount.customer_id;
 
                     if (customerId) {
