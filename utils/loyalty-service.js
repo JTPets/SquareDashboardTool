@@ -3462,8 +3462,9 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#fbp-pricing-rule-${internalRewardId}`;
 
         // Build the catalog batch upsert request
-        // Strategy: Use maximum_amount_money to cap the discount to 1 item's worth
-        // No exclude set needed - the cap ensures only max item value is discounted
+        // Strategy: Use quantity_exact: 1 to ensure only 1 item gets the discount
+        // Square automatically applies discount to the most expensive qualifying item
+        // maximum_amount_money provides an additional safety cap
         const catalogObjects = [
             // 1. Create the Discount (100% off, capped at max item price)
             {
@@ -3480,13 +3481,13 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
-            // 2. Match Product Set - all qualifying items
+            // 2. Match Product Set - exactly 1 qualifying item (most expensive gets discount)
             {
                 type: 'PRODUCT_SET',
                 id: matchProductSetId,
                 product_set_data: {
                     product_ids_any: variationIds,
-                    quantity_min: 1
+                    quantity_exact: 1
                 }
             },
             // 3. Pricing Rule - simple match, no exclude
