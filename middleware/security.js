@@ -12,6 +12,10 @@ const logger = require('../utils/logger');
  * Configure Helmet security headers
  */
 function configureHelmet() {
+    // Only upgrade to HTTPS if explicitly enabled (requires actual HTTPS setup)
+    // Setting FORCE_HTTPS=true enables upgradeInsecureRequests directive
+    const forceHttps = process.env.FORCE_HTTPS === 'true';
+
     return helmet({
         // Content Security Policy - permissive but still provides protection
         // Allows inline scripts/styles for compatibility but blocks external malicious sources
@@ -31,7 +35,8 @@ function configureHelmet() {
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
-                upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+                // Only upgrade HTTP to HTTPS if FORCE_HTTPS=true (requires HTTPS to be configured)
+                upgradeInsecureRequests: forceHttps ? [] : null,
             },
             reportOnly: false,
         },
@@ -213,7 +218,14 @@ function configureCors() {
     let allowedOrigins;
 
     if (allowedOriginsEnv) {
-        allowedOrigins = allowedOriginsEnv.split(',').map(origin => origin.trim());
+        // Parse origins: split by comma, trim whitespace, and strip any surrounding quotes
+        allowedOrigins = allowedOriginsEnv
+            .split(',')
+            .map(origin => origin.trim().replace(/^["']|["']$/g, ''))
+            .filter(origin => origin.length > 0);
+
+        // Log configured origins on startup for debugging
+        logger.info('CORS: Configured allowed origins', { origins: allowedOrigins });
     } else {
         // Default: allow same origin only (will be determined by request)
         allowedOrigins = null;
@@ -242,8 +254,12 @@ function configureCors() {
                 return callback(null, true);
             }
 
-            // Origin not allowed
-            logger.warn('CORS: Origin not allowed', { origin, allowedOrigins });
+            // Origin not allowed - log with more context for debugging
+            logger.warn('CORS: Origin not allowed', {
+                origin,
+                allowedOrigins,
+                hint: 'Check ALLOWED_ORIGINS in .env - remove quotes if present'
+            });
             return callback(new Error('Not allowed by CORS'));
         },
         credentials: true,  // Allow cookies
