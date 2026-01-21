@@ -14,9 +14,9 @@ This application is a **production-grade multi-tenant SaaS platform** that has g
 
 | Area | Current State | Business Risk | Status |
 |------|--------------|---------------|--------|
-| **Testing** | 165 tests for security functions | LOW | MOSTLY FIXED |
+| **Testing** | 194 tests for security functions | LOW | MOSTLY FIXED |
 | **Code Structure** | 14,409-line monolith (221 endpoints) | HIGH | Phase 3 Planned |
-| **Security** | CSP enabled, CORS enforced | LOW | FIXED |
+| **Security** | CSP enabled, CORS enforced, file validation | LOW | FIXED |
 | **Input Validation** | No express-validator usage | MEDIUM | Phase 3 Planned |
 | **Scalability** | Synchronous operations | MEDIUM | Phase 4 |
 | **Documentation** | Security review documented | LOW | FIXED |
@@ -44,7 +44,8 @@ This application is a **production-grade multi-tenant SaaS platform** that has g
 | `utils/token-encryption.js` | 51 | 100% | OAuth token encryption |
 | `middleware/auth.js` | 38 | ~85% | Login/logout, role checks, admin access |
 | `middleware/merchant.js` | 27 | ~30% | Multi-tenant isolation, subscriptions |
-| **Total** | **165** | - | Critical security functions |
+| `utils/file-validation.js` | 30 | 100% | File upload magic number validation |
+| **Total** | **194** | - | Critical security functions |
 
 **Run tests with:**
 ```bash
@@ -393,12 +394,15 @@ TOKEN_ENCRYPTION_KEY=<64-hex-chars>
 
 Your application is more sophisticated than most "vibe coded" projects. The foundations are solid. **Key security fixes have been applied and tested.**
 
-**Completed (Phase 1 & 2):**
-1. Testing infrastructure (165 tests passing)
+**Completed (Phase 1 & 2 & Quick Wins):**
+1. Testing infrastructure (194 tests passing)
 2. Security configuration (CSP, CORS, error handling)
 3. Vulnerability fixes (0 npm vulnerabilities)
 4. Access control testing (auth middleware - 38 tests)
 5. Multi-tenant isolation testing (merchant middleware - 27 tests)
+6. **V005 FIXED:** File upload magic number validation (30 tests)
+7. **V006 FIXED:** Rate limiting on GMC token regeneration
+8. **V007 FIXED:** Test endpoints disabled in production
 
 **Phase 3 - Ready to Execute:**
 1. **Split the monolith** - 221 endpoints need extraction to 12 route files
@@ -406,7 +410,6 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
    - Priority 2: External integrations (gmc, webhooks, delivery)
    - Priority 3: Core operations (sync, catalog, cycle-counts, etc.)
 2. **Add input validation** - express-validator middleware for all endpoints
-3. **Fix remaining vulnerabilities** (V005, V006, V007)
 
 **Phase 4 - Future (when needed):**
 1. Redis for sessions and caching
@@ -424,9 +427,9 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 | V002 | HIGH | CORS allows all | middleware/security.js | **FIXED** |
 | V003 | HIGH | Legacy unencrypted tokens | utils/square-api.js | MITIGATED (auto-encrypts) |
 | V004 | MEDIUM | Stack traces exposed | server.js | **FIXED** |
-| V005 | MEDIUM | MIME-only file validation | server.js:190-200 | TODO |
-| V006 | MEDIUM | GMC token no rate limit | server.js:3797-3850 | TODO |
-| V007 | LOW | Test endpoints in production | server.js:568-735 | TODO |
+| V005 | MEDIUM | MIME-only file validation | server.js, utils/file-validation.js | **FIXED** (30 tests) |
+| V006 | MEDIUM | GMC token no rate limit | middleware/security.js | **FIXED** |
+| V007 | LOW | Test endpoints in production | server.js | **FIXED** (NODE_ENV check) |
 | V008 | LOW | console.log in production | server.js (throughout) | LOW PRIORITY |
 | V009 | HIGH | npm vulnerabilities (tar/bcrypt) | package.json | **FIXED** |
 | V010 | HIGH | Auth middleware untested | middleware/auth.js | **FIXED** (38 tests) |
@@ -438,35 +441,41 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 
 ## Appendix B: Remaining Vulnerability Details
 
-### V005: MIME-only File Validation (MEDIUM)
-**Location:** `server.js:190-200`
-**Risk:** Malicious files can spoof MIME types
-**Fix:** Add magic number validation:
-```javascript
-const fileSignatures = {
-  'ffd8ffe0': 'image/jpeg',
-  '89504e47': 'image/png',
-  '47494638': 'image/gif',
-};
-// Read first 4 bytes and compare to signatures
-```
+### V005: MIME-only File Validation - **FIXED**
+**Location:** `utils/file-validation.js` (NEW), `server.js` (POD upload endpoints)
+**Fix Applied:** Created `validateFileSignature()` utility with magic number validation for:
+- JPEG (multiple signatures including EXIF)
+- PNG
+- GIF (87a and 89a)
+- WebP (with RIFF header validation)
+- BMP
+- TIFF (little and big endian)
 
-### V006: GMC Token No Rate Limit (MEDIUM)
-**Location:** `server.js:3797-3850` (POST /api/gmc/regenerate-token)
-**Risk:** Token generation endpoint could be abused
-**Fix:** Add rate limiting to GMC token regeneration endpoint
+Added `validateUploadedImage()` middleware applied to POD photo upload endpoints.
+**Tests:** 30 new tests in `__tests__/utils/file-validation.test.js`
 
-### V007: Test Endpoints in Production (LOW)
-**Location:** `server.js:568-735`
-**Risk:** Test endpoints (`/api/test-*`) should not be accessible in production
-**Fix:** Wrap test endpoints in `if (process.env.NODE_ENV !== 'production')` check
+### V006: GMC Token No Rate Limit - **FIXED**
+**Location:** `middleware/security.js`, `server.js:3976`
+**Fix Applied:** Added `configureSensitiveOperationRateLimit()` middleware:
+- 5 token regenerations per hour per merchant
+- Keyed by merchant ID to prevent abuse
+- Applied to `/api/gmc/regenerate-token` endpoint
 
-### V012: No Input Validation (MEDIUM)
+### V007: Test Endpoints in Production - **FIXED**
+**Location:** `server.js:691-737`
+**Fix Applied:** Wrapped test endpoints in `if (process.env.NODE_ENV !== 'production')` check:
+- `/api/test-email`
+- `/api/test-error`
+- `/api/test-backup-email`
+
+These endpoints are now only available in development mode.
+
+### V012: No Input Validation (MEDIUM) - TODO
 **Location:** All routes
 **Risk:** Invalid data could cause errors or unexpected behavior
 **Fix:** Implement express-validator across all endpoints (see Phase 3 plan)
 
-### V013: Monolithic Server File (HIGH)
+### V013: Monolithic Server File (HIGH) - TODO
 **Location:** `server.js` (14,409 lines, 221 endpoints)
 **Risk:** Unmaintainable code, high merge conflict risk, difficult to test
 **Fix:** Extract routes to separate files (see Phase 3 extraction plan)
@@ -484,20 +493,22 @@ npm run test:watch          # Watch mode for development
 
 ### Security Configuration Files
 ```
-middleware/security.js      # CSP, CORS, rate limiting
+middleware/security.js      # CSP, CORS, rate limiting (includes sensitive operation limiter)
 middleware/auth.js          # Authentication (38 tests)
 middleware/merchant.js      # Multi-tenant isolation (27 tests)
 utils/password.js           # Password hashing (49 tests)
 utils/token-encryption.js   # Token encryption (51 tests)
+utils/file-validation.js    # File upload validation (30 tests)
 ```
 
 ### Key Statistics
 - **Total Lines:** 14,409 in server.js
 - **Total Endpoints:** 221 (205 need extraction)
-- **Tests:** 165 passing
+- **Tests:** 194 passing
 - **npm Vulnerabilities:** 0
+- **Quick Wins Fixed:** V005, V006, V007
 
 ---
 
 *Document generated by security review on 2026-01-21*
-*Last updated: 2026-01-21 - Phase 3 planning complete (extraction roadmap added)*
+*Last updated: 2026-01-21 - Quick wins completed (V005, V006, V007 fixed, 194 tests passing)*

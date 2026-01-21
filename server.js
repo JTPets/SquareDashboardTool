@@ -33,7 +33,9 @@ const loyaltyService = require('./utils/loyalty-service');
 const loyaltyReports = require('./utils/loyalty-reports');
 
 // Security middleware
-const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+// File validation (V005 fix)
+const { validateUploadedImage } = require('./utils/file-validation');
 const { requireAuth, requireAuthApi, requireAdmin, requireWriteAccess } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -93,6 +95,8 @@ app.use(configureRateLimit());
 // Delivery-specific rate limiters (applied to routes below)
 const deliveryRateLimit = configureDeliveryRateLimit();
 const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
+// Sensitive operation rate limiter (V006 fix - token regeneration)
+const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
 
 // CORS configuration
 app.use(configureCors());
@@ -684,53 +688,57 @@ app.get('/api/logs/stats', requireAdmin, async (req, res) => {
     }
 });
 
-/**
- * POST /api/test-email
- * Test email notifications
- */
-app.post('/api/test-email', requireAdmin, async (req, res) => {
-    try {
-        await emailNotifier.testEmail();
-        res.json({ success: true, message: 'Test email sent' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * POST /api/test-error
- * Test error logging and email
- */
-app.post('/api/test-error', requireAdmin, async (req, res) => {
-    const testError = new Error('This is a test error');
-    logger.error('Test error triggered', {
-        error: testError.message,
-        stack: testError.stack,
-        endpoint: '/api/test-error'
+// ==================== TEST ENDPOINTS (Development only) ====================
+// V007 fix: Test endpoints are disabled in production for security
+if (process.env.NODE_ENV !== 'production') {
+    /**
+     * POST /api/test-email
+     * Test email notifications
+     */
+    app.post('/api/test-email', requireAdmin, async (req, res) => {
+        try {
+            await emailNotifier.testEmail();
+            res.json({ success: true, message: 'Test email sent' });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
     });
 
-    await emailNotifier.sendCritical('Test Error', testError, {
-        endpoint: '/api/test-error',
-        details: 'This is a test to verify error logging and email notifications'
+    /**
+     * POST /api/test-error
+     * Test error logging and email
+     */
+    app.post('/api/test-error', requireAdmin, async (req, res) => {
+        const testError = new Error('This is a test error');
+        logger.error('Test error triggered', {
+            error: testError.message,
+            stack: testError.stack,
+            endpoint: '/api/test-error'
+        });
+
+        await emailNotifier.sendCritical('Test Error', testError, {
+            endpoint: '/api/test-error',
+            details: 'This is a test to verify error logging and email notifications'
+        });
+
+        res.json({ message: 'Test error logged and email sent' });
     });
 
-    res.json({ message: 'Test error logged and email sent' });
-});
-
-/**
- * POST /api/test-backup-email
- * Test backup email functionality
- */
-app.post('/api/test-backup-email', requireAdmin, async (req, res) => {
-    try {
-        logger.info('Testing backup email');
-        await runAutomatedBackup();
-        res.json({ success: true, message: 'Test backup email sent successfully' });
-    } catch (error) {
-        logger.error('Test backup email failed', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    /**
+     * POST /api/test-backup-email
+     * Test backup email functionality
+     */
+    app.post('/api/test-backup-email', requireAdmin, async (req, res) => {
+        try {
+            logger.info('Testing backup email');
+            await runAutomatedBackup();
+            res.json({ success: true, message: 'Test backup email sent successfully' });
+        } catch (error) {
+            logger.error('Test backup email failed', { error: error.message, stack: error.stack });
+            res.status(500).json({ error: error.message });
+        }
+    });
+}
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -3972,8 +3980,9 @@ app.get('/api/gmc/feed-url', requireAuth, requireMerchant, async (req, res) => {
 /**
  * POST /api/gmc/regenerate-token
  * Regenerate the GMC feed token (invalidates old feed URLs)
+ * V006 fix: Rate limited to prevent abuse
  */
-app.post('/api/gmc/regenerate-token', requireAuth, requireMerchant, async (req, res) => {
+app.post('/api/gmc/regenerate-token', sensitiveOperationRateLimit, requireAuth, requireMerchant, async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
         const crypto = require('crypto');
@@ -11115,7 +11124,7 @@ app.get('/api/delivery/orders/:id/customer-stats', requireAuth, requireMerchant,
  * POST /api/delivery/orders/:id/pod
  * Upload proof of delivery photo
  */
-app.post('/api/delivery/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, podUpload.single('photo'), async (req, res) => {
+app.post('/api/delivery/orders/:id/pod', deliveryRateLimit, requireAuth, requireMerchant, podUpload.single('photo'), validateUploadedImage('photo'), async (req, res) => {
     try {
         const merchantId = req.merchantContext.id;
 
@@ -11777,7 +11786,7 @@ app.post('/api/driver/:token/orders/:orderId/skip', async (req, res) => {
  * POST /api/driver/:token/orders/:orderId/pod
  * PUBLIC: Upload POD photo (contract driver)
  */
-app.post('/api/driver/:token/orders/:orderId/pod', podUpload.single('photo'), async (req, res) => {
+app.post('/api/driver/:token/orders/:orderId/pod', podUpload.single('photo'), validateUploadedImage('photo'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No photo uploaded' });
