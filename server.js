@@ -414,11 +414,16 @@ app.get('/api/merchants/context', requireAuth, async (req, res) => {
  */
 app.get('/api/config', requireAuth, async (req, res) => {
     try {
-        // Check Square connection
+        // Check Square connection by checking if merchant has locations synced
         let squareConnected = false;
         try {
-            const locations = await squareApi.getLocations();
-            squareConnected = locations && locations.length > 0;
+            if (req.merchantContext?.id) {
+                const result = await db.query(
+                    'SELECT id FROM locations WHERE merchant_id = $1 LIMIT 1',
+                    [req.merchantContext.id]
+                );
+                squareConnected = result.rows.length > 0;
+            }
         } catch (e) {
             logger.warn('Square connection check failed', { error: e.message, merchantId: req.merchantContext?.id });
             squareConnected = false;
