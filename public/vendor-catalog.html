@@ -856,7 +856,7 @@
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
 
-  <script>
+  <script data-cfasync="false">
     // State for import flow
     let currentFileData = null;
     let currentFileName = null;
@@ -1780,7 +1780,7 @@
       html += `
     </tbody>
   </table>
-  <script>
+  <script data-cfasync="false">
     const reportData = ${JSON.stringify(report.priceUpdates)};
     function downloadCSV() {
       const headers = ['Our SKU','Item Name','UPC','Vendor Item #','Our Price','Vendor SRP','Vendor Cost','Diff ($)','Diff (%)','Match Method'];
