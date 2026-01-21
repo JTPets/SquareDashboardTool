@@ -13713,9 +13713,14 @@ app.use((req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
     logger.error('Unhandled error', { error: err.message, stack: err.stack });
+
+    // In production, don't expose internal error details to clients
+    const isProduction = process.env.NODE_ENV === 'production';
     res.status(500).json({
         error: 'Internal server error',
-        message: err.message
+        message: isProduction ? 'An unexpected error occurred' : err.message,
+        // Only include request ID for tracking in production
+        ...(isProduction && { requestId: req.headers['x-request-id'] || 'unknown' })
     });
 });
 

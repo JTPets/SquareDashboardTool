@@ -13,9 +13,28 @@ const logger = require('../utils/logger');
  */
 function configureHelmet() {
     return helmet({
-        // Disable CSP for now - causing issues with Cloudflare
-        // TODO: Configure proper CSP that works with the app
-        contentSecurityPolicy: false,
+        // Content Security Policy - permissive but still provides protection
+        // Allows inline scripts/styles for compatibility but blocks external malicious sources
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],  // Required for inline handlers
+                styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+                fontSrc: ["'self'", "https://fonts.gstatic.com"],
+                imgSrc: ["'self'", "data:", "https:", "blob:"],  // Allow images from HTTPS sources
+                connectSrc: [
+                    "'self'",
+                    "https://connect.squareup.com",
+                    "https://connect.squareupsandbox.com"
+                ],
+                frameSrc: ["'none'"],
+                objectSrc: ["'none'"],
+                baseUri: ["'self'"],
+                formAction: ["'self'"],
+                upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+            },
+            reportOnly: false,
+        },
         // Prevent clickjacking
         frameguard: { action: 'deny' },
         // Prevent MIME type sniffing
@@ -176,11 +195,14 @@ function configureCors() {
                 return callback(null, true);
             }
 
-            // If no specific origins configured, allow all (development mode)
+            // If no specific origins configured, block in production, allow in development
             if (!allowedOrigins) {
                 if (process.env.NODE_ENV === 'production') {
-                    logger.warn('CORS: No ALLOWED_ORIGINS configured in production');
+                    logger.error('CORS: ALLOWED_ORIGINS must be configured in production - blocking request', { origin });
+                    return callback(new Error('CORS not configured for production'), false);
                 }
+                // Development mode - allow all origins with warning
+                logger.warn('CORS: Development mode - allowing all origins. Configure ALLOWED_ORIGINS for production.');
                 return callback(null, true);
             }
 
