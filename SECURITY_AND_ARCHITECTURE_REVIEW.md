@@ -424,6 +424,7 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 | ID | Severity | Issue | File | Status |
 |----|----------|-------|------|--------|
 | V001 | CRITICAL | CSP Disabled | middleware/security.js | **FIXED** |
+| V014 | MEDIUM | CSP blocks inline event handlers | middleware/security.js | **FIXED** |
 | V002 | HIGH | CORS allows all | middleware/security.js | **FIXED** |
 | V003 | HIGH | Legacy unencrypted tokens | utils/square-api.js | MITIGATED (auto-encrypts) |
 | V004 | MEDIUM | Stack traces exposed | server.js | **FIXED** |
@@ -469,6 +470,17 @@ Added `validateUploadedImage()` middleware applied to POD photo upload endpoints
 - `/api/test-backup-email`
 
 These endpoints are now only available in development mode.
+
+### V014: CSP Blocks Inline Event Handlers - **FIXED**
+**Location:** `middleware/security.js`
+**Issue:** Helmet's default CSP sets `script-src-attr: 'none'` which blocks `onclick` attributes even though `script-src` has `'unsafe-inline'`. This caused all 26 HTML files with inline event handlers to fail.
+**Fix Applied:** Added `scriptSrcAttr: ["'unsafe-inline'"]` to CSP directives to allow inline event handlers.
+**Note:** Long-term, converting onclick attributes to addEventListener would be more secure, but this fix restores functionality for the existing codebase.
+
+### V015: Deprecated Mobile Meta Tags - **FIXED**
+**Location:** `public/expiry-audit.html`, `public/cycle-count.html`
+**Issue:** Using deprecated `apple-mobile-web-app-capable` without the modern `mobile-web-app-capable` meta tag.
+**Fix Applied:** Added `<meta name="mobile-web-app-capable" content="yes">` alongside the existing Apple-specific tag.
 
 ### V012: No Input Validation (MEDIUM) - TODO
 **Location:** All routes
