@@ -3205,9 +3205,19 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
             logger.error('Failed to create customer group', {
                 status: response.status,
                 error: errText,
-                merchantId
+                merchantId,
+                groupName
             });
-            return { success: false, error: `Square API error: ${response.status}` };
+            // Parse Square error for better message
+            let errorDetail = `Square API error: ${response.status}`;
+            try {
+                const errJson = JSON.parse(errText);
+                if (errJson.errors?.[0]) {
+                    const err = errJson.errors[0];
+                    errorDetail = `${err.code}: ${err.detail || err.category}`;
+                }
+            } catch (e) { /* use default message */ }
+            return { success: false, error: errorDetail };
         }
 
         const data = await response.json();
