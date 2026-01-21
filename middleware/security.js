@@ -174,6 +174,37 @@ function configureDeliveryStrictRateLimit() {
 }
 
 /**
+ * Configure rate limiting for sensitive operations
+ * (token regeneration, API key creation, etc.)
+ * V006 fix: Prevents abuse of token generation endpoints
+ */
+function configureSensitiveOperationRateLimit() {
+    return rateLimit({
+        windowMs: 60 * 60 * 1000,  // 1 hour window
+        max: 5,  // 5 token regenerations per hour per user
+        message: {
+            error: 'Too many token regeneration attempts, please try again later',
+            code: 'TOKEN_REGEN_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Sensitive operation rate limit exceeded', {
+                ip: req.ip,
+                path: req.path,
+                userId: req.session?.user?.id,
+                merchantId: req.merchantContext?.id
+            });
+            res.status(429).json(options.message);
+        },
+        keyGenerator: (req) => {
+            // Key by merchant ID to prevent one merchant from regenerating too often
+            return req.merchantContext?.id ? `merchant-${req.merchantContext.id}` : req.ip;
+        }
+    });
+}
+
+/**
  * Configure CORS
  */
 function configureCors() {
@@ -242,6 +273,7 @@ module.exports = {
     configureLoginRateLimit,
     configureDeliveryRateLimit,
     configureDeliveryStrictRateLimit,
+    configureSensitiveOperationRateLimit,
     configureCors,
     corsErrorHandler
 };
