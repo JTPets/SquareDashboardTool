@@ -43,11 +43,9 @@ function configureHelmet() {
                     // Cloudflare analytics beacons
                     "https://*.cloudflareinsights.com"
                 ],
-                frameSrc: [
-                    "'none'",
-                    // Cloudflare challenge iframes (CAPTCHA, etc.)
-                    "https://challenges.cloudflare.com"
-                ],
+                // Allow Cloudflare challenge iframes (CAPTCHA, etc.)
+                // Note: 'none' cannot be combined with other values in CSP
+                frameSrc: ["'self'", "https://challenges.cloudflare.com"],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
