@@ -3411,14 +3411,51 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const merchantResult = await db.query('SELECT currency FROM merchants WHERE id = $1', [merchantId]);
         const currency = merchantResult.rows[0]?.currency || 'USD';
 
-        // Get max price from LOCAL DATABASE - cap discount at most expensive item in the offer
-        // This ensures customer gets 1 free item worth up to the most expensive qualifying item
-        // Using local variations table instead of Square API call for efficiency
+        // Get max price from CUSTOMER'S ACTUAL PURCHASES - cap discount at highest price they paid
+        // This ensures the free item value matches what the customer actually bought, not what's possible in the offer
         let maxPriceCents = 0;
-        let priceSource = 'local_db';
+        let priceSource = 'purchase_history';
         try {
-            if (variationIds.length > 0) {
-                // Query local variations table for max price
+            // First get the reward's customer and offer info
+            const rewardResult = await db.query(`
+                SELECT square_customer_id, offer_id
+                FROM loyalty_rewards
+                WHERE id = $1 AND merchant_id = $2
+            `, [internalRewardId, merchantId]);
+
+            if (rewardResult.rows.length > 0) {
+                const { square_customer_id, offer_id } = rewardResult.rows[0];
+
+                // Query the customer's purchase history for this offer to find max price they paid
+                const priceResult = await db.query(`
+                    SELECT MAX(unit_price_cents) as max_price
+                    FROM loyalty_purchase_events
+                    WHERE merchant_id = $1
+                      AND square_customer_id = $2
+                      AND offer_id = $3
+                      AND unit_price_cents IS NOT NULL
+                      AND unit_price_cents > 0
+                `, [merchantId, square_customer_id, offer_id]);
+
+                if (priceResult.rows[0]?.max_price) {
+                    maxPriceCents = parseInt(priceResult.rows[0].max_price);
+                    logger.info('Using max price from customer purchase history for discount cap', {
+                        internalRewardId,
+                        squareCustomerId: square_customer_id,
+                        offerId: offer_id,
+                        maxPriceCents,
+                        source: 'purchase_history'
+                    });
+                }
+            }
+        } catch (dbErr) {
+            logger.warn('Could not fetch prices from purchase history for discount cap', { error: dbErr.message });
+        }
+
+        // Fallback: if no purchase history, use max price from offer variations
+        if (maxPriceCents === 0 && variationIds.length > 0) {
+            priceSource = 'offer_variations_fallback';
+            try {
                 const placeholders = variationIds.map((_, i) => `$${i + 1}`).join(',');
                 const priceResult = await db.query(`
                     SELECT MAX(price_money) as max_price
@@ -3431,29 +3468,29 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
 
                 if (priceResult.rows[0]?.max_price) {
                     maxPriceCents = parseInt(priceResult.rows[0].max_price);
-                    logger.info('Using max price from local DB for discount cap', {
+                    logger.warn('Using offer variation max price as fallback (no purchase history)', {
                         internalRewardId,
-                        maxPriceCents,
-                        itemCount: variationIds.length,
-                        source: 'local_variations_table'
+                        maxPriceCents
                     });
                 }
+            } catch (dbErr) {
+                logger.warn('Could not fetch fallback prices from variations', { error: dbErr.message });
             }
-        } catch (dbErr) {
-            logger.warn('Could not fetch prices from local DB for discount cap', { error: dbErr.message });
         }
 
-        // Default to $50 if we couldn't determine max price from local DB
+        // Final fallback: $50 if we couldn't determine max price
         if (maxPriceCents === 0) {
             maxPriceCents = 5000; // $50.00
             priceSource = 'default_fallback';
-            logger.warn('Using default $50 discount cap - no price data in local DB', { internalRewardId });
+            logger.warn('Using default $50 discount cap - no price data available', { internalRewardId });
         }
 
-        logger.info('Creating reward discount - 1 FREE item (most expensive gets discount)', {
+        logger.info('Creating reward discount - 1 FREE item capped at customer purchase price', {
             merchantId,
             internalRewardId,
             currency,
+            maxPriceCents,
+            priceSource,
             offerVariationCount: variationIds.length
         });
 
