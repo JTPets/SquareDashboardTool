@@ -11777,7 +11777,7 @@ app.post('/api/driver/:token/orders/:orderId/skip', async (req, res) => {
  * POST /api/driver/:token/orders/:orderId/pod
  * PUBLIC: Upload POD photo (contract driver)
  */
-app.post('/api/driver/:token/orders/:orderId/pod', upload.single('photo'), async (req, res) => {
+app.post('/api/driver/:token/orders/:orderId/pod', podUpload.single('photo'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No photo uploaded' });
