@@ -19,19 +19,35 @@ function configureHelmet() {
     return helmet({
         // Content Security Policy - permissive but still provides protection
         // Allows inline scripts/styles for compatibility but blocks external malicious sources
+        // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],  // Required for inline handlers
+                scriptSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "'unsafe-eval'",
+                    // Cloudflare scripts (Rocket Loader, Analytics, Challenge pages)
+                    "https://*.cloudflare.com",
+                    "https://*.cloudflareinsights.com",
+                    "https://ajax.cloudflare.com",
+                    "https://static.cloudflareinsights.com"
+                ],
                 styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
                 fontSrc: ["'self'", "https://fonts.gstatic.com"],
                 imgSrc: ["'self'", "data:", "https:", "blob:"],  // Allow images from HTTPS sources
                 connectSrc: [
                     "'self'",
                     "https://connect.squareup.com",
-                    "https://connect.squareupsandbox.com"
+                    "https://connect.squareupsandbox.com",
+                    // Cloudflare analytics beacons
+                    "https://*.cloudflareinsights.com"
                 ],
-                frameSrc: ["'none'"],
+                frameSrc: [
+                    "'none'",
+                    // Cloudflare challenge iframes (CAPTCHA, etc.)
+                    "https://challenges.cloudflare.com"
+                ],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
