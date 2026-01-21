@@ -36,6 +36,7 @@ const REQUIRED_SCOPES = [
     'INVENTORY_READ',
     'INVENTORY_WRITE',
     'ORDERS_READ',
+    'ORDERS_WRITE',     // Required for delivery driver view to update fulfillment status
     'VENDOR_READ',
     'LOYALTY_READ',
     'CUSTOMERS_READ',
