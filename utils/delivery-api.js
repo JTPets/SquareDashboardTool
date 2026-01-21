@@ -217,6 +217,8 @@ async function getOrders(merchantId, options = {}) {
         status = null,
         routeDate = null,
         routeId = null,
+        dateFrom = null,
+        dateTo = null,
         includeCompleted = false,
         limit = 100,
         offset = 0
@@ -259,7 +261,18 @@ async function getOrders(merchantId, options = {}) {
         query += ` AND dord.route_id = $${params.length}`;
     }
 
-    query += ` ORDER BY dord.route_position NULLS LAST, dord.created_at ASC`;
+    // Date range filtering (for history queries)
+    if (dateFrom) {
+        params.push(dateFrom);
+        query += ` AND dord.updated_at >= $${params.length}::date`;
+    }
+
+    if (dateTo) {
+        params.push(dateTo);
+        query += ` AND dord.updated_at < ($${params.length}::date + interval '1 day')`;
+    }
+
+    query += ` ORDER BY dord.updated_at DESC, dord.route_position NULLS LAST`;
     query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
