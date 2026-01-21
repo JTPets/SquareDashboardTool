@@ -2400,11 +2400,13 @@
           html += '<ul style="margin: 10px 0 0 20px; padding: 0;">';
           result.issues.forEach(issue => {
             const wasFixed = fixIssues && result.fixed.some(f => f.rewardId === issue.rewardId);
+            const fixError = issue.details?.fixError;
             html += `
               <li style="margin-bottom: 8px; ${wasFixed ? 'text-decoration: line-through; color: #6b7280;' : ''}">
                 <strong>${escapeHtml(issue.offerName)}</strong>
                 <span style="color: #6b7280; font-size: 12px;"> - ${escapeHtml(issue.issue.replace(/_/g, ' '))}</span>
                 ${wasFixed ? '<span style="color: #10b981; font-size: 12px;"> (Fixed)</span>' : ''}
+                ${fixError ? `<br><small style="color: #dc2626;">Fix failed: ${escapeHtml(fixError)}</small>` : ''}
                 <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${new Date(issue.earnedAt).toLocaleDateString()}</small>
               </li>
             `;
