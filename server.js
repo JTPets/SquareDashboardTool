@@ -586,7 +586,9 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
             return res.json({ logs: [], count: 0, message: 'No logs for today yet' });
         }
 
-        const lines = content.trim().split('\n').slice(-limit);
+        // limit=0 means all logs, otherwise take last N lines
+        const allLines = content.trim().split('\n');
+        const lines = limit === 0 ? allLines : allLines.slice(-limit);
         const logs = lines.map(line => {
             try {
                 return JSON.parse(line);
@@ -595,7 +597,7 @@ app.get('/api/logs', requireAdmin, async (req, res) => {
             }
         });
 
-        res.json({ logs, count: logs.length });
+        res.json({ logs, count: logs.length, total: allLines.length });
 
     } catch (error) {
         logger.error('Failed to read logs', { error: error.message, stack: error.stack });
