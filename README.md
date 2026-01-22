@@ -77,28 +77,31 @@ A comprehensive multi-tenant inventory management SaaS for Square POS merchants.
 | `set-password.html` | Password reset flow |
 | `support.html` | Support contact page |
 
-## API Endpoints (131 Total)
+## API Endpoints (238 Total)
 
-All API endpoints require authentication. Key endpoint groups:
+All API endpoints require authentication. Endpoints are organized into 20 route files:
 
-| Group | Endpoints | Description |
-|-------|-----------|-------------|
-| `/api/auth/*` | 5 | Login, logout, password reset |
+| Route File | Endpoints | Description |
+|------------|-----------|-------------|
+| `/api/auth/*` | 12 | Authentication, password reset, user management |
+| `/api/square/oauth/*` | 4 | Square OAuth flow |
+| `/api/google/oauth/*` | 4 | Google OAuth flow |
+| `/api/driver/*` | 8 | Public driver API |
 | `/api/merchants/*` | 4 | Switch merchants, context |
-| `/api/sync/*` | 5 | Full sync, smart sync, status |
-| `/api/items/*` | 3 | Catalog items |
-| `/api/variations/*` | 8 | Variations, costs, extended fields |
-| `/api/inventory/*` | 4 | Inventory counts, updates |
-| `/api/reorder-suggestions` | 1 | Priority reorder list |
-| `/api/purchase-orders/*` | 8 | PO CRUD, submit, receive |
-| `/api/expirations/*` | 5 | Expiry dates, review status |
-| `/api/expiry-discounts/*` | 10 | Discount tiers, automation |
-| `/api/vendors/*` | 7 | Vendor management |
-| `/api/vendor-catalog/*` | 8 | Import, search, match |
-| `/api/cycle-count/*` | 10 | Count queues, sessions |
-| `/api/gmc/*` | 12 | GMC feeds, Google Sheets |
-| `/api/webhooks/*` | 2 | Square webhook receiver |
-| `/api/users/*` | 6 | User management (admin) |
+| `/api/settings/*` | 3 | Merchant settings |
+| `/api/sync/*` | 6 | Full sync, smart sync, status |
+| `/api/catalog/*` | 16 | Catalog/inventory operations |
+| `/api/analytics/*` | 5 | Sales/reorder analytics |
+| `/api/purchase-orders/*` | 9 | PO CRUD, submit, receive |
+| `/api/subscriptions/*` | 11 | Subscription management |
+| `/api/loyalty/*` | 40 | Loyalty rewards program |
+| `/api/delivery/*` | 23 | Delivery management |
+| `/api/gmc/*` | 32 | GMC feeds, Google Sheets |
+| `/api/webhooks/*` | 8 | Webhook management |
+| `/api/expiry-discounts/*` | 13 | Discount tiers, automation |
+| `/api/vendor-catalog/*` | 13 | Import, search, match |
+| `/api/cycle-count/*` | 9 | Count queues, sessions |
+| `/api/square-attributes/*` | 9 | Square custom attributes |
 | `/api/logs/*` | 4 | Log viewer (admin) |
 
 ## Quick Start
@@ -242,18 +245,27 @@ SquareDashboardTool/
 ├── middleware/
 │   ├── auth.js                 # Authentication middleware
 │   ├── merchant.js             # Multi-tenant middleware
-│   └── security.js             # Security headers, rate limiting
-├── routes/
-│   └── square-oauth.js         # OAuth flow handlers
+│   ├── security.js             # Security headers, rate limiting
+│   └── validators/             # Input validation (19 files)
+├── routes/                     # 20 route files (233 endpoints)
+│   ├── auth.js                 # Authentication routes
+│   ├── square-oauth.js         # Square OAuth flow
+│   ├── google-oauth.js         # Google OAuth flow
+│   ├── loyalty.js              # Loyalty program (40 endpoints)
+│   ├── delivery.js             # Delivery management
+│   ├── gmc.js                  # Google Merchant Center
+│   └── ...                     # Additional route files
+├── services/
+│   └── loyalty/                # Modular loyalty service layer
+│       ├── purchase-service.js # Purchase tracking
+│       ├── reward-service.js   # Reward state machine
+│       └── ...                 # Additional services
 ├── utils/
 │   ├── database.js             # Database connection pool
 │   ├── square-api.js           # Square API integration
-│   ├── merchant-db.js          # Tenant-isolated DB wrapper
+│   ├── loyalty-service.js      # Core loyalty logic
 │   ├── token-encryption.js     # AES-256-GCM encryption
 │   ├── expiry-discount.js      # Discount automation
-│   ├── gmc-feed.js             # Google Merchant Center
-│   ├── vendor-catalog.js       # Vendor import
-│   ├── google-sheets.js        # Sheets API integration
 │   └── logger.js               # Winston logging
 ├── public/                     # 23 HTML pages
 ├── scripts/
@@ -263,7 +275,7 @@ SquareDashboardTool/
 │   ├── logs/                   # Application logs
 │   ├── feeds/                  # GMC feed files
 │   └── temp/                   # Temporary files
-├── server.js                   # Main Express server (131 endpoints)
+├── server.js                   # Main Express server (5 endpoints remaining)
 ├── ecosystem.config.js         # PM2 configuration
 └── .env.example                # Environment template
 ```
