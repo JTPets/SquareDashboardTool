@@ -139,9 +139,9 @@ Coverage: Security utilities + access control middleware
 | `routes/gmc.js` | **DONE** | 32 endpoints | 1,169 |
 | `routes/delivery.js` | **DONE** | 23 endpoints | 1,251 |
 | `routes/webhooks.js` | **DONE** | 8 mgmt endpoints | 285 |
-| `routes/expiry-discounts.js` | TODO | 14 endpoints | - |
-| `routes/vendor-catalog.js` | TODO | 13 endpoints | - |
-| `routes/cycle-counts.js` | TODO | 9 endpoints | - |
+| `routes/expiry-discounts.js` | **DONE** | 13 endpoints | 491 |
+| `routes/vendor-catalog.js` | **DONE** | 13 endpoints | 537 |
+| `routes/cycle-counts.js` | **DONE** | 9 endpoints | 502 |
 | `routes/sync.js` | TODO | 6 endpoints | - |
 | `routes/catalog.js` | TODO | 8 endpoints | - |
 | `routes/square-attributes.js` | TODO | 8 endpoints | - |
@@ -150,8 +150,8 @@ Coverage: Security utilities + access control middleware
 | `routes/settings.js` | TODO | 3 endpoints | - |
 | `routes/logs.js` | TODO | 4 endpoints | - |
 
-**Extracted:** 9 route files (7,840 lines, 142 endpoints)
-**Remaining:** 89 endpoints in server.js (8,163 lines)
+**Extracted:** 12 route files (9,370 lines, 177 endpoints)
+**Remaining:** 54 endpoints in server.js (6,081 lines)
 
 **Recommended Split (with line ranges from server.js):**
 
@@ -284,7 +284,7 @@ exports.createOffer = [
 
 **Server.js Extraction Plan** - Prioritized by risk and complexity:
 
-#### Completed Extractions (142 endpoints, 7,840 lines)
+#### Completed Extractions (177 endpoints, 9,370 lines)
 | Route File | Endpoints | Risk Level | Status |
 |------------|-----------|------------|--------|
 | `routes/auth.js` | 12 | HIGH - Authentication | **DONE** |
@@ -296,6 +296,9 @@ exports.createOffer = [
 | `routes/gmc.js` | 32 | MEDIUM - Google integration | **DONE** |
 | `routes/delivery.js` | 23 | HIGH - Customer-facing, POD photos | **DONE** |
 | `routes/webhooks.js` | 8 | HIGH - Mgmt endpoints (Step 1) | **DONE** |
+| `routes/expiry-discounts.js` | 13 | MEDIUM - Financial calculations | **DONE** |
+| `routes/vendor-catalog.js` | 13 | MEDIUM - Import handling | **DONE** |
+| `routes/cycle-counts.js` | 9 | MEDIUM - Inventory updates | **DONE** |
 
 #### Priority 1: Webhook Processor (HIGH RISK) - REQUIRES SERVICE LAYER
 | Task | Description | Status |
@@ -552,19 +555,23 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 8. **V007 FIXED:** Test endpoints disabled in production
 
 **Phase 3 - In Progress:**
-1. **Split the monolith** - 62% complete
+1. **Split the monolith** - 77% complete
    - ✓ Extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc, delivery, webhooks (142 endpoints)
    - ✓ Webhook management (8 endpoints) - Step 1 complete
+   - ✓ Expiry-discounts (13 endpoints), vendor-catalog (13 endpoints), cycle-counts (9 endpoints) - **NEW**
    - → Next: webhook processor service layer refactor (Steps 2-4)
-   - → Then: expiry-discounts (14), vendor-catalog (13), cycle-counts (9)
-   - Remaining: 89 endpoints across ~10 more route files
-2. **Input validation** - 8 validator files created
-   - ✓ Validators for all extracted routes (including webhooks)
+   - → Then: sync (6), catalog (8), square-attributes (8), google-oauth (4)
+   - Remaining: 54 endpoints across ~7 more route files
+2. **Input validation** - 11 validator files created
+   - ✓ Validators for all extracted routes (including new expiry-discounts, vendor-catalog, cycle-counts)
    - → Add validators as routes are extracted
 3. **Service layer** - Planned for webhook handler
    - Create `services/webhookProcessor.js` for event routing
    - Create `services/orderEventService.js` for order/fulfillment events
    - Consolidate logic into existing services (loyalty, delivery, square-api)
+4. **Utilities created**
+   - ✓ `utils/image-utils.js` - Shared image URL resolution
+   - ✓ `utils/cycle-count-utils.js` - Cycle count helpers
 
 **Phase 4 - Future (when needed):**
 1. Redis for sessions and caching
@@ -640,7 +647,7 @@ These endpoints are now only available in development mode.
 ### V012: No Input Validation (MEDIUM) - IN PROGRESS
 **Location:** All routes
 **Risk:** Invalid data could cause errors or unexpected behavior
-**Progress:** 7 validator files created in `middleware/validators/`:
+**Progress:** 11 validator files created in `middleware/validators/`:
 - `index.js` - Common validators and utilities
 - `driver-api.js` - Driver API validators
 - `purchase-orders.js` - Purchase order validators
@@ -648,14 +655,17 @@ These endpoints are now only available in development mode.
 - `loyalty.js` - Loyalty program validators
 - `gmc.js` - Google Merchant Center validators
 - `delivery.js` - Delivery route validators
-- `webhooks.js` - Webhook management validators (NEW)
+- `webhooks.js` - Webhook management validators
+- `expiry-discounts.js` - Expiry discount validators (NEW)
+- `vendor-catalog.js` - Vendor catalog validators (NEW)
+- `cycle-counts.js` - Cycle count validators (NEW)
 
 **Remaining:** Add validators to routes as they are extracted from server.js
 
 ### V013: Monolithic Server File (HIGH) - IN PROGRESS
-**Location:** `server.js` (now 8,163 lines, 89 endpoints remaining)
+**Location:** `server.js` (now 6,081 lines, 54 endpoints remaining)
 **Risk:** Unmaintainable code, high merge conflict risk, difficult to test
-**Progress:** 9 route files extracted (7,840 lines, 142 endpoints):
+**Progress:** 12 route files extracted (9,370 lines, 177 endpoints):
 - `routes/auth.js` (12 endpoints)
 - `routes/square-oauth.js` (4 endpoints)
 - `routes/driver-api.js` (8 endpoints)
@@ -664,9 +674,12 @@ These endpoints are now only available in development mode.
 - `routes/loyalty.js` (35 endpoints)
 - `routes/gmc.js` (32 endpoints)
 - `routes/delivery.js` (23 endpoints)
-- `routes/webhooks.js` (8 mgmt endpoints) - NEW
+- `routes/webhooks.js` (8 mgmt endpoints)
+- `routes/expiry-discounts.js` (13 endpoints) - NEW
+- `routes/vendor-catalog.js` (13 endpoints) - NEW
+- `routes/cycle-counts.js` (9 endpoints) - NEW
 
-**Remaining:** Extract 89 endpoints across ~10 more route files + webhook processor service layer
+**Remaining:** Extract 54 endpoints across ~7 more route files + webhook processor service layer
 
 ---
 
@@ -692,24 +705,30 @@ middleware/validators/      # express-validator middleware
   ├── loyalty.js           # Loyalty program validators
   ├── gmc.js               # Google Merchant Center validators
   ├── delivery.js          # Delivery route validators
-  └── webhooks.js          # Webhook management validators
+  ├── webhooks.js          # Webhook management validators
+  ├── expiry-discounts.js  # Expiry discount validators
+  ├── vendor-catalog.js    # Vendor catalog validators
+  └── cycle-counts.js      # Cycle count validators
 utils/password.js           # Password hashing (49 tests)
 utils/token-encryption.js   # Token encryption (51 tests)
 utils/file-validation.js    # File upload validation (30 tests)
+utils/image-utils.js        # Shared image URL resolution
+utils/cycle-count-utils.js  # Cycle count batch generation and reporting
 ```
 
 ### Key Statistics
-- **Total Lines:** 8,163 in server.js (7,840 lines extracted to routes)
-- **Endpoints in server.js:** 89 remaining
-- **Extracted Routes:** 9 files with 142 endpoints
+- **Total Lines:** 6,081 in server.js (9,370 lines extracted to routes)
+- **Endpoints in server.js:** 54 remaining
+- **Extracted Routes:** 12 files with 177 endpoints
   - auth.js (12), square-oauth.js (4), driver-api.js (8), purchase-orders.js (9)
   - subscriptions.js (11), loyalty.js (35), gmc.js (32), delivery.js (23), webhooks.js (8)
+  - expiry-discounts.js (13), vendor-catalog.js (13), cycle-counts.js (9)
 - **Tests:** 194 passing
 - **npm Vulnerabilities:** 0
-- **Validators Created:** 8 files in middleware/validators/
+- **Validators Created:** 11 files in middleware/validators/
 - **Quick Wins Fixed:** V005, V006, V007
 
 ---
 
 *Document generated by security review on 2026-01-21*
-*Last updated: 2026-01-22 - Phase 3 in progress: 142 endpoints extracted (9 route files) with express-validator*
+*Last updated: 2026-01-22 - Phase 3 in progress: 177 endpoints extracted (12 route files) with express-validator*
