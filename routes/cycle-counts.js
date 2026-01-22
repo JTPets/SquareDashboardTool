@@ -28,7 +28,8 @@ const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
 const { batchResolveImageUrls } = require('../utils/image-utils');
 const { generateDailyBatch, sendCycleCountReport } = require('../utils/cycle-count-utils');
-const { requireAuth, requireMerchant } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
+const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/cycle-counts');
 
 /**

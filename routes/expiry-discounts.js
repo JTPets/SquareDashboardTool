@@ -31,7 +31,8 @@ const logger = require('../utils/logger');
 const expiryDiscount = require('../utils/expiry-discount');
 const emailNotifier = require('../utils/email-notifier');
 const { batchResolveImageUrls } = require('../utils/image-utils');
-const { requireAuth, requireMerchant, requireWriteAccess } = require('../middleware/auth');
+const { requireAuth, requireWriteAccess } = require('../middleware/auth');
+const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/expiry-discounts');
 
 /**
