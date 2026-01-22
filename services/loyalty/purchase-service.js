@@ -49,37 +49,13 @@ class LoyaltyPurchaseService {
       traceId,
     } = purchaseData;
 
-    // Check if this order+variation was already recorded (idempotency)
-    const existingResult = await db.query(`
-      SELECT id FROM loyalty_purchase_events
-      WHERE merchant_id = $1
-        AND square_order_id = $2
-        AND variation_id = $3
-    `, [this.merchantId, squareOrderId, variationId]);
-
-    if (existingResult.rows.length > 0) {
-      this.tracer?.span('PURCHASE_DUPLICATE', { squareOrderId, variationId });
-      loyaltyLogger.debug({
-        action: 'PURCHASE_ALREADY_RECORDED',
-        squareOrderId,
-        variationId,
-        existingId: existingResult.rows[0].id,
-        merchantId: this.merchantId,
-      });
-      return {
-        recorded: false,
-        reason: 'duplicate',
-        existingId: existingResult.rows[0].id,
-      };
-    }
-
     // Get offers for this variation
     const offersResult = await db.query(`
       SELECT
         lo.id as offer_id,
-        lo.name as offer_name,
+        lo.offer_name as offer_name,
         lo.required_quantity,
-        lo.time_window_days
+        lo.window_months
       FROM loyalty_offers lo
       INNER JOIN loyalty_qualifying_variations lqv ON lo.id = lqv.offer_id
       WHERE lo.merchant_id = $1
@@ -110,13 +86,46 @@ class LoyaltyPurchaseService {
       try {
         await client.query('BEGIN');
 
-        // Insert purchase event
+        // Generate idempotency key: order + variation + offer
+        const idempotencyKey = `${squareOrderId}:${variationId}:${offer.offer_id}`;
+
+        // Get existing window dates for this customer+offer, or calculate new ones
+        const existingWindowResult = await client.query(`
+          SELECT
+            MIN(window_start_date) as window_start,
+            MIN(window_end_date) as window_end
+          FROM loyalty_purchase_events
+          WHERE merchant_id = $1
+            AND offer_id = $2
+            AND square_customer_id = $3
+            AND reward_id IS NULL
+            AND quantity > 0
+        `, [this.merchantId, offer.offer_id, squareCustomerId]);
+
+        let windowStartDate, windowEndDate;
+        if (existingWindowResult.rows[0]?.window_start) {
+          // Use existing window dates
+          windowStartDate = existingWindowResult.rows[0].window_start;
+          windowEndDate = existingWindowResult.rows[0].window_end;
+        } else {
+          // First purchase for this customer+offer - calculate new window
+          const purchaseDate = new Date(purchasedAt);
+          windowStartDate = purchaseDate.toISOString().split('T')[0]; // DATE format
+          const endDate = new Date(purchaseDate);
+          endDate.setMonth(endDate.getMonth() + (offer.window_months || 12));
+          windowEndDate = endDate.toISOString().split('T')[0]; // DATE format
+        }
+
+        // Insert purchase event with atomic idempotency check using ON CONFLICT
+        // This prevents race conditions where duplicate webhooks could insert twice
         const insertResult = await client.query(`
           INSERT INTO loyalty_purchase_events
             (merchant_id, offer_id, square_customer_id, square_order_id,
              variation_id, quantity, unit_price_cents, total_price_cents,
-             purchased_at, trace_id, created_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+             purchased_at, trace_id, idempotency_key,
+             window_start_date, window_end_date, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+          ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
           RETURNING id
         `, [
           this.merchantId,
@@ -129,7 +138,34 @@ class LoyaltyPurchaseService {
           totalPriceCents,
           purchasedAt,
           traceId,
+          idempotencyKey,
+          windowStartDate,
+          windowEndDate,
         ]);
+
+        // If no rows returned, this was a duplicate
+        if (insertResult.rows.length === 0) {
+          await client.query('COMMIT');
+          client.release();
+
+          this.tracer?.span('PURCHASE_DUPLICATE', { squareOrderId, variationId, offerId: offer.offer_id });
+          loyaltyLogger.debug({
+            action: 'PURCHASE_ALREADY_RECORDED',
+            squareOrderId,
+            variationId,
+            offerId: offer.offer_id,
+            idempotencyKey,
+            merchantId: this.merchantId,
+          });
+
+          results.push({
+            recorded: false,
+            reason: 'duplicate',
+            offerId: offer.offer_id,
+            offerName: offer.offer_name,
+          });
+          continue;
+        }
 
         const purchaseEventId = insertResult.rows[0].id;
 
@@ -139,7 +175,7 @@ class LoyaltyPurchaseService {
           squareCustomerId,
           offer.offer_id,
           offer.required_quantity,
-          offer.time_window_days,
+          offer.window_months,
           traceId
         );
 
@@ -191,8 +227,11 @@ class LoyaltyPurchaseService {
       }
     }
 
+    // Check if any purchases were actually recorded (not all duplicates)
+    const anyRecorded = results.some(r => r.recorded);
+
     return {
-      recorded: true,
+      recorded: anyRecorded,
       results,
     };
   }
@@ -201,11 +240,53 @@ class LoyaltyPurchaseService {
    * Update reward progress for a customer on an offer
    * @private
    */
-  async updateRewardProgress(client, squareCustomerId, offerId, requiredQuantity, timeWindowDays, traceId) {
-    // Calculate current progress within time window
-    const windowStart = new Date();
-    windowStart.setDate(windowStart.getDate() - (timeWindowDays || 365));
+  async updateRewardProgress(client, squareCustomerId, offerId, requiredQuantity, windowMonths, traceId) {
+    // Get the window start date from the customer's first unlocked purchase (rolling window)
+    // The window is anchored to the FIRST qualifying purchase, not the current date
+    const windowResult = await client.query(`
+      SELECT
+        MIN(purchased_at) as window_start,
+        MIN(purchased_at) + INTERVAL '1 month' * $4 as window_end
+      FROM loyalty_purchase_events
+      WHERE merchant_id = $1
+        AND offer_id = $2
+        AND square_customer_id = $3
+        AND reward_id IS NULL
+        AND quantity > 0
+    `, [this.merchantId, offerId, squareCustomerId, windowMonths || 12]);
 
+    const windowStart = windowResult.rows[0]?.window_start;
+    const windowEnd = windowResult.rows[0]?.window_end;
+
+    // If no unlocked purchases exist, there's no progress yet (this purchase is the first)
+    // Progress will be calculated on next call after this purchase is committed
+    if (!windowStart) {
+      return {
+        currentProgress: 0,
+        requiredQuantity,
+        rewardEarned: false,
+        windowMonths: windowMonths,
+        windowStart: null,
+        windowEnd: null,
+      };
+    }
+
+    // Check if window has expired (current date is past window end)
+    const now = new Date();
+    if (windowEnd && now > new Date(windowEnd)) {
+      // Window expired - need to expire old purchases and recalculate
+      // For now, we'll still count all unlocked purchases and let the business decide
+      loyaltyLogger.debug({
+        action: 'WINDOW_EXPIRED_CHECK',
+        squareCustomerId,
+        offerId,
+        windowStart,
+        windowEnd,
+        merchantId: this.merchantId,
+      });
+    }
+
+    // Count all unlocked purchases within the valid window
     const progressResult = await client.query(`
       SELECT COALESCE(SUM(quantity), 0) as total_quantity
       FROM loyalty_purchase_events
@@ -213,9 +294,10 @@ class LoyaltyPurchaseService {
         AND offer_id = $2
         AND square_customer_id = $3
         AND purchased_at >= $4
+        AND purchased_at < $5
         AND quantity > 0
-        AND locked_to_reward_id IS NULL
-    `, [this.merchantId, offerId, squareCustomerId, windowStart.toISOString()]);
+        AND reward_id IS NULL
+    `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
     const currentProgress = parseInt(progressResult.rows[0].total_quantity) || 0;
 
@@ -238,15 +320,34 @@ class LoyaltyPurchaseService {
       currentProgress,
       requiredQuantity,
       rewardEarned,
-      windowDays: timeWindowDays,
+      windowMonths: windowMonths,
+      windowStart: windowStart,
+      windowEnd: windowEnd,
     };
   }
 
   /**
    * Create or update reward when threshold is reached
+   * Also handles locking purchases to the reward and rollover of excess purchases
    * @private
    */
   async createOrUpdateReward(client, squareCustomerId, offerId, currentProgress, requiredQuantity, traceId) {
+    // Get window dates from purchases for the reward record
+    const windowDates = await client.query(`
+      SELECT
+        MIN(window_start_date) as window_start,
+        MIN(window_end_date) as window_end
+      FROM loyalty_purchase_events
+      WHERE merchant_id = $1
+        AND offer_id = $2
+        AND square_customer_id = $3
+        AND reward_id IS NULL
+        AND quantity > 0
+    `, [this.merchantId, offerId, squareCustomerId]);
+
+    const windowStart = windowDates.rows[0]?.window_start || new Date().toISOString().split('T')[0];
+    const windowEnd = windowDates.rows[0]?.window_end || new Date().toISOString().split('T')[0];
+
     // Check for existing in_progress reward
     const existingResult = await client.query(`
       SELECT id, status FROM loyalty_rewards
@@ -257,71 +358,123 @@ class LoyaltyPurchaseService {
       FOR UPDATE
     `, [this.merchantId, offerId, squareCustomerId]);
 
+    let rewardId;
+
     if (existingResult.rows.length > 0) {
       // Update existing reward to earned
+      rewardId = existingResult.rows[0].id;
       await client.query(`
         UPDATE loyalty_rewards
         SET status = 'earned',
+            current_quantity = $1,
             earned_at = NOW(),
-            progress_quantity = $1,
-            trace_id = $2,
             updated_at = NOW()
-        WHERE id = $3
-      `, [currentProgress, traceId, existingResult.rows[0].id]);
+        WHERE id = $2
+      `, [requiredQuantity, rewardId]);
 
-      this.tracer?.span('REWARD_EARNED', { rewardId: existingResult.rows[0].id });
+      this.tracer?.span('REWARD_EARNED', { rewardId });
 
       loyaltyLogger.reward({
         action: 'REWARD_EARNED',
-        rewardId: existingResult.rows[0].id,
+        rewardId,
         offerId,
         squareCustomerId,
         progress: currentProgress,
         required: requiredQuantity,
         merchantId: this.merchantId,
       });
+    } else {
+      // Check if there's already an unredeemed earned reward
+      const earnedCheck = await client.query(`
+        SELECT id FROM loyalty_rewards
+        WHERE merchant_id = $1
+          AND offer_id = $2
+          AND square_customer_id = $3
+          AND status = 'earned'
+          AND redeemed_at IS NULL
+      `, [this.merchantId, offerId, squareCustomerId]);
 
-      return existingResult.rows[0].id;
+      if (earnedCheck.rows.length > 0) {
+        // Already has an unredeemed earned reward, don't create another
+        return earnedCheck.rows[0].id;
+      }
+
+      // Create new earned reward with required schema fields
+      const newRewardResult = await client.query(`
+        INSERT INTO loyalty_rewards
+          (merchant_id, offer_id, square_customer_id, status,
+           current_quantity, required_quantity, window_start_date, window_end_date,
+           earned_at, created_at, updated_at)
+        VALUES ($1, $2, $3, 'earned', $4, $5, $6, $7, NOW(), NOW(), NOW())
+        RETURNING id
+      `, [this.merchantId, offerId, squareCustomerId, requiredQuantity, requiredQuantity, windowStart, windowEnd]);
+
+      rewardId = newRewardResult.rows[0].id;
+
+      this.tracer?.span('REWARD_CREATED', { rewardId, status: 'earned' });
+
+      loyaltyLogger.reward({
+        action: 'REWARD_CREATED',
+        rewardId,
+        offerId,
+        squareCustomerId,
+        status: 'earned',
+        progress: currentProgress,
+        merchantId: this.merchantId,
+      });
     }
 
-    // Create new reward in earned status (if no existing in_progress)
-    // First check if there's already an earned reward
-    const earnedCheck = await client.query(`
-      SELECT id FROM loyalty_rewards
+    // Lock exactly required_quantity purchases to this reward (oldest first)
+    // This ensures excess purchases remain unlocked for the next reward cycle
+    await client.query(`
+      UPDATE loyalty_purchase_events
+      SET reward_id = $1, updated_at = NOW()
+      WHERE id IN (
+        SELECT id FROM loyalty_purchase_events
+        WHERE merchant_id = $2
+          AND offer_id = $3
+          AND square_customer_id = $4
+          AND reward_id IS NULL
+          AND quantity > 0
+        ORDER BY purchased_at ASC
+        LIMIT $5
+      )
+    `, [rewardId, this.merchantId, offerId, squareCustomerId, requiredQuantity]);
+
+    this.tracer?.span('PURCHASES_LOCKED', {
+      rewardId,
+      lockedCount: requiredQuantity,
+    });
+
+    // Check if there are remaining unlocked purchases (rollover to next cycle)
+    const remainingResult = await client.query(`
+      SELECT COUNT(*) as remaining_count, SUM(quantity) as remaining_qty
+      FROM loyalty_purchase_events
       WHERE merchant_id = $1
         AND offer_id = $2
         AND square_customer_id = $3
-        AND status = 'earned'
-        AND redeemed_at IS NULL
+        AND reward_id IS NULL
+        AND quantity > 0
     `, [this.merchantId, offerId, squareCustomerId]);
 
-    if (earnedCheck.rows.length > 0) {
-      // Already has an unredeemed earned reward, don't create another
-      return earnedCheck.rows[0].id;
+    const remainingCount = parseInt(remainingResult.rows[0].remaining_count) || 0;
+    const remainingQty = parseInt(remainingResult.rows[0].remaining_qty) || 0;
+
+    if (remainingCount > 0) {
+      loyaltyLogger.debug({
+        action: 'PURCHASES_ROLLOVER',
+        offerId,
+        squareCustomerId,
+        remainingPurchases: remainingCount,
+        remainingQuantity: remainingQty,
+        merchantId: this.merchantId,
+      });
+
+      this.tracer?.span('PURCHASES_ROLLOVER', {
+        remainingCount,
+        remainingQty,
+      });
     }
-
-    // Create new earned reward
-    const newRewardResult = await client.query(`
-      INSERT INTO loyalty_rewards
-        (merchant_id, offer_id, square_customer_id, status,
-         progress_quantity, earned_at, trace_id, created_at, updated_at)
-      VALUES ($1, $2, $3, 'earned', $4, NOW(), $5, NOW(), NOW())
-      RETURNING id
-    `, [this.merchantId, offerId, squareCustomerId, currentProgress, traceId]);
-
-    const rewardId = newRewardResult.rows[0].id;
-
-    this.tracer?.span('REWARD_CREATED', { rewardId, status: 'earned' });
-
-    loyaltyLogger.reward({
-      action: 'REWARD_CREATED',
-      rewardId,
-      offerId,
-      squareCustomerId,
-      status: 'earned',
-      progress: currentProgress,
-      merchantId: this.merchantId,
-    });
 
     return rewardId;
   }
@@ -384,7 +537,7 @@ class LoyaltyPurchaseService {
     try {
       // Get offer details
       const offerResult = await db.query(`
-        SELECT required_quantity, time_window_days
+        SELECT required_quantity, window_months
         FROM loyalty_offers
         WHERE id = $1 AND merchant_id = $2
       `, [offerId, this.merchantId]);
@@ -393,13 +546,38 @@ class LoyaltyPurchaseService {
         return null;
       }
 
-      const { required_quantity, time_window_days } = offerResult.rows[0];
+      const { required_quantity, window_months } = offerResult.rows[0];
 
-      // Calculate window start
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - (time_window_days || 365));
+      // Get the window dates from the customer's first unlocked purchase (rolling window)
+      const windowResult = await db.query(`
+        SELECT
+          MIN(window_start_date) as window_start,
+          MIN(window_end_date) as window_end
+        FROM loyalty_purchase_events
+        WHERE merchant_id = $1
+          AND offer_id = $2
+          AND square_customer_id = $3
+          AND reward_id IS NULL
+          AND quantity > 0
+      `, [this.merchantId, offerId, squareCustomerId]);
 
-      // Get current progress
+      const windowStart = windowResult.rows[0]?.window_start;
+      const windowEnd = windowResult.rows[0]?.window_end;
+
+      // If no unlocked purchases exist, no progress
+      if (!windowStart) {
+        return {
+          currentProgress: 0,
+          requiredQuantity: required_quantity,
+          remaining: required_quantity,
+          percentComplete: 0,
+          windowStart: null,
+          windowEnd: null,
+          windowMonths: window_months,
+        };
+      }
+
+      // Get current progress within the window
       const progressResult = await db.query(`
         SELECT COALESCE(SUM(quantity), 0) as total_quantity
         FROM loyalty_purchase_events
@@ -407,9 +585,10 @@ class LoyaltyPurchaseService {
           AND offer_id = $2
           AND square_customer_id = $3
           AND purchased_at >= $4
+          AND purchased_at < $5
           AND quantity > 0
-          AND locked_to_reward_id IS NULL
-      `, [this.merchantId, offerId, squareCustomerId, windowStart.toISOString()]);
+          AND reward_id IS NULL
+      `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
       const currentProgress = parseInt(progressResult.rows[0].total_quantity) || 0;
 
@@ -418,8 +597,9 @@ class LoyaltyPurchaseService {
         requiredQuantity: required_quantity,
         remaining: Math.max(0, required_quantity - currentProgress),
         percentComplete: Math.min(100, Math.round((currentProgress / required_quantity) * 100)),
-        windowStart: windowStart.toISOString(),
-        windowDays: time_window_days,
+        windowStart: windowStart,
+        windowEnd: windowEnd,
+        windowMonths: window_months,
       };
     } catch (error) {
       loyaltyLogger.error({

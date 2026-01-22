@@ -116,7 +116,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Buy 5 Get 1 Free',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 
@@ -151,7 +151,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Test Offer',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 
@@ -180,7 +180,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Test Offer',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 
@@ -207,7 +207,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Buy 5 Get 1 Free',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 
@@ -233,8 +233,8 @@ describe('LoyaltyPurchaseService', () => {
       db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [
-          { offer_id: 10, offer_name: 'Offer 1', required_quantity: 5, time_window_days: 365 },
-          { offer_id: 20, offer_name: 'Offer 2', required_quantity: 10, time_window_days: 30 },
+          { offer_id: 10, offer_name: 'Offer 1', required_quantity: 5, window_months: 12 },
+          { offer_id: 20, offer_name: 'Offer 2', required_quantity: 10, window_months: 6 },
         ],
       });
 
@@ -335,7 +335,7 @@ describe('LoyaltyPurchaseService', () => {
     test('returns progress information', async () => {
       // Offer query
       db.query.mockResolvedValueOnce({
-        rows: [{ required_quantity: 5, time_window_days: 30 }],
+        rows: [{ required_quantity: 5, window_months: 6 }],
       });
       // Progress query
       db.query.mockResolvedValueOnce({
@@ -350,7 +350,7 @@ describe('LoyaltyPurchaseService', () => {
         remaining: 2,
         percentComplete: 60,
         windowStart: expect.any(String),
-        windowDays: 30,
+        windowMonths: 30,
       });
     });
 
@@ -364,7 +364,7 @@ describe('LoyaltyPurchaseService', () => {
 
     test('handles progress exceeding requirement', async () => {
       db.query.mockResolvedValueOnce({
-        rows: [{ required_quantity: 5, time_window_days: 365 }],
+        rows: [{ required_quantity: 5, window_months: 12 }],
       });
       db.query.mockResolvedValueOnce({
         rows: [{ total_quantity: '7' }],
@@ -377,9 +377,9 @@ describe('LoyaltyPurchaseService', () => {
       expect(result.percentComplete).toBe(100); // Capped at 100
     });
 
-    test('defaults time_window_days to 365 when null', async () => {
+    test('defaults window_months to 12 when null', async () => {
       db.query.mockResolvedValueOnce({
-        rows: [{ required_quantity: 5, time_window_days: null }],
+        rows: [{ required_quantity: 5, window_months: null }],
       });
       db.query.mockResolvedValueOnce({
         rows: [{ total_quantity: '2' }],
@@ -387,7 +387,7 @@ describe('LoyaltyPurchaseService', () => {
 
       const result = await service.getCurrentProgress('cust-123', 10);
 
-      expect(result.windowDays).toBeNull();
+      expect(result.windowMonths).toBeNull();
       // Verify query used 365 default for window calculation
       const progressQuery = db.query.mock.calls[1];
       expect(progressQuery[0]).toContain('purchased_at >= $4');
@@ -415,7 +415,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Test',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 
@@ -454,7 +454,7 @@ describe('LoyaltyPurchaseService', () => {
           offer_id: 10,
           offer_name: 'Test',
           required_quantity: 5,
-          time_window_days: 365,
+          window_months: 12,
         }],
       });
 

@@ -232,8 +232,21 @@ class LoyaltyWebhookService {
    * @private
    */
   async processLineItem(lineItem, order, customerId, qualifyingVariationIds, traceId) {
+    // Prefer catalog_object_id (Square's standard field for catalog items)
+    // Fall back to variation_id only if catalog_object_id is not available
     const variationId = lineItem.catalog_object_id || lineItem.variation_id;
     const quantity = parseInt(lineItem.quantity) || 0;
+
+    // Log if we had to use fallback (might indicate API version mismatch)
+    if (!lineItem.catalog_object_id && lineItem.variation_id) {
+      loyaltyLogger.debug({
+        action: 'VARIATION_ID_FALLBACK',
+        lineItemUid: lineItem.uid,
+        variationId: lineItem.variation_id,
+        orderId: order.id,
+        merchantId: this.merchantId,
+      });
+    }
 
     // Skip if no variation ID
     if (!variationId) {
@@ -264,30 +277,55 @@ class LoyaltyWebhookService {
       };
     }
 
-    // Skip if price is 0 (likely a free item / reward)
+    // Check if this is a loyalty redemption (should not count toward progress)
+    // Only skip $0 items if they have a loyalty-related discount applied
     const totalMoney = lineItem.total_money?.amount || 0;
     if (totalMoney <= 0) {
-      this.tracer.span('LINE_ITEM_SKIP_FREE', {
-        variationId,
-        name: lineItem.name,
+      // Check if any applied discount is from our loyalty system
+      const hasLoyaltyDiscount = lineItem.applied_discounts?.some(discount => {
+        const discountName = (discount.name || '').toLowerCase();
+        return discountName.includes('loyalty') ||
+               discountName.includes('reward') ||
+               discountName.includes('free item') ||
+               discountName.includes('frequent buyer');
       });
 
+      if (hasLoyaltyDiscount) {
+        // This is a loyalty redemption - don't count it
+        this.tracer.span('LINE_ITEM_SKIP_LOYALTY_REDEMPTION', {
+          variationId,
+          name: lineItem.name,
+        });
+
+        loyaltyLogger.debug({
+          action: 'LINE_ITEM_EVALUATION',
+          decision: 'SKIP_LOYALTY_REDEMPTION',
+          variationId,
+          itemName: lineItem.name,
+          orderId: order.id,
+          merchantId: this.merchantId,
+        });
+
+        return {
+          lineItemUid: lineItem.uid,
+          variationId,
+          name: lineItem.name,
+          qualifying: false,
+          reason: 'loyalty_redemption',
+        };
+      }
+
+      // $0 item but NOT a loyalty redemption (e.g., promotional discount)
+      // Continue processing - this item should still count for loyalty progress
       loyaltyLogger.debug({
         action: 'LINE_ITEM_EVALUATION',
-        decision: 'SKIP_FREE',
+        decision: 'ZERO_PRICE_NOT_LOYALTY',
         variationId,
         itemName: lineItem.name,
+        appliedDiscounts: lineItem.applied_discounts?.map(d => d.name),
         orderId: order.id,
         merchantId: this.merchantId,
       });
-
-      return {
-        lineItemUid: lineItem.uid,
-        variationId,
-        name: lineItem.name,
-        qualifying: false,
-        reason: 'free_item',
-      };
     }
 
     // Check if variation qualifies
