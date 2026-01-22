@@ -16,6 +16,24 @@ const {
     validateOptionalPositiveInt
 } = require('./index');
 
+// Helper to validate positive integer (handles both string and number types from JSON)
+const isPositiveInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 1) {
+        throw new Error(`${fieldName} must be a positive integer`);
+    }
+    return true;
+};
+
+// Helper to validate non-negative integer
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
 // ==================== ROUTE-SPECIFIC VALIDATORS ====================
 
 /**
@@ -24,23 +42,23 @@ const {
  */
 const createPurchaseOrder = [
     body('vendor_id')
-        .isInt({ min: 1 })
-        .withMessage('vendor_id must be a positive integer'),
+        .exists({ checkNull: true }).withMessage('vendor_id is required')
+        .custom((value) => isPositiveInt(value, 'vendor_id')),
     body('location_id')
-        .isInt({ min: 1 })
-        .withMessage('location_id must be a positive integer'),
+        .exists({ checkNull: true }).withMessage('location_id is required')
+        .custom((value) => isPositiveInt(value, 'location_id')),
     body('items')
         .isArray({ min: 1 })
         .withMessage('items must be a non-empty array'),
     body('items.*.variation_id')
-        .isInt({ min: 1 })
-        .withMessage('Each item must have a valid variation_id'),
+        .exists({ checkNull: true }).withMessage('Each item must have a variation_id')
+        .custom((value) => isPositiveInt(value, 'variation_id')),
     body('items.*.quantity_ordered')
-        .isInt({ min: 1 })
-        .withMessage('Each item must have a positive quantity_ordered'),
+        .exists({ checkNull: true }).withMessage('Each item must have quantity_ordered')
+        .custom((value) => isPositiveInt(value, 'quantity_ordered')),
     body('items.*.unit_cost_cents')
-        .isInt({ min: 0 })
-        .withMessage('Each item must have a non-negative unit_cost_cents'),
+        .exists({ checkNull: true }).withMessage('Each item must have unit_cost_cents')
+        .custom((value) => isNonNegativeInt(value, 'unit_cost_cents')),
     validateOptionalPositiveInt('supply_days_override', { min: 1, max: 365 }),
     validateOptionalString('notes', { maxLength: 2000 }),
     validateOptionalString('created_by', { maxLength: 255 }),
@@ -58,8 +76,7 @@ const listPurchaseOrders = [
         .withMessage('status must be one of: DRAFT, SUBMITTED, PARTIAL, RECEIVED, CANCELLED'),
     query('vendor_id')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('vendor_id must be a positive integer'),
+        .custom((value) => isPositiveInt(value, 'vendor_id')),
     handleValidationErrors
 ];
 
@@ -86,16 +103,13 @@ const updatePurchaseOrder = [
         .withMessage('items must be an array if provided'),
     body('items.*.variation_id')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('Each item must have a valid variation_id'),
+        .custom((value) => isPositiveInt(value, 'variation_id')),
     body('items.*.quantity_ordered')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('Each item must have a positive quantity_ordered'),
+        .custom((value) => isPositiveInt(value, 'quantity_ordered')),
     body('items.*.unit_cost_cents')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('Each item must have a non-negative unit_cost_cents'),
+        .custom((value) => isNonNegativeInt(value, 'unit_cost_cents')),
     handleValidationErrors
 ];
 
@@ -118,11 +132,11 @@ const receivePurchaseOrder = [
         .isArray({ min: 1 })
         .withMessage('items must be a non-empty array'),
     body('items.*.id')
-        .isInt({ min: 1 })
-        .withMessage('Each item must have a valid id'),
+        .exists({ checkNull: true }).withMessage('Each item must have an id')
+        .custom((value) => isPositiveInt(value, 'id')),
     body('items.*.received_quantity')
-        .isInt({ min: 0 })
-        .withMessage('Each item must have a non-negative received_quantity'),
+        .exists({ checkNull: true }).withMessage('Each item must have received_quantity')
+        .custom((value) => isNonNegativeInt(value, 'received_quantity')),
     handleValidationErrors
 ];
 
