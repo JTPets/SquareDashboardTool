@@ -2041,17 +2041,82 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-    logger.error('Unhandled error', { error: err.message, stack: err.stack });
-
-    // In production, don't expose internal error details to clients
     const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({
-        error: 'Internal server error',
-        message: isProduction ? 'An unexpected error occurred' : err.message,
-        // Only include request ID for tracking in production
-        ...(isProduction && { requestId: req.headers['x-request-id'] || 'unknown' })
-    });
+
+    // Determine appropriate status code
+    let statusCode = err.statusCode || err.status || 500;
+
+    // Map common error patterns to status codes
+    if (!err.statusCode) {
+        if (err.code === 'UNAUTHORIZED' || err.message?.includes('unauthorized')) {
+            statusCode = 401;
+        } else if (err.code === 'FORBIDDEN' || err.message?.includes('permission')) {
+            statusCode = 403;
+        } else if (err.code === 'NOT_FOUND') {
+            statusCode = 404;
+        } else if (err.code === 'RATE_LIMITED' || err.message?.includes('rate limit')) {
+            statusCode = 429;
+        } else if (err.code === 'VALIDATION_ERROR' || err.name === 'ValidationError') {
+            statusCode = 422;
+        }
+    }
+
+    // Log error with appropriate level
+    const logContext = {
+        error: err.message,
+        code: err.code,
+        statusCode,
+        path: req.path,
+        method: req.method,
+        merchantId: req.merchantContext?.id,
+        userId: req.session?.userId,
+        ...(statusCode >= 500 && { stack: err.stack })
+    };
+
+    if (statusCode >= 500) {
+        logger.error('Server error', logContext);
+    } else if (statusCode >= 400) {
+        logger.warn('Client error', logContext);
+    }
+
+    // Build user-friendly response
+    const response = {
+        error: getUserFriendlyMessage(statusCode, err),
+        ...(err.code && { code: err.code }),
+        ...(err.errors && { errors: err.errors }), // For validation errors
+        ...(err.retryAfter && { retryAfter: err.retryAfter }), // For rate limits
+        ...(isProduction && { requestId: req.headers['x-request-id'] || crypto.randomUUID() }),
+        ...(!isProduction && { details: err.message })
+    };
+
+    res.status(statusCode).json(response);
 });
+
+/**
+ * Maps HTTP status codes to user-friendly error messages
+ */
+function getUserFriendlyMessage(statusCode, err) {
+    // Use custom message for operational errors
+    if (err.isOperational && err.message) {
+        return err.message;
+    }
+
+    const messages = {
+        400: 'The request was invalid. Please check your input and try again.',
+        401: 'You are not authorized. Please log in again.',
+        403: 'Access denied. You don\'t have permission for this action.',
+        404: 'The requested resource was not found.',
+        409: 'A conflict occurred. The resource may have been modified.',
+        422: 'Validation failed. Please check your input.',
+        429: 'Too many requests. Please wait a moment before trying again.',
+        500: 'An unexpected error occurred. Our team has been notified.',
+        502: 'A service is temporarily unavailable. Please try again.',
+        503: 'Service is temporarily unavailable. Please try again later.',
+        504: 'Request timed out. Please try again.'
+    };
+
+    return messages[statusCode] || 'Something went wrong. Please try again.';
+}
 
 // ==================== SERVER STARTUP ====================
 
