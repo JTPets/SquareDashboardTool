@@ -45,14 +45,14 @@ const createPurchaseOrder = [
         .exists({ checkNull: true }).withMessage('vendor_id is required')
         .custom((value) => isPositiveInt(value, 'vendor_id')),
     body('location_id')
-        .exists({ checkNull: true }).withMessage('location_id is required')
-        .custom((value) => isPositiveInt(value, 'location_id')),
+        .isString().notEmpty()
+        .withMessage('location_id is required and must be a string'),
     body('items')
         .isArray({ min: 1 })
         .withMessage('items must be a non-empty array'),
     body('items.*.variation_id')
-        .exists({ checkNull: true }).withMessage('Each item must have a variation_id')
-        .custom((value) => isPositiveInt(value, 'variation_id')),
+        .isString().notEmpty()
+        .withMessage('Each item must have a variation_id (string)'),
     body('items.*.quantity_ordered')
         .exists({ checkNull: true }).withMessage('Each item must have quantity_ordered')
         .custom((value) => isPositiveInt(value, 'quantity_ordered')),
@@ -103,7 +103,8 @@ const updatePurchaseOrder = [
         .withMessage('items must be an array if provided'),
     body('items.*.variation_id')
         .optional()
-        .custom((value) => isPositiveInt(value, 'variation_id')),
+        .isString().notEmpty()
+        .withMessage('Each item variation_id must be a non-empty string'),
     body('items.*.quantity_ordered')
         .optional()
         .custom((value) => isPositiveInt(value, 'quantity_ordered')),
