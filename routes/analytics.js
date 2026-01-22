@@ -239,11 +239,14 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
             LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
             LEFT JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
-            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
-            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
-            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $2
                 AND ic.state = 'IN_STOCK'
+            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
+                AND (sv91.location_id = ic.location_id OR (sv91.location_id IS NULL AND ic.location_id IS NULL))
+            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
+                AND (sv182.location_id = ic.location_id OR (sv182.location_id IS NULL AND ic.location_id IS NULL))
+            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
+                AND (sv365.location_id = ic.location_id OR (sv365.location_id IS NULL AND ic.location_id IS NULL))
             LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id AND ic_committed.merchant_id = $2
                 AND ic_committed.state = 'RESERVED_FOR_SALE'
                 AND ic_committed.location_id = ic.location_id
@@ -290,7 +293,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
         if (location_id) {
             params.push(location_id);
             query += ` AND (ic.location_id = $${params.length} OR ic.location_id IS NULL)`;
-            query += ` AND (sv91.location_id = $${params.length} OR sv91.location_id IS NULL)`;
+            // Sales velocity location is now constrained via JOINs to match ic.location_id
         }
 
         const result = await db.query(query, params);
