@@ -40,13 +40,13 @@ class LoyaltyRewardService {
           lr.id,
           lr.offer_id,
           lr.status,
-          lr.progress_quantity,
+          lr.current_quantity,
           lr.earned_at,
           lr.redeemed_at,
           lr.expires_at,
           lr.trace_id,
           lr.created_at,
-          lo.name as offer_name,
+          lo.offer_name as offer_name,
           lo.reward_type,
           lo.reward_value,
           lo.reward_description
@@ -69,7 +69,7 @@ class LoyaltyRewardService {
         offerId: row.offer_id,
         offerName: row.offer_name,
         status: row.status,
-        progressQuantity: row.progress_quantity,
+        progressQuantity: row.current_quantity,
         rewardType: row.reward_type,
         rewardValue: row.reward_value,
         rewardDescription: row.reward_description,
@@ -102,14 +102,14 @@ class LoyaltyRewardService {
           lr.offer_id,
           lr.square_customer_id,
           lr.status,
-          lr.progress_quantity,
+          lr.current_quantity,
           lr.earned_at,
           lr.redeemed_at,
-          lr.redeemed_order_id,
+          lr.redemption_order_id,
           lr.expires_at,
           lr.trace_id,
           lr.created_at,
-          lo.name as offer_name,
+          lo.offer_name as offer_name,
           lo.reward_type,
           lo.reward_value,
           lo.reward_description
@@ -129,13 +129,13 @@ class LoyaltyRewardService {
         squareCustomerId: row.square_customer_id,
         offerName: row.offer_name,
         status: row.status,
-        progressQuantity: row.progress_quantity,
+        progressQuantity: row.current_quantity,
         rewardType: row.reward_type,
         rewardValue: row.reward_value,
         rewardDescription: row.reward_description,
         earnedAt: row.earned_at,
         redeemedAt: row.redeemed_at,
-        redeemedOrderId: row.redeemed_order_id,
+        redeemedOrderId: row.redemption_order_id,
         expiresAt: row.expires_at,
         traceId: row.trace_id,
       };
@@ -175,7 +175,7 @@ class LoyaltyRewardService {
           lr.offer_id,
           lr.redeemed_at,
           lr.expires_at,
-          lo.name as offer_name
+          lo.offer_name as offer_name
         FROM loyalty_rewards lr
         INNER JOIN loyalty_offers lo ON lr.offer_id = lo.id
         WHERE lr.id = $1 AND lr.merchant_id = $2
@@ -231,7 +231,7 @@ class LoyaltyRewardService {
         UPDATE loyalty_rewards
         SET status = 'redeemed',
             redeemed_at = NOW(),
-            redeemed_order_id = $1,
+            redemption_order_id = $1,
             trace_id = $2,
             updated_at = NOW()
         WHERE id = $3
@@ -292,7 +292,7 @@ class LoyaltyRewardService {
           lr.status,
           lr.earned_at,
           lr.expires_at,
-          lo.name as offer_name,
+          lo.offer_name as offer_name,
           lo.reward_type,
           lo.reward_value,
           lo.reward_description

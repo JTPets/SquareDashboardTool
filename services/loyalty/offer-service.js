@@ -32,7 +32,7 @@ class LoyaltyOfferService {
       const result = await db.query(`
         SELECT
           lo.id,
-          lo.name,
+          lo.offer_name as name,
           lo.description,
           lo.required_quantity,
           lo.reward_quantity,
@@ -45,7 +45,7 @@ class LoyaltyOfferService {
         LEFT JOIN loyalty_qualifying_variations lqv ON lo.id = lqv.offer_id
         WHERE lo.merchant_id = $1 AND lo.is_active = TRUE
         GROUP BY lo.id
-        ORDER BY lo.name
+        ORDER BY lo.offer_name
       `, [this.merchantId]);
 
       this.tracer?.span('OFFERS_FETCHED', { count: result.rows.length });
@@ -71,7 +71,7 @@ class LoyaltyOfferService {
       const result = await db.query(`
         SELECT
           lo.id,
-          lo.name,
+          lo.offer_name as name,
           lo.description,
           lo.required_quantity,
           lo.reward_quantity,

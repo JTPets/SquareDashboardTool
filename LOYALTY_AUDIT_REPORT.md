@@ -39,6 +39,12 @@ This audit identified **12 critical issues** in the loyalty tracking system that
 | #10 Variation ID ambiguity | MEDIUM | FIXED | Added fallback logging |
 | #11 Customer summary not updated | MEDIUM | FIXED | Added updateCustomerSummary call |
 | #12 Missing index | MEDIUM | FIXED | Added in migration 024 |
+| #16 offer-service.js lo.name → offer_name | CRITICAL | FIXED | SQL column reference fixed |
+| #17 reward-service.js lo.name → offer_name | CRITICAL | FIXED | SQL column reference fixed |
+| #18 progress_quantity → current_quantity | CRITICAL | FIXED | Schema column mismatch fixed |
+| #19 redeemed_order_id → redemption_order_id | CRITICAL | FIXED | Schema column mismatch fixed |
+| #20 Missing reward_type/value/description cols | CRITICAL | FIXED | Migration 025 adds columns |
+| #21 Missing total_price_cents column | CRITICAL | FIXED | Migration 025 adds column |
 
 ---
 
@@ -469,16 +475,113 @@ Test mock data used values like `365` and `30` for `window_months` which would m
 
 ---
 
+### 16. Schema Column Mismatch - `lo.name` vs `lo.offer_name` in offer-service.js
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/offer-service.js:35, 48, 74`
+
+**Status:** FIXED
+
+The offer service was selecting `lo.name` but the schema column is `offer_name`.
+
+```javascript
+// WRONG
+lo.name,
+ORDER BY lo.name
+
+// CORRECT
+lo.offer_name as name,
+ORDER BY lo.offer_name
+```
+
+---
+
+### 17. Schema Column Mismatch - `lo.name` vs `lo.offer_name` in reward-service.js
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/reward-service.js:49, 112, 178, 295`
+
+**Status:** FIXED
+
+The reward service was selecting `lo.name as offer_name` but the schema column is `offer_name`.
+
+```javascript
+// WRONG
+lo.name as offer_name,
+
+// CORRECT
+lo.offer_name as offer_name,
+```
+
+---
+
+### 18. Schema Column Mismatch - `progress_quantity` vs `current_quantity`
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/reward-service.js:43, 72, 105, 132`
+- `services/loyalty/__tests__/reward-service.test.js`
+
+**Status:** FIXED
+
+The reward service was selecting `lr.progress_quantity` but the schema column is `current_quantity`.
+
+---
+
+### 19. Schema Column Mismatch - `redeemed_order_id` vs `redemption_order_id`
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/reward-service.js:108, 138, 234`
+- `services/loyalty/__tests__/reward-service.test.js`
+
+**Status:** FIXED
+
+The reward service was using `redeemed_order_id` but the schema column is `redemption_order_id`.
+
+---
+
+### 20. Missing Schema Columns - `reward_type`, `reward_value`, `reward_description`
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/reward-service.js` (multiple locations)
+- `database/migrations/010_loyalty_program.sql` (columns never added)
+
+**Status:** FIXED
+
+The reward service queries for `reward_type`, `reward_value`, and `reward_description` from the `loyalty_offers` table, but these columns were never added to the schema. Created migration `025_add_loyalty_reward_columns.sql` to add them.
+
+---
+
+### 21. Missing Schema Column - `total_price_cents`
+
+**Severity:** CRITICAL
+**Files Affected:**
+- `services/loyalty/purchase-service.js:124, 138`
+- `database/migrations/010_loyalty_program.sql` (column never added)
+
+**Status:** FIXED
+
+The purchase service inserts `total_price_cents` into `loyalty_purchase_events` but this column was never added to the schema. Added to migration `025_add_loyalty_reward_columns.sql`.
+
+---
+
 ## Files Changed
 
 | File | Changes |
 |------|---------|
 | `services/loyalty/purchase-service.js` | Column names, window calculation, ON CONFLICT, rollover logic |
-| `services/loyalty/offer-service.js` | Column name fix (window_months) |
+| `services/loyalty/offer-service.js` | Column name fix (window_months, offer_name) |
 | `services/loyalty/webhook-service.js` | Free item detection, variation ID logging |
+| `services/loyalty/reward-service.js` | Column name fixes (offer_name, current_quantity, redemption_order_id) |
 | `services/loyalty/__tests__/purchase-service.test.js` | Column names, test values |
+| `services/loyalty/__tests__/reward-service.test.js` | Column names (current_quantity, redemption_order_id) |
 | `utils/loyalty-service.js` | Added updateCustomerSummary after revocation |
 | `database/migrations/024_fix_loyalty_constraint.sql` | NEW - Partial unique index + covering index |
+| `database/migrations/025_add_loyalty_reward_columns.sql` | NEW - Missing schema columns (reward_type, reward_value, reward_description, total_price_cents) |
 
 ---
 
@@ -487,9 +590,10 @@ Test mock data used values like `365` and `30` for `window_months` which would m
 Before deploying these fixes:
 
 1. [ ] Run migration `024_fix_loyalty_constraint.sql`
-2. [ ] Verify no existing data violates the new partial unique index
-3. [ ] Run full test suite
-4. [ ] Test manually:
+2. [ ] Run migration `025_add_loyalty_reward_columns.sql`
+3. [ ] Verify no existing data violates the new partial unique index
+4. [ ] Run full test suite
+5. [ ] Test manually:
    - [ ] New customer earning first reward
    - [ ] Customer earning second reward after redeeming first
    - [ ] Duplicate webhook handling
@@ -498,5 +602,20 @@ Before deploying these fixes:
 
 ---
 
+## Summary of Current Audit
+
+**Total Issues Found:** 21
+- CRITICAL: 9 (all FIXED)
+- HIGH: 5 (all FIXED except #4 PARTIAL - dual implementation)
+- MEDIUM: 5 (all FIXED except #9 DEFERRED)
+- LOW: 2 (all FIXED)
+
+**Key Remaining Work:**
+- Issue #4 (dual implementation) marked PARTIAL - modular services now aligned with schema, but full consolidation recommended
+- Issue #9 (multi-offer transactions) deferred by design - isolation is beneficial
+
+---
+
 *Report generated by Claude Code loyalty system audit*
-*Fixes applied: January 22, 2026*
+*Last updated: January 22, 2026*
+*Additional fixes applied: Issues #16-21*
