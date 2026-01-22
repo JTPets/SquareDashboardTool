@@ -8,12 +8,30 @@
  */
 
 // Mock express-validator before importing the module under test
-jest.mock('express-validator', () => ({
-    validationResult: jest.fn(),
-    param: jest.fn(() => ({ isUUID: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() })),
-    query: jest.fn(() => ({ isInt: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() })),
-    body: jest.fn(() => ({ isString: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() }))
-}));
+// Create a chainable mock that returns itself for all validator methods
+jest.mock('express-validator', () => {
+    const createChainableMock = () => {
+        const chain = {};
+        const methods = [
+            'optional', 'isUUID', 'isInt', 'isString', 'isEmail', 'isBoolean',
+            'isArray', 'isNumeric', 'isLength', 'matches', 'trim', 'escape',
+            'normalizeEmail', 'toInt', 'toBoolean', 'custom', 'withMessage',
+            'notEmpty', 'isIn', 'exists', 'bail', 'if', 'not', 'equals',
+            'contains', 'isDate', 'isISO8601', 'isJSON', 'isURL', 'isMobilePhone'
+        ];
+        methods.forEach(method => {
+            chain[method] = jest.fn(() => chain);
+        });
+        return chain;
+    };
+
+    return {
+        validationResult: jest.fn(),
+        param: jest.fn(() => createChainableMock()),
+        query: jest.fn(() => createChainableMock()),
+        body: jest.fn(() => createChainableMock())
+    };
+});
 
 const { isValidUUID, sanitizeString, handleValidationErrors } = require('../../middleware/validators/index');
 const { validationResult } = require('express-validator');
