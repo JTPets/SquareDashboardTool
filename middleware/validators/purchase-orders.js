@@ -42,8 +42,8 @@ const isNonNegativeInt = (value, fieldName) => {
  */
 const createPurchaseOrder = [
     body('vendor_id')
-        .exists({ checkNull: true }).withMessage('vendor_id is required')
-        .custom((value) => isPositiveInt(value, 'vendor_id')),
+        .isString().notEmpty()
+        .withMessage('vendor_id is required and must be a string'),
     body('location_id')
         .isString().notEmpty()
         .withMessage('location_id is required and must be a string'),
@@ -76,7 +76,8 @@ const listPurchaseOrders = [
         .withMessage('status must be one of: DRAFT, SUBMITTED, PARTIAL, RECEIVED, CANCELLED'),
     query('vendor_id')
         .optional()
-        .custom((value) => isPositiveInt(value, 'vendor_id')),
+        .isString()
+        .withMessage('vendor_id must be a string'),
     handleValidationErrors
 ];
 
