@@ -102,8 +102,8 @@ const createOffer = [
  */
 const getOffer = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     handleValidationErrors
 ];
 
@@ -113,8 +113,8 @@ const getOffer = [
  */
 const updateOffer = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     body('offer_name')
         .optional()
         .trim()
@@ -148,8 +148,8 @@ const updateOffer = [
  */
 const deleteOffer = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     handleValidationErrors
 ];
 
@@ -159,8 +159,8 @@ const deleteOffer = [
  */
 const addVariations = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     body('variations')
         .isArray({ min: 1 })
         .withMessage('variations must be a non-empty array'),
@@ -173,8 +173,8 @@ const addVariations = [
  */
 const getOfferVariations = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     handleValidationErrors
 ];
 
@@ -184,8 +184,8 @@ const getOfferVariations = [
  */
 const removeVariation = [
     param('offerId')
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     param('variationId')
         .trim()
         .notEmpty()
@@ -220,8 +220,8 @@ const getCustomerHistory = [
         .withMessage('limit must be between 1 and 500'),
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     handleValidationErrors
 ];
 
@@ -262,8 +262,8 @@ const addOrders = [
  */
 const redeemReward = [
     param('rewardId')
-        .isInt({ min: 1 })
-        .withMessage('rewardId must be a positive integer'),
+        .isUUID()
+        .withMessage('rewardId must be a valid UUID'),
     body('squareOrderId')
         .optional()
         .trim()
@@ -300,8 +300,8 @@ const listRewards = [
         .withMessage('status must be progress, earned, redeemed, expired, or revoked'),
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     query('customerId')
         .optional()
         .trim(),
@@ -316,8 +316,8 @@ const listRewards = [
 const listRedemptions = [
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     query('customerId')
         .optional()
         .trim(),
@@ -348,8 +348,8 @@ const listAudit = [
         .trim(),
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     ...validatePagination,
     handleValidationErrors
 ];
@@ -360,8 +360,8 @@ const listAudit = [
  */
 const linkSquareTier = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     body('squareRewardTierId')
         .optional({ nullable: true })
         .trim(),
@@ -374,8 +374,8 @@ const linkSquareTier = [
  */
 const createSquareReward = [
     param('id')
-        .isInt({ min: 1 })
-        .withMessage('id must be a positive integer'),
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
     query('force')
         .optional()
         .isIn(['true', 'false'])
@@ -500,8 +500,8 @@ const updateSettings = [
  */
 const getVendorReceipt = [
     param('redemptionId')
-        .isInt({ min: 1 })
-        .withMessage('redemptionId must be a positive integer'),
+        .isUUID()
+        .withMessage('redemptionId must be a valid UUID'),
     query('format')
         .optional()
         .isIn(['html', 'json'])
@@ -524,8 +524,8 @@ const exportRedemptionsCSV = [
         .withMessage('endDate must be a valid date'),
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     query('brandName')
         .optional()
         .trim()
@@ -549,8 +549,8 @@ const exportAuditCSV = [
         .withMessage('endDate must be a valid date'),
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     query('squareCustomerId')
         .optional()
         .trim(),
@@ -580,8 +580,8 @@ const exportSummaryCSV = [
 const exportCustomersCSV = [
     query('offerId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('offerId must be a positive integer'),
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
     query('minPurchases')
         .optional()
         .isInt({ min: 1 })
@@ -595,8 +595,8 @@ const exportCustomersCSV = [
  */
 const getRedemptionDetails = [
     param('redemptionId')
-        .isInt({ min: 1 })
-        .withMessage('redemptionId must be a positive integer'),
+        .isUUID()
+        .withMessage('redemptionId must be a valid UUID'),
     handleValidationErrors
 ];
 
