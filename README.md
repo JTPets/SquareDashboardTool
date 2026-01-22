@@ -1,321 +1,333 @@
-# Square Dashboard Addon Tool
+# SqTools — Advanced Inventory Management for Square
 
-A comprehensive multi-tenant inventory management SaaS for Square POS merchants. Built for the Square App Marketplace with full OAuth integration, automated reorder suggestions, expiration tracking, Google Merchant Center feeds, and purchase order management.
+A production-grade multi-tenant SaaS platform that extends Square POS with intelligent inventory management, automated reordering, expiration tracking, loyalty programs, and vendor management. Built for the Square App Marketplace.
 
-## Production Status
+> **Open Source Transparency** — This codebase is public to demonstrate our commitment to security, quality, and transparency. SqTools is a hosted commercial service at [sqtools.ca](https://sqtools.ca).
 
-| Component | Status |
-|-----------|--------|
-| Authentication | ✅ Session-based with bcrypt password hashing |
-| Authorization | ✅ Role-based (admin, user, readonly) |
-| Multi-Tenant | ✅ Full merchant isolation with `merchant_id` filtering |
-| Rate Limiting | ✅ Implemented on auth endpoints |
-| Square OAuth | ✅ Full OAuth 2.0 flow with encrypted token storage |
-| Webhooks | ✅ Real-time sync from Square events |
-| HTTPS | ✅ Required for production |
-| API Security | ✅ All endpoints require authentication |
+---
 
-## Features
+## What SqTools Does
 
-### Core Inventory Management
-- **Square POS Integration** - OAuth connection, catalog sync, inventory tracking
-- **Sales Velocity Tracking** - 91, 182, and 365-day demand calculations
-- **Intelligent Reorder Suggestions** - Priority-ranked with case pack rounding
-- **Purchase Order Management** - Create, submit, receive, export to Square CSV
-- **Multi-location Support** - Per-location inventory and alerts
+SqTools transforms Square POS from a point-of-sale system into a complete inventory intelligence platform. Connect your Square account in one click and gain immediate visibility into stock levels, sales trends, and reorder timing across all your locations.
 
-### Advanced Features
-- **Expiration Date Tracking** - Track product expiry with Square custom attributes
-- **Automated Expiry Discounts** - Auto-apply tiered discounts as products near expiry
-- **Google Merchant Center** - Generate product feeds, Google Sheets integration
-- **Vendor Catalog Import** - Import CSV/XLSX price lists, match to catalog
-- **Cycle Count System** - Prioritized counting queues with history tracking
-- **Catalog Audit Tool** - Find missing data (GTINs, images, costs, expiry dates)
+### For Retailers & Restaurants
+- **Never run out of stock** — Intelligent reorder suggestions based on actual sales velocity
+- **Reduce waste** — Automated expiration tracking with discount tiers before products expire
+- **Save time on counting** — Prioritized cycle count queues based on value and movement
+- **Manage vendors** — Import price lists, track costs, and generate purchase orders
 
-### Multi-Tenant SaaS
-- **Square OAuth** - Merchants connect their own Square accounts
-- **Tenant Isolation** - Complete data separation between merchants
-- **Subscription System** - Trial periods, payment processing via Square
-- **User Management** - Invite team members with role-based access
+### For Multi-Location Operations
+- **Unified view** — See inventory across all locations from one dashboard
+- **Per-location alerts** — Custom reorder points for each store
+- **Consolidated purchasing** — Roll up needs from multiple locations into single vendor POs
 
-## Tech Stack
+---
 
-| Component | Technology |
-|-----------|------------|
-| Backend | Node.js 18+ with Express |
-| Database | PostgreSQL 14+ |
-| Auth | Session-based with bcrypt |
-| Square | OAuth 2.0, API v2024-10-17, Webhooks |
-| Google | Sheets API, OAuth 2.0 |
-| Email | Nodemailer (SMTP/Gmail) |
+## Platform Capabilities
 
-## Pages (23 Total)
+### Core Inventory Intelligence
 
-| Page | Description |
-|------|-------------|
-| `index.html` | Public landing page |
-| `login.html` | User authentication |
-| `dashboard.html` | Main user dashboard with tool navigation |
-| `merchants.html` | Connect/manage Square accounts |
-| `inventory.html` | Full inventory view with search/filter |
-| `reorder.html` | Priority-ranked reorder suggestions |
-| `purchase-orders.html` | Create, edit, submit, receive POs |
-| `sales-velocity.html` | Sales trend analysis |
-| `expiry.html` | Expiration date tracker |
-| `expiry-discounts.html` | Automated discount tier management |
-| `expiry-audit.html` | Audit tool for missing expiry data |
-| `cycle-count.html` | Inventory counting interface |
-| `cycle-count-history.html` | Count history and audit trail |
-| `vendor-catalog.html` | Import vendor price lists |
-| `catalog-audit.html` | Find catalog data gaps |
-| `gmc-feed.html` | Google Merchant Center feed management |
-| `deleted-items.html` | Manage soft-deleted items |
-| `settings.html` | User and system settings |
-| `logs.html` | System log viewer (admin) |
-| `subscribe.html` | Subscription signup |
-| `subscription-expired.html` | Expired subscription notice |
-| `set-password.html` | Password reset flow |
-| `support.html` | Support contact page |
+| Capability | Description |
+|------------|-------------|
+| **Real-time Square Sync** | Automatic catalog, inventory, and order synchronization via webhooks |
+| **Sales Velocity Tracking** | 91, 182, and 365-day demand calculations per variation per location |
+| **Intelligent Reorder Suggestions** | Priority-ranked recommendations with case pack rounding and lead time awareness |
+| **Multi-location Support** | Per-location inventory tracking, alerts, and vendor assignments |
+| **Catalog Audit** | Identify missing GTINs, images, costs, and expiration dates |
 
-## API Endpoints (238 Total)
+### Purchase Order Management
 
-All API endpoints require authentication. Endpoints are organized into 20 route files:
+| Capability | Description |
+|------------|-------------|
+| **Full PO Lifecycle** | Draft → Submit → Receive workflow with partial receiving support |
+| **Vendor Management** | Lead times, minimum orders, contact info, and payment terms |
+| **Cost Tracking** | Historical cost data with margin calculations |
+| **Export Formats** | CSV and XLSX export for vendor communication |
 
-| Route File | Endpoints | Description |
-|------------|-----------|-------------|
-| `/api/auth/*` | 12 | Authentication, password reset, user management |
-| `/api/square/oauth/*` | 4 | Square OAuth flow |
-| `/api/google/oauth/*` | 4 | Google OAuth flow |
-| `/api/driver/*` | 8 | Public driver API |
-| `/api/merchants/*` | 4 | Switch merchants, context |
-| `/api/settings/*` | 3 | Merchant settings |
-| `/api/sync/*` | 6 | Full sync, smart sync, status |
-| `/api/catalog/*` | 16 | Catalog/inventory operations |
-| `/api/analytics/*` | 5 | Sales/reorder analytics |
-| `/api/purchase-orders/*` | 9 | PO CRUD, submit, receive |
-| `/api/subscriptions/*` | 11 | Subscription management |
-| `/api/loyalty/*` | 40 | Loyalty rewards program |
-| `/api/delivery/*` | 23 | Delivery management |
-| `/api/gmc/*` | 32 | GMC feeds, Google Sheets |
-| `/api/webhooks/*` | 8 | Webhook management |
-| `/api/expiry-discounts/*` | 13 | Discount tiers, automation |
-| `/api/vendor-catalog/*` | 13 | Import, search, match |
-| `/api/cycle-count/*` | 9 | Count queues, sessions |
-| `/api/square-attributes/*` | 9 | Square custom attributes |
-| `/api/logs/*` | 4 | Log viewer (admin) |
+### Expiration Date Management
 
-## Quick Start
+| Capability | Description |
+|------------|-------------|
+| **Expiry Tracking** | Per-variation expiration dates synced to Square custom attributes |
+| **Automated Discounts** | Configurable tiers (REVIEW → 25% OFF → 50% OFF → EXPIRED) |
+| **Square Integration** | Auto-creates and applies discounts in Square POS |
+| **Expiry Audit** | Interface to quickly set dates for items missing expiration data |
 
-### 1. Prerequisites
+### Loyalty Rewards Program
 
-- Node.js 18+
-- PostgreSQL 14+
-- Square Developer Account
+| Capability | Description |
+|------------|-------------|
+| **Frequent Buyer Offers** | Buy X get 1 free programs by brand and size group |
+| **Customer Progress Tracking** | Real-time qualification tracking across purchases |
+| **Rolling Time Windows** | Support for "buy 10 in 90 days" style promotions |
+| **Automatic Redemption** | Square discounts auto-created when customers qualify |
+| **Webhook Integration** | Real-time purchase tracking via Square payment webhooks |
 
-### 2. Installation
+### Delivery Management
 
-```bash
-# Clone and install
-git clone <repository-url>
-cd SquareDashboardTool
-npm install
+| Capability | Description |
+|------------|-------------|
+| **Order Ingestion** | Automatic capture of delivery orders from Square |
+| **Scheduling Calendar** | Visual delivery scheduling with route suggestions |
+| **Driver Interface** | Mobile-friendly driver app with proof of delivery |
+| **Customer Notes Sync** | Delivery instructions pulled from Square customer records |
 
-# Create database
-psql -U postgres -c "CREATE DATABASE square_dashboard_addon;"
-psql -U postgres -d square_dashboard_addon -f database/schema.sql
+### Google Merchant Center Integration
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
+| Capability | Description |
+|------------|-------------|
+| **Product Feed Generation** | Automated TSV feed creation for Google Shopping |
+| **Brand & Taxonomy Mapping** | Map Square categories to Google product taxonomy |
+| **Google Sheets Sync** | Direct publish to Google Sheets for Merchant Center |
+| **Scheduled Updates** | Automatic feed refresh on your schedule |
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SqTools Platform                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│  │  Dashboard  │  │  Inventory  │  │   Loyalty   │  │  Delivery   │    │
+│  │   30 pages  │  │ Management  │  │   Rewards   │  │ Management  │    │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
+│         │                │                │                │            │
+│  ┌──────┴────────────────┴────────────────┴────────────────┴──────┐    │
+│  │                     Express.js API Layer                        │    │
+│  │              238 endpoints across 20 route modules              │    │
+│  └─────────────────────────────┬───────────────────────────────────┘    │
+│                                │                                         │
+│  ┌─────────────────────────────┴───────────────────────────────────┐    │
+│  │                    Service & Middleware Layer                    │    │
+│  │  • Authentication & Authorization (role-based)                   │    │
+│  │  • Multi-tenant isolation (merchant_id filtering)                │    │
+│  │  • Input validation (19 validator modules)                       │    │
+│  │  • Rate limiting & security headers                              │    │
+│  └─────────────────────────────┬───────────────────────────────────┘    │
+│                                │                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │
+│  │  PostgreSQL  │  │  Square API  │  │  Google API  │                   │
+│  │   35+ tables │  │   Webhooks   │  │    Sheets    │                   │
+│  └──────────────┘  └──────────────┘  └──────────────┘                   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Required Environment Variables
+### Technical Stack
 
-```env
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=square_dashboard_addon
-DB_USER=postgres
-DB_PASSWORD=your_password
+| Layer | Technology |
+|-------|------------|
+| **Runtime** | Node.js 18+ with Express.js |
+| **Database** | PostgreSQL 14+ with 35+ tables and 40+ indexes |
+| **Authentication** | Session-based with bcrypt (12 rounds), AES-256-GCM token encryption |
+| **External APIs** | Square SDK v43.2.1 (API v2024-10-17), Google APIs v144 |
+| **Process Management** | PM2 with clustering support |
+| **Logging** | Winston with daily rotation, separate error logs |
 
-# Session Security (generate with: openssl rand -hex 32)
-SESSION_SECRET=your_session_secret
+### Codebase Statistics
 
-# Token Encryption (generate with: openssl rand -hex 32)
-TOKEN_ENCRYPTION_KEY=your_encryption_key
+| Metric | Value |
+|--------|-------|
+| API Endpoints | 238 across 20 route modules |
+| Frontend Pages | 30 HTML interfaces |
+| Database Tables | 35+ with proper indexing |
+| Input Validators | 19 modules covering all endpoints |
+| Test Coverage | 194 tests on security-critical functions |
 
-# Square OAuth (from developer.squareup.com)
-SQUARE_APPLICATION_ID=your_app_id
-SQUARE_APPLICATION_SECRET=your_app_secret
-SQUARE_ENVIRONMENT=production  # or sandbox
+---
 
-# Base URL (for OAuth callbacks)
-BASE_URL=https://yourdomain.com
-```
+## Security Architecture
 
-### 4. Start Server
+SqTools is built with defense-in-depth security. Every layer is hardened against common attack vectors.
 
-```bash
-# Development
-node server.js
+### Authentication & Access Control
 
-# Production with PM2
-pm2 start ecosystem.config.js
-```
+| Control | Implementation |
+|---------|----------------|
+| **Password Security** | bcrypt v6.0.0 with 12 salt rounds |
+| **Session Management** | PostgreSQL-backed sessions, HttpOnly cookies, SameSite=Lax |
+| **Rate Limiting** | 5 login attempts per 15 minutes, general API limits |
+| **Account Lockout** | 30-minute lockout after 5 failed attempts |
+| **Role-Based Access** | admin, user, readonly roles with middleware enforcement |
+| **Audit Logging** | All auth events tracked with IP addresses |
 
-### 5. Create Admin User
+### Data Protection
 
-```bash
-node scripts/init-admin.js --email admin@example.com
-```
-
-### 6. Connect Square Account
-
-1. Log in at `https://yourdomain.com/login.html`
-2. Go to Merchants page
-3. Click "Connect Square Account"
-4. Authorize the OAuth connection
-5. Initial sync runs automatically
-
-## Webhooks
-
-The system receives real-time updates from Square:
-
-| Event | Action |
-|-------|--------|
-| `catalog.version.updated` | Sync catalog changes |
-| `inventory.count.updated` | Sync inventory counts |
-| `order.created/updated` | Update committed inventory |
-| `order.fulfillment.updated` | Update sales velocity |
-| `oauth.authorization.revoked` | Deactivate merchant |
-
-Configure webhook URL in Square Developer Dashboard:
-```
-https://yourdomain.com/api/webhooks/square
-```
-
-## Scheduled Syncs
-
-Use cron or PM2 to run smart sync hourly:
-
-```bash
-# Crontab
-0 * * * * curl -X POST https://yourdomain.com/api/sync-smart
-
-# Or configure in ecosystem.config.js for PM2
-```
-
-Smart sync respects intervals:
-- Catalog: Every 3 hours
-- Inventory: Every 3 hours
-- Sales (91d): Every 3 hours
-- Sales (182d): Daily
-- Sales (365d): Weekly
-
-## Security
-
-### Authentication
-- Session-based authentication with PostgreSQL session store
-- Bcrypt password hashing with configurable rounds
-- Rate limiting on login endpoints (5 attempts per 15 minutes)
-- Password reset with secure tokens
+| Control | Implementation |
+|---------|----------------|
+| **SQL Injection** | 100% parameterized queries throughout codebase |
+| **XSS Prevention** | Input sanitization, Content Security Policy headers |
+| **Token Encryption** | AES-256-GCM for OAuth tokens at rest |
+| **CSRF Protection** | State parameter validation on OAuth flows |
+| **File Upload Security** | Magic number validation (not just MIME type) |
 
 ### Multi-Tenant Isolation
-- All database queries include `merchant_id` filtering
-- Explicit validation of location/vendor ownership
-- No cross-tenant data access possible
 
-### Token Security
-- Square OAuth tokens encrypted with AES-256-GCM
-- Encryption key required in environment variables
-- Tokens never logged or exposed in errors
+| Control | Implementation |
+|---------|----------------|
+| **Query Filtering** | All database queries include merchant_id WHERE clause |
+| **Ownership Validation** | Explicit validation of location/vendor ownership |
+| **Cross-Tenant Prevention** | Middleware enforces merchant context on every request |
+| **Subscription Validation** | Access gated by active subscription status |
 
-### Admin Controls
-- Super-admin access via `SUPER_ADMIN_EMAILS` env var
-- Admin-only endpoints for user management, logs, settings
+### API Security
+
+| Control | Implementation |
+|---------|----------------|
+| **Authentication Required** | All endpoints require valid session (except public driver API) |
+| **Input Validation** | express-validator on all 238 endpoints |
+| **Security Headers** | Helmet.js with CSP, X-Frame-Options, X-Content-Type-Options |
+| **CORS Enforcement** | Strict origin validation in production |
+| **Webhook Verification** | HMAC-SHA256 signature validation on Square webhooks |
+
+### Security Testing
+
+| Component | Tests | Coverage |
+|-----------|-------|----------|
+| Password utilities | 49 | ~96% |
+| Token encryption | 51 | 100% |
+| Auth middleware | 38 | ~85% |
+| Multi-tenant isolation | 27 | ~30% |
+| File validation | 30 | 100% |
+| **Total** | **194** | Security-critical paths |
+
+**Vulnerability Status:** 0 npm vulnerabilities (dependencies audited regularly)
+
+---
+
+## API Structure
+
+All endpoints require authentication. The API is organized into logical modules:
+
+| Module | Endpoints | Purpose |
+|--------|-----------|---------|
+| `/api/auth/*` | 12 | Authentication, password reset, user management |
+| `/api/square/oauth/*` | 4 | Square OAuth connection flow |
+| `/api/google/oauth/*` | 4 | Google Sheets OAuth flow |
+| `/api/merchants/*` | 4 | Merchant context switching |
+| `/api/sync/*` | 6 | Full sync, smart sync, status |
+| `/api/catalog/*` | 16 | Catalog and inventory operations |
+| `/api/analytics/*` | 5 | Sales velocity, reorder analytics |
+| `/api/purchase-orders/*` | 9 | PO create, submit, receive |
+| `/api/subscriptions/*` | 11 | Subscription management |
+| `/api/loyalty/*` | 40 | Loyalty program management |
+| `/api/delivery/*` | 23 | Delivery order management |
+| `/api/gmc/*` | 32 | Google Merchant Center feeds |
+| `/api/webhooks/*` | 8 | Webhook subscription management |
+| `/api/expiry-discounts/*` | 13 | Expiry discount automation |
+| `/api/vendor-catalog/*` | 13 | Vendor catalog import |
+| `/api/cycle-count/*` | 9 | Cycle count management |
+| `/api/square-attributes/*` | 9 | Custom attribute management |
+| `/api/settings/*` | 3 | Merchant settings |
+| `/api/logs/*` | 4 | System log viewing (admin) |
+| `/api/driver/*` | 8 | Public driver API |
+
+---
+
+## Webhook Integration
+
+SqTools maintains real-time sync with Square through comprehensive webhook handling:
+
+### Real-Time Events Processed
+
+```
+Inventory & Catalog          Orders & Fulfillment         Loyalty & Payments
+├── catalog.version.updated  ├── order.created            ├── payment.created
+├── inventory.count.updated  ├── order.updated            ├── payment.updated
+├── vendor.created           ├── order.fulfillment.updated├── refund.created
+├── vendor.updated           └── customer.updated         ├── refund.updated
+├── location.created                                      └── loyalty.event.created
+└── location.updated
+
+Subscriptions                Security
+├── subscription.created     └── oauth.authorization.revoked
+├── subscription.updated
+├── invoice.payment_made
+├── invoice.payment_failed
+└── customer.deleted
+```
+
+All webhooks are verified using HMAC-SHA256 signature validation. Duplicate events are detected and ignored.
+
+---
 
 ## Project Structure
 
 ```
 SquareDashboardTool/
-├── database/
-│   ├── schema.sql              # Complete database schema
-│   └── migrations/             # Migration files
+├── routes/                    # 20 route modules (233 endpoints)
+│   ├── auth.js               # Authentication (12 endpoints)
+│   ├── loyalty.js            # Loyalty program (40 endpoints)
+│   ├── delivery.js           # Delivery management (23 endpoints)
+│   ├── gmc.js                # Google Merchant Center (32 endpoints)
+│   └── ...                   # Additional route modules
 ├── middleware/
-│   ├── auth.js                 # Authentication middleware
-│   ├── merchant.js             # Multi-tenant middleware
-│   ├── security.js             # Security headers, rate limiting
-│   └── validators/             # Input validation (19 files)
-├── routes/                     # 20 route files (233 endpoints)
-│   ├── auth.js                 # Authentication routes
-│   ├── square-oauth.js         # Square OAuth flow
-│   ├── google-oauth.js         # Google OAuth flow
-│   ├── loyalty.js              # Loyalty program (40 endpoints)
-│   ├── delivery.js             # Delivery management
-│   ├── gmc.js                  # Google Merchant Center
-│   └── ...                     # Additional route files
+│   ├── auth.js               # Authentication middleware
+│   ├── merchant.js           # Multi-tenant context
+│   ├── security.js           # Headers, CORS, rate limiting
+│   ├── subscription-check.js # Subscription validation
+│   └── validators/           # 19 input validation modules
 ├── services/
-│   └── loyalty/                # Modular loyalty service layer
-│       ├── purchase-service.js # Purchase tracking
-│       ├── reward-service.js   # Reward state machine
-│       └── ...                 # Additional services
+│   └── loyalty/              # Modular loyalty service layer (8 modules)
 ├── utils/
-│   ├── database.js             # Database connection pool
-│   ├── square-api.js           # Square API integration
-│   ├── loyalty-service.js      # Core loyalty logic
-│   ├── token-encryption.js     # AES-256-GCM encryption
-│   ├── expiry-discount.js      # Discount automation
-│   └── logger.js               # Winston logging
-├── public/                     # 23 HTML pages
-├── scripts/
-│   ├── init-admin.js           # Create admin user
-│   └── get-locations.js        # Debug utility
-├── output/
-│   ├── logs/                   # Application logs
-│   ├── feeds/                  # GMC feed files
-│   └── temp/                   # Temporary files
-├── server.js                   # Main Express server (5 endpoints remaining)
-├── ecosystem.config.js         # PM2 configuration
-└── .env.example                # Environment template
+│   ├── square-api.js         # Square API integration (135KB)
+│   ├── database.js           # Connection pool, queries (122KB)
+│   ├── loyalty-service.js    # Core loyalty logic (204KB)
+│   ├── token-encryption.js   # AES-256-GCM encryption
+│   └── ...                   # Additional utilities
+├── public/                   # 30 HTML frontend pages
+├── database/
+│   ├── schema.sql            # Complete PostgreSQL schema
+│   └── migrations/           # Schema migrations
+├── __tests__/                # Jest test suite (194 tests)
+├── server.js                 # Main Express application
+└── ecosystem.config.js       # PM2 configuration
 ```
 
-## Troubleshooting
+---
 
-### Database Connection Failed
-```bash
-# Check PostgreSQL is running
-pg_isready
+## Square Marketplace Compliance
 
-# Verify credentials in .env
-psql -U postgres -h localhost -d square_dashboard_addon
-```
+SqTools meets all Square App Marketplace requirements:
 
-### Square OAuth Errors
-- Verify `SQUARE_APPLICATION_ID` and `SQUARE_APPLICATION_SECRET`
-- Check redirect URI matches exactly in Square dashboard
-- Ensure `BASE_URL` is correct (include https://)
+- **OAuth 2.0** — Full authorization code flow with state parameter CSRF protection
+- **Token Security** — AES-256-GCM encryption, automatic refresh before expiry
+- **Rate Limiting** — Exponential backoff with Retry-After header respect
+- **Pagination** — Cursor-based pagination on all list endpoints
+- **Webhook Security** — HMAC-SHA256 signature verification
+- **Data Isolation** — Complete multi-tenant separation
+- **Error Handling** — User-friendly messages, internal logging
 
-### Webhook Failures
-- Check webhook signature key in Square dashboard
-- Verify endpoint is accessible from internet
-- Check `/api/webhooks/events` for error logs (super-admin only)
+---
 
-### Token Encryption Errors
-- Ensure `TOKEN_ENCRYPTION_KEY` is 64 hex characters
-- Same key must be used across restarts
-- Never change key after tokens are stored
+## Pricing
 
-## License
+| Plan | Price | Features |
+|------|-------|----------|
+| **Free Trial** | $0 for 30 days | Full access to all features |
+| **Monthly** | $29.99/month | Full access, email support |
+| **Annual** | $299.99/year | Full access, priority support, 2 months free |
 
-MIT License - See LICENSE file for details.
+---
 
 ## Support
 
-For issues or questions: https://sqtools.ca/support
+**Email:** support@sqtools.ca
+**Response Time:** 1-2 business days
+**Hours:** Monday-Friday, 9am-5pm EST
+**Website:** [sqtools.ca](https://sqtools.ca)
+
+---
+
+## License
+
+MIT License — See [LICENSE](LICENSE) for details.
+
+This software is provided as open source for transparency and security review. Commercial use requires a SqTools subscription.
 
 ---
 
 **Version:** 2.0.0
 **Last Updated:** January 2026
-**Platform:** Cross-platform (Windows, Linux, macOS)
+**Platform:** Hosted SaaS (sqtools.ca)
