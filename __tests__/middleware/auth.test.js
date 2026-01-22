@@ -377,6 +377,31 @@ describe('Authentication Middleware', () => {
 
             expect(next).toHaveBeenCalled();
         });
+
+        test('attaches user to req when logged in', () => {
+            const user = { id: 1, email: 'test@test.com', role: 'user' };
+            const req = mockRequest({
+                session: { user }
+            });
+            const res = mockResponse();
+            const next = jest.fn();
+
+            optionalAuth(req, res, next);
+
+            expect(req.user).toEqual(user);
+            expect(next).toHaveBeenCalled();
+        });
+
+        test('does not attach user when not logged in', () => {
+            const req = mockRequest({ session: null });
+            const res = mockResponse();
+            const next = jest.fn();
+
+            optionalAuth(req, res, next);
+
+            expect(req.user).toBeUndefined();
+            expect(next).toHaveBeenCalled();
+        });
     });
 
     // ==================== getCurrentUser ====================
