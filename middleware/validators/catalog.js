@@ -54,7 +54,15 @@ const updateMinStock = [
 // PATCH /api/variations/:id/cost
 const updateCost = [
     param('id').isString().notEmpty(),
-    body('cost_cents').isInt({ min: 0 }).withMessage('cost_cents must be a non-negative integer'),
+    body('cost_cents')
+        .exists({ checkNull: true }).withMessage('cost_cents is required')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 0) {
+                throw new Error('cost_cents must be a non-negative integer');
+            }
+            return true;
+        }),
     body('vendor_id').optional().isString(),
     handleValidationErrors
 ];
