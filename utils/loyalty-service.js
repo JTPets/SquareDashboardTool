@@ -2173,6 +2173,9 @@ async function processRefund(refundData) {
                     remainingQuantity,
                     requiredQuantity: offer.required_quantity
                 });
+
+                // Update customer summary after revocation to keep it in sync
+                await updateCustomerSummary(client, merchantId, squareCustomerId, offer.id);
             }
         }
 
