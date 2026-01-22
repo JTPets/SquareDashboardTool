@@ -18,6 +18,16 @@ const db = require('./utils/database');
 
 // Store cron task references for graceful shutdown
 const cronTasks = [];
+
+// Safe sync queue for webhook-triggered syncs (prevents duplicate syncs while ensuring no data is missed)
+// Instead of simple debounce (which could miss data), we track:
+// 1. If a sync is currently running
+// 2. If webhooks arrived during the sync (requiring a follow-up sync)
+const catalogSyncInProgress = new Map(); // merchantId -> boolean
+const catalogSyncPending = new Map(); // merchantId -> boolean (true if webhook arrived during sync)
+const inventorySyncInProgress = new Map(); // merchantId -> boolean
+const inventorySyncPending = new Map(); // merchantId -> boolean (true if webhook arrived during sync)
+
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
@@ -818,6 +828,21 @@ app.post('/api/webhooks/square', async (req, res) => {
                         syncResults.error = 'Merchant not found';
                         break;
                     }
+
+                    // Safe sync queue: if sync already running, mark as pending (will resync after current completes)
+                    if (catalogSyncInProgress.get(internalMerchantId)) {
+                        logger.info('Catalog sync already in progress - marking for follow-up sync', {
+                            merchantId: internalMerchantId
+                        });
+                        catalogSyncPending.set(internalMerchantId, true);
+                        syncResults.queued = true;
+                        break;
+                    }
+
+                    // Mark sync as in progress
+                    catalogSyncInProgress.set(internalMerchantId, true);
+                    catalogSyncPending.set(internalMerchantId, false);
+
                     try {
                         logger.info('Catalog change detected via webhook, syncing...', { merchantId: internalMerchantId });
                         const catalogSyncResult = await squareApi.syncCatalog(internalMerchantId);
@@ -826,9 +851,24 @@ app.post('/api/webhooks/square', async (req, res) => {
                             variations: catalogSyncResult.variations
                         };
                         logger.info('Catalog sync completed via webhook', syncResults.catalog);
+
+                        // Check if more webhooks arrived during sync - if so, sync again to catch any changes
+                        if (catalogSyncPending.get(internalMerchantId)) {
+                            logger.info('Webhooks arrived during sync - running follow-up sync', { merchantId: internalMerchantId });
+                            catalogSyncPending.set(internalMerchantId, false);
+                            const followUpResult = await squareApi.syncCatalog(internalMerchantId);
+                            syncResults.followUpSync = {
+                                items: followUpResult.items,
+                                variations: followUpResult.variations
+                            };
+                            logger.info('Follow-up catalog sync completed', syncResults.followUpSync);
+                        }
                     } catch (syncError) {
                         logger.error('Catalog sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
+                    } finally {
+                        // Always clear the in-progress flag
+                        catalogSyncInProgress.set(internalMerchantId, false);
                     }
                 } else {
                     logger.info('Catalog webhook received but WEBHOOK_CATALOG_SYNC is disabled');
@@ -844,6 +884,21 @@ app.post('/api/webhooks/square', async (req, res) => {
                         syncResults.error = 'Merchant not found';
                         break;
                     }
+
+                    // Safe sync queue: if sync already running, mark as pending (will resync after current completes)
+                    if (inventorySyncInProgress.get(internalMerchantId)) {
+                        logger.info('Inventory sync already in progress - marking for follow-up sync', {
+                            merchantId: internalMerchantId
+                        });
+                        inventorySyncPending.set(internalMerchantId, true);
+                        syncResults.queued = true;
+                        break;
+                    }
+
+                    // Mark sync as in progress
+                    inventorySyncInProgress.set(internalMerchantId, true);
+                    inventorySyncPending.set(internalMerchantId, false);
+
                     try {
                         const inventoryChange = data.inventory_count;
                         logger.info('Inventory change detected via webhook', {
@@ -858,9 +913,21 @@ app.post('/api/webhooks/square', async (req, res) => {
                             catalogObjectId: inventoryChange?.catalog_object_id
                         };
                         logger.info('Inventory sync completed via webhook', { count: inventorySyncResult });
+
+                        // Check if more webhooks arrived during sync - if so, sync again to catch any changes
+                        if (inventorySyncPending.get(internalMerchantId)) {
+                            logger.info('Webhooks arrived during inventory sync - running follow-up sync', { merchantId: internalMerchantId });
+                            inventorySyncPending.set(internalMerchantId, false);
+                            const followUpResult = await squareApi.syncInventory(internalMerchantId);
+                            syncResults.followUpSync = { count: followUpResult };
+                            logger.info('Follow-up inventory sync completed', { count: followUpResult });
+                        }
                     } catch (syncError) {
                         logger.error('Inventory sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
+                    } finally {
+                        // Always clear the in-progress flag
+                        inventorySyncInProgress.set(internalMerchantId, false);
                     }
                 } else {
                     logger.info('Inventory webhook received but WEBHOOK_INVENTORY_SYNC is disabled');
