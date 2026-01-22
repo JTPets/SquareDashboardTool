@@ -44,8 +44,13 @@ const validateUUID = (paramName) =>
  */
 const validateIntId = (paramName) =>
     param(paramName)
-        .isInt({ min: 1 })
-        .withMessage(`${paramName} must be a positive integer`);
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error(`${paramName} must be a positive integer`);
+            }
+            return true;
+        });
 
 /**
  * Validate email
@@ -71,8 +76,15 @@ const validateOptionalEmail = (fieldName = 'email') =>
  */
 const validatePositiveInt = (fieldName, options = {}) =>
     body(fieldName)
-        .isInt({ min: options.min || 1, max: options.max })
-        .withMessage(options.message || `${fieldName} must be a positive integer`);
+        .custom((value) => {
+            const num = Number(value);
+            const min = options.min || 1;
+            const max = options.max;
+            if (!Number.isInteger(num) || num < min || (max !== undefined && num > max)) {
+                throw new Error(options.message || `${fieldName} must be a positive integer`);
+            }
+            return true;
+        });
 
 /**
  * Validate optional positive integer in body
@@ -80,16 +92,28 @@ const validatePositiveInt = (fieldName, options = {}) =>
 const validateOptionalPositiveInt = (fieldName, options = {}) =>
     body(fieldName)
         .optional()
-        .isInt({ min: options.min || 1, max: options.max })
-        .withMessage(options.message || `${fieldName} must be a positive integer if provided`);
+        .custom((value) => {
+            const num = Number(value);
+            const min = options.min || 1;
+            const max = options.max;
+            if (!Number.isInteger(num) || num < min || (max !== undefined && num > max)) {
+                throw new Error(options.message || `${fieldName} must be a positive integer if provided`);
+            }
+            return true;
+        });
 
 /**
  * Validate non-negative currency amount (cents)
  */
 const validateCurrencyAmount = (fieldName) =>
     body(fieldName)
-        .isInt({ min: 0 })
-        .withMessage(`${fieldName} must be a non-negative integer (cents)`);
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 0) {
+                throw new Error(`${fieldName} must be a non-negative integer (cents)`);
+            }
+            return true;
+        });
 
 /**
  * Validate optional currency amount
@@ -97,8 +121,13 @@ const validateCurrencyAmount = (fieldName) =>
 const validateOptionalCurrencyAmount = (fieldName) =>
     body(fieldName)
         .optional()
-        .isInt({ min: 0 })
-        .withMessage(`${fieldName} must be a non-negative integer (cents) if provided`);
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 0) {
+                throw new Error(`${fieldName} must be a non-negative integer (cents) if provided`);
+            }
+            return true;
+        });
 
 /**
  * Validate required non-empty string
@@ -144,12 +173,22 @@ const validateOptionalEnum = (fieldName, allowedValues, options = {}) =>
 const validatePagination = [
     query('limit')
         .optional()
-        .isInt({ min: 1, max: 1000 })
-        .withMessage('limit must be between 1 and 1000'),
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1 || num > 1000) {
+                throw new Error('limit must be between 1 and 1000');
+            }
+            return true;
+        }),
     query('offset')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('offset must be a non-negative integer')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 0) {
+                throw new Error('offset must be a non-negative integer');
+            }
+            return true;
+        })
 ];
 
 /**
