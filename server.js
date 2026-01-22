@@ -18,6 +18,11 @@ const db = require('./utils/database');
 
 // Store cron task references for graceful shutdown
 const cronTasks = [];
+
+// Debounce tracking for webhook-triggered syncs (prevents duplicate syncs from rapid webhook events)
+const catalogSyncDebounce = new Map(); // merchantId -> timestamp
+const CATALOG_SYNC_DEBOUNCE_MS = 30000; // 30 seconds
+
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
@@ -818,6 +823,20 @@ app.post('/api/webhooks/square', async (req, res) => {
                         syncResults.error = 'Merchant not found';
                         break;
                     }
+
+                    // Debounce: skip if we recently started a sync for this merchant
+                    const lastSyncTime = catalogSyncDebounce.get(internalMerchantId);
+                    const now = Date.now();
+                    if (lastSyncTime && (now - lastSyncTime) < CATALOG_SYNC_DEBOUNCE_MS) {
+                        logger.info('Catalog sync debounced - sync already in progress or recently completed', {
+                            merchantId: internalMerchantId,
+                            lastSyncSecondsAgo: Math.round((now - lastSyncTime) / 1000)
+                        });
+                        syncResults.debounced = true;
+                        break;
+                    }
+                    catalogSyncDebounce.set(internalMerchantId, now);
+
                     try {
                         logger.info('Catalog change detected via webhook, syncing...', { merchantId: internalMerchantId });
                         const catalogSyncResult = await squareApi.syncCatalog(internalMerchantId);
