@@ -2,12 +2,14 @@
  * Catalog Routes
  *
  * Handles catalog data management:
+ * - Locations
  * - Items, variations, categories
  * - Inventory and low stock
  * - Expirations tracking
  * - Catalog audit
  *
  * Endpoints:
+ * - GET    /api/locations                     - List store locations
  * - GET    /api/categories                    - List all categories
  * - GET    /api/items                         - List items with optional filtering
  * - GET    /api/variations                    - List variations with optional filtering
@@ -38,6 +40,30 @@ const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/catalog');
 
 // ==================== CATALOG ENDPOINTS ====================
+
+/**
+ * GET /api/locations
+ * Get store locations for the merchant
+ */
+router.get('/locations', requireAuth, requireMerchant, async (req, res) => {
+    try {
+        const merchantId = req.merchantContext.id;
+        const result = await db.query(`
+            SELECT id, name, active, address, timezone
+            FROM locations
+            WHERE merchant_id = $1
+            ORDER BY name
+        `, [merchantId]);
+
+        res.json({
+            count: result.rows.length,
+            locations: result.rows
+        });
+    } catch (error) {
+        logger.error('Get locations error', { error: error.message, stack: error.stack });
+        res.status(500).json({ error: error.message });
+    }
+});
 
 /**
  * GET /api/categories
