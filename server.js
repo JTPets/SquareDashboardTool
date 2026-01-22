@@ -53,6 +53,7 @@ const webhooksRoutes = require('./routes/webhooks');
 const expiryDiscountsRoutes = require('./routes/expiry-discounts');
 const vendorCatalogRoutes = require('./routes/vendor-catalog');
 const cycleCountsRoutes = require('./routes/cycle-counts');
+const { generateDailyBatch } = require('./utils/cycle-count-utils');
 const syncRoutes = require('./routes/sync');
 const { runSmartSync, isSyncNeeded, loggedSync } = require('./routes/sync');
 const catalogRoutes = require('./routes/catalog');
