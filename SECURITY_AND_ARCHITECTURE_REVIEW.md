@@ -296,10 +296,131 @@ exports.createOffer = [
 | `routes/gmc.js` | 32 | MEDIUM - Google integration | **DONE** |
 | `routes/delivery.js` | 23 | HIGH - Customer-facing, POD photos | **DONE** |
 
-#### Priority 1: External (HIGH RISK)
+#### Priority 1: External (HIGH RISK) - SPECIAL HANDLING REQUIRED
 | Route File | Endpoints | Risk Level | Status |
 |------------|-----------|------------|--------|
 | `routes/webhooks.js` | 9 | HIGH - External callbacks | TODO |
+
+**⚠️ Webhook Refactoring Strategy**
+
+The webhook handler (`/api/webhooks/square`) is a ~1,400 line event processor that cannot be simply "extracted" like other routes. It requires a **service layer refactoring** approach.
+
+**Current Problem:**
+```
+POST /api/webhooks/square (1,400 lines)
+    └── Giant switch statement handling 15+ event types
+        ├── Direct database queries
+        ├── Direct Square API calls
+        ├── Inline business logic for loyalty, delivery, inventory
+        └── Deeply nested error handling
+```
+
+**Target Architecture:**
+```
+POST /api/webhooks/square (~50 lines)
+    └── webhookProcessor.handle(event)
+            ├── Verify signature
+            ├── Check duplicates
+            └── Delegate to services:
+                ├── subscriptionService
+                ├── catalogSyncService
+                ├── inventorySyncService
+                ├── deliveryService (exists)
+                ├── loyaltyService (exists)
+                └── locationService
+```
+
+**Webhook Refactoring Plan (4 Steps):**
+
+| Step | Task | Files | Risk |
+|------|------|-------|------|
+| 1 | Extract management endpoints | `routes/webhooks.js` | LOW |
+| 2 | Create webhook processor service | `services/webhookProcessor.js` | MEDIUM |
+| 3 | Consolidate event handlers into existing services | `utils/*.js` | MEDIUM |
+| 4 | Thin out route handler | `server.js` | LOW |
+
+**Step 1: Extract Management Endpoints (Simple)**
+Move these 8 CRUD endpoints to `routes/webhooks.js`:
+- `GET /api/webhooks/subscriptions` - List subscriptions
+- `GET /api/webhooks/subscriptions/audit` - Audit configuration
+- `GET /api/webhooks/event-types` - Get event types
+- `POST /api/webhooks/register` - Register new subscription
+- `POST /api/webhooks/ensure` - Ensure subscription exists
+- `PUT /api/webhooks/subscriptions/:id` - Update subscription
+- `DELETE /api/webhooks/subscriptions/:id` - Delete subscription
+- `POST /api/webhooks/subscriptions/:id/test` - Send test event
+
+**Step 2: Create Webhook Processor Service**
+Create `services/webhookProcessor.js`:
+```javascript
+// services/webhookProcessor.js
+class WebhookProcessor {
+    async handle(event, headers, rawBody) {
+        await this.verifySignature(headers, rawBody);
+        if (await this.isDuplicate(event.event_id)) return { duplicate: true };
+        await this.logEvent(event);
+        return await this.processEvent(event);
+    }
+
+    async processEvent(event) {
+        const merchantId = await this.resolveMerchant(event.merchant_id);
+        const handler = this.handlers[event.type];
+        if (handler) return handler(event.data, merchantId);
+        return { unhandled: true };
+    }
+}
+```
+
+**Step 3: Consolidate Event Handlers**
+Move business logic from webhook switch cases into appropriate services:
+
+| Event Type | Current Location | Target Service |
+|------------|------------------|----------------|
+| `subscription.*` | server.js:6416-6452 | `subscriptionHandler.js` (exists) |
+| `catalog.version.updated` | server.js:6570-6593 | `square-api.js` (exists) |
+| `inventory.count.updated` | server.js:6596-6625 | `square-api.js` (exists) |
+| `order.created/updated` | server.js:6628-6847 | `services/orderEventService.js` (NEW) |
+| `order.fulfillment.updated` | server.js:6850-6986 | `services/orderEventService.js` (NEW) |
+| `vendor.created/updated` | server.js:6991-7048 | `square-api.js` (exists) |
+| `location.created/updated` | server.js:7051-7108 | `square-api.js` (exists) |
+| `oauth.authorization.revoked` | server.js:7113-7142 | `middleware/merchant.js` |
+| `payment.created/updated` | server.js:7147-7284 | `loyaltyService.js` (exists) |
+| `refund.created/updated` | server.js:7287-7345 | `loyaltyService.js` (exists) |
+| `loyalty.event.created` | server.js:7348-7500 | `loyaltyService.js` (exists) |
+| `customer.updated` | server.js:6515-6565 | `deliveryService.js` or NEW |
+
+**Step 4: Thin Route Handler**
+Final `server.js` webhook endpoint (~50 lines):
+```javascript
+const webhookProcessor = require('./services/webhookProcessor');
+
+app.post('/api/webhooks/square', async (req, res) => {
+    try {
+        const result = await webhookProcessor.handle(
+            req.body,
+            req.headers,
+            req.rawBody
+        );
+        res.json({ received: true, ...result });
+    } catch (error) {
+        if (error.code === 'INVALID_SIGNATURE') {
+            return res.status(401).json({ error: 'Invalid signature' });
+        }
+        logger.error('Webhook processing failed', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+```
+
+**Benefits of This Approach:**
+1. **Testable** - Each service can be unit tested independently
+2. **Reusable** - `loyaltyService.processOrder()` works from webhook, cron, or manual sync
+3. **Maintainable** - Loyalty changes only touch `loyaltyService.js`
+4. **Debuggable** - Clear call stack instead of 1,400-line switch statement
+
+**Estimated Effort:** 4-6 hours for full refactoring
+
+---
 
 #### Priority 2: Financial & Integration (MEDIUM RISK)
 | Route File | Endpoints | Risk Level | Status |
@@ -429,11 +550,16 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 **Phase 3 - In Progress:**
 1. **Split the monolith** - 58% complete
    - ✓ Extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc, delivery (134 endpoints)
-   - → Next: webhooks (9), expiry-discounts (14)
+   - → Next: webhook management (8 endpoints) + service layer refactor
+   - → Then: expiry-discounts (14), vendor-catalog (13), cycle-counts (9)
    - Remaining: 97 endpoints across ~11 more route files
 2. **Input validation** - 7 validator files created
    - ✓ Validators for all extracted routes (including delivery)
    - → Add validators as routes are extracted
+3. **Service layer** - Planned for webhook handler
+   - Create `services/webhookProcessor.js` for event routing
+   - Create `services/orderEventService.js` for order/fulfillment events
+   - Consolidate logic into existing services (loyalty, delivery, square-api)
 
 **Phase 4 - Future (when needed):**
 1. Redis for sessions and caching
