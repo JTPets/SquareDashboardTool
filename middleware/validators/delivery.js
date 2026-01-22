@@ -8,6 +8,18 @@
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors, isValidUUID, sanitizeString } = require('./index');
 
+// Helper to validate integer in range (handles JSON number types)
+const isIntInRange = (value, fieldName, min, max) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < min || (max !== undefined && num > max)) {
+        if (max !== undefined) {
+            throw new Error(`${fieldName} must be between ${min} and ${max}`);
+        }
+        throw new Error(`${fieldName} must be a positive integer`);
+    }
+    return true;
+};
+
 /**
  * List orders - validate query parameters
  */
@@ -273,8 +285,7 @@ const finishRoute = [
 const geocode = [
     body('limit')
         .optional()
-        .isInt({ min: 1, max: 100 })
-        .withMessage('Limit must be between 1 and 100'),
+        .custom((value) => isIntInRange(value, 'limit', 1, 100)),
     handleValidationErrors
 ];
 
@@ -300,8 +311,7 @@ const updateSettings = [
         .withMessage('Same day cutoff must be in HH:MM format'),
     body('podRetentionDays')
         .optional()
-        .isInt({ min: 1, max: 365 })
-        .withMessage('POD retention days must be between 1 and 365'),
+        .custom((value) => isIntInRange(value, 'podRetentionDays', 1, 365)),
     body('autoIngestReadyOrders')
         .optional()
         .isBoolean()
@@ -348,8 +358,7 @@ const getAudit = [
 const syncOrders = [
     body('daysBack')
         .optional()
-        .isInt({ min: 1, max: 30 })
-        .withMessage('Days back must be between 1 and 30'),
+        .custom((value) => isIntInRange(value, 'daysBack', 1, 30)),
     handleValidationErrors
 ];
 

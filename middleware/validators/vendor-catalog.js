@@ -7,6 +7,15 @@
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors, validateOptionalString } = require('./index');
 
+// Helper to validate non-negative integer (handles JSON number types)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
 /**
  * GET /api/vendors
  */
@@ -187,8 +196,7 @@ const pushPriceChanges = [
         .notEmpty()
         .withMessage('Each price change must have a variationId'),
     body('priceChanges.*.newPriceCents')
-        .isInt({ min: 0 })
-        .withMessage('newPriceCents must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'newPriceCents')),
     body('priceChanges.*.currency')
         .optional()
         .isLength({ min: 3, max: 3 })

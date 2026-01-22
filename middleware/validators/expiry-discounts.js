@@ -7,6 +7,24 @@
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors, validateIntId, validateOptionalPositiveInt, validateOptionalBoolean, validateOptionalString } = require('./index');
 
+// Helper to validate non-negative integer (handles JSON number types)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
+// Helper to validate integer within range (handles JSON number types)
+const isIntInRange = (value, fieldName, min, max) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < min || num > max) {
+        throw new Error(`${fieldName} must be between ${min} and ${max}`);
+    }
+    return true;
+};
+
 /**
  * PATCH /api/expiry-discounts/tiers/:id
  */
@@ -19,16 +37,13 @@ const updateTier = [
         .withMessage('tier_name must be 1-100 characters'),
     body('min_days_to_expiry')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('min_days_to_expiry must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'min_days_to_expiry')),
     body('max_days_to_expiry')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('max_days_to_expiry must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'max_days_to_expiry')),
     body('discount_percent')
         .optional()
-        .isInt({ min: 0, max: 100 })
-        .withMessage('discount_percent must be between 0 and 100'),
+        .custom((value) => isIntInRange(value, 'discount_percent', 0, 100)),
     body('is_auto_apply')
         .optional()
         .isBoolean()
@@ -43,8 +58,7 @@ const updateTier = [
         .withMessage('color_code must be a valid hex color (e.g., #FF5733)'),
     body('priority')
         .optional()
-        .isInt({ min: 0, max: 100 })
-        .withMessage('priority must be between 0 and 100'),
+        .custom((value) => isIntInRange(value, 'priority', 0, 100)),
     body('is_active')
         .optional()
         .isBoolean()

@@ -15,6 +15,15 @@ const {
     validatePromoCode
 } = require('./index');
 
+// Helper to validate non-negative integer (handles JSON number types)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
 // ==================== ROUTE-SPECIFIC VALIDATORS ====================
 
 /**
@@ -32,8 +41,7 @@ const validatePromo = [
         .withMessage('plan must be monthly or annual'),
     body('priceCents')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('priceCents must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'priceCents')),
     handleValidationErrors
 ];
 
