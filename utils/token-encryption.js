@@ -13,6 +13,7 @@
  */
 
 const crypto = require('crypto');
+const logger = require('./logger');
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;        // 128 bits
@@ -166,7 +167,7 @@ function testEncryption() {
         const decrypted = decryptToken(encrypted);
         return decrypted === testValue;
     } catch (error) {
-        console.error('Encryption test failed:', error.message);
+        logger.error('Encryption test failed', { error: error.message });
         return false;
     }
 }

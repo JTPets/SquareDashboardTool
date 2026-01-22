@@ -27,12 +27,24 @@ async function createSubscriber({ email, businessName, plan, squareCustomerId, c
     const trialEndDate = new Date();
     trialEndDate.setDate(trialEndDate.getDate() + TRIAL_DAYS);
 
-    // Get plan pricing
+    // Get plan pricing from database
     const planResult = await db.query(
         'SELECT price_cents FROM subscription_plans WHERE plan_key = $1',
         [plan]
     );
-    const priceCents = planResult.rows[0]?.price_cents || (plan === 'annual' ? 9999 : 999);
+
+    let priceCents;
+    if (planResult.rows[0]?.price_cents) {
+        priceCents = planResult.rows[0].price_cents;
+    } else {
+        // Fallback prices - log warning for audit trail
+        priceCents = plan === 'annual' ? 9999 : 999;
+        logger.warn('Using fallback subscription price - plan not found in database', {
+            plan,
+            priceCents,
+            email
+        });
+    }
 
     const result = await db.query(`
         INSERT INTO subscribers (

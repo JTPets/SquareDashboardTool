@@ -3,8 +3,8 @@
  * Express API server with Square POS integration
  */
 
-console.log('Starting Square Dashboard Addon Tool...');
-console.log('Loading configuration...');
+// Early startup logging (logger not yet initialized)
+const startupTime = Date.now();
 
 require('dotenv').config();
 const express = require('express');
@@ -33,8 +33,6 @@ const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
 const subscriptionHandler = require('./utils/subscription-handler');
 const { subscriptionCheck } = require('./middleware/subscription-check');
-const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('./utils/csv-helpers');
-const { hashPassword, generateRandomPassword } = require('./utils/password');
 const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-encryption');
@@ -46,9 +44,7 @@ const webhookRetry = require('./utils/webhook-retry');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
-// File validation (V005 fix)
-const { validateUploadedImage } = require('./utils/file-validation');
-const { requireAuth, requireAuthApi, requireAdmin, requireWriteAccess } = require('./middleware/auth');
+const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
 // Multi-tenant middleware and routes
@@ -74,7 +70,6 @@ const analyticsRoutes = require('./routes/analytics');
 const merchantsRoutes = require('./routes/merchants');
 const settingsRoutes = require('./routes/settings');
 const logsRoutes = require('./routes/logs');
-const MerchantDB = require('./utils/merchant-db');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -161,7 +156,7 @@ pgSessionStore.on('error', (err) => {
     logger.error('Session store connection error', { error: err.message });
 });
 
-console.log('Initializing session middleware...');
+logger.info('Initializing session middleware');
 
 // SECURITY FIX: Generate cryptographically secure fallback secret
 // Note: This is only for development; production requires SESSION_SECRET env var
@@ -182,13 +177,12 @@ app.use(session({
     proxy: true   // Trust the reverse proxy (Cloudflare)
 }));
 
-console.log('Session middleware initialized');
+logger.info('Session middleware initialized');
 
 // Session secret validation - refuse to start in production without it
 if (!process.env.SESSION_SECRET) {
     if (process.env.NODE_ENV === 'production') {
         logger.error('FATAL: SESSION_SECRET must be set in production environment');
-        console.error('FATAL: SESSION_SECRET must be set in production environment');
         process.exit(1);
     }
     logger.warn('SESSION_SECRET not set! Using random secret. Sessions will be lost on restart.');
@@ -541,6 +535,72 @@ async function resolveImageUrls(variationImages, itemImages = null) {
 // These endpoints exposed all merchant data without tenant filtering.
 // Database backups should be managed at the infrastructure level (pg_dump with proper access controls).
 
+/**
+ * Run automated database backup using pg_dump and email the result
+ * Called by cron job and test endpoint
+ * @returns {Promise<void>}
+ */
+async function runAutomatedBackup() {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    const dbHost = process.env.DB_HOST || 'localhost';
+    const dbPort = process.env.DB_PORT || '5432';
+    const dbName = process.env.DB_NAME || 'square_dashboard_addon';
+    const dbUser = process.env.DB_USER || 'postgres';
+    const dbPassword = process.env.DB_PASSWORD;
+
+    if (!dbPassword) {
+        throw new Error('DB_PASSWORD environment variable is required for automated backup');
+    }
+
+    // Get database statistics first
+    const statsResult = await db.query(`
+        SELECT
+            schemaname,
+            relname AS tablename,
+            n_live_tup AS row_count
+        FROM pg_stat_user_tables
+        ORDER BY n_live_tup DESC
+    `);
+
+    const dbInfo = {
+        database: dbName,
+        host: dbHost,
+        tables: statsResult.rows
+    };
+
+    // Run pg_dump with password via environment variable (secure)
+    const pgDumpCmd = `PGPASSWORD="${dbPassword}" pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --no-owner --no-acl`;
+
+    try {
+        const { stdout: sqlDump, stderr } = await execAsync(pgDumpCmd, {
+            maxBuffer: 100 * 1024 * 1024, // 100MB buffer for large databases
+            timeout: 300000 // 5 minute timeout
+        });
+
+        if (stderr && !stderr.includes('Warning')) {
+            logger.warn('pg_dump warnings', { stderr });
+        }
+
+        // Send backup via email
+        await emailNotifier.sendBackup(sqlDump, dbInfo);
+
+        logger.info('Automated backup completed', {
+            database: dbName,
+            backupSize: `${(sqlDump.length / 1024 / 1024).toFixed(2)} MB`,
+            tableCount: statsResult.rows.length
+        });
+    } catch (error) {
+        // Check if pg_dump is not installed
+        if (error.message.includes('pg_dump: not found') || error.message.includes('command not found')) {
+            throw new Error('pg_dump is not installed. Please install PostgreSQL client tools.');
+        }
+        throw error;
+    }
+}
+
 // ==================== SUBSCRIPTIONS & PAYMENTS (EXTRACTED) ====================
 // Subscription routes have been extracted to routes/subscriptions.js
 // This includes: payment-config, plans, promo validation, create, status, cancel, refund
@@ -550,8 +610,6 @@ async function resolveImageUrls(variationImages, itemImages = null) {
 // Webhook management routes have been extracted to routes/webhooks.js
 // This includes: list subscriptions, audit, event-types, register, ensure, update, delete, test
 // See routes/webhooks.js for implementation
-
-const squareWebhooks = require('./utils/square-webhooks');
 
 // ==================== WEBHOOK PROCESSOR ====================
 
@@ -595,8 +653,13 @@ app.post('/api/webhooks/square', async (req, res) => {
             logger.warn('Development mode: Webhook signature verification skipped (configure SQUARE_WEBHOOK_SIGNATURE_KEY for production)');
         } else {
             const crypto = require('crypto');
-            // Use the exact URL registered with Square (hardcode to avoid proxy issues)
-            const notificationUrl = process.env.SQUARE_WEBHOOK_URL || `https://${req.get('host')}${req.originalUrl}`;
+            // SECURITY: SQUARE_WEBHOOK_URL must be set to prevent Host header injection
+            // The URL must match exactly what's registered with Square
+            if (!process.env.SQUARE_WEBHOOK_URL) {
+                logger.error('SECURITY: SQUARE_WEBHOOK_URL environment variable is required for webhook signature verification');
+                return res.status(500).json({ error: 'Webhook URL not configured' });
+            }
+            const notificationUrl = process.env.SQUARE_WEBHOOK_URL;
             // Use raw body to ensure exact match (JSON.stringify may alter formatting)
             const payload = req.rawBody || JSON.stringify(req.body);
             const hmac = crypto.createHmac('sha256', signatureKey);
@@ -1995,7 +2058,9 @@ app.post('/api/webhooks/square', async (req, res) => {
                 UPDATE webhook_events
                 SET processing_time_ms = $1
                 WHERE id = $2
-            `, [processingTime, webhookEventId]).catch(() => {});
+            `, [processingTime, webhookEventId]).catch(err => {
+                logger.warn('Failed to update webhook processing time', { webhookEventId, error: err.message });
+            });
         }
 
         res.status(500).json({ error: error.message });

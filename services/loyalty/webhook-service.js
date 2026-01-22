@@ -8,7 +8,7 @@
  * - Record purchases and track rewards
  */
 
-const { LoyaltyTracer, generateTraceId } = require('./loyalty-tracer');
+const { LoyaltyTracer } = require('./loyalty-tracer');
 const { LoyaltySquareClient } = require('./square-client');
 const { LoyaltyCustomerService } = require('./customer-service');
 const { LoyaltyOfferService } = require('./offer-service');
@@ -40,8 +40,8 @@ class LoyaltyWebhookService {
    * @returns {Promise<LoyaltyWebhookService>} This instance for chaining
    */
   async initialize() {
-    // Initialize Square client first
-    this.squareClient = new LoyaltySquareClient(this.merchantId, this.tracer);
+    // Initialize Square client first (only takes merchantId parameter)
+    this.squareClient = new LoyaltySquareClient(this.merchantId);
     await this.squareClient.initialize();
 
     // Initialize other services with shared tracer
@@ -235,7 +235,7 @@ class LoyaltyWebhookService {
     // Prefer catalog_object_id (Square's standard field for catalog items)
     // Fall back to variation_id only if catalog_object_id is not available
     const variationId = lineItem.catalog_object_id || lineItem.variation_id;
-    const quantity = parseInt(lineItem.quantity) || 0;
+    const quantity = parseInt(lineItem.quantity, 10) || 0;
 
     // Log if we had to use fallback (might indicate API version mismatch)
     if (!lineItem.catalog_object_id && lineItem.variation_id) {

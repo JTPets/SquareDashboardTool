@@ -125,9 +125,13 @@ function requireWriteAccess(req, res, next) {
 
 /**
  * Optional authentication - doesn't require login but attaches user if logged in
+ * Sets req.user to the session user if available, otherwise undefined
  */
 function optionalAuth(req, res, next) {
-    // Just attach user info if available, don't block
+    // Attach user info to request if logged in, don't block unauthenticated requests
+    if (req.session && req.session.user) {
+        req.user = req.session.user;
+    }
     return next();
 }
 
