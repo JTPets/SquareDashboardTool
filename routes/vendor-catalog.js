@@ -30,7 +30,8 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const vendorCatalog = require('../utils/vendor-catalog');
 const squareApi = require('../utils/square-api');
-const { requireAuth, requireMerchant } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
+const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/vendor-catalog');
 
 /**

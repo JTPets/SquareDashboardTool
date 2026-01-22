@@ -25,7 +25,8 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const squareWebhooks = require('../utils/square-webhooks');
-const { requireAuth, requireMerchant } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
+const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/webhooks');
 
 /**
