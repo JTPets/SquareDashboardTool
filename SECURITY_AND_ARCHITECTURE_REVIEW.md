@@ -14,8 +14,8 @@ This application is a **production-grade multi-tenant SaaS platform** that has g
 
 | Area | Current State | Business Risk | Status |
 |------|--------------|---------------|--------|
-| **Testing** | 194 tests for security functions | LOW | MOSTLY FIXED |
-| **Code Structure** | 9,584-line monolith (120 endpoints) | HIGH | Phase 3 In Progress |
+| **Testing** | 194 tests for security functions | LOW | FIXED |
+| **Code Structure** | 8,428-line server.js (97 endpoints remaining) | MEDIUM | Phase 3 In Progress |
 | **Security** | CSP enabled, CORS enforced, file validation | LOW | FIXED |
 | **Input Validation** | express-validator on 7 extracted routes | LOW | Phase 3 In Progress |
 | **Scalability** | Synchronous operations | MEDIUM | Phase 4 |
@@ -114,11 +114,11 @@ Coverage: Security utilities + access control middleware
 ### Issue #2: Monolithic Server File (HIGH)
 
 **The Problem:**
-`server.js` contains 9,584 lines with:
-- **120 API endpoint definitions** (verified by code analysis on 2026-01-22)
+`server.js` contains 14,409 lines with:
+- **221 API endpoint definitions** (verified by code analysis)
 - Business logic mixed with routing
 - Configuration mixed with handlers
-- 7 route files extracted so far (auth.js, square-oauth.js, driver-api.js, purchase-orders.js, subscriptions.js, loyalty.js, gmc.js)
+- Only 2 route files extracted so far (auth.js, square-oauth.js)
 
 **Why This Matters:**
 - Impossible to understand full system
@@ -128,48 +128,54 @@ Coverage: Security utilities + access control middleware
 
 **Current Route Extraction Status:**
 
-| Route File | Status | Endpoints | Validators |
-|------------|--------|-----------|------------|
-| `routes/auth.js` | DONE | 12 endpoints | N/A (inline) |
-| `routes/square-oauth.js` | DONE | 4 endpoints | N/A |
-| `routes/driver-api.js` | DONE | 8 endpoints (public) | ✅ driver-api.js |
-| `routes/purchase-orders.js` | DONE | 9 endpoints | ✅ purchase-orders.js |
-| `routes/subscriptions.js` | DONE | 11 endpoints | ✅ subscriptions.js |
-| `routes/loyalty.js` | DONE | 41 endpoints | ✅ loyalty.js |
-| `routes/gmc.js` | DONE | 32 endpoints | ✅ gmc.js |
-| `routes/delivery.js` | TODO | 24 endpoints | ❌ Needed |
-| `routes/webhooks.js` | TODO | 10 endpoints | ❌ Needed |
-| `routes/sync.js` | TODO | 6 endpoints | ❌ Needed |
-| `routes/catalog.js` | TODO | 10+ endpoints | ❌ Needed |
-| `routes/expiry-discounts.js` | TODO | 15 endpoints | ❌ Needed |
-| `routes/merchants.js` | TODO | 10 endpoints | ❌ Needed |
-| `routes/cycle-counts.js` | TODO | 9 endpoints | ❌ Needed |
-| `routes/vendor-catalog.js` | TODO | 13 endpoints | ❌ Needed |
+| Route File | Status | Endpoints | Lines |
+|------------|--------|-----------|-------|
+| `routes/auth.js` | DONE | 12 endpoints | 897 |
+| `routes/square-oauth.js` | DONE | 4 endpoints | 534 |
+| `routes/driver-api.js` | DONE | 8 endpoints (public) | 255 |
+| `routes/purchase-orders.js` | DONE | 9 endpoints | 759 |
+| `routes/subscriptions.js` | DONE | 11 endpoints | 817 |
+| `routes/loyalty.js` | **DONE** | 35 endpoints | 1,873 |
+| `routes/gmc.js` | **DONE** | 32 endpoints | 1,169 |
+| `routes/delivery.js` | **DONE** | 23 endpoints | 1,251 |
+| `routes/webhooks.js` | TODO | 9 endpoints | - |
+| `routes/expiry-discounts.js` | TODO | 14 endpoints | - |
+| `routes/vendor-catalog.js` | TODO | 13 endpoints | - |
+| `routes/cycle-counts.js` | TODO | 9 endpoints | - |
+| `routes/sync.js` | TODO | 6 endpoints | - |
+| `routes/catalog.js` | TODO | 8 endpoints | - |
+| `routes/square-attributes.js` | TODO | 8 endpoints | - |
+| `routes/google-oauth.js` | TODO | 4 endpoints | - |
+| `routes/merchants.js` | TODO | 3 endpoints | - |
+| `routes/settings.js` | TODO | 3 endpoints | - |
+| `routes/logs.js` | TODO | 4 endpoints | - |
 
-**Recommended Split (with line ranges from server.js as of 2026-01-22):**
+**Extracted:** 8 route files (7,555 lines, 134 endpoints)
+**Remaining:** 97 endpoints in server.js (8,428 lines)
+
+**Recommended Split (with line ranges from server.js):**
 
 ```
 routes/
-  ├── auth.js              (DONE)
-  ├── square-oauth.js      (DONE)
-  ├── driver-api.js        (DONE - 8 public endpoints)
-  ├── purchase-orders.js   (DONE - 9 endpoints)
-  ├── subscriptions.js     (DONE - 11 endpoints)
-  ├── loyalty.js           (DONE - 41 endpoints)
-  ├── gmc.js               (DONE - 32 endpoints)
-  ├── delivery.js          (TODO - lines 7696-8722, 24 endpoints)
-  ├── webhooks.js          (TODO - lines 6028-6321+, 10 endpoints)
-  ├── sync.js              (TODO - lines 1324-1489, 6 endpoints)
-  ├── catalog.js           (TODO - lines 1545-2177, items/variations/inventory)
-  ├── expiry-discounts.js  (TODO - lines 2514-2942, 15 endpoints)
-  ├── merchants.js         (TODO - lines 302-606, merchants/settings/config)
-  ├── cycle-counts.js      (TODO - lines 5256-5954, 9 endpoints)
-  └── vendor-catalog.js    (TODO - lines 3844-4285, 13 endpoints)
+  ├── auth.js              (DONE - already extracted)
+  ├── square-oauth.js      (DONE - already extracted)
+  ├── loyalty.js           (NEW - lines 11829-13551, 35 endpoints)
+  ├── delivery.js          (NEW - lines 10449-11626, 23 endpoints)
+  ├── driver-api.js        (NEW - lines 11626-11829, 8 public endpoints)
+  ├── gmc.js               (NEW - lines 3797-4980, 32 endpoints)
+  ├── subscriptions.js     (NEW - lines 7940-8779, 11 endpoints)
+  ├── purchase-orders.js   (NEW - lines 7146-7934, 9 endpoints)
+  ├── webhooks.js          (NEW - lines 8779-10449, 9 endpoints)
+  ├── sync.js              (NEW - lines 1283-1504, 6 endpoints)
+  ├── catalog.js           (NEW - lines 1504-3499, items/variations/inventory)
+  ├── merchants.js         (NEW - lines 329-568, merchants/settings)
+  ├── cycle-counts.js      (NEW - lines 6391-7146, 9 endpoints)
+  └── vendor-catalog.js    (NEW - lines 5011-5512, 13 endpoints)
 
 services/
-  ├── sync-service.js      (FUTURE - business logic from server.js)
-  ├── inventory-service.js (FUTURE - from utils/database.js)
-  └── reporting-service.js (FUTURE - consolidate reporting logic)
+  ├── sync-service.js      (NEW - business logic from server.js)
+  ├── inventory-service.js (NEW - from utils/database.js)
+  └── reporting-service.js (NEW - consolidate reporting logic)
 ```
 
 ---
@@ -192,38 +198,54 @@ const fileSignatures = {
 
 ---
 
-### Issue #4: Input Validation Gaps (LOW - was MEDIUM)
+### Issue #4: Input Validation Gaps (MEDIUM)
 
-**express-validator is now actively used on all extracted routes.**
+**express-validator is installed but NOT USED anywhere in the codebase.**
 
-**Current State (verified by code analysis 2026-01-22):**
-- ✅ `middleware/validators/index.js` - 18 reusable validators (UUID, email, currency, etc.)
-- ✅ `middleware/validators/driver-api.js` - 8 validators for driver routes
-- ✅ `middleware/validators/subscriptions.js` - 7 validators for subscription routes
-- ✅ `middleware/validators/purchase-orders.js` - 8 validators for PO routes
-- ✅ `middleware/validators/loyalty.js` - 25+ validators for loyalty routes
-- ✅ `middleware/validators/gmc.js` - 16 validators for GMC routes
+**Current State (verified by code analysis):**
+- NO express-validator middleware found in any route
+- All validation is inline with simple presence checks
+- No centralized validation patterns
 
-**Validation Pattern Used:**
+**Current Validation Pattern (typical):**
 ```javascript
-// In routes/subscriptions.js:
-const validators = require('../middleware/validators/subscriptions');
-router.post('/subscriptions/create', validators.createSubscription, async (req, res) => {
-    // Validated request
-});
+// In routes/auth.js (line 337-343):
+if (!email || !email.includes('@')) {
+    return res.status(400).json({...})
+}
 
-// In middleware/validators/subscriptions.js:
-const createSubscription = [
-    validateEmail('email'),
-    body('businessName').optional().trim().isLength({ max: 255 }),
-    body('plan').isIn(['monthly', 'annual']),
-    handleValidationErrors  // Returns 400 with field-specific errors
-];
+// In server.js (sync endpoint):
+// No validation of request body - direct destructuring
 ```
 
-**Remaining Work:**
-- Add validators to remaining 8 route files as they are extracted
-- Endpoints still in server.js lack express-validator (sync, catalog, delivery, etc.)
+**Missing Validation Examples:**
+```javascript
+// Current - trusts input
+app.patch('/api/variations/:id/cost', async (req, res) => {
+  const { cost } = req.body; // What if cost is negative? A string?
+
+// Should be:
+app.patch('/api/variations/:id/cost', [
+  body('cost').isFloat({ min: 0 }).withMessage('Cost must be positive'),
+], async (req, res) => {
+```
+
+**Recommended Validation Strategy:**
+
+1. Create `middleware/validators/` directory with route-specific validators
+2. Add validation to all financial endpoints first (loyalty, subscriptions, purchase-orders)
+3. Use express-validator consistently across all POST/PUT/PATCH endpoints
+
+```javascript
+// Example: middleware/validators/loyalty.js
+const { body, param, query } = require('express-validator');
+
+exports.createOffer = [
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('points_required').isInt({ min: 1 }).withMessage('Points must be positive'),
+  body('discount_type').isIn(['percentage', 'fixed']).withMessage('Invalid discount type'),
+];
+```
 
 ---
 
@@ -258,48 +280,184 @@ const createSubscription = [
 - [ ] `__tests__/routes/auth.test.js` - Login/logout/reset flows (optional - needs DB mocking)
 - [ ] `__tests__/utils/loyalty-service.test.js` - Financial calculations (optional - complex)
 
-### Phase 3: Code Health (Next Priority)
+### Phase 3: Code Health (In Progress)
 
 **Server.js Extraction Plan** - Prioritized by risk and complexity:
 
-#### Priority 1: Financial & External-Facing (HIGH RISK) - COMPLETED
-| Route File | Lines in server.js | Endpoints | Risk Level | Status |
-|------------|-------------------|-----------|------------|--------|
-| `routes/driver-api.js` | (extracted) | 8 | HIGH - Public API | **DONE** |
-| `routes/purchase-orders.js` | (extracted) | 9 | HIGH - Financial | **DONE** |
-| `routes/subscriptions.js` | (extracted) | 11 | HIGH - Payment handling | **DONE** |
-| `routes/loyalty.js` | (extracted) | 41 | HIGH - Financial calculations | **DONE** |
+#### Completed Extractions (134 endpoints, 7,555 lines)
+| Route File | Endpoints | Risk Level | Status |
+|------------|-----------|------------|--------|
+| `routes/auth.js` | 12 | HIGH - Authentication | **DONE** |
+| `routes/square-oauth.js` | 4 | HIGH - OAuth flow | **DONE** |
+| `routes/driver-api.js` | 8 | HIGH - Public API | **DONE** |
+| `routes/purchase-orders.js` | 9 | HIGH - Financial | **DONE** |
+| `routes/subscriptions.js` | 11 | HIGH - Payment handling | **DONE** |
+| `routes/loyalty.js` | 35 | HIGH - Financial calculations | **DONE** |
+| `routes/gmc.js` | 32 | MEDIUM - Google integration | **DONE** |
+| `routes/delivery.js` | 23 | HIGH - Customer-facing, POD photos | **DONE** |
 
-#### Priority 2: External Integrations (MEDIUM RISK) - IN PROGRESS
-| Route File | Lines in server.js | Endpoints | Risk Level | Status |
-|------------|-------------------|-----------|------------|--------|
-| `routes/gmc.js` | (extracted) | 32 | MEDIUM - Google integration | **DONE** |
-| `routes/webhooks.js` | 6028-6321+ | 10 | MEDIUM - External callbacks | TODO |
-| `routes/delivery.js` | 7696-8722 | 24 | MEDIUM - Complex state | TODO |
+#### Priority 1: External (HIGH RISK) - SPECIAL HANDLING REQUIRED
+| Route File | Endpoints | Risk Level | Status |
+|------------|-----------|------------|--------|
+| `routes/webhooks.js` | 9 | HIGH - External callbacks | TODO |
+
+**⚠️ Webhook Refactoring Strategy**
+
+The webhook handler (`/api/webhooks/square`) is a ~1,400 line event processor that cannot be simply "extracted" like other routes. It requires a **service layer refactoring** approach.
+
+**Current Problem:**
+```
+POST /api/webhooks/square (1,400 lines)
+    └── Giant switch statement handling 15+ event types
+        ├── Direct database queries
+        ├── Direct Square API calls
+        ├── Inline business logic for loyalty, delivery, inventory
+        └── Deeply nested error handling
+```
+
+**Target Architecture:**
+```
+POST /api/webhooks/square (~50 lines)
+    └── webhookProcessor.handle(event)
+            ├── Verify signature
+            ├── Check duplicates
+            └── Delegate to services:
+                ├── subscriptionService
+                ├── catalogSyncService
+                ├── inventorySyncService
+                ├── deliveryService (exists)
+                ├── loyaltyService (exists)
+                └── locationService
+```
+
+**Webhook Refactoring Plan (4 Steps):**
+
+| Step | Task | Files | Risk |
+|------|------|-------|------|
+| 1 | Extract management endpoints | `routes/webhooks.js` | LOW |
+| 2 | Create webhook processor service | `services/webhookProcessor.js` | MEDIUM |
+| 3 | Consolidate event handlers into existing services | `utils/*.js` | MEDIUM |
+| 4 | Thin out route handler | `server.js` | LOW |
+
+**Step 1: Extract Management Endpoints (Simple)**
+Move these 8 CRUD endpoints to `routes/webhooks.js`:
+- `GET /api/webhooks/subscriptions` - List subscriptions
+- `GET /api/webhooks/subscriptions/audit` - Audit configuration
+- `GET /api/webhooks/event-types` - Get event types
+- `POST /api/webhooks/register` - Register new subscription
+- `POST /api/webhooks/ensure` - Ensure subscription exists
+- `PUT /api/webhooks/subscriptions/:id` - Update subscription
+- `DELETE /api/webhooks/subscriptions/:id` - Delete subscription
+- `POST /api/webhooks/subscriptions/:id/test` - Send test event
+
+**Step 2: Create Webhook Processor Service**
+Create `services/webhookProcessor.js`:
+```javascript
+// services/webhookProcessor.js
+class WebhookProcessor {
+    async handle(event, headers, rawBody) {
+        await this.verifySignature(headers, rawBody);
+        if (await this.isDuplicate(event.event_id)) return { duplicate: true };
+        await this.logEvent(event);
+        return await this.processEvent(event);
+    }
+
+    async processEvent(event) {
+        const merchantId = await this.resolveMerchant(event.merchant_id);
+        const handler = this.handlers[event.type];
+        if (handler) return handler(event.data, merchantId);
+        return { unhandled: true };
+    }
+}
+```
+
+**Step 3: Consolidate Event Handlers**
+Move business logic from webhook switch cases into appropriate services:
+
+| Event Type | Current Location | Target Service |
+|------------|------------------|----------------|
+| `subscription.*` | server.js:6416-6452 | `subscriptionHandler.js` (exists) |
+| `catalog.version.updated` | server.js:6570-6593 | `square-api.js` (exists) |
+| `inventory.count.updated` | server.js:6596-6625 | `square-api.js` (exists) |
+| `order.created/updated` | server.js:6628-6847 | `services/orderEventService.js` (NEW) |
+| `order.fulfillment.updated` | server.js:6850-6986 | `services/orderEventService.js` (NEW) |
+| `vendor.created/updated` | server.js:6991-7048 | `square-api.js` (exists) |
+| `location.created/updated` | server.js:7051-7108 | `square-api.js` (exists) |
+| `oauth.authorization.revoked` | server.js:7113-7142 | `middleware/merchant.js` |
+| `payment.created/updated` | server.js:7147-7284 | `loyaltyService.js` (exists) |
+| `refund.created/updated` | server.js:7287-7345 | `loyaltyService.js` (exists) |
+| `loyalty.event.created` | server.js:7348-7500 | `loyaltyService.js` (exists) |
+| `customer.updated` | server.js:6515-6565 | `deliveryService.js` or NEW |
+
+**Step 4: Thin Route Handler**
+Final `server.js` webhook endpoint (~50 lines):
+```javascript
+const webhookProcessor = require('./services/webhookProcessor');
+
+app.post('/api/webhooks/square', async (req, res) => {
+    try {
+        const result = await webhookProcessor.handle(
+            req.body,
+            req.headers,
+            req.rawBody
+        );
+        res.json({ received: true, ...result });
+    } catch (error) {
+        if (error.code === 'INVALID_SIGNATURE') {
+            return res.status(401).json({ error: 'Invalid signature' });
+        }
+        logger.error('Webhook processing failed', { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+});
+```
+
+**Benefits of This Approach:**
+1. **Testable** - Each service can be unit tested independently
+2. **Reusable** - `loyaltyService.processOrder()` works from webhook, cron, or manual sync
+3. **Maintainable** - Loyalty changes only touch `loyaltyService.js`
+4. **Debuggable** - Clear call stack instead of 1,400-line switch statement
+
+**Estimated Effort:** 4-6 hours for full refactoring
+
+---
+
+#### Priority 2: Financial & Integration (MEDIUM RISK)
+| Route File | Endpoints | Risk Level | Status |
+|------------|-----------|------------|--------|
+| `routes/expiry-discounts.js` | 14 | MEDIUM - Financial calculations | TODO |
+| `routes/vendor-catalog.js` | 13 | MEDIUM - Import handling | TODO |
+| `routes/cycle-counts.js` | 9 | MEDIUM - Inventory updates | TODO |
 
 #### Priority 3: Core Operations (LOWER RISK)
-| Route File | Lines in server.js | Endpoints | Risk Level | Status |
-|------------|-------------------|-----------|------------|--------|
-| `routes/sync.js` | 1324-1489 | 6 | LOW - Internal | TODO |
-| `routes/catalog.js` | 1545-2177 | 10+ | LOW - CRUD | TODO |
-| `routes/expiry-discounts.js` | 2514-2942 | 15 | LOW - Business logic | TODO |
-| `routes/cycle-counts.js` | 5256-5954 | 9 | LOW - Internal | TODO |
-| `routes/vendor-catalog.js` | 3844-4285 | 13 | LOW - Internal | TODO |
-| `routes/merchants.js` | 302-606 | 10 | LOW - Admin | TODO |
+| Route File | Endpoints | Risk Level | Status |
+|------------|-----------|------------|--------|
+| `routes/catalog.js` | 8 | LOW - CRUD operations | TODO |
+| `routes/sync.js` | 6 | LOW - Internal | TODO |
+| `routes/square-attributes.js` | 8 | LOW - Internal | TODO |
+| `routes/google-oauth.js` | 4 | LOW - Auth flow | TODO |
+
+#### Priority 4: Admin & Config (LOW RISK)
+| Route File | Endpoints | Risk Level | Status |
+|------------|-----------|------------|--------|
+| `routes/merchants.js` | 3 | LOW - Admin | TODO |
+| `routes/settings.js` | 3 | LOW - Config | TODO |
+| `routes/logs.js` | 4 | LOW - Admin only | TODO |
+| misc (inventory, etc.) | ~16 | LOW - Various | TODO |
 
 **Extraction Checklist Per Route:**
-- [ ] Create route file with express Router
-- [ ] Extract endpoints from server.js
-- [ ] Import required middleware (requireAuth, requireMerchant, etc.)
-- [ ] Import required utilities (database, logger, etc.)
-- [ ] Add route to server.js via `app.use('/api/...', require('./routes/...'))`
-- [ ] Run existing tests to verify no regressions
-- [ ] Add input validation using express-validator
+- [x] Create route file with express Router
+- [x] Extract endpoints from server.js
+- [x] Import required middleware (requireAuth, requireMerchant, etc.)
+- [x] Import required utilities (database, logger, etc.)
+- [x] Add route to server.js via `app.use('/api/...', require('./routes/...'))`
+- [x] Run existing tests to verify no regressions
+- [x] Add input validation using express-validator
 
-**Input Validation Status:**
-- ✅ `middleware/validators/` directory created with common utilities
-- ✅ Validators added to: driver-api, subscriptions, purchase-orders, loyalty, gmc
-- ⏳ Need validators for: delivery, webhooks, sync, catalog, expiry-discounts, cycle-counts, vendor-catalog, merchants
+**Input Validation Progress:**
+- [x] Created `middleware/validators/` directory
+- [x] Validators for: driver-api, purchase-orders, subscriptions, loyalty, gmc
+- [ ] Add validators to remaining routes as they are extracted
 
 ### Phase 4: Production Hardening
 
@@ -361,7 +519,7 @@ TOKEN_ENCRYPTION_KEY=<64-hex-chars>
 ## Part 6: Files to Review
 
 ### Highest Risk (Read These First)
-1. `server.js` - Main application (9,584 lines - down from 14,404)
+1. `server.js` - Main application (14,404 lines)
 2. `utils/loyalty-service.js` - Financial calculations (4,833 lines)
 3. `utils/square-api.js` - External API integration (3,414 lines)
 4. `utils/database.js` - All data access (2,496 lines)
@@ -390,11 +548,18 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 8. **V007 FIXED:** Test endpoints disabled in production
 
 **Phase 3 - In Progress:**
-1. **Split the monolith** - 120 endpoints remain in server.js (was 221)
-   - ✅ Priority 1 COMPLETE: Financial routes (loyalty, subscriptions, purchase-orders, driver-api)
-   - ⏳ Priority 2 IN PROGRESS: External integrations (gmc ✅, webhooks ❌, delivery ❌)
-   - ⏳ Priority 3 TODO: Core operations (sync, catalog, cycle-counts, etc.)
-2. **Input validation** - express-validator on all 7 extracted routes, need to add to remaining 8
+1. **Split the monolith** - 58% complete
+   - ✓ Extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc, delivery (134 endpoints)
+   - → Next: webhook management (8 endpoints) + service layer refactor
+   - → Then: expiry-discounts (14), vendor-catalog (13), cycle-counts (9)
+   - Remaining: 97 endpoints across ~11 more route files
+2. **Input validation** - 7 validator files created
+   - ✓ Validators for all extracted routes (including delivery)
+   - → Add validators as routes are extracted
+3. **Service layer** - Planned for webhook handler
+   - Create `services/webhookProcessor.js` for event routing
+   - Create `services/orderEventService.js` for order/fulfillment events
+   - Consolidate logic into existing services (loyalty, delivery, square-api)
 
 **Phase 4 - Future (when needed):**
 1. Redis for sessions and caching
@@ -420,8 +585,8 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 | V009 | HIGH | npm vulnerabilities (tar/bcrypt) | package.json | **FIXED** |
 | V010 | HIGH | Auth middleware untested | middleware/auth.js | **FIXED** (38 tests) |
 | V011 | HIGH | Multi-tenant isolation untested | middleware/merchant.js | **FIXED** (27 tests) |
-| V012 | MEDIUM | No input validation | All routes | **PARTIAL** (7 routes done) |
-| V013 | HIGH | 120 endpoints in monolith | server.js | **IN PROGRESS** (was 221) |
+| V012 | MEDIUM | No input validation | All routes | **IN PROGRESS** (7 validators) |
+| V013 | HIGH | 221 endpoints in monolith | server.js | **IN PROGRESS** (97 remaining) |
 
 ---
 
@@ -467,25 +632,34 @@ These endpoints are now only available in development mode.
 **Issue:** Using deprecated `apple-mobile-web-app-capable` without the modern `mobile-web-app-capable` meta tag.
 **Fix Applied:** Added `<meta name="mobile-web-app-capable" content="yes">` alongside the existing Apple-specific tag.
 
-### V012: No Input Validation (MEDIUM) - PARTIAL
+### V012: No Input Validation (MEDIUM) - IN PROGRESS
 **Location:** All routes
 **Risk:** Invalid data could cause errors or unexpected behavior
-**Status:** express-validator implemented on 7 extracted route files with 6 validator modules:
-- ✅ `middleware/validators/index.js` - 18 reusable validators
-- ✅ `middleware/validators/driver-api.js` - 8 validators
-- ✅ `middleware/validators/subscriptions.js` - 7 validators
-- ✅ `middleware/validators/purchase-orders.js` - 8 validators
-- ✅ `middleware/validators/loyalty.js` - 25+ validators
-- ✅ `middleware/validators/gmc.js` - 16 validators
-**Remaining:** Add validators to 8 remaining route files as they are extracted
+**Progress:** 7 validator files created in `middleware/validators/`:
+- `index.js` - Common validators and utilities
+- `driver-api.js` - Driver API validators
+- `purchase-orders.js` - Purchase order validators
+- `subscriptions.js` - Subscription validators
+- `loyalty.js` - Loyalty program validators
+- `gmc.js` - Google Merchant Center validators
+- `delivery.js` - Delivery route validators (NEW)
+
+**Remaining:** Add validators to routes as they are extracted from server.js
 
 ### V013: Monolithic Server File (HIGH) - IN PROGRESS
-**Location:** `server.js` (9,584 lines, 120 endpoints - down from 14,409/221)
+**Location:** `server.js` (now 8,428 lines, 97 endpoints remaining)
 **Risk:** Unmaintainable code, high merge conflict risk, difficult to test
-**Progress:**
-- ✅ 7 route files extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc
-- ⏳ 8 route files remaining: delivery, webhooks, sync, catalog, expiry-discounts, cycle-counts, vendor-catalog, merchants
-**Fix:** Continue extracting routes to separate files (see Phase 3 extraction plan)
+**Progress:** 8 route files extracted (7,555 lines, 134 endpoints):
+- `routes/auth.js` (12 endpoints)
+- `routes/square-oauth.js` (4 endpoints)
+- `routes/driver-api.js` (8 endpoints)
+- `routes/purchase-orders.js` (9 endpoints)
+- `routes/subscriptions.js` (11 endpoints)
+- `routes/loyalty.js` (35 endpoints)
+- `routes/gmc.js` (32 endpoints)
+- `routes/delivery.js` (23 endpoints) - NEW
+
+**Remaining:** Extract 97 endpoints across ~11 more route files
 
 ---
 
@@ -504,31 +678,30 @@ middleware/security.js      # CSP, CORS, rate limiting (includes sensitive opera
 middleware/auth.js          # Authentication (38 tests)
 middleware/merchant.js      # Multi-tenant isolation (27 tests)
 middleware/validators/      # express-validator middleware
-  ├── index.js             # 18 reusable validators and utilities
-  ├── driver-api.js        # Driver API validators (8)
-  ├── purchase-orders.js   # Purchase order validators (8)
-  ├── subscriptions.js     # Subscription validators (7)
-  ├── loyalty.js           # Loyalty validators (25+)
-  └── gmc.js               # GMC validators (16)
+  ├── index.js             # Common validators and utilities
+  ├── driver-api.js        # Driver API validators
+  ├── purchase-orders.js   # Purchase order validators
+  ├── subscriptions.js     # Subscription validators
+  ├── loyalty.js           # Loyalty program validators
+  ├── gmc.js               # Google Merchant Center validators
+  └── delivery.js          # Delivery route validators
 utils/password.js           # Password hashing (49 tests)
 utils/token-encryption.js   # Token encryption (51 tests)
 utils/file-validation.js    # File upload validation (30 tests)
 ```
 
-### Key Statistics (Updated 2026-01-22)
-- **Total Lines:** 9,584 in server.js (4,825 lines extracted)
-- **Total Endpoints:** 120 in server.js (101+ extracted to 7 route files)
-- **Extracted Routes:**
-  - auth.js (12), square-oauth.js (4)
-  - driver-api.js (8), purchase-orders.js (9), subscriptions.js (11)
-  - loyalty.js (41), gmc.js (32)
-- **Validator Modules:** 6 files with 80+ validators
+### Key Statistics
+- **Total Lines:** 8,428 in server.js (7,555 lines extracted to routes)
+- **Endpoints in server.js:** 97 remaining
+- **Extracted Routes:** 8 files with 134 endpoints
+  - auth.js (12), square-oauth.js (4), driver-api.js (8), purchase-orders.js (9)
+  - subscriptions.js (11), loyalty.js (35), gmc.js (32), delivery.js (23)
 - **Tests:** 194 passing
 - **npm Vulnerabilities:** 0
+- **Validators Created:** 7 files in middleware/validators/
 - **Quick Wins Fixed:** V005, V006, V007
-- **Validation Coverage:** express-validator on all 7 extracted route files
 
 ---
 
 *Document generated by security review on 2026-01-21*
-*Last updated: 2026-01-22 - Phase 3 progress: 101+ endpoints extracted to 7 route files (auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc) with express-validator on all. 120 endpoints remain in server.js.*
+*Last updated: 2026-01-22 - Phase 3 in progress: 134 endpoints extracted (8 route files) with express-validator*
