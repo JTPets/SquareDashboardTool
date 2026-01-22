@@ -1101,6 +1101,23 @@ async function ensureSchema() {
         appliedCount++;
     }
 
+    // Add retry columns to webhook_events if they don't exist
+    const retryColumnCheck = await query(`
+        SELECT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_name = 'webhook_events' AND column_name = 'retry_count'
+        )
+    `);
+    if (!retryColumnCheck.rows[0].exists) {
+        await query(`ALTER TABLE webhook_events ADD COLUMN retry_count INTEGER DEFAULT 0`);
+        await query(`ALTER TABLE webhook_events ADD COLUMN max_retries INTEGER DEFAULT 5`);
+        await query(`ALTER TABLE webhook_events ADD COLUMN next_retry_at TIMESTAMPTZ`);
+        await query(`ALTER TABLE webhook_events ADD COLUMN last_retry_at TIMESTAMPTZ`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_webhook_events_retry ON webhook_events(status, next_retry_at) WHERE status = 'failed'`);
+        logger.info('Added retry columns to webhook_events table');
+        appliedCount++;
+    }
+
     // ==================== MULTI-TENANT RELATED TABLES ====================
     // Note: Merchants table is created in FOUNDATIONAL TABLES section at the top
     // Here we create the related tables that depend on merchants existing

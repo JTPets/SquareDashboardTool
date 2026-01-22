@@ -42,6 +42,7 @@ const deliveryApi = require('./utils/delivery-api');
 const loyaltyService = require('./utils/loyalty-service');
 const loyaltyReports = require('./utils/loyalty-reports');
 const gmcApi = require('./utils/merchant-center-api');
+const webhookRetry = require('./utils/webhook-retry');
 
 // Security middleware
 const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
@@ -1983,19 +1984,18 @@ app.post('/api/webhooks/square', async (req, res) => {
     } catch (error) {
         logger.error('Webhook processing error', { error: error.message, stack: error.stack });
 
-        // Update webhook_events with error
+        // Mark webhook for retry with exponential backoff
         if (webhookEventId) {
             const processingTime = Date.now() - startTime;
+            await webhookRetry.markForRetry(webhookEventId, error.message).catch(dbErr => {
+                logger.error('Failed to mark webhook for retry', { webhookEventId, error: dbErr.message, stack: dbErr.stack });
+            });
+            // Also update processing time
             await db.query(`
                 UPDATE webhook_events
-                SET status = 'failed',
-                    processed_at = NOW(),
-                    error_message = $1,
-                    processing_time_ms = $2
-                WHERE id = $3
-            `, [error.message, processingTime, webhookEventId]).catch(dbErr => {
-                logger.error('Failed to update webhook_events status', { webhookEventId, error: dbErr.message, stack: dbErr.stack });
-            });
+                SET processing_time_ms = $1
+                WHERE id = $2
+            `, [processingTime, webhookEventId]).catch(() => {});
         }
 
         res.status(500).json({ error: error.message });
@@ -2337,6 +2337,119 @@ async function startServer() {
         }));
 
         logger.info('Cycle count cron job scheduled', { schedule: cronSchedule });
+
+        // Initialize webhook retry processor cron job
+        // Runs every minute to process failed webhooks with exponential backoff
+        const webhookRetryCronSchedule = process.env.WEBHOOK_RETRY_CRON_SCHEDULE || '* * * * *';
+        cronTasks.push(cron.schedule(webhookRetryCronSchedule, async () => {
+            try {
+                // Get events due for retry
+                const events = await webhookRetry.getEventsForRetry(10);
+
+                if (events.length === 0) {
+                    return; // No events to retry, skip logging
+                }
+
+                logger.info('Processing webhook retries', { count: events.length });
+
+                for (const event of events) {
+                    const startTime = Date.now();
+                    try {
+                        logger.info('Retrying webhook event', {
+                            webhookEventId: event.id,
+                            eventType: event.event_type,
+                            retryCount: event.retry_count,
+                            squareEventId: event.square_event_id
+                        });
+
+                        // Look up internal merchant ID from Square merchant ID
+                        const merchantResult = await db.query(
+                            'SELECT id FROM merchants WHERE square_merchant_id = $1 AND is_active = TRUE',
+                            [event.merchant_id]
+                        );
+
+                        if (merchantResult.rows.length === 0) {
+                            await webhookRetry.incrementRetry(event.id, 'Merchant not found or inactive');
+                            continue;
+                        }
+
+                        const internalMerchantId = merchantResult.rows[0].id;
+                        let syncResult = null;
+
+                        // Re-trigger appropriate sync based on event type
+                        switch (event.event_type) {
+                            case 'catalog.version.updated':
+                                syncResult = await squareApi.syncCatalog(internalMerchantId);
+                                break;
+
+                            case 'inventory.count.updated':
+                                syncResult = await squareApi.syncInventory(internalMerchantId);
+                                break;
+
+                            case 'order.created':
+                            case 'order.updated':
+                            case 'order.fulfillment.updated':
+                                syncResult = await squareApi.syncCommittedInventory(internalMerchantId);
+                                break;
+
+                            case 'vendor.created':
+                            case 'vendor.updated':
+                                syncResult = await squareApi.syncVendors(internalMerchantId);
+                                break;
+
+                            case 'location.created':
+                            case 'location.updated':
+                                syncResult = await squareApi.syncLocations(internalMerchantId);
+                                break;
+
+                            default:
+                                // For event types without a sync handler, mark as completed
+                                // (the original webhook was received, just processing failed)
+                                logger.info('No retry handler for event type', { eventType: event.event_type });
+                                syncResult = { skipped: true, reason: 'No retry handler for event type' };
+                        }
+
+                        // Mark as successful
+                        const processingTime = Date.now() - startTime;
+                        await webhookRetry.markSuccess(event.id, syncResult || {}, processingTime);
+
+                        logger.info('Webhook retry succeeded', {
+                            webhookEventId: event.id,
+                            eventType: event.event_type,
+                            processingTimeMs: processingTime
+                        });
+
+                    } catch (retryError) {
+                        logger.error('Webhook retry failed', {
+                            webhookEventId: event.id,
+                            eventType: event.event_type,
+                            retryCount: event.retry_count,
+                            error: retryError.message
+                        });
+                        await webhookRetry.incrementRetry(event.id, retryError.message);
+                    }
+                }
+            } catch (error) {
+                logger.error('Webhook retry processor error', { error: error.message, stack: error.stack });
+            }
+        }));
+
+        logger.info('Webhook retry cron job scheduled', { schedule: webhookRetryCronSchedule });
+
+        // Webhook cleanup cron - runs daily at 3 AM to remove old events
+        const webhookCleanupCronSchedule = process.env.WEBHOOK_CLEANUP_CRON_SCHEDULE || '0 3 * * *';
+        cronTasks.push(cron.schedule(webhookCleanupCronSchedule, async () => {
+            try {
+                const deletedCount = await webhookRetry.cleanupOldEvents(14, 30);
+                if (deletedCount > 0) {
+                    logger.info('Webhook cleanup completed', { deletedCount });
+                }
+            } catch (error) {
+                logger.error('Webhook cleanup error', { error: error.message });
+            }
+        }));
+
+        logger.info('Webhook cleanup cron job scheduled', { schedule: webhookCleanupCronSchedule });
 
         // Initialize automated database sync cron job
         // Runs hourly by default (configurable via SYNC_CRON_SCHEDULE)
