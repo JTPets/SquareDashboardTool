@@ -7,6 +7,14 @@
  * - handleValidationErrors: Error handling middleware
  */
 
+// Mock express-validator before importing the module under test
+jest.mock('express-validator', () => ({
+    validationResult: jest.fn(),
+    param: jest.fn(() => ({ isUUID: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() })),
+    query: jest.fn(() => ({ isInt: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() })),
+    body: jest.fn(() => ({ isString: jest.fn().mockReturnThis(), withMessage: jest.fn().mockReturnThis() }))
+}));
+
 const { isValidUUID, sanitizeString, handleValidationErrors } = require('../../middleware/validators/index');
 const { validationResult } = require('express-validator');
 
@@ -232,8 +240,7 @@ describe('Validator Utilities', () => {
 
         it('should call next() when no validation errors', () => {
             // Mock validationResult to return empty errors
-            jest.spyOn(require('express-validator'), 'validationResult')
-                .mockReturnValue({ isEmpty: () => true, array: () => [] });
+            validationResult.mockReturnValue({ isEmpty: () => true, array: () => [] });
 
             handleValidationErrors(mockReq, mockRes, mockNext);
 
@@ -247,8 +254,7 @@ describe('Validator Utilities', () => {
                 { path: 'password', msg: 'Password too short' }
             ];
 
-            jest.spyOn(require('express-validator'), 'validationResult')
-                .mockReturnValue({ isEmpty: () => false, array: () => mockErrors });
+            validationResult.mockReturnValue({ isEmpty: () => false, array: () => mockErrors });
 
             handleValidationErrors(mockReq, mockRes, mockNext);
 
