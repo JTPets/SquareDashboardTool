@@ -110,6 +110,7 @@ CREATE TABLE locations (
     active BOOLEAN DEFAULT TRUE,
     address TEXT,
     timezone TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -127,6 +128,7 @@ CREATE TABLE vendors (
     minimum_order_amount DECIMAL(10,2),
     payment_terms TEXT,
     notes TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -135,6 +137,7 @@ CREATE TABLE vendors (
 CREATE TABLE categories (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -144,6 +147,7 @@ CREATE TABLE images (
     name TEXT,
     url TEXT,
     caption TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -168,6 +172,7 @@ CREATE TABLE items (
     available_for_pickup BOOLEAN DEFAULT FALSE,
     seo_title TEXT,
     seo_description TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -207,6 +212,7 @@ CREATE TABLE variations (
     last_cost_cents INTEGER,
     last_cost_date DATE,
     notes TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
@@ -299,6 +305,7 @@ CREATE TABLE purchase_orders (
     total_cents INTEGER DEFAULT 0,
     notes TEXT,
     created_by TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT,
@@ -316,6 +323,7 @@ CREATE TABLE purchase_order_items (
     total_cost_cents INTEGER NOT NULL,
     received_quantity DECIMAL(10,2) DEFAULT 0,
     notes TEXT,
+    merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE RESTRICT
