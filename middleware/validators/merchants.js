@@ -8,7 +8,15 @@ const { handleValidationErrors } = require('./index');
 const list = [handleValidationErrors];
 
 const switch_ = [
-    body('merchantId').isInt({ min: 1 }).withMessage('merchantId must be a positive integer'),
+    body('merchantId')
+        .exists({ checkNull: true }).withMessage('merchantId is required')
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('merchantId must be a positive integer');
+            }
+            return true;
+        }),
     handleValidationErrors
 ];
 
