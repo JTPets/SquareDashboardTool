@@ -1387,6 +1387,11 @@
     async function saveVariations() {
       const offerId = document.getElementById('variations-offer-id').value;
 
+      if (!offerId) {
+        alert('Error: No offer selected. Please close and try again.');
+        return;
+      }
+
       const variations = Array.from(selectedVariations).map(varId => {
         const v = allVariations.find(av => av.variationId === varId);
         return {
@@ -1398,6 +1403,11 @@
           upc: v?.upc
         };
       });
+
+      if (variations.length === 0) {
+        alert('Please select at least one variation to save.');
+        return;
+      }
 
       try {
         const response = await fetch(`/api/loyalty/offers/${offerId}/variations`, {
@@ -1414,6 +1424,12 @@
               `• "${c.item_name}${c.variation_name ? ' - ' + c.variation_name : ''}" is already assigned to "${c.offer_name}"`
             ).join('\n');
             alert(`Cannot save - these variations are already assigned to other offers:\n\n${conflictList}\n\nEach variation can only belong to one offer. Please remove the conflicting variations first.`);
+            return;
+          }
+          // Handle validation errors with details
+          if (response.status === 400 && errorData.details && errorData.details.length > 0) {
+            const detailMsg = errorData.details.map(d => `• ${d.field}: ${d.message}`).join('\n');
+            alert(`Validation error:\n\n${detailMsg}`);
             return;
           }
           throw new Error(errorData.error || 'Failed to save variations');
