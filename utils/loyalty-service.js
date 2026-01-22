@@ -2803,7 +2803,9 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
             const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
             const grossSalesCents = Number(lineItem.gross_sales_money?.amount || 0) || (unitPriceCents * quantity);
             const totalDiscountCents = Number(lineItem.total_discount_money?.amount || 0);
-            const totalMoneyCents = Number(lineItem.total_money?.amount ?? 0) || (grossSalesCents - totalDiscountCents);
+            // Use nullish check to preserve 0 values (free items have total_money = 0)
+            const rawTotalMoney = lineItem.total_money?.amount;
+            const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : (grossSalesCents - totalDiscountCents);
 
             // SKIP FREE ITEMS: Check if item was 100% discounted (free)
             // This prevents counting free items from ANY source (coupons, loyalty rewards, promos)
@@ -2949,7 +2951,9 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
                     // that were free (never counted toward loyalty in the first place)
                     // Convert BigInt to Number for Square SDK v43+
                     const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
-                    const totalMoneyCents = Number(returnItem.total_money?.amount ?? 0) || unitPriceCents;
+                    // Use nullish check to preserve 0 values (free items have total_money = 0)
+                    const rawTotalMoney = returnItem.total_money?.amount;
+                    const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
 
                     if (unitPriceCents > 0 && totalMoneyCents === 0) {
                         logger.info('Skipping refund of FREE item (was 100% discounted)', {
@@ -4546,7 +4550,9 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
             const quantity = parseInt(lineItem.quantity) || 0;
             // Convert BigInt to Number for Square SDK v43+
             const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
-            const totalMoneyCents = Number(lineItem.total_money?.amount ?? 0) || unitPriceCents;
+            // Use nullish check to preserve 0 values (free items have total_money = 0)
+            const rawTotalMoney = lineItem.total_money?.amount;
+            const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
 
             // Check if free (100% discounted)
             const isFree = unitPriceCents > 0 && totalMoneyCents === 0;
