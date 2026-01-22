@@ -21,6 +21,7 @@
 const db = require('./database');
 const logger = require('./logger');
 const { decryptToken, isEncryptedToken } = require('./token-encryption');
+const { loyaltyLogger } = require('../services/loyalty/loyalty-logger');
 
 // Lazy-load square-api to avoid circular dependency
 let squareApi = null;
@@ -110,6 +111,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                 requestBody.cursor = cursor;
             }
 
+            const startTime = Date.now();
             const response = await fetch('https://connect.squareup.com/v2/loyalty/events/search', {
                 method: 'POST',
                 headers: {
@@ -118,6 +120,16 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                     'Square-Version': '2025-01-16'
                 },
                 body: JSON.stringify(requestBody)
+            });
+            const duration = Date.now() - startTime;
+
+            loyaltyLogger.squareApi({
+                endpoint: '/loyalty/events/search',
+                method: 'POST',
+                status: response.status,
+                duration,
+                success: response.ok,
+                merchantId,
             });
 
             if (!response.ok) {
@@ -159,6 +171,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
         const loyaltyAccounts = {};
         for (const accountId of loyaltyAccountIds) {
             try {
+                const accountStartTime = Date.now();
                 const accountResponse = await fetch(`https://connect.squareup.com/v2/loyalty/accounts/${accountId}`, {
                     method: 'GET',
                     headers: {
@@ -166,6 +179,16 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                         'Content-Type': 'application/json',
                         'Square-Version': '2025-01-16'
                     }
+                });
+                const accountDuration = Date.now() - accountStartTime;
+
+                loyaltyLogger.squareApi({
+                    endpoint: `/loyalty/accounts/${accountId}`,
+                    method: 'GET',
+                    status: accountResponse.status,
+                    duration: accountDuration,
+                    success: accountResponse.ok,
+                    merchantId,
                 });
 
                 if (accountResponse.ok) {
@@ -455,6 +478,7 @@ async function getCustomerDetails(customerId, merchantId) {
         const rawToken = tokenResult.rows[0].square_access_token;
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
+        const customerStartTime = Date.now();
         const response = await fetchWithTimeout(`https://connect.squareup.com/v2/customers/${customerId}`, {
             method: 'GET',
             headers: {
@@ -463,6 +487,16 @@ async function getCustomerDetails(customerId, merchantId) {
                 'Square-Version': '2025-01-16'
             }
         }, 10000); // 10 second timeout
+        const customerDuration = Date.now() - customerStartTime;
+
+        loyaltyLogger.squareApi({
+            endpoint: `/customers/${customerId}`,
+            method: 'GET',
+            status: response.status,
+            duration: customerDuration,
+            success: response.ok,
+            merchantId,
+        });
 
         if (!response.ok) {
             logger.debug('Failed to fetch customer details', { customerId, status: response.status });
@@ -529,6 +563,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
         const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
 
         // Search for loyalty events by order_id (RELIABLE - direct link)
+        const eventsStartTime = Date.now();
         const eventsResponse = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/events/search', {
             method: 'POST',
             headers: {
@@ -547,6 +582,17 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
                 limit: 10
             })
         }, 10000); // 10 second timeout
+        const eventsDuration = Date.now() - eventsStartTime;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/loyalty/events/search',
+            method: 'POST',
+            status: eventsResponse.status,
+            duration: eventsDuration,
+            success: eventsResponse.ok,
+            merchantId,
+            context: 'lookupCustomerFromLoyalty',
+        });
 
         let loyaltyAccountId = null;
 
@@ -570,6 +616,7 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
         }
 
         // Fetch the loyalty account to get the customer_id
+        const acctStartTime = Date.now();
         const accountResponse = await fetchWithTimeout(`https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`, {
             method: 'GET',
             headers: {
@@ -578,6 +625,17 @@ async function lookupCustomerFromLoyalty(orderId, merchantId) {
                 'Square-Version': '2025-01-16'
             }
         }, 10000); // 10 second timeout
+        const acctDuration = Date.now() - acctStartTime;
+
+        loyaltyLogger.squareApi({
+            endpoint: `/loyalty/accounts/${loyaltyAccountId}`,
+            method: 'GET',
+            status: accountResponse.status,
+            duration: acctDuration,
+            success: accountResponse.ok,
+            merchantId,
+            context: 'lookupCustomerFromLoyalty',
+        });
 
         if (!accountResponse.ok) {
             logger.debug('Failed to fetch loyalty account', { loyaltyAccountId });
@@ -678,6 +736,7 @@ async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
             // Normalize phone number (remove non-digits, keep + for country code)
             const normalizedPhone = phoneNumber.replace(/[^\d+]/g, '');
 
+            const phoneSearchStart = Date.now();
             const searchResponse = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
                 method: 'POST',
                 headers: {
@@ -696,6 +755,17 @@ async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
                     limit: 1
                 })
             }, 10000);
+            const phoneSearchDuration = Date.now() - phoneSearchStart;
+
+            loyaltyLogger.squareApi({
+                endpoint: '/customers/search',
+                method: 'POST',
+                status: searchResponse.status,
+                duration: phoneSearchDuration,
+                success: searchResponse.ok,
+                merchantId,
+                context: 'searchByPhone',
+            });
 
             if (searchResponse.ok) {
                 const searchData = await searchResponse.json();
@@ -715,6 +785,7 @@ async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
 
         // Fallback: Search by email address
         if (emailAddress) {
+            const emailSearchStart = Date.now();
             const searchResponse = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
                 method: 'POST',
                 headers: {
@@ -733,6 +804,17 @@ async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
                     limit: 1
                 })
             }, 10000);
+            const emailSearchDuration = Date.now() - emailSearchStart;
+
+            loyaltyLogger.squareApi({
+                endpoint: '/customers/search',
+                method: 'POST',
+                status: searchResponse.status,
+                duration: emailSearchDuration,
+                success: searchResponse.ok,
+                merchantId,
+                context: 'searchByEmail',
+            });
 
             if (searchResponse.ok) {
                 const searchData = await searchResponse.json();
@@ -805,6 +887,7 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
 
         // Try to find the loyalty account via reward lookup
         // First, search for REDEEM_REWARD loyalty events for this order
+        const rewardEventsStart = Date.now();
         const eventsResponse = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/events/search', {
             method: 'POST',
             headers: {
@@ -823,6 +906,17 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
                 limit: 10
             })
         }, 10000);
+        const rewardEventsDuration = Date.now() - rewardEventsStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/loyalty/events/search',
+            method: 'POST',
+            status: eventsResponse.status,
+            duration: rewardEventsDuration,
+            success: eventsResponse.ok,
+            merchantId,
+            context: 'lookupCustomerFromOrderRewards',
+        });
 
         if (eventsResponse.ok) {
             const eventsData = await eventsResponse.json();
@@ -832,6 +926,7 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
             for (const event of events) {
                 if (event.loyalty_account_id) {
                     // Fetch the loyalty account to get the customer_id
+                    const eventAcctStart = Date.now();
                     const accountResponse = await fetchWithTimeout(
                         `https://connect.squareup.com/v2/loyalty/accounts/${event.loyalty_account_id}`,
                         {
@@ -844,6 +939,17 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
                         },
                         10000
                     );
+                    const eventAcctDuration = Date.now() - eventAcctStart;
+
+                    loyaltyLogger.squareApi({
+                        endpoint: `/loyalty/accounts/${event.loyalty_account_id}`,
+                        method: 'GET',
+                        status: accountResponse.status,
+                        duration: eventAcctDuration,
+                        success: accountResponse.ok,
+                        merchantId,
+                        context: 'lookupCustomerFromOrderRewards-eventAccount',
+                    });
 
                     if (accountResponse.ok) {
                         const accountData = await accountResponse.json();
@@ -866,6 +972,7 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
         // Fallback: Try to look up reward directly via Loyalty Rewards API
         for (const reward of rewards) {
             try {
+                const rewardFetchStart = Date.now();
                 const rewardResponse = await fetchWithTimeout(
                     `https://connect.squareup.com/v2/loyalty/rewards/${reward.id}`,
                     {
@@ -878,6 +985,17 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
                     },
                     10000
                 );
+                const rewardFetchDuration = Date.now() - rewardFetchStart;
+
+                loyaltyLogger.squareApi({
+                    endpoint: `/loyalty/rewards/${reward.id}`,
+                    method: 'GET',
+                    status: rewardResponse.status,
+                    duration: rewardFetchDuration,
+                    success: rewardResponse.ok,
+                    merchantId,
+                    context: 'lookupCustomerFromOrderRewards-rewardLookup',
+                });
 
                 if (rewardResponse.ok) {
                     const rewardData = await rewardResponse.json();
@@ -885,6 +1003,7 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
 
                     if (loyaltyAccountId) {
                         // Fetch the loyalty account to get the customer_id
+                        const rewardAcctStart = Date.now();
                         const accountResponse = await fetchWithTimeout(
                             `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
                             {
@@ -897,6 +1016,17 @@ async function lookupCustomerFromOrderRewards(order, merchantId) {
                             },
                             10000
                         );
+                        const rewardAcctDuration = Date.now() - rewardAcctStart;
+
+                        loyaltyLogger.squareApi({
+                            endpoint: `/loyalty/accounts/${loyaltyAccountId}`,
+                            method: 'GET',
+                            status: accountResponse.status,
+                            duration: rewardAcctDuration,
+                            success: accountResponse.ok,
+                            merchantId,
+                            context: 'lookupCustomerFromOrderRewards-rewardAccount',
+                        });
 
                         if (accountResponse.ok) {
                             const accountData = await accountResponse.json();
@@ -2632,40 +2762,124 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
     let squareCustomerId = order.customer_id;
     let customerSource = options.customerSourceOverride || 'order.customer_id';
 
+    // Log customer identification attempt
+    if (squareCustomerId) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_SUCCESS',
+            orderId: order.id,
+            method: 'ORDER_CUSTOMER_ID',
+            customerId: squareCustomerId,
+            merchantId,
+        });
+    } else {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_ATTEMPT',
+            orderId: order.id,
+            method: 'ORDER_CUSTOMER_ID',
+            success: false,
+            merchantId,
+        });
+    }
+
     // Fallback 1: Check tenders for customer_id (some POS workflows attach customer to payment)
     if (!squareCustomerId && order.tenders && order.tenders.length > 0) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_ATTEMPT',
+            orderId: order.id,
+            method: 'TENDER_CUSTOMER_ID',
+            merchantId,
+        });
         for (const tender of order.tenders) {
             if (tender.customer_id) {
                 squareCustomerId = tender.customer_id;
                 customerSource = 'tender.customer_id';
+                loyaltyLogger.customer({
+                    action: 'CUSTOMER_LOOKUP_SUCCESS',
+                    orderId: order.id,
+                    method: 'TENDER_CUSTOMER_ID',
+                    customerId: squareCustomerId,
+                    merchantId,
+                });
                 logger.debug('Found customer_id on tender', { orderId: order.id, customerId: squareCustomerId });
                 break;
             }
+        }
+        if (!squareCustomerId) {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_FAILED',
+                orderId: order.id,
+                method: 'TENDER_CUSTOMER_ID',
+                reason: 'no_customer_id_on_tenders',
+                merchantId,
+            });
         }
     }
 
     // Fallback 2: Lookup via Square Loyalty API using order_id (NOT timestamp)
     if (!squareCustomerId) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_ATTEMPT',
+            orderId: order.id,
+            method: 'LOYALTY_API',
+            merchantId,
+        });
         logger.debug('No customer_id on order or tenders, trying loyalty lookup by order_id', { orderId: order.id });
         squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId);
         if (squareCustomerId) {
             customerSource = 'loyalty_event_order_id';
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_SUCCESS',
+                orderId: order.id,
+                method: 'LOYALTY_API',
+                customerId: squareCustomerId,
+                merchantId,
+            });
             logger.info('Found customer via loyalty API (order_id match)', {
                 orderId: order.id,
                 customerId: squareCustomerId
+            });
+        } else {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_FAILED',
+                orderId: order.id,
+                method: 'LOYALTY_API',
+                reason: 'no_loyalty_events_found',
+                merchantId,
             });
         }
     }
 
     // Fallback 3: If order has Square Loyalty rewards, look up customer from reward
     if (!squareCustomerId) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_ATTEMPT',
+            orderId: order.id,
+            method: 'ORDER_REWARDS',
+            hasRewards: !!(order.rewards?.length),
+            merchantId,
+        });
         logger.debug('Trying order rewards lookup', { orderId: order.id, hasRewards: !!(order.rewards?.length) });
         squareCustomerId = await lookupCustomerFromOrderRewards(order, merchantId);
         if (squareCustomerId) {
             customerSource = 'order_rewards';
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_SUCCESS',
+                orderId: order.id,
+                method: 'ORDER_REWARDS',
+                customerId: squareCustomerId,
+                merchantId,
+            });
             logger.info('Found customer via order rewards lookup', {
                 orderId: order.id,
                 customerId: squareCustomerId
+            });
+        } else {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_FAILED',
+                orderId: order.id,
+                method: 'ORDER_REWARDS',
+                reason: 'no_customer_from_rewards',
+                merchantId,
             });
         }
     }
@@ -2673,19 +2887,46 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
     // Fallback 4: For web/online orders - lookup by fulfillment recipient phone/email
     // Square Online orders often don't have customer_id but have recipient contact info
     if (!squareCustomerId) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_LOOKUP_ATTEMPT',
+            orderId: order.id,
+            method: 'FULFILLMENT_RECIPIENT',
+            merchantId,
+        });
         logger.debug('Trying fulfillment recipient lookup for web order', { orderId: order.id });
         squareCustomerId = await lookupCustomerFromFulfillmentRecipient(order, merchantId);
         if (squareCustomerId) {
             customerSource = 'fulfillment_recipient';
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_SUCCESS',
+                orderId: order.id,
+                method: 'FULFILLMENT_RECIPIENT',
+                customerId: squareCustomerId,
+                merchantId,
+            });
             logger.info('Found customer via fulfillment recipient lookup (phone/email match)', {
                 orderId: order.id,
                 customerId: squareCustomerId
+            });
+        } else {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_FAILED',
+                orderId: order.id,
+                method: 'FULFILLMENT_RECIPIENT',
+                reason: 'no_customer_from_fulfillment',
+                merchantId,
             });
         }
     }
 
     // No customer found through any method
     if (!squareCustomerId) {
+        loyaltyLogger.customer({
+            action: 'CUSTOMER_NOT_IDENTIFIED',
+            orderId: order.id,
+            attemptedMethods: ['ORDER_CUSTOMER_ID', 'TENDER_CUSTOMER_ID', 'LOYALTY_API', 'ORDER_REWARDS', 'FULFILLMENT_RECIPIENT'],
+            merchantId,
+        });
         logger.debug('Order has no reliable customer identifier after all lookups', { orderId: order.id });
         return { processed: false, reason: 'no_customer' };
     }
@@ -2791,11 +3032,28 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
             // Get variation ID from line item
             const variationId = lineItem.catalog_object_id;
             if (!variationId) {
+                loyaltyLogger.debug({
+                    action: 'LINE_ITEM_EVALUATION',
+                    orderId: order.id,
+                    lineItemId: lineItem.uid,
+                    variationId: null,
+                    decision: 'SKIP_NO_VARIATION',
+                    merchantId,
+                });
                 continue;  // Skip items without variation ID
             }
 
             const quantity = parseInt(lineItem.quantity) || 0;
             if (quantity <= 0) {
+                loyaltyLogger.debug({
+                    action: 'LINE_ITEM_EVALUATION',
+                    orderId: order.id,
+                    lineItemId: lineItem.uid,
+                    variationId,
+                    quantity,
+                    decision: 'SKIP_ZERO_QUANTITY',
+                    merchantId,
+                });
                 continue;  // Skip zero or negative quantities
             }
 
@@ -2810,6 +3068,19 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
             // SKIP FREE ITEMS: Check if item was 100% discounted (free)
             // This prevents counting free items from ANY source (coupons, loyalty rewards, promos)
             if (grossSalesCents > 0 && totalMoneyCents === 0) {
+                loyaltyLogger.debug({
+                    action: 'LINE_ITEM_EVALUATION',
+                    orderId: order.id,
+                    lineItemId: lineItem.uid,
+                    variationId,
+                    quantity,
+                    unitPrice: unitPriceCents,
+                    grossSales: grossSalesCents,
+                    totalDiscount: totalDiscountCents,
+                    totalMoney: totalMoneyCents,
+                    decision: 'SKIP_FREE',
+                    merchantId,
+                });
                 logger.info('Skipping FREE item from loyalty tracking (100% discounted)', {
                     orderId: order.id,
                     variationId,
@@ -2835,6 +3106,15 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
             });
 
             if (itemHasOurLoyaltyDiscount) {
+                loyaltyLogger.debug({
+                    action: 'LINE_ITEM_EVALUATION',
+                    orderId: order.id,
+                    lineItemId: lineItem.uid,
+                    variationId,
+                    quantity,
+                    decision: 'SKIP_OUR_LOYALTY',
+                    merchantId,
+                });
                 logger.info('Skipping item with OUR loyalty discount applied', {
                     orderId: order.id,
                     variationId,
@@ -2848,6 +3128,19 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
                 });
                 continue;
             }
+
+            // Log that this item will be processed
+            loyaltyLogger.debug({
+                action: 'LINE_ITEM_EVALUATION',
+                orderId: order.id,
+                lineItemId: lineItem.uid,
+                variationId,
+                quantity,
+                unitPrice: unitPriceCents,
+                totalMoney: totalMoneyCents,
+                decision: 'PROCESS',
+                merchantId,
+            });
 
             // Process the purchase (item was paid for, not free)
             // Map customerSource to shorter DB values: order.customer_id -> order, tender.customer_id -> tender, loyalty_event_order_id -> loyalty_api
@@ -3128,6 +3421,7 @@ async function getSquareLoyaltyProgram(merchantId) {
             return null;
         }
 
+        const loyaltyProgramStart = Date.now();
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/loyalty/programs/main', {
             method: 'GET',
             headers: {
@@ -3136,6 +3430,17 @@ async function getSquareLoyaltyProgram(merchantId) {
                 'Square-Version': '2025-01-16'
             }
         }, 10000); // 10 second timeout
+        const loyaltyProgramDuration = Date.now() - loyaltyProgramStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/loyalty/programs/main',
+            method: 'GET',
+            status: response.status,
+            duration: loyaltyProgramDuration,
+            success: response.ok || response.status === 404,
+            merchantId,
+            context: 'getSquareLoyaltyProgram',
+        });
 
         if (response.status === 404) {
             // No loyalty program configured
@@ -3193,6 +3498,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
 
         logger.info('Creating customer group with name', { groupName, internalRewardId, merchantId });
 
+        const groupCreateStart = Date.now();
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/groups', {
             method: 'POST',
             headers: {
@@ -3207,6 +3513,17 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
                 idempotency_key: `fbp-group-${internalRewardId}-${Date.now()}`
             })
         }, 10000); // 10 second timeout
+        const groupCreateDuration = Date.now() - groupCreateStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/customers/groups',
+            method: 'POST',
+            status: response.status,
+            duration: groupCreateDuration,
+            success: response.ok,
+            merchantId,
+            context: 'createRewardCustomerGroup',
+        });
 
         if (!response.ok) {
             const errText = await response.text();
@@ -3262,6 +3579,7 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
             return { success: false, error: 'No access token available' };
         }
 
+        const addToGroupStart = Date.now();
         const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
             {
@@ -3274,6 +3592,17 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
             },
             10000 // 10 second timeout
         );
+        const addToGroupDuration = Date.now() - addToGroupStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: `/customers/${squareCustomerId}/groups/${groupId}`,
+            method: 'PUT',
+            status: response.status,
+            duration: addToGroupDuration,
+            success: response.ok,
+            merchantId,
+            context: 'addCustomerToGroup',
+        });
 
         if (!response.ok) {
             const errText = await response.text();
@@ -3317,6 +3646,7 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
             return { success: false, error: 'No access token available' };
         }
 
+        const removeFromGroupStart = Date.now();
         const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
             {
@@ -3329,6 +3659,17 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
             },
             10000 // 10 second timeout
         );
+        const removeFromGroupDuration = Date.now() - removeFromGroupStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: `/customers/${squareCustomerId}/groups/${groupId}`,
+            method: 'DELETE',
+            status: response.status,
+            duration: removeFromGroupDuration,
+            success: response.ok || response.status === 404,
+            merchantId,
+            context: 'removeCustomerFromGroup',
+        });
 
         if (!response.ok && response.status !== 404) {
             const errText = await response.text();
@@ -3371,6 +3712,7 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
             return { success: false, error: 'No access token available' };
         }
 
+        const deleteGroupStart = Date.now();
         const response = await fetchWithTimeout(
             `https://connect.squareup.com/v2/customers/groups/${groupId}`,
             {
@@ -3383,6 +3725,17 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
             },
             10000 // 10 second timeout
         );
+        const deleteGroupDuration = Date.now() - deleteGroupStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: `/customers/groups/${groupId}`,
+            method: 'DELETE',
+            status: response.status,
+            duration: deleteGroupDuration,
+            success: response.ok || response.status === 404,
+            merchantId,
+            context: 'deleteCustomerGroup',
+        });
 
         if (!response.ok && response.status !== 404) {
             const errText = await response.text();
@@ -3560,6 +3913,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             }
         ];
 
+        const catalogUpsertStart = Date.now();
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/catalog/batch-upsert', {
             method: 'POST',
             headers: {
@@ -3574,6 +3928,17 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 }]
             })
         }, 20000); // 20 second timeout for catalog operations
+        const catalogUpsertDuration = Date.now() - catalogUpsertStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/catalog/batch-upsert',
+            method: 'POST',
+            status: response.status,
+            duration: catalogUpsertDuration,
+            success: response.ok,
+            merchantId,
+            context: 'createRewardDiscount',
+        });
 
         if (!response.ok) {
             const errText = await response.text();
@@ -3641,6 +4006,7 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
             if (!objectId) continue;
 
             try {
+                const catalogDeleteStart = Date.now();
                 const response = await fetchWithTimeout(
                     `https://connect.squareup.com/v2/catalog/object/${objectId}`,
                     {
@@ -3653,6 +4019,17 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
                     },
                     10000 // 10 second timeout
                 );
+                const catalogDeleteDuration = Date.now() - catalogDeleteStart;
+
+                loyaltyLogger.squareApi({
+                    endpoint: `/catalog/object/${objectId}`,
+                    method: 'DELETE',
+                    status: response.status,
+                    duration: catalogDeleteDuration,
+                    success: response.ok || response.status === 404,
+                    merchantId,
+                    context: 'deleteRewardDiscountObjects',
+                });
 
                 if (!response.ok && response.status !== 404) {
                     logger.warn('Failed to delete catalog object', {
@@ -4026,6 +4403,7 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
     // Check 2: Verify the discount object exists in Square
     if (reward.square_discount_id) {
         try {
+            const catalogCheckStart = Date.now();
             const response = await fetch(
                 `https://connect.squareup.com/v2/catalog/object/${reward.square_discount_id}`,
                 {
@@ -4036,6 +4414,17 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     }
                 }
             );
+            const catalogCheckDuration = Date.now() - catalogCheckStart;
+
+            loyaltyLogger.squareApi({
+                endpoint: `/catalog/object/${reward.square_discount_id}`,
+                method: 'GET',
+                status: response.status,
+                duration: catalogCheckDuration,
+                success: response.ok,
+                merchantId,
+                context: 'validateRewardSquareObjects',
+            });
 
             if (response.status === 404) {
                 result.valid = false;
@@ -4139,6 +4528,7 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
     // Check 3: Verify customer group membership
     if (reward.square_group_id && reward.square_customer_id) {
         try {
+            const customerCheckStart = Date.now();
             const response = await fetch(
                 `https://connect.squareup.com/v2/customers/${reward.square_customer_id}`,
                 {
@@ -4149,6 +4539,17 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     }
                 }
             );
+            const customerCheckDuration = Date.now() - customerCheckStart;
+
+            loyaltyLogger.squareApi({
+                endpoint: `/customers/${reward.square_customer_id}`,
+                method: 'GET',
+                status: response.status,
+                duration: customerCheckDuration,
+                success: response.ok,
+                merchantId,
+                context: 'validateRewardSquareObjects',
+            });
 
             if (response.ok) {
                 const customerData = await response.json();
@@ -4505,6 +4906,7 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
             requestBody.cursor = cursor;
         }
 
+        const ordersSearchStart = Date.now();
         const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
             method: 'POST',
             headers: {
@@ -4514,6 +4916,17 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
             },
             body: JSON.stringify(requestBody)
         }, 15000); // 15 second timeout for search
+        const ordersSearchDuration = Date.now() - ordersSearchStart;
+
+        loyaltyLogger.squareApi({
+            endpoint: '/orders/search',
+            method: 'POST',
+            status: response.status,
+            duration: ordersSearchDuration,
+            success: response.ok,
+            merchantId,
+            context: 'findMissedQualifyingOrders',
+        });
 
         if (!response.ok) {
             const errorData = await response.json();
@@ -4671,6 +5084,7 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
             }
 
             // Fetch order from Square with timeout
+            const orderFetchStart = Date.now();
             const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -4678,6 +5092,17 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                     'Square-Version': '2025-01-16'
                 }
             }, 10000); // 10 second timeout per order
+            const orderFetchDuration = Date.now() - orderFetchStart;
+
+            loyaltyLogger.squareApi({
+                endpoint: `/orders/${orderId}`,
+                method: 'GET',
+                status: response.status,
+                duration: orderFetchDuration,
+                success: response.ok,
+                merchantId,
+                context: 'addManualOrders',
+            });
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -4862,6 +5287,7 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
                     requestBody.cursor = cursor;
                 }
 
+                const backfillSearchStart = Date.now();
                 const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
                     method: 'POST',
                     headers: {
@@ -4871,6 +5297,17 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
                     },
                     body: JSON.stringify(requestBody)
                 }, 15000);
+                const backfillSearchDuration = Date.now() - backfillSearchStart;
+
+                loyaltyLogger.squareApi({
+                    endpoint: '/orders/search',
+                    method: 'POST',
+                    status: response.status,
+                    duration: backfillSearchDuration,
+                    success: response.ok,
+                    merchantId,
+                    context: 'backfillCustomerOrders',
+                });
 
                 if (!response.ok) {
                     const errorData = await response.json();
