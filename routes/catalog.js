@@ -1100,8 +1100,11 @@ router.get('/inventory', requireAuth, requireMerchant, validators.getInventory, 
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
             JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $1
             LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $1
+                AND (sv91.location_id = ic.location_id OR (sv91.location_id IS NULL AND ic.location_id IS NULL))
             LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $1
+                AND (sv182.location_id = ic.location_id OR (sv182.location_id IS NULL AND ic.location_id IS NULL))
             LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $1
+                AND (sv365.location_id = ic.location_id OR (sv365.location_id IS NULL AND ic.location_id IS NULL))
             WHERE ic.state = 'IN_STOCK'
               AND ic.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE

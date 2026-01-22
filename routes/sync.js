@@ -261,11 +261,35 @@ async function runSmartSync({ merchantId } = {}) {
     const sales182Check = await isSyncNeeded('sales_182d', intervals.sales_182d, merchantId);
     const sales365Check = await isSyncNeeded('sales_365d', intervals.sales_365d, merchantId);
 
+    // Check if 365d needs a "catch-up" sync: 91d has data but 365d was synced with 0 records
+    // This handles the case where a merchant's first sync had no orders, but orders came in later
+    let force365dSync = false;
+    if (!sales365Check.needed) {
+        const lastSyncResult = await db.query(`
+            SELECT records_synced FROM sync_history
+            WHERE sync_type = 'sales_365d' AND merchant_id = $1 AND status = 'success'
+            ORDER BY completed_at DESC LIMIT 1
+        `, [merchantId]);
+
+        if (lastSyncResult.rows.length > 0 && lastSyncResult.rows[0].records_synced === 0) {
+            // 365d was synced with 0 records - check if 91d now has data
+            const velocity91Check = await db.query(`
+                SELECT COUNT(*) as count FROM sales_velocity
+                WHERE period_days = 91 AND merchant_id = $1 AND total_quantity_sold > 0
+            `, [merchantId]);
+
+            if (parseInt(velocity91Check.rows[0].count) > 0) {
+                force365dSync = true;
+                logger.info('Forcing 365d sync: 91d has data but 365d was synced with 0 records', { merchantId });
+            }
+        }
+    }
+
     // Tiered optimization strategy:
     // - If 365d is due → fetch 365d, calculate all three periods
     // - If 182d is due (but not 365d) → fetch 182d, calculate 91d + 182d
     // - If only 91d is due → fetch 91d only (smallest fetch, efficient for webhook-heavy setups)
-    if (sales365Check.needed) {
+    if (sales365Check.needed || force365dSync) {
         // Tier 1: 365d is due - fetch all 365 days, sync all periods
         try {
             logger.info('Syncing all sales velocity periods (365d due - full fetch)', { merchantId });
