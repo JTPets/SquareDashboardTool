@@ -262,8 +262,8 @@ describe('LoyaltyWebhookService', () => {
       expect(result.lineItemResults[0].reason).toBe('zero_quantity');
     });
 
-    test('skips free items (zero price)', async () => {
-      const orderWithFreeItem = {
+    test('skips loyalty redemption items (zero price with loyalty discount)', async () => {
+      const orderWithLoyaltyRedemption = {
         ...baseOrder,
         line_items: [
           {
@@ -272,6 +272,9 @@ describe('LoyaltyWebhookService', () => {
             catalog_object_id: 'VAR-001',
             quantity: '1',
             total_money: { amount: 0 },
+            applied_discounts: [
+              { discount_uid: 'disc-1', name: 'Loyalty Reward - Free Item' },
+            ],
           },
         ],
       };
@@ -286,16 +289,54 @@ describe('LoyaltyWebhookService', () => {
         new Set(['VAR-001'])
       );
 
-      const result = await service.processOrder(orderWithFreeItem);
+      const result = await service.processOrder(orderWithLoyaltyRedemption);
 
       expect(result.lineItemResults[0].qualifying).toBe(false);
-      expect(result.lineItemResults[0].reason).toBe('free_item');
+      expect(result.lineItemResults[0].reason).toBe('loyalty_redemption');
       expect(loyaltyLogger.debug).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'LINE_ITEM_EVALUATION',
-          decision: 'SKIP_FREE',
+          decision: 'SKIP_LOYALTY_REDEMPTION',
         })
       );
+    });
+
+    test('processes promotional free items (zero price without loyalty discount)', async () => {
+      const orderWithPromoFreeItem = {
+        ...baseOrder,
+        line_items: [
+          {
+            uid: 'line-1',
+            name: 'Free Coffee',
+            catalog_object_id: 'VAR-001',
+            quantity: '1',
+            total_money: { amount: 0 },
+            applied_discounts: [
+              { discount_uid: 'disc-1', name: 'Summer Promotion 100% Off' },
+            ],
+          },
+        ],
+      };
+
+      mockCustomerService.identifyCustomerFromOrder.mockResolvedValue({
+        success: true,
+        customerId: 'CUST-456',
+        method: 'ORDER_CUSTOMER_ID',
+      });
+      mockOfferService.getActiveOffers.mockResolvedValue([{ id: 10 }]);
+      mockOfferService.getAllQualifyingVariationIds.mockResolvedValue(
+        new Set(['VAR-001'])
+      );
+      mockPurchaseService.recordPurchase.mockResolvedValue({
+        recorded: true,
+        results: [{ offerId: 10, progress: { rewardEarned: false } }],
+      });
+
+      const result = await service.processOrder(orderWithPromoFreeItem);
+
+      // Promotional free items SHOULD count toward loyalty
+      expect(result.lineItemResults[0].qualifying).toBe(true);
+      expect(mockPurchaseService.recordPurchase).toHaveBeenCalled();
     });
 
     test('skips non-qualifying variations', async () => {

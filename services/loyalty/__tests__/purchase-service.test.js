@@ -67,21 +67,38 @@ describe('LoyaltyPurchaseService', () => {
       traceId: 'trace-abc',
     };
 
-    test('returns duplicate when order+variation already recorded', async () => {
+    test('returns duplicate when order+variation already recorded via ON CONFLICT', async () => {
+      // Has qualifying offer
       db.query.mockResolvedValueOnce({
-        rows: [{ id: 999 }],
+        rows: [{
+          offer_id: 10,
+          offer_name: 'Test Offer',
+          required_quantity: 5,
+          window_months: 12,
+        }],
       });
+
+      // Transaction queries
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates query
+        .mockResolvedValueOnce({ rows: [] }) // INSERT returns empty (duplicate via ON CONFLICT)
+        .mockResolvedValueOnce({}); // COMMIT
 
       const result = await service.recordPurchase(basePurchaseData);
 
-      expect(result).toEqual({
-        recorded: false,
-        reason: 'duplicate',
-        existingId: 999,
-      });
+      expect(result.recorded).toBe(false);
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          recorded: false,
+          reason: 'duplicate',
+          offerId: 10,
+        })
+      );
       expect(mockTracer.span).toHaveBeenCalledWith('PURCHASE_DUPLICATE', {
         squareOrderId: 'order-123',
         variationId: 'var-789',
+        offerId: 10,
       });
       expect(loyaltyLogger.debug).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -91,8 +108,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('returns no_qualifying_offer when variation has no active offers', async () => {
-      // No existing purchase
-      db.query.mockResolvedValueOnce({ rows: [] });
       // No qualifying offers
       db.query.mockResolvedValueOnce({ rows: [] });
 
@@ -108,8 +123,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('records purchase for qualifying offer', async () => {
-      // No existing purchase
-      db.query.mockResolvedValueOnce({ rows: [] });
       // Has qualifying offer
       db.query.mockResolvedValueOnce({
         rows: [{
@@ -123,7 +136,9 @@ describe('LoyaltyPurchaseService', () => {
       // Transaction queries
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates (first purchase)
         .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT purchase event
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result in updateRewardProgress
         .mockResolvedValueOnce({ rows: [{ total_quantity: '3' }] }) // Progress query
         .mockResolvedValueOnce({}); // COMMIT
 
@@ -145,7 +160,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('calculates totalPriceCents when not provided', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [{
           offer_id: 10,
@@ -156,10 +170,12 @@ describe('LoyaltyPurchaseService', () => {
       });
 
       mockClient.query
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce({ rows: [{ id: 1001 }] })
-        .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] })
-        .mockResolvedValueOnce({});
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates
+        .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result
+        .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] }) // Progress
+        .mockResolvedValueOnce({}); // COMMIT
 
       await service.recordPurchase({
         ...basePurchaseData,
@@ -174,7 +190,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('rolls back transaction on error', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [{
           offer_id: 10,
@@ -186,6 +201,7 @@ describe('LoyaltyPurchaseService', () => {
 
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates
         .mockRejectedValueOnce(new Error('Insert failed')); // INSERT fails
 
       await expect(service.recordPurchase(basePurchaseData))
@@ -201,7 +217,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('creates reward when threshold reached', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [{
           offer_id: 10,
@@ -213,11 +228,16 @@ describe('LoyaltyPurchaseService', () => {
 
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates (first purchase)
         .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT purchase
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result in updateRewardProgress
         .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] }) // Progress = 5 (meets threshold)
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window dates for reward in createOrUpdateReward
         .mockResolvedValueOnce({ rows: [] }) // No existing in_progress reward
         .mockResolvedValueOnce({ rows: [] }) // No existing earned reward
         .mockResolvedValueOnce({ rows: [{ id: 2001 }] }) // New reward created
+        .mockResolvedValueOnce({}) // Lock purchases
+        .mockResolvedValueOnce({ rows: [{ remaining_count: '0', remaining_qty: '0' }] }) // Check remaining
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await service.recordPurchase(basePurchaseData);
@@ -230,7 +250,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('records purchase for multiple qualifying offers', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [
           { offer_id: 10, offer_name: 'Offer 1', required_quantity: 5, window_months: 12 },
@@ -241,16 +260,20 @@ describe('LoyaltyPurchaseService', () => {
       // First offer transaction
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({ rows: [{ id: 1001 }] })
-        .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] })
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates
+        .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result
+        .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] }) // Progress
         .mockResolvedValueOnce({}); // COMMIT
 
       // Second offer transaction - need new client
       const mockClient2 = {
         query: jest.fn()
           .mockResolvedValueOnce({}) // BEGIN
-          .mockResolvedValueOnce({ rows: [{ id: 1002 }] })
-          .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] })
+          .mockResolvedValueOnce({ rows: [] }) // Existing window dates
+          .mockResolvedValueOnce({ rows: [{ id: 1002 }] }) // INSERT
+          .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2024-07-15' }] }) // Window result
+          .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] }) // Progress
           .mockResolvedValueOnce({}), // COMMIT
         release: jest.fn(),
       };
@@ -337,6 +360,10 @@ describe('LoyaltyPurchaseService', () => {
       db.query.mockResolvedValueOnce({
         rows: [{ required_quantity: 5, window_months: 6 }],
       });
+      // Window dates query
+      db.query.mockResolvedValueOnce({
+        rows: [{ window_start: '2024-01-15', window_end: '2024-07-15' }],
+      });
       // Progress query
       db.query.mockResolvedValueOnce({
         rows: [{ total_quantity: '3' }],
@@ -349,8 +376,9 @@ describe('LoyaltyPurchaseService', () => {
         requiredQuantity: 5,
         remaining: 2,
         percentComplete: 60,
-        windowStart: expect.any(String),
-        windowMonths: 30,
+        windowStart: '2024-01-15',
+        windowEnd: '2024-07-15',
+        windowMonths: 6,
       });
     });
 
@@ -366,6 +394,10 @@ describe('LoyaltyPurchaseService', () => {
       db.query.mockResolvedValueOnce({
         rows: [{ required_quantity: 5, window_months: 12 }],
       });
+      // Window dates query
+      db.query.mockResolvedValueOnce({
+        rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }],
+      });
       db.query.mockResolvedValueOnce({
         rows: [{ total_quantity: '7' }],
       });
@@ -377,20 +409,23 @@ describe('LoyaltyPurchaseService', () => {
       expect(result.percentComplete).toBe(100); // Capped at 100
     });
 
-    test('defaults window_months to 12 when null', async () => {
+    test('returns zero progress when no purchases exist', async () => {
       db.query.mockResolvedValueOnce({
-        rows: [{ required_quantity: 5, window_months: null }],
+        rows: [{ required_quantity: 5, window_months: 12 }],
       });
+      // Window dates query - no purchases
       db.query.mockResolvedValueOnce({
-        rows: [{ total_quantity: '2' }],
+        rows: [{ window_start: null, window_end: null }],
       });
 
       const result = await service.getCurrentProgress('cust-123', 10);
 
-      expect(result.windowMonths).toBeNull();
-      // Verify query used 365 default for window calculation
-      const progressQuery = db.query.mock.calls[1];
-      expect(progressQuery[0]).toContain('purchased_at >= $4');
+      expect(result.currentProgress).toBe(0);
+      expect(result.remaining).toBe(5);
+      expect(result.percentComplete).toBe(0);
+      expect(result.windowStart).toBeNull();
+      expect(result.windowEnd).toBeNull();
+      expect(result.windowMonths).toBe(12);
     });
 
     test('throws and logs error on failure', async () => {
@@ -409,7 +444,6 @@ describe('LoyaltyPurchaseService', () => {
 
   describe('updateRewardProgress (via recordPurchase)', () => {
     test('updates existing in_progress reward to earned', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [{
           offer_id: 10,
@@ -421,10 +455,15 @@ describe('LoyaltyPurchaseService', () => {
 
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates
         .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT purchase
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result in updateRewardProgress
         .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] }) // Progress = threshold
-        .mockResolvedValueOnce({ rows: [{ id: 500, status: 'in_progress' }] }) // Existing reward
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window dates for reward
+        .mockResolvedValueOnce({ rows: [{ id: 500, status: 'in_progress' }] }) // Existing in_progress reward
         .mockResolvedValueOnce({}) // UPDATE reward to earned
+        .mockResolvedValueOnce({}) // Lock purchases
+        .mockResolvedValueOnce({ rows: [{ remaining_count: '0', remaining_qty: '0' }] }) // Check remaining
         .mockResolvedValueOnce({}); // COMMIT
 
       await service.recordPurchase({
@@ -448,7 +487,6 @@ describe('LoyaltyPurchaseService', () => {
     });
 
     test('skips reward creation if earned reward already exists', async () => {
-      db.query.mockResolvedValueOnce({ rows: [] });
       db.query.mockResolvedValueOnce({
         rows: [{
           offer_id: 10,
@@ -460,10 +498,13 @@ describe('LoyaltyPurchaseService', () => {
 
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }) // Existing window dates
         .mockResolvedValueOnce({ rows: [{ id: 1001 }] }) // INSERT purchase
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window result in updateRewardProgress
         .mockResolvedValueOnce({ rows: [{ total_quantity: '6' }] }) // Progress > threshold
+        .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window dates for reward
         .mockResolvedValueOnce({ rows: [] }) // No in_progress reward
-        .mockResolvedValueOnce({ rows: [{ id: 600 }] }) // Existing earned reward
+        .mockResolvedValueOnce({ rows: [{ id: 600 }] }) // Existing earned reward (unredeemed)
         .mockResolvedValueOnce({}); // COMMIT
 
       const result = await service.recordPurchase({
