@@ -19,9 +19,12 @@ const db = require('./utils/database');
 // Store cron task references for graceful shutdown
 const cronTasks = [];
 
-// Debounce tracking for webhook-triggered syncs (prevents duplicate syncs from rapid webhook events)
-const catalogSyncDebounce = new Map(); // merchantId -> timestamp
-const CATALOG_SYNC_DEBOUNCE_MS = 30000; // 30 seconds
+// Safe sync queue for webhook-triggered catalog syncs (prevents duplicate syncs while ensuring no data is missed)
+// Instead of simple debounce (which could miss data), we track:
+// 1. If a sync is currently running
+// 2. If webhooks arrived during the sync (requiring a follow-up sync)
+const catalogSyncInProgress = new Map(); // merchantId -> boolean
+const catalogSyncPending = new Map(); // merchantId -> boolean (true if webhook arrived during sync)
 
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
@@ -824,18 +827,19 @@ app.post('/api/webhooks/square', async (req, res) => {
                         break;
                     }
 
-                    // Debounce: skip if we recently started a sync for this merchant
-                    const lastSyncTime = catalogSyncDebounce.get(internalMerchantId);
-                    const now = Date.now();
-                    if (lastSyncTime && (now - lastSyncTime) < CATALOG_SYNC_DEBOUNCE_MS) {
-                        logger.info('Catalog sync debounced - sync already in progress or recently completed', {
-                            merchantId: internalMerchantId,
-                            lastSyncSecondsAgo: Math.round((now - lastSyncTime) / 1000)
+                    // Safe sync queue: if sync already running, mark as pending (will resync after current completes)
+                    if (catalogSyncInProgress.get(internalMerchantId)) {
+                        logger.info('Catalog sync already in progress - marking for follow-up sync', {
+                            merchantId: internalMerchantId
                         });
-                        syncResults.debounced = true;
+                        catalogSyncPending.set(internalMerchantId, true);
+                        syncResults.queued = true;
                         break;
                     }
-                    catalogSyncDebounce.set(internalMerchantId, now);
+
+                    // Mark sync as in progress
+                    catalogSyncInProgress.set(internalMerchantId, true);
+                    catalogSyncPending.set(internalMerchantId, false);
 
                     try {
                         logger.info('Catalog change detected via webhook, syncing...', { merchantId: internalMerchantId });
@@ -845,9 +849,24 @@ app.post('/api/webhooks/square', async (req, res) => {
                             variations: catalogSyncResult.variations
                         };
                         logger.info('Catalog sync completed via webhook', syncResults.catalog);
+
+                        // Check if more webhooks arrived during sync - if so, sync again to catch any changes
+                        if (catalogSyncPending.get(internalMerchantId)) {
+                            logger.info('Webhooks arrived during sync - running follow-up sync', { merchantId: internalMerchantId });
+                            catalogSyncPending.set(internalMerchantId, false);
+                            const followUpResult = await squareApi.syncCatalog(internalMerchantId);
+                            syncResults.followUpSync = {
+                                items: followUpResult.items,
+                                variations: followUpResult.variations
+                            };
+                            logger.info('Follow-up catalog sync completed', syncResults.followUpSync);
+                        }
                     } catch (syncError) {
                         logger.error('Catalog sync via webhook failed', { error: syncError.message });
                         syncResults.error = syncError.message;
+                    } finally {
+                        // Always clear the in-progress flag
+                        catalogSyncInProgress.set(internalMerchantId, false);
                     }
                 } else {
                     logger.info('Catalog webhook received but WEBHOOK_CATALOG_SYNC is disabled');
