@@ -366,11 +366,6 @@ async function runSmartSync({ merchantId } = {}) {
     };
 }
 
-// Export for use by cron jobs in server.js
-module.exports.runSmartSync = runSmartSync;
-module.exports.isSyncNeeded = isSyncNeeded;
-module.exports.loggedSync = loggedSync;
-
 // ==================== SYNC ENDPOINTS ====================
 
 /**
@@ -593,3 +588,8 @@ router.get('/sync-status', requireAuth, requireMerchant, validators.syncStatus, 
 });
 
 module.exports = router;
+
+// Export for use by cron jobs in server.js
+module.exports.runSmartSync = runSmartSync;
+module.exports.isSyncNeeded = isSyncNeeded;
+module.exports.loggedSync = loggedSync;
