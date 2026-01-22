@@ -13,7 +13,7 @@ const { handleValidationErrors, validateOptionalString } = require('./index');
 const getVendors = [
     query('status')
         .optional()
-        .toUpperCase()
+        .customSanitizer(value => value ? value.toUpperCase() : value)
         .isIn(['ACTIVE', 'INACTIVE', 'PENDING'])
         .withMessage('status must be one of: ACTIVE, INACTIVE, PENDING'),
     handleValidationErrors
