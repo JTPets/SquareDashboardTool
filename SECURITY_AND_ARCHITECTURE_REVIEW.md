@@ -15,7 +15,7 @@ This application is a **production-grade multi-tenant SaaS platform** that has g
 | Area | Current State | Business Risk | Status |
 |------|--------------|---------------|--------|
 | **Testing** | 194 tests for security functions | LOW | FIXED |
-| **Code Structure** | 9,584-line server.js (120 endpoints remaining) | MEDIUM | Phase 3 In Progress |
+| **Code Structure** | 8,428-line server.js (97 endpoints remaining) | MEDIUM | Phase 3 In Progress |
 | **Security** | CSP enabled, CORS enforced, file validation | LOW | FIXED |
 | **Input Validation** | express-validator on 7 extracted routes | LOW | Phase 3 In Progress |
 | **Scalability** | Synchronous operations | MEDIUM | Phase 4 |
@@ -137,7 +137,7 @@ Coverage: Security utilities + access control middleware
 | `routes/subscriptions.js` | DONE | 11 endpoints | 817 |
 | `routes/loyalty.js` | **DONE** | 35 endpoints | 1,873 |
 | `routes/gmc.js` | **DONE** | 32 endpoints | 1,169 |
-| `routes/delivery.js` | TODO | 23 endpoints | - |
+| `routes/delivery.js` | **DONE** | 23 endpoints | 1,251 |
 | `routes/webhooks.js` | TODO | 9 endpoints | - |
 | `routes/expiry-discounts.js` | TODO | 14 endpoints | - |
 | `routes/vendor-catalog.js` | TODO | 13 endpoints | - |
@@ -150,8 +150,8 @@ Coverage: Security utilities + access control middleware
 | `routes/settings.js` | TODO | 3 endpoints | - |
 | `routes/logs.js` | TODO | 4 endpoints | - |
 
-**Extracted:** 7 route files (6,304 lines, 111 endpoints)
-**Remaining:** 120 endpoints in server.js (9,584 lines)
+**Extracted:** 8 route files (7,555 lines, 134 endpoints)
+**Remaining:** 97 endpoints in server.js (8,428 lines)
 
 **Recommended Split (with line ranges from server.js):**
 
@@ -284,7 +284,7 @@ exports.createOffer = [
 
 **Server.js Extraction Plan** - Prioritized by risk and complexity:
 
-#### Completed Extractions (111 endpoints, 6,304 lines)
+#### Completed Extractions (134 endpoints, 7,555 lines)
 | Route File | Endpoints | Risk Level | Status |
 |------------|-----------|------------|--------|
 | `routes/auth.js` | 12 | HIGH - Authentication | **DONE** |
@@ -294,11 +294,11 @@ exports.createOffer = [
 | `routes/subscriptions.js` | 11 | HIGH - Payment handling | **DONE** |
 | `routes/loyalty.js` | 35 | HIGH - Financial calculations | **DONE** |
 | `routes/gmc.js` | 32 | MEDIUM - Google integration | **DONE** |
+| `routes/delivery.js` | 23 | HIGH - Customer-facing, POD photos | **DONE** |
 
-#### Priority 1: Customer-Facing & External (HIGH RISK)
+#### Priority 1: External (HIGH RISK)
 | Route File | Endpoints | Risk Level | Status |
 |------------|-----------|------------|--------|
-| `routes/delivery.js` | 23 | HIGH - Customer-facing, POD photos | TODO |
 | `routes/webhooks.js` | 9 | HIGH - External callbacks | TODO |
 
 #### Priority 2: Financial & Integration (MEDIUM RISK)
@@ -427,12 +427,12 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 8. **V007 FIXED:** Test endpoints disabled in production
 
 **Phase 3 - In Progress:**
-1. **Split the monolith** - 48% complete
-   - ✓ Extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc (111 endpoints)
-   - → Next: delivery (23), webhooks (9), expiry-discounts (14)
-   - Remaining: 120 endpoints across ~12 more route files
-2. **Input validation** - 6 validator files created
-   - ✓ Validators for all extracted routes
+1. **Split the monolith** - 58% complete
+   - ✓ Extracted: auth, square-oauth, driver-api, purchase-orders, subscriptions, loyalty, gmc, delivery (134 endpoints)
+   - → Next: webhooks (9), expiry-discounts (14)
+   - Remaining: 97 endpoints across ~11 more route files
+2. **Input validation** - 7 validator files created
+   - ✓ Validators for all extracted routes (including delivery)
    - → Add validators as routes are extracted
 
 **Phase 4 - Future (when needed):**
@@ -459,8 +459,8 @@ Your application is more sophisticated than most "vibe coded" projects. The foun
 | V009 | HIGH | npm vulnerabilities (tar/bcrypt) | package.json | **FIXED** |
 | V010 | HIGH | Auth middleware untested | middleware/auth.js | **FIXED** (38 tests) |
 | V011 | HIGH | Multi-tenant isolation untested | middleware/merchant.js | **FIXED** (27 tests) |
-| V012 | MEDIUM | No input validation | All routes | **IN PROGRESS** (6 validators) |
-| V013 | HIGH | 221 endpoints in monolith | server.js | **IN PROGRESS** (120 remaining) |
+| V012 | MEDIUM | No input validation | All routes | **IN PROGRESS** (7 validators) |
+| V013 | HIGH | 221 endpoints in monolith | server.js | **IN PROGRESS** (97 remaining) |
 
 ---
 
@@ -509,20 +509,21 @@ These endpoints are now only available in development mode.
 ### V012: No Input Validation (MEDIUM) - IN PROGRESS
 **Location:** All routes
 **Risk:** Invalid data could cause errors or unexpected behavior
-**Progress:** 6 validator files created in `middleware/validators/`:
+**Progress:** 7 validator files created in `middleware/validators/`:
 - `index.js` - Common validators and utilities
 - `driver-api.js` - Driver API validators
 - `purchase-orders.js` - Purchase order validators
 - `subscriptions.js` - Subscription validators
 - `loyalty.js` - Loyalty program validators
 - `gmc.js` - Google Merchant Center validators
+- `delivery.js` - Delivery route validators (NEW)
 
 **Remaining:** Add validators to routes as they are extracted from server.js
 
 ### V013: Monolithic Server File (HIGH) - IN PROGRESS
-**Location:** `server.js` (now 9,584 lines, 120 endpoints remaining)
+**Location:** `server.js` (now 8,428 lines, 97 endpoints remaining)
 **Risk:** Unmaintainable code, high merge conflict risk, difficult to test
-**Progress:** 7 route files extracted (6,304 lines, 111 endpoints):
+**Progress:** 8 route files extracted (7,555 lines, 134 endpoints):
 - `routes/auth.js` (12 endpoints)
 - `routes/square-oauth.js` (4 endpoints)
 - `routes/driver-api.js` (8 endpoints)
@@ -530,8 +531,9 @@ These endpoints are now only available in development mode.
 - `routes/subscriptions.js` (11 endpoints)
 - `routes/loyalty.js` (35 endpoints)
 - `routes/gmc.js` (32 endpoints)
+- `routes/delivery.js` (23 endpoints) - NEW
 
-**Remaining:** Extract 120 endpoints across ~12 more route files
+**Remaining:** Extract 97 endpoints across ~11 more route files
 
 ---
 
@@ -555,24 +557,25 @@ middleware/validators/      # express-validator middleware
   ├── purchase-orders.js   # Purchase order validators
   ├── subscriptions.js     # Subscription validators
   ├── loyalty.js           # Loyalty program validators
-  └── gmc.js               # Google Merchant Center validators
+  ├── gmc.js               # Google Merchant Center validators
+  └── delivery.js          # Delivery route validators
 utils/password.js           # Password hashing (49 tests)
 utils/token-encryption.js   # Token encryption (51 tests)
 utils/file-validation.js    # File upload validation (30 tests)
 ```
 
 ### Key Statistics
-- **Total Lines:** 9,584 in server.js (6,304 lines extracted to routes)
-- **Endpoints in server.js:** 120 remaining
-- **Extracted Routes:** 7 files with 111 endpoints
+- **Total Lines:** 8,428 in server.js (7,555 lines extracted to routes)
+- **Endpoints in server.js:** 97 remaining
+- **Extracted Routes:** 8 files with 134 endpoints
   - auth.js (12), square-oauth.js (4), driver-api.js (8), purchase-orders.js (9)
-  - subscriptions.js (11), loyalty.js (35), gmc.js (32)
+  - subscriptions.js (11), loyalty.js (35), gmc.js (32), delivery.js (23)
 - **Tests:** 194 passing
 - **npm Vulnerabilities:** 0
-- **Validators Created:** 6 files in middleware/validators/
+- **Validators Created:** 7 files in middleware/validators/
 - **Quick Wins Fixed:** V005, V006, V007
 
 ---
 
 *Document generated by security review on 2026-01-21*
-*Last updated: 2026-01-22 - Phase 3 in progress: 111 endpoints extracted (7 route files) with express-validator*
+*Last updated: 2026-01-22 - Phase 3 in progress: 134 endpoints extracted (8 route files) with express-validator*
