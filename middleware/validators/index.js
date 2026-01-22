@@ -250,6 +250,29 @@ const validatePromoCode = (fieldName = 'code') =>
         .matches(/^[A-Za-z0-9_-]+$/)
         .withMessage('Promo code can only contain letters, numbers, dashes, and underscores');
 
+/**
+ * Custom validator function for UUID format
+ * For use with .custom() in validation chains
+ * @param {string} value - Value to validate
+ * @returns {boolean} True if valid UUID
+ */
+const isValidUUID = (value) => {
+    if (!value) return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(value);
+};
+
+/**
+ * Sanitize string - trim and remove null bytes
+ * For use with .customSanitizer()
+ * @param {string} value - Value to sanitize
+ * @returns {string} Sanitized string
+ */
+const sanitizeString = (value) => {
+    if (typeof value !== 'string') return value;
+    return value.trim().replace(/\0/g, '');
+};
+
 module.exports = {
     handleValidationErrors,
     validateUUID,
@@ -275,5 +298,8 @@ module.exports = {
     validateBoolean,
     validateOptionalBoolean,
     validateToken,
-    validatePromoCode
+    validatePromoCode,
+    // Custom validators for use with .custom()
+    isValidUUID,
+    sanitizeString
 };
