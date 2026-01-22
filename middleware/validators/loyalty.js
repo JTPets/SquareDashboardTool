@@ -18,6 +18,27 @@ const {
     validateOptionalBoolean
 } = require('./index');
 
+// Helper to validate positive integer in range (handles JSON number types)
+const isIntInRange = (value, fieldName, min, max) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < min || (max !== undefined && num > max)) {
+        if (max !== undefined) {
+            throw new Error(`${fieldName} must be between ${min} and ${max}`);
+        }
+        throw new Error(`${fieldName} must be a positive integer`);
+    }
+    return true;
+};
+
+// Helper to validate non-negative integer (handles JSON number types)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
 // ==================== ROUTE-SPECIFIC VALIDATORS ====================
 
 /**
@@ -55,8 +76,7 @@ const createOffer = [
         .isLength({ max: 100 })
         .withMessage('sizeGroup cannot exceed 100 characters'),
     body('requiredQuantity')
-        .isInt({ min: 1, max: 1000 })
-        .withMessage('requiredQuantity must be a positive integer (1-1000)'),
+        .custom((value) => isIntInRange(value, 'requiredQuantity', 1, 1000)),
     body('offerName')
         .optional()
         .trim()
@@ -64,8 +84,7 @@ const createOffer = [
         .withMessage('offerName cannot exceed 255 characters'),
     body('windowMonths')
         .optional()
-        .isInt({ min: 1, max: 36 })
-        .withMessage('windowMonths must be between 1 and 36'),
+        .custom((value) => isIntInRange(value, 'windowMonths', 1, 36)),
     body('description')
         .optional()
         .trim()
@@ -73,8 +92,7 @@ const createOffer = [
         .withMessage('description cannot exceed 1000 characters'),
     body('vendorId')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('vendorId must be a positive integer'),
+        .custom((value) => isIntInRange(value, 'vendorId', 1)),
     handleValidationErrors
 ];
 
@@ -113,8 +131,7 @@ const updateOffer = [
         .withMessage('is_active must be a boolean'),
     body('window_months')
         .optional()
-        .isInt({ min: 1, max: 36 })
-        .withMessage('window_months must be between 1 and 36'),
+        .custom((value) => isIntInRange(value, 'window_months', 1, 36)),
     body('vendor_id')
         .optional({ nullable: true }),
     body('size_group')
@@ -259,8 +276,7 @@ const redeemReward = [
         .withMessage('redeemedVariationId cannot exceed 255 characters'),
     body('redeemedValueCents')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('redeemedValueCents must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'redeemedValueCents')),
     body('redemptionType')
         .optional()
         .isIn(['manual_admin', 'pos_auto', 'customer_request'])
@@ -406,8 +422,7 @@ const searchCustomers = [
 const backfill = [
     body('days')
         .optional()
-        .isInt({ min: 1, max: 90 })
-        .withMessage('days must be between 1 and 90'),
+        .custom((value) => isIntInRange(value, 'days', 1, 90)),
     handleValidationErrors
 ];
 
@@ -418,16 +433,14 @@ const backfill = [
 const catchup = [
     body('days')
         .optional()
-        .isInt({ min: 1, max: 365 })
-        .withMessage('days must be between 1 and 365'),
+        .custom((value) => isIntInRange(value, 'days', 1, 365)),
     body('customerIds')
         .optional()
         .isArray()
         .withMessage('customerIds must be an array'),
     body('maxCustomers')
         .optional()
-        .isInt({ min: 1, max: 1000 })
-        .withMessage('maxCustomers must be between 1 and 1000'),
+        .custom((value) => isIntInRange(value, 'maxCustomers', 1, 1000)),
     handleValidationErrors
 ];
 
@@ -450,8 +463,7 @@ const manualEntry = [
         .withMessage('variationId is required'),
     body('quantity')
         .optional()
-        .isInt({ min: 1, max: 100 })
-        .withMessage('quantity must be between 1 and 100'),
+        .custom((value) => isIntInRange(value, 'quantity', 1, 100)),
     body('purchasedAt')
         .optional()
         .isISO8601()

@@ -7,6 +7,24 @@
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors } = require('./index');
 
+// Helper to validate non-negative integer (handles both string and number types from JSON)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
+// Helper to validate positive integer (min 1)
+const isPositiveInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 1) {
+        throw new Error(`${fieldName} must be a positive integer`);
+    }
+    return true;
+};
+
 // GET /api/categories
 const getCategories = [handleValidationErrors];
 
@@ -31,13 +49,13 @@ const getVariationsWithCosts = [handleValidationErrors];
 // PATCH /api/variations/:id/extended
 const updateVariationExtended = [
     param('id').isString().notEmpty(),
-    body('case_pack_quantity').optional().isInt({ min: 0 }),
-    body('stock_alert_min').optional().isInt({ min: 0 }),
-    body('stock_alert_max').optional().isInt({ min: 0 }),
-    body('preferred_stock_level').optional().isInt({ min: 0 }),
+    body('case_pack_quantity').optional().custom((value) => isNonNegativeInt(value, 'case_pack_quantity')),
+    body('stock_alert_min').optional().custom((value) => isNonNegativeInt(value, 'stock_alert_min')),
+    body('stock_alert_max').optional().custom((value) => isNonNegativeInt(value, 'stock_alert_max')),
+    body('preferred_stock_level').optional().custom((value) => isNonNegativeInt(value, 'preferred_stock_level')),
     body('shelf_location').optional().isString().trim(),
     body('bin_location').optional().isString().trim(),
-    body('reorder_multiple').optional().isInt({ min: 1 }),
+    body('reorder_multiple').optional().custom((value) => isPositiveInt(value, 'reorder_multiple')),
     body('discontinued').optional().isBoolean(),
     body('notes').optional().isString(),
     handleValidationErrors
@@ -46,7 +64,10 @@ const updateVariationExtended = [
 // PATCH /api/variations/:id/min-stock
 const updateMinStock = [
     param('id').isString().notEmpty(),
-    body('min_stock').optional({ nullable: true }).isInt({ min: 0 }),
+    body('min_stock').optional({ nullable: true }).custom((value) => {
+        if (value === null) return true;
+        return isNonNegativeInt(value, 'min_stock');
+    }),
     body('location_id').optional().isString(),
     handleValidationErrors
 ];

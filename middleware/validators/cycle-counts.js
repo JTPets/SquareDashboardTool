@@ -7,6 +7,15 @@
 const { body, param, query } = require('express-validator');
 const { handleValidationErrors } = require('./index');
 
+// Helper to validate non-negative integer (handles JSON number types)
+const isNonNegativeInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${fieldName} must be a non-negative integer`);
+    }
+    return true;
+};
+
 /**
  * POST /api/cycle-counts/:id/complete
  */
@@ -26,12 +35,10 @@ const complete = [
         .withMessage('is_accurate must be a boolean'),
     body('actual_quantity')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('actual_quantity must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'actual_quantity')),
     body('expected_quantity')
         .optional()
-        .isInt({ min: 0 })
-        .withMessage('expected_quantity must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'expected_quantity')),
     body('notes')
         .optional()
         .trim()
@@ -49,10 +56,9 @@ const syncToSquare = [
         .notEmpty()
         .withMessage('Item ID is required'),
     body('actual_quantity')
-        .notEmpty()
+        .exists({ checkNull: true })
         .withMessage('actual_quantity is required')
-        .isInt({ min: 0 })
-        .withMessage('actual_quantity must be a non-negative integer'),
+        .custom((value) => isNonNegativeInt(value, 'actual_quantity')),
     body('location_id')
         .optional()
         .trim()

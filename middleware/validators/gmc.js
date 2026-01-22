@@ -16,6 +16,15 @@ const {
     validatePagination
 } = require('./index');
 
+// Helper to validate positive integer (handles JSON number types)
+const isPositiveInt = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 1) {
+        throw new Error(`${fieldName} must be a positive integer`);
+    }
+    return true;
+};
+
 // ==================== ROUTE-SPECIFIC VALIDATORS ====================
 
 /**
@@ -90,8 +99,10 @@ const assignItemBrand = [
         .withMessage('itemId is required'),
     body('brand_id')
         .optional({ nullable: true })
-        .isInt({ min: 1 })
-        .withMessage('brand_id must be a positive integer'),
+        .custom((value) => {
+            if (value === null) return true;
+            return isPositiveInt(value, 'brand_id');
+        }),
     handleValidationErrors
 ];
 
@@ -119,8 +130,7 @@ const bulkAssignBrands = [
         .notEmpty()
         .withMessage('Each assignment must have an item_id'),
     body('assignments.*.brand_id')
-        .isInt({ min: 1 })
-        .withMessage('Each assignment must have a valid brand_id'),
+        .custom((value) => isPositiveInt(value, 'brand_id')),
     handleValidationErrors
 ];
 
@@ -163,8 +173,10 @@ const mapCategoryTaxonomy = [
         .withMessage('categoryId is required'),
     body('google_taxonomy_id')
         .optional({ nullable: true })
-        .isInt({ min: 1 })
-        .withMessage('google_taxonomy_id must be a positive integer'),
+        .custom((value) => {
+            if (value === null) return true;
+            return isPositiveInt(value, 'google_taxonomy_id');
+        }),
     handleValidationErrors
 ];
 
@@ -192,8 +204,8 @@ const mapCategoryTaxonomyByName = [
         .isLength({ max: 255 })
         .withMessage('category_name cannot exceed 255 characters'),
     body('google_taxonomy_id')
-        .isInt({ min: 1 })
-        .withMessage('google_taxonomy_id is required and must be a positive integer'),
+        .exists({ checkNull: true }).withMessage('google_taxonomy_id is required')
+        .custom((value) => isPositiveInt(value, 'google_taxonomy_id')),
     handleValidationErrors
 ];
 
