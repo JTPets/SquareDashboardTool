@@ -299,7 +299,7 @@ class LoyaltyPurchaseService {
         AND reward_id IS NULL
     `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
-    const currentProgress = parseInt(progressResult.rows[0].total_quantity) || 0;
+    const currentProgress = parseInt(progressResult.rows[0].total_quantity, 10) || 0;
 
     // Check if customer has earned a reward
     const rewardEarned = currentProgress >= requiredQuantity;
@@ -457,8 +457,8 @@ class LoyaltyPurchaseService {
         AND quantity > 0
     `, [this.merchantId, offerId, squareCustomerId]);
 
-    const remainingCount = parseInt(remainingResult.rows[0].remaining_count) || 0;
-    const remainingQty = parseInt(remainingResult.rows[0].remaining_qty) || 0;
+    const remainingCount = parseInt(remainingResult.rows[0].remaining_count, 10) || 0;
+    const remainingQty = parseInt(remainingResult.rows[0].remaining_qty, 10) || 0;
 
     if (remainingCount > 0) {
       loyaltyLogger.debug({
@@ -590,7 +590,7 @@ class LoyaltyPurchaseService {
           AND reward_id IS NULL
       `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
-      const currentProgress = parseInt(progressResult.rows[0].total_quantity) || 0;
+      const currentProgress = parseInt(progressResult.rows[0].total_quantity, 10) || 0;
 
       return {
         currentProgress,

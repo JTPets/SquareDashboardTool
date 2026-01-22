@@ -23,6 +23,19 @@ const RETRY_DELAY_MS = 1000;
 const merchantsWithoutInvoicesScope = new Map();
 const INVOICES_SCOPE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+// Prune expired cache entries to prevent memory leaks
+function pruneInvoicesScopeCache() {
+    const now = Date.now();
+    for (const [merchantId, timestamp] of merchantsWithoutInvoicesScope) {
+        if (now - timestamp > INVOICES_SCOPE_CACHE_TTL) {
+            merchantsWithoutInvoicesScope.delete(merchantId);
+        }
+    }
+}
+
+// Run cache pruning every hour
+setInterval(pruneInvoicesScopeCache, INVOICES_SCOPE_CACHE_TTL);
+
 /**
  * Get decrypted access token for a merchant
  * @param {number} merchantId - The merchant ID (REQUIRED)

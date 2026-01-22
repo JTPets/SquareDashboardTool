@@ -93,7 +93,7 @@ async function incrementRetry(webhookEventId, errorMessage) {
             status = CASE
                 WHEN COALESCE(retry_count, 0) + 1 >= COALESCE(max_retries, $2)
                 THEN 'failed'
-                ELSE 'failed'
+                ELSE 'pending_retry'
             END
         WHERE id = $3
         RETURNING id, retry_count, max_retries, next_retry_at, status
