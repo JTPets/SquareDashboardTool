@@ -101,7 +101,9 @@ class MerchantDB {
             query += ` AND (i.name ILIKE $${params.length} OR i.description ILIKE $${params.length})`;
         }
 
-        query += ` ORDER BY i.name LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+        // Parameterize LIMIT and OFFSET to prevent SQL injection
+        params.push(parseInt(limit) || 1000, parseInt(offset) || 0);
+        query += ` ORDER BY i.name LIMIT $${params.length - 1} OFFSET $${params.length}`;
 
         return this.query(query, params);
     }
@@ -158,7 +160,9 @@ class MerchantDB {
             query += ` AND (v.name ILIKE $${params.length} OR v.sku ILIKE $${params.length} OR i.name ILIKE $${params.length})`;
         }
 
-        query += ` ORDER BY i.name, v.name LIMIT ${parseInt(limit)}`;
+        // Parameterize LIMIT to prevent SQL injection
+        params.push(parseInt(limit) || 5000);
+        query += ` ORDER BY i.name, v.name LIMIT $${params.length}`;
 
         return this.query(query, params);
     }
@@ -336,7 +340,9 @@ class MerchantDB {
             query += ` AND po.location_id = $${params.length}`;
         }
 
-        query += ` ORDER BY po.created_at DESC LIMIT ${parseInt(limit)}`;
+        // Parameterize LIMIT to prevent SQL injection
+        params.push(parseInt(limit) || 100);
+        query += ` ORDER BY po.created_at DESC LIMIT $${params.length}`;
 
         return this.query(query, params);
     }
@@ -493,6 +499,10 @@ class MerchantDB {
         const params = [];
 
         for (const [key, value] of Object.entries(where)) {
+            // Validate column name to prevent SQL injection
+            if (!this._isValidColumnName(key)) {
+                throw new Error(`Invalid column name: ${key}`);
+            }
             params.push(value);
             query += ` AND ${key} = $${params.length}`;
         }
@@ -527,7 +537,9 @@ class MerchantDB {
             query += ` AND sync_type = $${params.length}`;
         }
 
-        query += ` ORDER BY started_at DESC LIMIT ${parseInt(limit)}`;
+        // Parameterize LIMIT to prevent SQL injection
+        params.push(parseInt(limit) || 10);
+        query += ` ORDER BY started_at DESC LIMIT $${params.length}`;
 
         return this.query(query, params);
     }
@@ -541,6 +553,14 @@ class MerchantDB {
             throw new Error(`Invalid table name: ${table}`);
         }
         return table;
+    }
+
+    /**
+     * Validate column name to prevent SQL injection
+     * Only allows alphanumeric and underscore, must start with letter or underscore
+     */
+    _isValidColumnName(column) {
+        return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(column);
     }
 }
 
