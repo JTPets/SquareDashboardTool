@@ -1455,8 +1455,8 @@ async function generateRouteToken(merchantId, routeId, userId, options = {}) {
         [routeId]
     );
 
-    // Generate a secure URL-safe token
-    const token = crypto.randomBytes(32).toString('base64url');
+    // Generate a secure token (64-character hex string)
+    const token = crypto.randomBytes(32).toString('hex');
 
     // Calculate expiry
     const expiresAt = new Date();
