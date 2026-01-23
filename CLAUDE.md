@@ -555,9 +555,10 @@ if (!safeTable) throw new Error('Invalid table');
 ```
 
 ### Files flagged for security review
-- `routes/cycle-counts.js:338` - INTERVAL interpolation
-- `utils/merchant-db.js:495-498` - Column name interpolation in count()
-- `utils/merchant-db.js:104,161,339,530` - LIMIT/OFFSET patterns
+None - all previously flagged issues have been fixed:
+- INTERVAL interpolation now uses parameterized multiplication (`INTERVAL '1 day' * $1`)
+- Column names validated with regex pattern in `_isValidColumnName()`
+- LIMIT/OFFSET values now parameterized instead of interpolated
 
 ## Git Workflow
 Commit messages are fine to include but not critical (1200+ PRs already). Focus on clear code over commit history.

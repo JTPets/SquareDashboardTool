@@ -335,8 +335,8 @@ router.get('/cycle-counts/stats', requireAuth, requireMerchant, validators.getSt
 
         const sessions = await db.query(`
             SELECT session_date, items_expected, items_completed, completion_rate, started_at, completed_at
-            FROM count_sessions WHERE session_date >= CURRENT_DATE - INTERVAL '${lookbackDays} days' AND merchant_id = $1 ORDER BY session_date DESC
-        `, [merchantId]);
+            FROM count_sessions WHERE session_date >= CURRENT_DATE - INTERVAL '1 day' * $1 AND merchant_id = $2 ORDER BY session_date DESC
+        `, [lookbackDays, merchantId]);
 
         const overall = await db.query(`
             SELECT COUNT(DISTINCT catalog_object_id) as total_items_counted, MAX(last_counted_date) as most_recent_count,
