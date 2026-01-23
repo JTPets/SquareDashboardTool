@@ -295,48 +295,135 @@ router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.com
                 });
 
                 if (squareOrder.order && squareOrder.order.fulfillments) {
-                    // Find the delivery/shipment fulfillment (check multiple types)
-                    let fulfillment = squareOrder.order.fulfillments.find(f =>
+                    // Find ALL delivery/shipment/pickup fulfillments (not just the first one)
+                    // Orders may have multiple fulfillments that all need to be completed
+                    const deliveryFulfillments = squareOrder.order.fulfillments.filter(f =>
                         f.type === 'DELIVERY' || f.type === 'SHIPMENT' || f.type === 'PICKUP'
-                    ) || squareOrder.order.fulfillments[0]; // Fall back to first fulfillment
+                    );
 
-                    if (fulfillment) {
-                        logger.info('Current fulfillment state', {
+                    // Fall back to all fulfillments if no delivery-specific ones found
+                    const fulfillmentsToComplete = deliveryFulfillments.length > 0
+                        ? deliveryFulfillments
+                        : squareOrder.order.fulfillments;
+
+                    if (fulfillmentsToComplete.length > 0) {
+                        logger.info('Found fulfillments to complete', {
                             orderId: order.id,
                             squareOrderId: order.square_order_id,
-                            fulfillmentUid: fulfillment.uid,
-                            fulfillmentType: fulfillment.type,
-                            currentState: fulfillment.state
+                            fulfillmentCount: fulfillmentsToComplete.length,
+                            fulfillments: fulfillmentsToComplete.map(f => ({ uid: f.uid, type: f.type, state: f.state }))
                         });
 
                         // Define the state transition order
                         // Square requires stepping through states: PROPOSED → RESERVED → PREPARED → COMPLETED
                         const stateOrder = ['PROPOSED', 'RESERVED', 'PREPARED', 'COMPLETED'];
-                        const currentStateIndex = stateOrder.indexOf(fulfillment.state);
+                        const completedAt = new Date().toISOString();
+                        let allFulfillmentsCompleted = true;
 
-                        if (fulfillment.state === 'COMPLETED') {
-                            squareSynced = true; // Already completed
-                        } else if (currentStateIndex >= 0) {
-                            // Need to transition through each state to reach COMPLETED
-                            for (let i = currentStateIndex + 1; i < stateOrder.length; i++) {
-                                const nextState = stateOrder[i];
+                        // Process each fulfillment
+                        for (const initialFulfillment of fulfillmentsToComplete) {
+                            let fulfillment = initialFulfillment;
+                            const currentStateIndex = stateOrder.indexOf(fulfillment.state);
 
-                                // Re-fetch to get current version (required for optimistic concurrency)
-                                squareOrder = await squareClient.orders.get({
-                                    orderId: order.square_order_id
+                            if (fulfillment.state === 'COMPLETED') {
+                                logger.info('Fulfillment already completed', {
+                                    orderId: order.id,
+                                    fulfillmentUid: fulfillment.uid
                                 });
+                                continue; // Already completed
+                            } else if (currentStateIndex >= 0) {
+                                // Need to transition through each state to reach COMPLETED
+                                for (let i = currentStateIndex + 1; i < stateOrder.length; i++) {
+                                    const nextState = stateOrder[i];
 
-                                // Re-find fulfillment (version may have changed)
-                                fulfillment = squareOrder.order.fulfillments.find(f => f.uid === fulfillment.uid);
+                                    // Re-fetch to get current version (required for optimistic concurrency)
+                                    squareOrder = await squareClient.orders.get({
+                                        orderId: order.square_order_id
+                                    });
 
-                                if (!fulfillment) {
-                                    throw new Error('Fulfillment not found after re-fetch');
+                                    // Re-find fulfillment (version may have changed)
+                                    fulfillment = squareOrder.order.fulfillments.find(f => f.uid === initialFulfillment.uid);
+
+                                    if (!fulfillment) {
+                                        throw new Error(`Fulfillment ${initialFulfillment.uid} not found after re-fetch`);
+                                    }
+
+                                    logger.info('Transitioning fulfillment state', {
+                                        orderId: order.id,
+                                        fulfillmentUid: fulfillment.uid,
+                                        from: fulfillment.state,
+                                        to: nextState
+                                    });
+
+                                    // Build the fulfillment update object
+                                    const fulfillmentUpdate = {
+                                        uid: fulfillment.uid,
+                                        state: nextState
+                                    };
+
+                                    // Add deliveredAt timestamp when transitioning to COMPLETED
+                                    // This is important for proper order archival in Square Dashboard
+                                    if (nextState === 'COMPLETED') {
+                                        if (fulfillment.type === 'DELIVERY') {
+                                            fulfillmentUpdate.deliveryDetails = {
+                                                ...fulfillment.deliveryDetails,
+                                                deliveredAt: completedAt
+                                            };
+                                        } else if (fulfillment.type === 'SHIPMENT') {
+                                            fulfillmentUpdate.shipmentDetails = {
+                                                ...fulfillment.shipmentDetails,
+                                                shippedAt: completedAt
+                                            };
+                                        } else if (fulfillment.type === 'PICKUP') {
+                                            fulfillmentUpdate.pickupDetails = {
+                                                ...fulfillment.pickupDetails,
+                                                pickedUpAt: completedAt
+                                            };
+                                        }
+                                    }
+
+                                    await squareClient.orders.update({
+                                        orderId: order.square_order_id,
+                                        order: {
+                                            locationId: squareOrder.order.locationId,
+                                            version: squareOrder.order.version,
+                                            fulfillments: [fulfillmentUpdate]
+                                        },
+                                        idempotencyKey: `complete-${order.id}-${fulfillment.uid}-${nextState}-${Date.now()}`
+                                    });
                                 }
 
-                                logger.info('Transitioning fulfillment state', {
+                                logger.info('Fulfillment completed', {
                                     orderId: order.id,
-                                    from: fulfillment.state,
-                                    to: nextState
+                                    fulfillmentUid: initialFulfillment.uid,
+                                    fulfillmentType: initialFulfillment.type
+                                });
+                            } else {
+                                // Unknown state (CANCELED, FAILED, etc.)
+                                logger.warn('Fulfillment in unexpected state, skipping', {
+                                    orderId: order.id,
+                                    fulfillmentUid: fulfillment.uid,
+                                    state: fulfillment.state
+                                });
+                                allFulfillmentsCompleted = false;
+                            }
+                        }
+
+                        // After completing all fulfillments, update the order state to COMPLETED
+                        // This is critical - without this, the order may disappear from Square Dashboard
+                        // because fulfillment.state=COMPLETED but order.state remains OPEN
+                        if (allFulfillmentsCompleted) {
+                            // Re-fetch to get the latest version after fulfillment updates
+                            squareOrder = await squareClient.orders.get({
+                                orderId: order.square_order_id
+                            });
+
+                            // Only update order state if it's not already COMPLETED
+                            if (squareOrder.order.state !== 'COMPLETED') {
+                                logger.info('Updating order state to COMPLETED', {
+                                    orderId: order.id,
+                                    squareOrderId: order.square_order_id,
+                                    currentState: squareOrder.order.state
                                 });
 
                                 await squareClient.orders.update({
@@ -344,32 +431,26 @@ router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.com
                                     order: {
                                         locationId: squareOrder.order.locationId,
                                         version: squareOrder.order.version,
-                                        fulfillments: [{
-                                            uid: fulfillment.uid,
-                                            state: nextState
-                                        }]
+                                        state: 'COMPLETED'
                                     },
-                                    idempotencyKey: `complete-${order.id}-${nextState}-${Date.now()}`
+                                    idempotencyKey: `complete-order-${order.id}-${Date.now()}`
+                                });
+
+                                logger.info('Order state updated to COMPLETED', {
+                                    orderId: order.id,
+                                    squareOrderId: order.square_order_id
                                 });
                             }
-
-                            squareSynced = true;
-                            logger.info('Synced delivery completion to Square', {
-                                merchantId,
-                                orderId: order.id,
-                                squareOrderId: order.square_order_id,
-                                fulfillmentUid: fulfillment.uid,
-                                fulfillmentType: fulfillment.type,
-                                originalState: stateOrder[currentStateIndex]
-                            });
-                        } else {
-                            // Unknown state (CANCELED, FAILED, etc.)
-                            logger.warn('Fulfillment in unexpected state', {
-                                orderId: order.id,
-                                state: fulfillment.state
-                            });
-                            squareSyncError = `Fulfillment in ${fulfillment.state} state`;
                         }
+
+                        squareSynced = true;
+                        logger.info('Synced delivery completion to Square', {
+                            merchantId,
+                            orderId: order.id,
+                            squareOrderId: order.square_order_id,
+                            fulfillmentsCompleted: fulfillmentsToComplete.length,
+                            orderStateUpdated: allFulfillmentsCompleted
+                        });
                     }
                 } else {
                     logger.warn('Square order has no fulfillments', {
