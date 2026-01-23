@@ -487,29 +487,30 @@ pm2 restart square-dashboard-addon
 - Safe for production (preserves data)
 - Works with existing data
 
-## Migration Consolidation Status (v1.0)
+## Migration Consolidation Status (v1.0) - COMPLETE
 
-### Already in schema.sql
-- Core tables: users, merchants, user_merchants, oauth_states
-- Catalog: locations, categories, items, variations, images, inventory_counts
-- Vendors: vendors, variation_vendors, vendor_catalog_items
-- Purchase orders: purchase_orders, purchase_order_items
-- Analytics: sales_velocity, variation_location_settings
-- Cycle counts: count_history, count_queue_priority, count_queue_daily, count_sessions
-- Expiration: variation_expiration, expiry_discount_* tables
-- GMC: brands, google_taxonomy, category_taxonomy_mapping, item_brands, gmc_settings, gmc_feed_history
+All major feature tables are now consolidated into `database/schema.sql` for fresh installs.
 
-### Should be consolidated (for fresh installs)
-| Migration | Tables/Changes | Priority |
-|-----------|----------------|----------|
-| 004_subscriptions | subscribers, subscription_payments, subscription_events, subscription_plans | Medium |
-| 008_delivery_scheduler | delivery_orders, delivery_pod, delivery_settings, delivery_routes, delivery_audit_log | High |
-| 010_loyalty_program | loyalty_offers, loyalty_qualifying_variations, loyalty_purchase_events, loyalty_rewards, loyalty_redemptions, loyalty_audit_logs, loyalty_settings, loyalty_customer_summary | High |
-| 021_delivery_route_tokens | delivery_route_tokens | Medium |
+### Tables in schema.sql (31+ tables)
+- **Core**: users, merchants, user_merchants, oauth_states, sync_history
+- **Catalog**: locations, categories, items, variations, images, inventory_counts
+- **Vendors**: vendors, variation_vendors, vendor_catalog_items
+- **Purchase orders**: purchase_orders, purchase_order_items
+- **Analytics**: sales_velocity, variation_location_settings
+- **Cycle counts**: count_history, count_queue_priority, count_queue_daily, count_sessions
+- **Expiration**: variation_expiration, expiry_discount_tiers, variation_discount_status, expiry_discount_audit_log, expiry_discount_settings
+- **GMC**: brands, google_taxonomy, category_taxonomy_mapping, item_brands, gmc_settings, gmc_feed_history
+- **Subscriptions**: subscribers, subscription_payments, subscription_events, subscription_plans
+- **Delivery**: delivery_orders, delivery_pod, delivery_settings, delivery_routes, delivery_audit_log, delivery_route_tokens
+- **Loyalty**: loyalty_offers, loyalty_qualifying_variations, loyalty_purchase_events, loyalty_rewards, loyalty_redemptions, loyalty_audit_logs, loyalty_settings, loyalty_customer_summary
 
-### Keep as migrations (small/additive)
-- 005_multi_tenant - Already handled, keep for reference
-- 006_promo_codes through 025_* - Small column additions, constraint fixes
+### Migration files (for existing installs)
+The `database/migrations/` directory contains incremental migrations (003-025) for:
+- Existing database upgrades (run migrations in order)
+- Reference for what changed when
+- Small column additions and constraint fixes
+
+For fresh installs, just run `schema.sql`. For existing databases, run migrations in order.
 
 ## Security Notes
 

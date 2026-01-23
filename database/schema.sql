@@ -2,6 +2,32 @@
 -- PostgreSQL 14+
 
 -- Drop existing tables (in reverse order of dependencies)
+
+-- Delivery module tables (drop first due to FK dependencies)
+DROP TABLE IF EXISTS delivery_route_tokens CASCADE;
+DROP TABLE IF EXISTS delivery_audit_log CASCADE;
+DROP TABLE IF EXISTS delivery_pod CASCADE;
+DROP TABLE IF EXISTS delivery_orders CASCADE;
+DROP TABLE IF EXISTS delivery_routes CASCADE;
+DROP TABLE IF EXISTS delivery_settings CASCADE;
+
+-- Loyalty module tables
+DROP TABLE IF EXISTS loyalty_customer_summary CASCADE;
+DROP TABLE IF EXISTS loyalty_audit_logs CASCADE;
+DROP TABLE IF EXISTS loyalty_redemptions CASCADE;
+DROP TABLE IF EXISTS loyalty_rewards CASCADE;
+DROP TABLE IF EXISTS loyalty_purchase_events CASCADE;
+DROP TABLE IF EXISTS loyalty_qualifying_variations CASCADE;
+DROP TABLE IF EXISTS loyalty_offers CASCADE;
+DROP TABLE IF EXISTS loyalty_settings CASCADE;
+
+-- Subscription tables
+DROP TABLE IF EXISTS subscription_events CASCADE;
+DROP TABLE IF EXISTS subscription_payments CASCADE;
+DROP TABLE IF EXISTS subscribers CASCADE;
+DROP TABLE IF EXISTS subscription_plans CASCADE;
+
+-- Core tables
 DROP TABLE IF EXISTS purchase_order_items CASCADE;
 DROP TABLE IF EXISTS purchase_orders CASCADE;
 DROP TABLE IF EXISTS count_sessions CASCADE;
@@ -891,4 +917,798 @@ DO $$
 BEGIN
     RAISE NOTICE 'GMC feed history multi-tenant migration completed successfully!';
     RAISE NOTICE 'Added merchant_id column to gmc_feed_history table';
+END $$;
+
+-- ========================================
+-- MIGRATION: Subscription Management
+-- ========================================
+-- Adds tables for managing customer subscriptions via Square Subscriptions API
+-- Originally from 004_subscriptions.sql
+
+-- Subscribers table - tracks each subscriber/tenant
+CREATE TABLE IF NOT EXISTS subscribers (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    business_name TEXT,
+    square_customer_id TEXT UNIQUE,
+    square_subscription_id TEXT UNIQUE,
+
+    -- Subscription status
+    subscription_status TEXT DEFAULT 'trial', -- trial, active, canceled, expired, past_due
+    subscription_plan TEXT DEFAULT 'monthly', -- monthly, annual
+
+    -- Pricing (in cents)
+    price_cents INTEGER NOT NULL DEFAULT 999, -- $9.99 default
+
+    -- Important dates
+    trial_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    trial_end_date TIMESTAMP, -- 30 days from start
+    subscription_start_date TIMESTAMP,
+    subscription_end_date TIMESTAMP,
+    next_billing_date TIMESTAMP,
+    canceled_at TIMESTAMP,
+
+    -- Payment info
+    card_brand TEXT, -- VISA, MASTERCARD, etc
+    card_last_four TEXT,
+    card_id TEXT, -- Square card on file ID
+
+    -- Intro pricing flag
+    is_intro_pricing BOOLEAN DEFAULT TRUE,
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subscription payments history
+CREATE TABLE IF NOT EXISTS subscription_payments (
+    id SERIAL PRIMARY KEY,
+    subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+    square_payment_id TEXT UNIQUE,
+    square_invoice_id TEXT,
+
+    -- Payment details
+    amount_cents INTEGER NOT NULL,
+    currency TEXT DEFAULT 'CAD',
+    status TEXT NOT NULL, -- completed, failed, refunded, pending
+
+    -- Payment type
+    payment_type TEXT DEFAULT 'subscription', -- subscription, refund, one_time
+    billing_period_start TIMESTAMP,
+    billing_period_end TIMESTAMP,
+
+    -- Refund tracking
+    refund_amount_cents INTEGER,
+    refund_reason TEXT,
+    refunded_at TIMESTAMP,
+
+    -- Metadata
+    receipt_url TEXT,
+    failure_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subscription events log (for debugging and audit)
+CREATE TABLE IF NOT EXISTS subscription_events (
+    id SERIAL PRIMARY KEY,
+    subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE SET NULL,
+    event_type TEXT NOT NULL, -- subscription.created, payment.completed, subscription.canceled, etc
+    event_data JSONB,
+    square_event_id TEXT,
+    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Subscription plans configuration
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id SERIAL PRIMARY KEY,
+    plan_key TEXT NOT NULL UNIQUE, -- monthly, annual
+    name TEXT NOT NULL,
+    description TEXT,
+    price_cents INTEGER NOT NULL,
+    billing_frequency TEXT NOT NULL, -- MONTHLY, ANNUAL
+    square_plan_id TEXT, -- Square catalog subscription plan ID
+    is_active BOOLEAN DEFAULT TRUE,
+    is_intro_pricing BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert default subscription plans (intro pricing)
+INSERT INTO subscription_plans (plan_key, name, description, price_cents, billing_frequency, is_intro_pricing) VALUES
+    ('monthly', 'Monthly Plan (Intro)', 'Full feature access - billed monthly. Introductory pricing for early adopters!', 2999, 'MONTHLY', TRUE),
+    ('annual', 'Annual Plan (Intro)', 'Full feature access - billed annually. Save $60/year! Introductory pricing for early adopters!', 29999, 'ANNUAL', TRUE)
+ON CONFLICT (plan_key) DO UPDATE SET
+    price_cents = EXCLUDED.price_cents,
+    description = EXCLUDED.description,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- Indexes for subscriptions
+CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email);
+CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(subscription_status);
+CREATE INDEX IF NOT EXISTS idx_subscribers_square_customer ON subscribers(square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_subscribers_square_subscription ON subscribers(square_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscriber ON subscription_payments(subscriber_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_payments_status ON subscription_payments(status);
+CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_events_type ON subscription_events(event_type);
+
+-- Comments for subscriptions
+COMMENT ON TABLE subscribers IS 'Tracks all subscribers to Square Dashboard Addon Tool with their subscription status';
+COMMENT ON TABLE subscription_payments IS 'Payment history for all subscription transactions';
+COMMENT ON TABLE subscription_events IS 'Audit log of all subscription-related events from Square webhooks';
+COMMENT ON TABLE subscription_plans IS 'Available subscription plans with pricing';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Subscription management migration completed successfully!';
+    RAISE NOTICE 'Created tables: subscribers, subscription_payments, subscription_events, subscription_plans';
+END $$;
+
+-- ========================================
+-- MIGRATION: Delivery Scheduler Component
+-- ========================================
+-- Adds tables for the delivery scheduling system
+-- Originally from 008_delivery_scheduler.sql
+
+-- 1. delivery_orders - Delivery order queue
+CREATE TABLE IF NOT EXISTS delivery_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_order_id VARCHAR(255),  -- null for manual orders
+    customer_name VARCHAR(255) NOT NULL,
+    address TEXT NOT NULL,
+    address_lat DECIMAL(10, 8),  -- geocoded latitude
+    address_lng DECIMAL(11, 8),  -- geocoded longitude
+    geocoded_at TIMESTAMPTZ,     -- null = needs geocoding
+    phone VARCHAR(50),
+    notes TEXT,
+    status VARCHAR(50) DEFAULT 'pending' CHECK (
+        status IN ('pending', 'active', 'skipped', 'delivered', 'completed')
+    ),
+    route_id UUID,               -- reference to delivery_routes
+    route_position INTEGER,      -- sequence in generated route
+    route_date DATE,
+    square_synced_at TIMESTAMPTZ,  -- when synced to Square as completed
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for efficient merchant-filtered queries
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_merchant_status
+    ON delivery_orders(merchant_id, status);
+
+-- Index for route date queries
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_route_date
+    ON delivery_orders(merchant_id, route_date);
+
+-- Index for Square order lookups (deduplication)
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_square_order
+    ON delivery_orders(merchant_id, square_order_id)
+    WHERE square_order_id IS NOT NULL;
+
+-- Index for pending orders needing geocoding
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_geocoding
+    ON delivery_orders(merchant_id, geocoded_at)
+    WHERE geocoded_at IS NULL;
+
+COMMENT ON TABLE delivery_orders IS 'Delivery order queue with status tracking and route assignment';
+COMMENT ON COLUMN delivery_orders.status IS 'pending=ready for route, active=on current route, skipped=driver skipped, delivered=POD captured, completed=synced to Square';
+
+-- 2. delivery_pod - Proof of Delivery photos
+CREATE TABLE IF NOT EXISTS delivery_pod (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    delivery_order_id UUID NOT NULL REFERENCES delivery_orders(id) ON DELETE CASCADE,
+    photo_path TEXT NOT NULL,       -- relative path to storage
+    original_filename VARCHAR(255),
+    file_size_bytes INTEGER,
+    mime_type VARCHAR(100),
+    captured_at TIMESTAMPTZ DEFAULT NOW(),
+    latitude DECIMAL(10, 8),        -- GPS coords if available
+    longitude DECIMAL(11, 8),
+    expires_at TIMESTAMPTZ,         -- for auto-purge based on retention setting
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for order lookups
+CREATE INDEX IF NOT EXISTS idx_delivery_pod_order
+    ON delivery_pod(delivery_order_id);
+
+-- Index for retention cleanup
+CREATE INDEX IF NOT EXISTS idx_delivery_pod_expires
+    ON delivery_pod(expires_at)
+    WHERE expires_at IS NOT NULL;
+
+COMMENT ON TABLE delivery_pod IS 'Proof of delivery photos with GPS metadata and retention tracking';
+
+-- 3. delivery_settings - Per-merchant configuration
+CREATE TABLE IF NOT EXISTS delivery_settings (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    start_address TEXT,
+    start_address_lat DECIMAL(10, 8),
+    start_address_lng DECIMAL(11, 8),
+    end_address TEXT,
+    end_address_lat DECIMAL(10, 8),
+    end_address_lng DECIMAL(11, 8),
+    same_day_cutoff TIME DEFAULT '17:00',
+    pod_retention_days INTEGER DEFAULT 180,
+    auto_ingest_ready_orders BOOLEAN DEFAULT TRUE,
+    openrouteservice_api_key TEXT,  -- optional, uses default if null
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT delivery_settings_merchant_unique UNIQUE(merchant_id)
+);
+
+COMMENT ON TABLE delivery_settings IS 'Per-merchant delivery scheduler configuration';
+COMMENT ON COLUMN delivery_settings.same_day_cutoff IS 'Orders marked ready after this time go to next day';
+COMMENT ON COLUMN delivery_settings.auto_ingest_ready_orders IS 'Automatically ingest Square orders when status = ready';
+
+-- 4. delivery_routes - Route history for auditing
+CREATE TABLE IF NOT EXISTS delivery_routes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    route_date DATE NOT NULL,
+    generated_at TIMESTAMPTZ DEFAULT NOW(),
+    generated_by INTEGER REFERENCES users(id),  -- user who generated the route
+    total_stops INTEGER NOT NULL DEFAULT 0,
+    total_distance_km DECIMAL(10, 2),
+    estimated_duration_min INTEGER,
+    started_at TIMESTAMPTZ,        -- when driver started route
+    finished_at TIMESTAMPTZ,       -- when route was marked finished
+    status VARCHAR(50) DEFAULT 'active' CHECK (
+        status IN ('active', 'finished', 'cancelled')
+    ),
+    route_geometry TEXT,           -- GeoJSON from routing API (optional)
+    waypoint_order TEXT[],         -- ordered array of delivery_order IDs
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for merchant route lookups
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_merchant_date
+    ON delivery_routes(merchant_id, route_date);
+
+-- Index for active route queries
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_active
+    ON delivery_routes(merchant_id, status)
+    WHERE status = 'active';
+
+COMMENT ON TABLE delivery_routes IS 'Route generation history with optimization metrics';
+
+-- 5. delivery_audit_log - Audit trail for key actions
+CREATE TABLE IF NOT EXISTS delivery_audit_log (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id),
+    action VARCHAR(100) NOT NULL,  -- route_generated, order_completed, order_skipped, etc.
+    delivery_order_id UUID REFERENCES delivery_orders(id) ON DELETE SET NULL,
+    route_id UUID REFERENCES delivery_routes(id) ON DELETE SET NULL,
+    details JSONB,                 -- additional context
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for merchant audit queries
+CREATE INDEX IF NOT EXISTS idx_delivery_audit_merchant
+    ON delivery_audit_log(merchant_id, created_at DESC);
+
+COMMENT ON TABLE delivery_audit_log IS 'Audit trail for delivery-related actions';
+
+-- Add foreign key for route_id in delivery_orders (after delivery_routes exists)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'delivery_orders_route_id_fkey'
+    ) THEN
+        ALTER TABLE delivery_orders
+        ADD CONSTRAINT delivery_orders_route_id_fkey
+        FOREIGN KEY (route_id) REFERENCES delivery_routes(id) ON DELETE SET NULL;
+        RAISE NOTICE 'Added route_id foreign key constraint';
+    END IF;
+END $$;
+
+-- Create function for updating updated_at timestamp
+CREATE OR REPLACE FUNCTION update_delivery_orders_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for delivery_orders
+DROP TRIGGER IF EXISTS delivery_orders_updated_at ON delivery_orders;
+CREATE TRIGGER delivery_orders_updated_at
+    BEFORE UPDATE ON delivery_orders
+    FOR EACH ROW
+    EXECUTE FUNCTION update_delivery_orders_updated_at();
+
+-- Create trigger for delivery_settings
+DROP TRIGGER IF EXISTS delivery_settings_updated_at ON delivery_settings;
+CREATE TRIGGER delivery_settings_updated_at
+    BEFORE UPDATE ON delivery_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_delivery_orders_updated_at();
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Delivery Scheduler migration completed successfully!';
+    RAISE NOTICE 'Created tables: delivery_orders, delivery_pod, delivery_settings, delivery_routes, delivery_audit_log';
+END $$;
+
+-- ========================================
+-- MIGRATION: Square Loyalty Addon (Frequent Buyer Program)
+-- ========================================
+-- Implements vendor-defined frequent buyer programs (Astro-style loyalty)
+-- where customers earn free items after purchasing a defined quantity.
+-- Originally from 010_loyalty_program.sql
+--
+-- BUSINESS RULES (NON-NEGOTIABLE):
+-- - One loyalty offer = one brand + one size group
+-- - Qualifying purchases must match explicit variation IDs
+-- - NEVER mix sizes to earn or redeem
+-- - Rolling time window from first qualifying purchase
+-- - Full redemption only (no partials, no substitutions)
+-- - Reward is always 1 free unit of same size group
+
+-- 1. loyalty_offers - Defines frequent buyer program offers
+CREATE TABLE IF NOT EXISTS loyalty_offers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+
+    -- Offer identification
+    offer_name VARCHAR(255) NOT NULL,
+    brand_name VARCHAR(255) NOT NULL,
+    size_group VARCHAR(100) NOT NULL,  -- e.g., '12oz', '1lb', 'small'
+
+    -- Earning rules
+    required_quantity INTEGER NOT NULL CHECK (required_quantity > 0),  -- e.g., 12 (buy 12 get 1)
+    reward_quantity INTEGER NOT NULL DEFAULT 1 CHECK (reward_quantity = 1),  -- Always 1 free unit
+
+    -- Time window (rolling from first qualifying purchase)
+    window_months INTEGER NOT NULL DEFAULT 12 CHECK (window_months > 0),  -- e.g., 12 or 18 months
+
+    -- Status
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    -- Metadata
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by INTEGER REFERENCES users(id),
+
+    -- Prevent duplicate offers for same brand+size per merchant
+    CONSTRAINT loyalty_offers_unique_brand_size UNIQUE(merchant_id, brand_name, size_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_offers_merchant ON loyalty_offers(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_offers_brand ON loyalty_offers(merchant_id, brand_name);
+CREATE INDEX IF NOT EXISTS idx_loyalty_offers_active ON loyalty_offers(merchant_id, is_active) WHERE is_active = TRUE;
+
+COMMENT ON TABLE loyalty_offers IS 'Frequent buyer program offers: one per brand + size group';
+COMMENT ON COLUMN loyalty_offers.required_quantity IS 'Number of units customer must purchase to earn reward (e.g., 12)';
+COMMENT ON COLUMN loyalty_offers.reward_quantity IS 'Always 1 - one free unit of same size group';
+COMMENT ON COLUMN loyalty_offers.window_months IS 'Rolling time window in months from first qualifying purchase';
+
+-- 2. loyalty_qualifying_variations - Maps Square variations to offers
+CREATE TABLE IF NOT EXISTS loyalty_qualifying_variations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+
+    -- Square catalog reference
+    variation_id TEXT NOT NULL,  -- Square variation ID
+    item_id TEXT,  -- Square item ID (for display purposes)
+    item_name TEXT,  -- Cached item name
+    variation_name TEXT,  -- Cached variation name (e.g., "12oz Bag")
+    sku TEXT,  -- Cached SKU
+
+    -- Status
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Prevent duplicate variation mappings
+    CONSTRAINT loyalty_qualifying_vars_unique UNIQUE(merchant_id, offer_id, variation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_merchant ON loyalty_qualifying_variations(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_offer ON loyalty_qualifying_variations(offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_variation ON loyalty_qualifying_variations(merchant_id, variation_id);
+
+COMMENT ON TABLE loyalty_qualifying_variations IS 'Maps Square variation IDs to loyalty offers - ONLY these variations qualify';
+COMMENT ON COLUMN loyalty_qualifying_variations.variation_id IS 'Square variation ID that qualifies for this offer';
+
+-- 3. loyalty_purchase_events - Records qualifying purchases
+CREATE TABLE IF NOT EXISTS loyalty_purchase_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+
+    -- Customer reference (Square customer ID)
+    square_customer_id TEXT NOT NULL,
+
+    -- Order reference
+    square_order_id TEXT NOT NULL,
+    square_location_id TEXT,
+
+    -- Purchase details
+    variation_id TEXT NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity != 0),  -- Can be negative for refunds
+    unit_price_cents INTEGER,  -- Price at time of purchase (for audit)
+
+    -- Purchase timestamp (from Square order)
+    purchased_at TIMESTAMPTZ NOT NULL,
+
+    -- Window tracking (calculated)
+    window_start_date DATE,  -- First qualifying purchase date for this customer+offer
+    window_end_date DATE,    -- When this purchase will expire from window
+
+    -- Linking to reward if this event contributed to an earned reward
+    reward_id UUID,  -- Set when this purchase is locked into an earned reward
+
+    -- Refund tracking
+    is_refund BOOLEAN NOT NULL DEFAULT FALSE,
+    original_event_id UUID REFERENCES loyalty_purchase_events(id),  -- For refund linking
+
+    -- Idempotency
+    idempotency_key TEXT NOT NULL,
+
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Prevent duplicate events (idempotency)
+    CONSTRAINT loyalty_purchase_events_idempotent UNIQUE(merchant_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_merchant ON loyalty_purchase_events(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_offer ON loyalty_purchase_events(offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_customer ON loyalty_purchase_events(merchant_id, square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_customer_offer ON loyalty_purchase_events(merchant_id, square_customer_id, offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_order ON loyalty_purchase_events(merchant_id, square_order_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_window ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, window_end_date);
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_unlocked ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, reward_id) WHERE reward_id IS NULL;
+
+COMMENT ON TABLE loyalty_purchase_events IS 'Records all qualifying purchases and refunds for loyalty tracking';
+COMMENT ON COLUMN loyalty_purchase_events.quantity IS 'Positive for purchases, negative for refunds';
+COMMENT ON COLUMN loyalty_purchase_events.reward_id IS 'Set when this purchase is locked into an earned reward';
+COMMENT ON COLUMN loyalty_purchase_events.window_end_date IS 'Date when this purchase expires from the rolling window';
+
+-- 4. loyalty_rewards - Tracks earned and redeemed rewards
+-- State machine: in_progress -> earned -> redeemed | revoked
+CREATE TABLE IF NOT EXISTS loyalty_rewards (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+
+    -- Customer reference
+    square_customer_id TEXT NOT NULL,
+
+    -- Reward state machine
+    -- in_progress: Customer is working towards this reward
+    -- earned: Customer has met requirements, reward is available
+    -- redeemed: Reward has been used
+    -- revoked: Reward was invalidated (e.g., due to refunds)
+    status VARCHAR(20) NOT NULL DEFAULT 'in_progress' CHECK (
+        status IN ('in_progress', 'earned', 'redeemed', 'revoked')
+    ),
+
+    -- Progress tracking (for in_progress rewards)
+    current_quantity INTEGER NOT NULL DEFAULT 0,  -- Current qualifying purchases
+    required_quantity INTEGER NOT NULL,  -- Snapshot of offer requirement at time of creation
+
+    -- Window dates
+    window_start_date DATE NOT NULL,  -- First qualifying purchase date
+    window_end_date DATE NOT NULL,    -- Window expiration date
+
+    -- State timestamps
+    earned_at TIMESTAMPTZ,
+    redeemed_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+
+    -- Redemption details (when status = 'redeemed')
+    redemption_id UUID,  -- Links to loyalty_redemptions
+    redemption_order_id TEXT,  -- Square order ID where reward was redeemed
+
+    -- Revocation reason (when status = 'revoked')
+    revocation_reason TEXT,
+
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Only one in_progress reward per customer+offer at a time
+    CONSTRAINT loyalty_rewards_one_in_progress UNIQUE(merchant_id, offer_id, square_customer_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_merchant ON loyalty_rewards(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_offer ON loyalty_rewards(offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_customer ON loyalty_rewards(merchant_id, square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_customer_offer ON loyalty_rewards(merchant_id, square_customer_id, offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_status ON loyalty_rewards(merchant_id, status);
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_earned ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'earned';
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_in_progress ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'in_progress';
+
+COMMENT ON TABLE loyalty_rewards IS 'Tracks reward progress and state: in_progress -> earned -> redeemed | revoked';
+COMMENT ON COLUMN loyalty_rewards.status IS 'State machine: in_progress (accumulating), earned (available), redeemed (used), revoked (invalidated)';
+COMMENT ON COLUMN loyalty_rewards.current_quantity IS 'Count of qualifying purchases within the rolling window';
+
+-- 5. loyalty_redemptions - Records reward redemptions
+CREATE TABLE IF NOT EXISTS loyalty_redemptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    reward_id UUID NOT NULL REFERENCES loyalty_rewards(id) ON DELETE RESTRICT,
+    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE RESTRICT,
+
+    -- Customer reference
+    square_customer_id TEXT NOT NULL,
+
+    -- Redemption method
+    redemption_type VARCHAR(50) NOT NULL CHECK (
+        redemption_type IN ('order_discount', 'manual_admin', 'auto_detected')
+    ),
+
+    -- Square order reference
+    square_order_id TEXT,  -- May be null for manual redemptions
+    square_location_id TEXT,
+
+    -- What was redeemed
+    redeemed_variation_id TEXT,  -- The variation given free
+    redeemed_item_name TEXT,
+    redeemed_variation_name TEXT,
+    redeemed_value_cents INTEGER,  -- Value of the free item
+
+    -- Square integration
+    square_discount_id TEXT,  -- If applied via Square discount
+
+    -- Admin info (for manual redemptions)
+    redeemed_by_user_id INTEGER REFERENCES users(id),
+    admin_notes TEXT,
+
+    -- Metadata
+    redeemed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_merchant ON loyalty_redemptions(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_reward ON loyalty_redemptions(reward_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_customer ON loyalty_redemptions(merchant_id, square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_order ON loyalty_redemptions(merchant_id, square_order_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_redemptions_date ON loyalty_redemptions(merchant_id, redeemed_at);
+
+COMMENT ON TABLE loyalty_redemptions IS 'Records all reward redemptions with full audit trail';
+COMMENT ON COLUMN loyalty_redemptions.redemption_type IS 'How the redemption was processed: order_discount, manual_admin, auto_detected';
+
+-- 6. loyalty_audit_logs - Full audit trail
+CREATE TABLE IF NOT EXISTS loyalty_audit_logs (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+
+    -- What happened
+    action VARCHAR(100) NOT NULL,  -- PURCHASE_RECORDED, REFUND_PROCESSED, REWARD_EARNED, REWARD_REDEEMED, REWARD_REVOKED, etc.
+
+    -- References (nullable - depending on action)
+    offer_id UUID REFERENCES loyalty_offers(id) ON DELETE SET NULL,
+    reward_id UUID REFERENCES loyalty_rewards(id) ON DELETE SET NULL,
+    purchase_event_id UUID REFERENCES loyalty_purchase_events(id) ON DELETE SET NULL,
+    redemption_id UUID REFERENCES loyalty_redemptions(id) ON DELETE SET NULL,
+
+    -- Customer
+    square_customer_id TEXT,
+
+    -- Order reference
+    square_order_id TEXT,
+
+    -- State change details
+    old_state VARCHAR(50),
+    new_state VARCHAR(50),
+    old_quantity INTEGER,
+    new_quantity INTEGER,
+
+    -- Context
+    triggered_by VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',  -- SYSTEM, WEBHOOK, MANUAL, ADMIN
+    user_id INTEGER REFERENCES users(id),
+
+    -- Additional details (JSON for flexibility)
+    details JSONB,
+
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_merchant ON loyalty_audit_logs(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_customer ON loyalty_audit_logs(merchant_id, square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_offer ON loyalty_audit_logs(offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_reward ON loyalty_audit_logs(reward_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_action ON loyalty_audit_logs(merchant_id, action);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_created ON loyalty_audit_logs(merchant_id, created_at DESC);
+
+COMMENT ON TABLE loyalty_audit_logs IS 'Complete audit trail for all loyalty program actions';
+
+-- 7. loyalty_settings - Per-merchant configuration
+CREATE TABLE IF NOT EXISTS loyalty_settings (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    setting_key VARCHAR(100) NOT NULL,
+    setting_value TEXT,
+    description TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT loyalty_settings_unique UNIQUE(merchant_id, setting_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_settings_merchant ON loyalty_settings(merchant_id);
+
+COMMENT ON TABLE loyalty_settings IS 'Per-merchant loyalty program configuration';
+
+-- 8. loyalty_customer_summary - Materialized customer state (for performance)
+CREATE TABLE IF NOT EXISTS loyalty_customer_summary (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_customer_id TEXT NOT NULL,
+    offer_id UUID NOT NULL REFERENCES loyalty_offers(id) ON DELETE CASCADE,
+
+    -- Current progress
+    current_quantity INTEGER NOT NULL DEFAULT 0,
+    required_quantity INTEGER NOT NULL,
+
+    -- Window info
+    window_start_date DATE,
+    window_end_date DATE,
+
+    -- Reward status
+    has_earned_reward BOOLEAN NOT NULL DEFAULT FALSE,
+    earned_reward_id UUID REFERENCES loyalty_rewards(id),
+
+    -- Totals
+    total_lifetime_purchases INTEGER NOT NULL DEFAULT 0,
+    total_rewards_earned INTEGER NOT NULL DEFAULT 0,
+    total_rewards_redeemed INTEGER NOT NULL DEFAULT 0,
+
+    -- Timestamps
+    last_purchase_at TIMESTAMPTZ,
+    last_reward_earned_at TIMESTAMPTZ,
+    last_reward_redeemed_at TIMESTAMPTZ,
+
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT loyalty_customer_summary_unique UNIQUE(merchant_id, square_customer_id, offer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_cust_summary_merchant ON loyalty_customer_summary(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_cust_summary_customer ON loyalty_customer_summary(merchant_id, square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_cust_summary_offer ON loyalty_customer_summary(offer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_cust_summary_earned ON loyalty_customer_summary(merchant_id, has_earned_reward) WHERE has_earned_reward = TRUE;
+
+COMMENT ON TABLE loyalty_customer_summary IS 'Denormalized customer loyalty status for quick lookups';
+
+-- Create update trigger for loyalty updated_at columns
+CREATE OR REPLACE FUNCTION update_loyalty_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply triggers
+DROP TRIGGER IF EXISTS loyalty_offers_updated_at ON loyalty_offers;
+CREATE TRIGGER loyalty_offers_updated_at
+    BEFORE UPDATE ON loyalty_offers
+    FOR EACH ROW
+    EXECUTE FUNCTION update_loyalty_updated_at();
+
+DROP TRIGGER IF EXISTS loyalty_qualifying_variations_updated_at ON loyalty_qualifying_variations;
+CREATE TRIGGER loyalty_qualifying_variations_updated_at
+    BEFORE UPDATE ON loyalty_qualifying_variations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_loyalty_updated_at();
+
+DROP TRIGGER IF EXISTS loyalty_purchase_events_updated_at ON loyalty_purchase_events;
+CREATE TRIGGER loyalty_purchase_events_updated_at
+    BEFORE UPDATE ON loyalty_purchase_events
+    FOR EACH ROW
+    EXECUTE FUNCTION update_loyalty_updated_at();
+
+DROP TRIGGER IF EXISTS loyalty_rewards_updated_at ON loyalty_rewards;
+CREATE TRIGGER loyalty_rewards_updated_at
+    BEFORE UPDATE ON loyalty_rewards
+    FOR EACH ROW
+    EXECUTE FUNCTION update_loyalty_updated_at();
+
+DROP TRIGGER IF EXISTS loyalty_customer_summary_updated_at ON loyalty_customer_summary;
+CREATE TRIGGER loyalty_customer_summary_updated_at
+    BEFORE UPDATE ON loyalty_customer_summary
+    FOR EACH ROW
+    EXECUTE FUNCTION update_loyalty_updated_at();
+
+COMMENT ON TABLE loyalty_settings IS 'Expected settings: auto_detect_redemptions (true/false), send_receipt_messages (true/false)';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Loyalty Program migration completed successfully!';
+    RAISE NOTICE 'Created tables:';
+    RAISE NOTICE '  - loyalty_offers (defines frequent buyer programs)';
+    RAISE NOTICE '  - loyalty_qualifying_variations (maps Square variations to offers)';
+    RAISE NOTICE '  - loyalty_purchase_events (tracks qualifying purchases)';
+    RAISE NOTICE '  - loyalty_rewards (tracks reward state: in_progress -> earned -> redeemed | revoked)';
+    RAISE NOTICE '  - loyalty_redemptions (records redemption details)';
+    RAISE NOTICE '  - loyalty_audit_logs (complete audit trail)';
+    RAISE NOTICE '  - loyalty_settings (per-merchant configuration)';
+    RAISE NOTICE '  - loyalty_customer_summary (denormalized customer status)';
+END $$;
+
+-- ========================================
+-- MIGRATION: Delivery Route Tokens
+-- ========================================
+-- Adds token-based access for sharing delivery routes with contract drivers
+-- Originally from 021_delivery_route_tokens.sql
+
+-- Route share tokens for contract driver access
+CREATE TABLE IF NOT EXISTS delivery_route_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    route_id UUID NOT NULL REFERENCES delivery_routes(id) ON DELETE CASCADE,
+    token VARCHAR(64) NOT NULL UNIQUE,
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'revoked')),
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    used_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    driver_name VARCHAR(255),  -- Optional: track who used the token
+    driver_notes TEXT
+);
+
+-- Index for fast token lookups
+CREATE INDEX IF NOT EXISTS idx_route_tokens_token ON delivery_route_tokens(token);
+
+-- Index for finding tokens by route
+CREATE INDEX IF NOT EXISTS idx_route_tokens_route ON delivery_route_tokens(route_id);
+
+-- Index for merchant's tokens
+CREATE INDEX IF NOT EXISTS idx_route_tokens_merchant ON delivery_route_tokens(merchant_id, status);
+
+-- Only one active token per route at a time
+CREATE UNIQUE INDEX IF NOT EXISTS idx_route_tokens_active_route
+ON delivery_route_tokens(route_id)
+WHERE status = 'active';
+
+COMMENT ON TABLE delivery_route_tokens IS 'Shareable tokens for contract drivers to access delivery routes without authentication';
+COMMENT ON COLUMN delivery_route_tokens.token IS 'Unique URL-safe token for route access';
+COMMENT ON COLUMN delivery_route_tokens.status IS 'active=usable, used=route finished, expired=past expiry, revoked=manually cancelled';
+
+-- Success message for migration
+DO $$
+BEGIN
+    RAISE NOTICE 'Delivery Route Tokens migration completed successfully!';
+    RAISE NOTICE 'Created table: delivery_route_tokens';
+END $$;
+
+-- ========================================
+-- FINAL: Schema creation complete
+-- ========================================
+DO $$
+BEGIN
+    RAISE NOTICE '';
+    RAISE NOTICE '============================================';
+    RAISE NOTICE 'Square Dashboard Addon Tool - Schema Complete';
+    RAISE NOTICE '============================================';
+    RAISE NOTICE 'Core tables: 13';
+    RAISE NOTICE 'Subscription tables: 4';
+    RAISE NOTICE 'Delivery tables: 6';
+    RAISE NOTICE 'Loyalty tables: 8';
+    RAISE NOTICE 'Total tables: 31+';
+    RAISE NOTICE '============================================';
 END $$;
