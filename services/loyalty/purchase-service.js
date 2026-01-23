@@ -287,6 +287,8 @@ class LoyaltyPurchaseService {
     }
 
     // Count all unlocked purchases within the valid window
+    // Include negative quantities (refunds) to properly subtract from progress
+    // Note: quantity can be positive (purchase) or negative (refund)
     const progressResult = await client.query(`
       SELECT COALESCE(SUM(quantity), 0) as total_quantity
       FROM loyalty_purchase_events
@@ -295,7 +297,6 @@ class LoyaltyPurchaseService {
         AND square_customer_id = $3
         AND purchased_at >= $4
         AND purchased_at < $5
-        AND quantity > 0
         AND reward_id IS NULL
     `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
@@ -424,27 +425,97 @@ class LoyaltyPurchaseService {
       });
     }
 
-    // Lock exactly required_quantity purchases to this reward (oldest first)
-    // This ensures excess purchases remain unlocked for the next reward cycle
-    await client.query(`
-      UPDATE loyalty_purchase_events
-      SET reward_id = $1, updated_at = NOW()
-      WHERE id IN (
-        SELECT id FROM loyalty_purchase_events
+    // Lock purchases up to required_quantity UNITS (not rows) to this reward
+    // Uses cumulative sum to ensure we lock based on actual quantities, not row count
+    // This allows excess units to properly roll over to the next reward cycle
+    //
+    // Example: Buy 12, get 13th free
+    //   - Row 1: qty=5, Row 2: qty=5, Row 3: qty=5 (total 15 units)
+    //   - We lock Row 1 (cum=5) and Row 2 (cum=10) and Row 3 (cum=15)
+    //   - But Row 3 only needs 2 more to reach 12, so we split it:
+    //     Row 3 keeps qty=5 locked, but we track that 3 units should roll over
+    //
+    // For simplicity, we lock whole rows until cumulative sum >= required quantity.
+    // The "excess" from the last row that pushed us over is handled by creating
+    // a rollover record or adjusting the locked quantity.
+    const lockResult = await client.query(`
+      WITH ranked_purchases AS (
+        SELECT
+          id,
+          quantity,
+          SUM(quantity) OVER (ORDER BY purchased_at ASC, id ASC) as cumulative_qty
+        FROM loyalty_purchase_events
         WHERE merchant_id = $2
           AND offer_id = $3
           AND square_customer_id = $4
           AND reward_id IS NULL
           AND quantity > 0
-        ORDER BY purchased_at ASC
-        LIMIT $5
+      ),
+      purchases_to_lock AS (
+        SELECT id, quantity, cumulative_qty,
+               LAG(cumulative_qty, 1, 0) OVER (ORDER BY cumulative_qty) as prev_cumulative
+        FROM ranked_purchases
+        WHERE cumulative_qty - quantity < $5  -- Include rows where we haven't yet reached required
       )
+      UPDATE loyalty_purchase_events lpe
+      SET reward_id = $1, updated_at = NOW()
+      FROM purchases_to_lock ptl
+      WHERE lpe.id = ptl.id
+      RETURNING lpe.id, lpe.quantity, ptl.cumulative_qty
     `, [rewardId, this.merchantId, offerId, squareCustomerId, requiredQuantity]);
+
+    // Calculate actual locked quantity and any excess that should roll over
+    const lockedRows = lockResult.rows || [];
+    const totalLockedQty = lockedRows.reduce((sum, row) => sum + (parseInt(row.quantity, 10) || 0), 0);
+    const excessQty = totalLockedQty - requiredQuantity;
 
     this.tracer?.span('PURCHASES_LOCKED', {
       rewardId,
-      lockedCount: requiredQuantity,
+      lockedRows: lockedRows.length,
+      totalLockedQty,
+      requiredQuantity,
+      excessQty,
     });
+
+    // If we locked more units than required (excess), create a rollover entry
+    // This happens when the last row's quantity pushes the total over the threshold
+    // We create an unlocked positive entry for the excess to roll over to next cycle
+    if (excessQty > 0 && lockedRows.length > 0) {
+      // Get the last locked purchase (the one that pushed us over)
+      const lastLocked = lockedRows[lockedRows.length - 1];
+
+      // Create a new unlocked purchase event for the rollover quantity
+      // This represents the excess units that should count toward the next reward
+      // Uses existing schema - just a regular purchase row with unique idempotency key
+      await client.query(`
+        INSERT INTO loyalty_purchase_events
+          (merchant_id, offer_id, square_customer_id, square_order_id,
+           variation_id, quantity, unit_price_cents,
+           purchased_at, trace_id, idempotency_key,
+           window_start_date, window_end_date, created_at)
+        SELECT
+          merchant_id, offer_id, square_customer_id, square_order_id,
+          variation_id, $2, 0,
+          NOW(), trace_id, idempotency_key || ':rollover:' || $3,
+          NULL, NULL, NOW()
+        FROM loyalty_purchase_events
+        WHERE id = $1
+      `, [lastLocked.id, excessQty, rewardId]);
+
+      loyaltyLogger.debug({
+        action: 'ROLLOVER_CREATED',
+        offerId,
+        squareCustomerId,
+        excessQty,
+        fromPurchaseId: lastLocked.id,
+        merchantId: this.merchantId,
+      });
+
+      this.tracer?.span('ROLLOVER_CREATED', {
+        excessQty,
+        fromPurchaseId: lastLocked.id,
+      });
+    }
 
     // Check if there are remaining unlocked purchases (rollover to next cycle)
     const remainingResult = await client.query(`
@@ -578,6 +649,7 @@ class LoyaltyPurchaseService {
       }
 
       // Get current progress within the window
+      // Include negative quantities (refunds) to properly subtract from progress
       const progressResult = await db.query(`
         SELECT COALESCE(SUM(quantity), 0) as total_quantity
         FROM loyalty_purchase_events
@@ -586,7 +658,6 @@ class LoyaltyPurchaseService {
           AND square_customer_id = $3
           AND purchased_at >= $4
           AND purchased_at < $5
-          AND quantity > 0
           AND reward_id IS NULL
       `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
