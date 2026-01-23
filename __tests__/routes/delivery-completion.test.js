@@ -50,7 +50,25 @@ jest.mock('../../middleware/security', () => ({
 }));
 
 jest.mock('../../middleware/validators/delivery', () => ({
+    listOrders: (req, res, next) => next(),
+    createOrder: (req, res, next) => next(),
+    getOrder: (req, res, next) => next(),
+    updateOrder: (req, res, next) => next(),
+    deleteOrder: (req, res, next) => next(),
+    skipOrder: (req, res, next) => next(),
     completeOrder: (req, res, next) => next(),
+    updateCustomerNote: (req, res, next) => next(),
+    updateOrderNotes: (req, res, next) => next(),
+    uploadPod: (req, res, next) => next(),
+    getPod: (req, res, next) => next(),
+    generateRoute: (req, res, next) => next(),
+    getActiveRoute: (req, res, next) => next(),
+    getRoute: (req, res, next) => next(),
+    finishRoute: (req, res, next) => next(),
+    geocode: (req, res, next) => next(),
+    updateSettings: (req, res, next) => next(),
+    getAudit: (req, res, next) => next(),
+    syncOrders: (req, res, next) => next(),
 }));
 
 jest.mock('multer', () => {
@@ -61,7 +79,7 @@ jest.mock('multer', () => {
     multerMock.memoryStorage = jest.fn(() => ({}));
     multerMock.diskStorage = jest.fn(() => ({}));
     return multerMock;
-});
+}, { virtual: true });
 
 const deliveryApi = require('../../utils/delivery-api');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
