@@ -52,7 +52,7 @@ describe('Webhook Signature Verification', () => {
     }
 
     beforeEach(() => {
-        jest.clearAllMocks();
+        jest.resetAllMocks();
         // Reset environment variables
         delete process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
         delete process.env.SQUARE_WEBHOOK_URL;

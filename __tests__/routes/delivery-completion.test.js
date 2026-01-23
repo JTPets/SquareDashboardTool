@@ -54,9 +54,13 @@ jest.mock('../../middleware/validators/delivery', () => ({
 }));
 
 jest.mock('multer', () => {
-    return jest.fn(() => ({
+    const multerMock = jest.fn(() => ({
         single: () => (req, res, next) => next(),
+        array: () => (req, res, next) => next(),
     }));
+    multerMock.memoryStorage = jest.fn(() => ({}));
+    multerMock.diskStorage = jest.fn(() => ({}));
+    return multerMock;
 });
 
 const deliveryApi = require('../../utils/delivery-api');
