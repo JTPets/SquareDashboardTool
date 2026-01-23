@@ -1061,14 +1061,17 @@ app.post('/api/webhooks/square', async (req, res) => {
                             }
                         }
 
-                        // Check if order has a delivery-type fulfillment that's ready
+                        // Check if order has a delivery-type fulfillment
+                        // Note: Don't filter by fulfillment state - ingest any DELIVERY/SHIPMENT type
+                        // (previously filtered to PROPOSED/RESERVED/PREPARED which missed orders)
                         if (order && order.fulfillments && order.fulfillments.length > 0) {
                             const deliveryFulfillment = order.fulfillments.find(f =>
-                                (f.type === 'DELIVERY' || f.type === 'SHIPMENT') &&
-                                (f.state === 'PROPOSED' || f.state === 'RESERVED' || f.state === 'PREPARED')
+                                (f.type === 'DELIVERY' || f.type === 'SHIPMENT')
                             );
 
-                            if (deliveryFulfillment) {
+                            // Only ingest OPEN orders - don't add new completed orders to delivery queue
+                            // (existing orders will be updated via handleSquareOrderUpdate below)
+                            if (deliveryFulfillment && order.state !== 'COMPLETED' && order.state !== 'CANCELED') {
                                 try {
                                     // Check if delivery settings allow auto-ingestion
                                     const deliverySettings = await deliveryApi.getSettings(internalMerchantId);
@@ -1085,7 +1088,8 @@ app.post('/api/webhooks/square', async (req, res) => {
                                             logger.info('Ingested Square order for delivery', {
                                                 merchantId: internalMerchantId,
                                                 squareOrderId: order.id,
-                                                deliveryOrderId: deliveryOrder.id
+                                                deliveryOrderId: deliveryOrder.id,
+                                                fulfillmentState: deliveryFulfillment.state
                                             });
                                         }
                                     }
@@ -1294,9 +1298,10 @@ app.post('/api/webhooks/square', async (req, res) => {
                                             squareOrderId,
                                             merchantId: internalMerchantId
                                         });
-                                    } else if (['PROPOSED', 'RESERVED', 'PREPARED'].includes(fulfillmentState)) {
-                                        // Handle intermediate states - auto-ingest if enabled
+                                    } else if (!['COMPLETED', 'CANCELED', 'FAILED'].includes(fulfillmentState)) {
+                                        // Handle any non-terminal state - auto-ingest if enabled
                                         // This catches orders where fulfillment is added/updated after order creation
+                                        // (previously restricted to PROPOSED/RESERVED/PREPARED which missed orders)
                                         try {
                                             const deliverySettings = await deliveryApi.getSettings(internalMerchantId);
                                             const autoIngest = deliverySettings?.auto_ingest_ready_orders !== false;
