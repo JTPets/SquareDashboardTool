@@ -30,6 +30,15 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     const locationId = 'TEST_LOCATION_ID';
     const threshold = 5;
 
+    beforeEach(() => {
+        jest.clearAllMocks();
+        jest.clearAllTimers();
+    });
+
+    afterAll(() => {
+        jest.clearAllTimers();
+    });
+
     // Mock merchant token response
     const mockMerchantTokenResponse = {
         rows: [{ square_access_token: 'encrypted_test_token' }]
