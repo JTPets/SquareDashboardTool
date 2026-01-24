@@ -1758,6 +1758,7 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
  */
 async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, threshold, options = {}) {
     const { merchantId } = options;
+    const MAX_RETRIES = 3;
 
     if (!merchantId) {
         throw new Error('merchantId is required for setSquareInventoryAlertThreshold');
@@ -1765,96 +1766,117 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 
     logger.info('Updating Square inventory alert threshold', { catalogObjectId, locationId, threshold, merchantId });
 
-    try {
-        // Get merchant-specific access token
-        const accessToken = await getMerchantToken(merchantId);
+    // Get merchant-specific access token
+    const accessToken = await getMerchantToken(merchantId);
 
-        // First, retrieve the current catalog object to get its version and existing overrides
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { accessToken });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Retrieve the current catalog object to get its version and existing overrides
+            // This is done inside the retry loop to get the latest version on each attempt
+            const retrieveData = await makeSquareRequest(`/v2/catalog/object/${catalogObjectId}?include_related_objects=false`, { accessToken });
 
-        if (!retrieveData.object) {
-            throw new Error(`Catalog object not found: ${catalogObjectId}`);
-        }
-
-        const currentObject = retrieveData.object;
-
-        if (currentObject.type !== 'ITEM_VARIATION') {
-            throw new Error(`Object is not a variation: ${currentObject.type}`);
-        }
-
-        const currentVariationData = currentObject.item_variation_data || {};
-        const existingOverrides = currentVariationData.location_overrides || [];
-
-        // Determine alert type based on threshold
-        const alertType = (threshold !== null && threshold > 0) ? 'LOW_QUANTITY' : 'NONE';
-
-        // Build new location_overrides array
-        // Keep existing overrides for other locations, update/add the one for our location
-        let newOverrides = existingOverrides.filter(o => o.location_id !== locationId);
-
-        // Add/update the override for our target location
-        const newOverride = {
-            location_id: locationId,
-            inventory_alert_type: alertType
-        };
-
-        if (alertType === 'LOW_QUANTITY' && threshold !== null) {
-            newOverride.inventory_alert_threshold = threshold;
-        }
-
-        newOverrides.push(newOverride);
-
-        // Build the update request - use simple prefix to avoid collision with old cached keys
-        const idempotencyKey = generateIdempotencyKey('inv-alert-v2');
-
-        logger.info('Generated idempotency key for alert threshold update', {
-            idempotencyKey,
-            catalogObjectId,
-            locationId,
-            version: currentObject.version
-        });
-
-        const updateBody = {
-            idempotency_key: idempotencyKey,
-            object: {
-                type: 'ITEM_VARIATION',
-                id: catalogObjectId,
-                version: currentObject.version,
-                item_variation_data: {
-                    ...currentVariationData,
-                    location_overrides: newOverrides
-                }
+            if (!retrieveData.object) {
+                throw new Error(`Catalog object not found: ${catalogObjectId}`);
             }
-        };
 
-        const data = await makeSquareRequest('/v2/catalog/object', {
-            method: 'POST',
-            body: JSON.stringify(updateBody),
-            accessToken
-        });
+            const currentObject = retrieveData.object;
 
-        logger.info('Square inventory alert threshold updated (location-specific)', {
-            catalogObjectId,
-            locationId,
-            threshold,
-            alertType,
-            newVersion: data.catalog_object?.version
-        });
+            if (currentObject.type !== 'ITEM_VARIATION') {
+                throw new Error(`Object is not a variation: ${currentObject.type}`);
+            }
 
-        return {
-            success: true,
-            catalog_object: data.catalog_object,
-            id_mappings: data.id_mappings
-        };
-    } catch (error) {
-        logger.error('Failed to update Square inventory alert threshold', {
-            catalogObjectId,
-            locationId,
-            threshold,
-            error: error.message,
-            stack: error.stack
-        });
-        throw error;
+            const currentVariationData = currentObject.item_variation_data || {};
+            const existingOverrides = currentVariationData.location_overrides || [];
+
+            // Determine alert type based on threshold
+            const alertType = (threshold !== null && threshold > 0) ? 'LOW_QUANTITY' : 'NONE';
+
+            // Build new location_overrides array
+            // Keep existing overrides for other locations, update/add the one for our location
+            let newOverrides = existingOverrides.filter(o => o.location_id !== locationId);
+
+            // Add/update the override for our target location
+            const newOverride = {
+                location_id: locationId,
+                inventory_alert_type: alertType
+            };
+
+            if (alertType === 'LOW_QUANTITY' && threshold !== null) {
+                newOverride.inventory_alert_threshold = threshold;
+            }
+
+            newOverrides.push(newOverride);
+
+            // Build the update request - use unique key per attempt to avoid idempotency conflicts
+            const idempotencyKey = generateIdempotencyKey(`inv-alert-v2-${attempt}`);
+
+            logger.info('Generated idempotency key for alert threshold update', {
+                idempotencyKey,
+                catalogObjectId,
+                locationId,
+                version: currentObject.version,
+                attempt
+            });
+
+            const updateBody = {
+                idempotency_key: idempotencyKey,
+                object: {
+                    type: 'ITEM_VARIATION',
+                    id: catalogObjectId,
+                    version: currentObject.version,
+                    item_variation_data: {
+                        ...currentVariationData,
+                        location_overrides: newOverrides
+                    }
+                }
+            };
+
+            const data = await makeSquareRequest('/v2/catalog/object', {
+                method: 'POST',
+                body: JSON.stringify(updateBody),
+                accessToken
+            });
+
+            logger.info('Square inventory alert threshold updated (location-specific)', {
+                catalogObjectId,
+                locationId,
+                threshold,
+                alertType,
+                newVersion: data.catalog_object?.version,
+                attempts: attempt
+            });
+
+            return {
+                success: true,
+                catalog_object: data.catalog_object,
+                id_mappings: data.id_mappings
+            };
+        } catch (error) {
+            // Check if this is a VERSION_MISMATCH error that we can retry
+            const isVersionMismatch = error.message && error.message.includes('VERSION_MISMATCH');
+
+            if (isVersionMismatch && attempt < MAX_RETRIES) {
+                logger.warn('VERSION_MISMATCH on inventory alert update, retrying with fresh version', {
+                    catalogObjectId,
+                    locationId,
+                    attempt,
+                    maxRetries: MAX_RETRIES
+                });
+                // Small delay before retry to allow concurrent updates to complete
+                await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+                continue;
+            }
+
+            logger.error('Failed to update Square inventory alert threshold', {
+                catalogObjectId,
+                locationId,
+                threshold,
+                error: error.message,
+                stack: error.stack,
+                attempts: attempt
+            });
+            throw error;
+        }
     }
 }
 
