@@ -1688,10 +1688,13 @@
         document.querySelector('.tab[data-tab="import"]').classList.add('active');
         document.getElementById('tab-import').classList.add('active');
 
-        // Hide import steps
+        // Hide import steps and show result container
         document.getElementById('import-step-1').style.display = 'none';
         document.getElementById('import-step-2').style.display = 'none';
         document.getElementById('import-progress').style.display = 'none';
+
+        const resultContainer = document.getElementById('import-result');
+        resultContainer.className = 'import-result show success';
 
         // Build result HTML
         const priceUpdates = data.priceUpdates;
