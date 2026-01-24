@@ -17,6 +17,7 @@
  * - GET    /api/vendor-catalog                           - Search vendor catalog items
  * - GET    /api/vendor-catalog/lookup/:upc               - Lookup by UPC
  * - GET    /api/vendor-catalog/batches                   - List import batches
+ * - GET    /api/vendor-catalog/batches/:batchId/report   - Regenerate price report for batch
  * - POST   /api/vendor-catalog/batches/:batchId/archive  - Archive batch
  * - POST   /api/vendor-catalog/batches/:batchId/unarchive - Unarchive batch
  * - DELETE /api/vendor-catalog/batches/:batchId          - Delete batch
@@ -452,6 +453,33 @@ router.delete('/vendor-catalog/batches/:batchId', requireAuth, requireMerchant, 
     } catch (error) {
         logger.error('Delete vendor catalog batch error', { error: error.message, stack: error.stack });
         res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/vendor-catalog/batches/:batchId/report
+ * Regenerate price update report for a previously imported batch
+ * Compares stored vendor prices against current catalog prices
+ */
+router.get('/vendor-catalog/batches/:batchId/report', requireAuth, requireMerchant, validators.batchAction, async (req, res) => {
+    try {
+        const { batchId } = req.params;
+        const merchantId = req.merchantContext.id;
+
+        if (!batchId) {
+            return res.status(400).json({ success: false, error: 'Batch ID is required' });
+        }
+
+        const report = await vendorCatalog.regeneratePriceReport(batchId, merchantId);
+
+        if (!report.success) {
+            return res.status(404).json(report);
+        }
+
+        res.json(report);
+    } catch (error) {
+        logger.error('Regenerate vendor catalog report error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
