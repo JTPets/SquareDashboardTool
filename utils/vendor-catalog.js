@@ -878,6 +878,105 @@ async function deleteImportBatch(batchId, merchantId) {
 }
 
 /**
+ * Regenerate price update report for a previously imported batch
+ * Compares stored vendor prices against current catalog prices
+ * @param {string} batchId - Batch ID to generate report for
+ * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
+ * @returns {Promise<Object>} Price report with vendor info and price updates
+ */
+async function regeneratePriceReport(batchId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for regeneratePriceReport');
+    }
+
+    // Get batch info and all matched items with current catalog prices
+    const batchResult = await db.query(`
+        SELECT
+            vci.vendor_id,
+            vci.vendor_name,
+            vci.import_name,
+            vci.imported_at,
+            vci.vendor_item_number,
+            vci.product_name,
+            vci.brand,
+            vci.upc,
+            vci.cost_cents as vendor_cost_cents,
+            vci.price_cents as vendor_srp_cents,
+            vci.matched_variation_id,
+            vci.match_method,
+            v.sku as our_sku,
+            v.name as variation_name,
+            v.price_money as our_price_cents,
+            i.name as item_name
+        FROM vendor_catalog_items vci
+        LEFT JOIN variations v ON vci.matched_variation_id = v.id AND v.merchant_id = $2
+        LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+        WHERE vci.import_batch_id = $1 AND vci.merchant_id = $2
+        ORDER BY vci.product_name
+    `, [batchId, merchantId]);
+
+    if (batchResult.rows.length === 0) {
+        return {
+            success: false,
+            error: 'Batch not found or no items'
+        };
+    }
+
+    // Extract batch metadata from first row
+    const firstRow = batchResult.rows[0];
+    const vendorName = firstRow.vendor_name;
+    const vendorId = firstRow.vendor_id;
+    const importName = firstRow.import_name;
+    const importedAt = firstRow.imported_at;
+
+    // Build price updates array for matched items with price differences
+    const priceUpdates = [];
+    for (const row of batchResult.rows) {
+        if (row.matched_variation_id && row.our_price_cents && row.vendor_srp_cents) {
+            const priceDiff = row.vendor_srp_cents - row.our_price_cents;
+            const priceDiffPercent = (priceDiff / row.our_price_cents) * 100;
+
+            // Only report differences >= 1%
+            if (Math.abs(priceDiffPercent) >= 1) {
+                priceUpdates.push({
+                    vendor_item_number: row.vendor_item_number,
+                    product_name: row.product_name,
+                    brand: row.brand || null,
+                    upc: row.upc,
+                    our_sku: row.our_sku,
+                    our_item_name: row.item_name || row.variation_name,
+                    our_price_cents: row.our_price_cents,
+                    vendor_srp_cents: row.vendor_srp_cents,
+                    vendor_cost_cents: row.vendor_cost_cents,
+                    price_diff_cents: priceDiff,
+                    price_diff_percent: priceDiffPercent,
+                    match_method: row.match_method,
+                    action: priceDiff > 0 ? 'price_increase' : 'price_decrease',
+                    matched_variation_id: row.matched_variation_id
+                });
+            }
+        }
+    }
+
+    return {
+        success: true,
+        batchId,
+        vendorId,
+        vendorName,
+        importName,
+        importedAt,
+        totalItems: batchResult.rows.length,
+        matchedItems: batchResult.rows.filter(r => r.matched_variation_id).length,
+        priceUpdates,
+        summary: {
+            total: priceUpdates.length,
+            increases: priceUpdates.filter(p => p.action === 'price_increase').length,
+            decreases: priceUpdates.filter(p => p.action === 'price_decrease').length
+        }
+    };
+}
+
+/**
  * Quick lookup by UPC
  * @param {string} upc - UPC to lookup
  * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
@@ -1219,6 +1318,7 @@ module.exports = {
     archiveImportBatch,
     unarchiveImportBatch,
     deleteImportBatch,
+    regeneratePriceReport,
     lookupByUPC,
     getStats,
     generateBatchId,

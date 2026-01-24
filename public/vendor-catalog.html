@@ -1575,7 +1575,8 @@
                   <div class="value">${batch.avg_margin ? parseFloat(batch.avg_margin).toFixed(1) + '%' : '-'}</div>
                   <div class="label">Avg Margin</div>
                 </div>
-                <div style="display: flex; gap: 5px;">
+                <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                  <button onclick="openBatchReport('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">View Report</button>
                   ${isArchived
                     ? `<button onclick="unarchiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
                     : `<button onclick="archiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
@@ -1660,6 +1661,34 @@
       }
     }
 
+    // Open price report for a batch from import history
+    async function openBatchReport(batchId) {
+      try {
+        const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/report`);
+        const data = await response.json();
+
+        if (!data.success) {
+          alert('Failed to load report: ' + (data.error || 'Unknown error'));
+          return;
+        }
+
+        // Build report object matching the format used by viewPriceReport
+        const report = {
+          vendorName: data.vendorName,
+          importName: data.importName,
+          batchId: data.batchId,
+          importedAt: data.importedAt,
+          priceUpdates: data.priceUpdates,
+          summary: data.summary
+        };
+
+        // Open report in new window (reuse existing viewPriceReport logic)
+        openReportWindow(report);
+      } catch (error) {
+        alert('Error loading report: ' + error.message);
+      }
+    }
+
     // Escape HTML
     function escapeHtml(text) {
       if (!text) return '';
@@ -1678,14 +1707,22 @@
         .replace(/\r/g, '\\r');
     }
 
-    // View price report in new window
+    // View price report in new window (from last import)
     function viewPriceReport() {
       if (!lastPriceReport || !lastPriceReport.priceUpdates.length) {
         alert('No price report available');
         return;
       }
+      openReportWindow(lastPriceReport);
+    }
 
-      const report = lastPriceReport;
+    // Open price report window with given report data
+    function openReportWindow(report) {
+      if (!report || !report.priceUpdates || !report.priceUpdates.length) {
+        alert('No price differences found in this import');
+        return;
+      }
+
       const reportWindow = window.open('', '_blank', 'width=1200,height=800');
 
       let html = `
