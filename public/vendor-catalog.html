@@ -1672,8 +1672,8 @@
           return;
         }
 
-        // Build report object matching the format used by viewPriceReport
-        const report = {
+        // Store for export/viewing
+        lastPriceReport = {
           vendorName: data.vendorName,
           importName: data.importName,
           batchId: data.batchId,
@@ -1682,8 +1682,119 @@
           summary: data.summary
         };
 
-        // Open report in new window (reuse existing viewPriceReport logic)
-        openReportWindow(report);
+        // Switch to Import tab
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelector('.tab[data-tab="import"]').classList.add('active');
+        document.getElementById('tab-import').classList.add('active');
+
+        // Hide import steps
+        document.getElementById('import-step-1').style.display = 'none';
+        document.getElementById('import-step-2').style.display = 'none';
+        document.getElementById('import-progress').style.display = 'none';
+
+        // Build result HTML
+        const priceUpdates = data.priceUpdates;
+        let html = `
+          <div style="margin-bottom: 15px;">
+            <strong>Vendor:</strong> ${escapeHtml(data.vendorName)}
+            ${data.importName ? ` - <em>${escapeHtml(data.importName)}</em>` : ''}
+            <br>
+            <span style="font-size: 12px; color: #6b7280;">
+              Originally imported: ${new Date(data.importedAt).toLocaleString()}
+              | ${data.totalItems} items (${data.matchedItems} matched)
+            </span>
+          </div>
+        `;
+
+        if (priceUpdates.length > 0) {
+          html += `
+            <div style="margin-top: 15px; padding: 15px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px;">
+              <h4 style="color: #92400e; margin-bottom: 10px;">Price Update Report</h4>
+              <p style="font-size: 14px; color: #78350f;">
+                <strong>${priceUpdates.length}</strong> items have price differences vs. current catalog
+                (${data.summary.increases} increases, ${data.summary.decreases} decreases)
+              </p>
+              <p style="font-size: 13px; color: #78350f; margin-top: 5px;">
+                Check items below to mark them for price update in Square.
+              </p>
+              <div style="display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; align-items: center;">
+                <button onclick="viewPriceReport()" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                  View Full Report
+                </button>
+                <button onclick="downloadPriceReportCSV()" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                  Download CSV
+                </button>
+                <button id="push-to-square-btn" onclick="pushSelectedPricesToSquare()" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
+                  Push Selected to Square (0)
+                </button>
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #78350f; cursor: pointer; margin-left: 10px;">
+                  <input type="checkbox" id="select-all-prices" onchange="toggleSelectAllPrices(this.checked)" style="cursor: pointer;">
+                  Select All
+                </label>
+              </div>
+              <div id="push-progress" style="display: none; margin: 10px 0; padding: 10px; background: #eff6ff; border-radius: 4px;">
+                <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #dbeafe; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px;"></div>
+                <span id="push-progress-text">Pushing price changes to Square...</span>
+              </div>
+              <div id="push-result" style="display: none; margin: 10px 0; padding: 10px; border-radius: 4px;"></div>
+              <div style="max-height: 300px; overflow-y: auto; margin-top: 10px;">
+                <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                  <thead>
+                    <tr style="background: #fef08a;">
+                      <th style="padding: 6px; text-align: center; width: 30px;">
+                        <span title="Mark for Square update">Push</span>
+                      </th>
+                      <th style="padding: 6px; text-align: left;">Our SKU</th>
+                      <th style="padding: 6px; text-align: left;">Item</th>
+                      <th style="padding: 6px; text-align: right;">Our Price</th>
+                      <th style="padding: 6px; text-align: right;">Vendor SRP</th>
+                      <th style="padding: 6px; text-align: right;">Diff</th>
+                    </tr>
+                  </thead>
+                  <tbody id="price-updates-body">
+          `;
+
+          priceUpdates.forEach((p, idx) => {
+            const diffColor = p.action === 'price_increase' ? '#059669' : '#dc2626';
+            const diffSign = p.price_diff_cents > 0 ? '+' : '';
+            const variationId = p.matched_variation_id || '';
+            html += `
+              <tr data-variation-id="${escapeHtml(variationId)}" data-new-price="${p.vendor_srp_cents}">
+                <td style="padding: 4px 6px; text-align: center;">
+                  <input type="checkbox" class="price-update-checkbox"
+                         data-variation-id="${escapeHtml(variationId)}"
+                         data-new-price="${p.vendor_srp_cents}"
+                         data-sku="${escapeHtml(p.our_sku || '')}"
+                         data-item-name="${escapeHtml(p.our_item_name || p.product_name)}"
+                         onchange="updatePushButtonCount()"
+                         ${!variationId ? 'disabled title="No matched variation"' : ''}
+                         style="cursor: ${variationId ? 'pointer' : 'not-allowed'};">
+                </td>
+                <td style="padding: 4px 6px;"><code>${escapeHtml(p.our_sku || '-')}</code></td>
+                <td style="padding: 4px 6px;">${escapeHtml(p.our_item_name || p.product_name)}</td>
+                <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.our_price_cents)}</td>
+                <td style="padding: 4px 6px; text-align: right;">${formatMoney(p.vendor_srp_cents)}</td>
+                <td style="padding: 4px 6px; text-align: right; color: ${diffColor}; font-weight: 600;">
+                  ${diffSign}${formatMoney(p.price_diff_cents)} (${diffSign}${p.price_diff_percent.toFixed(1)}%)
+                </td>
+              </tr>
+            `;
+          });
+          html += '</tbody></table></div></div>';
+        } else {
+          html += `
+            <div style="margin-top: 15px; padding: 15px; background: #d1fae5; border: 1px solid #10b981; border-radius: 6px;">
+              <p style="color: #065f46;">No price differences found. All matched items are within 1% of current catalog prices.</p>
+            </div>
+          `;
+        }
+
+        html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Back to Import</button>`;
+
+        document.getElementById('result-title').textContent = 'Price Report';
+        document.getElementById('result-content').innerHTML = html;
+
       } catch (error) {
         alert('Error loading report: ' + error.message);
       }
