@@ -22,6 +22,19 @@ jest.mock('../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
+// Mock database to prevent actual PostgreSQL connections during tests
+// Individual tests can override this mock as needed
+jest.mock('../utils/database', () => ({
+    query: jest.fn().mockResolvedValue({ rows: [] }),
+    getClient: jest.fn().mockResolvedValue({
+        query: jest.fn().mockResolvedValue({ rows: [] }),
+        release: jest.fn()
+    }),
+    pool: {
+        end: jest.fn().mockResolvedValue()
+    }
+}));
+
 // Global timeout for async operations
 jest.setTimeout(10000);
 
