@@ -439,6 +439,7 @@
     .action-btn.redeem { background: #d1fae5; color: #065f46; }
     .action-btn.danger { background: #fee2e2; color: #991b1b; }
   </style>
+  <script src="/js/event-delegation.js"></script>
 </head>
 <body>
   <div class="container">
@@ -473,23 +474,23 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <div class="tab active" data-tab="offers" onclick="switchTab('offers')">Offers</div>
-      <div class="tab" data-tab="customers" onclick="switchTab('customers')">Customer Lookup</div>
-      <div class="tab" data-tab="rewards" onclick="switchTab('rewards')">Rewards</div>
-      <div class="tab" data-tab="redemptions" onclick="switchTab('redemptions')">Redemptions</div>
-      <div class="tab" data-tab="reports" onclick="switchTab('reports')">Reports</div>
-      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+      <div class="tab active" data-tab="offers" data-action="switchTabFromClick">Offers</div>
+      <div class="tab" data-tab="customers" data-action="switchTabFromClick">Customer Lookup</div>
+      <div class="tab" data-tab="rewards" data-action="switchTabFromClick">Rewards</div>
+      <div class="tab" data-tab="redemptions" data-action="switchTabFromClick">Redemptions</div>
+      <div class="tab" data-tab="reports" data-action="switchTabFromClick">Reports</div>
+      <div class="tab" data-tab="settings" data-action="switchTabFromClick">Settings</div>
     </div>
 
     <!-- Tab: Offers -->
     <div class="tab-content active" id="tab-offers">
       <div class="controls">
-        <button class="btn-primary" onclick="showCreateOfferModal()">+ Create Offer</button>
-        <select id="offer-filter-brand" onchange="loadOffers()">
+        <button class="btn-primary" data-action="showCreateOfferModal">+ Create Offer</button>
+        <select id="offer-filter-brand" data-change="loadOffers">
           <option value="">All Brands</option>
         </select>
         <label style="margin-left: auto;">
-          <input type="checkbox" id="offer-filter-active" checked onchange="loadOffers()">
+          <input type="checkbox" id="offer-filter-active" checked data-change="loadOffers">
           Active Only
         </label>
       </div>
@@ -519,8 +520,8 @@
     <!-- Tab: Customer Lookup -->
     <div class="tab-content" id="tab-customers">
       <div class="controls">
-        <input type="text" id="customer-search" placeholder="Search by phone, email, or name..." onkeyup="handleCustomerSearchKeyup(event)">
-        <button class="btn-primary" onclick="searchCustomer()">Search</button>
+        <input type="text" id="customer-search" placeholder="Search by phone, email, or name..." data-keyup="handleCustomerSearchKeyup">
+        <button class="btn-primary" data-action="searchCustomer">Search</button>
       </div>
       <div id="customer-search-results" style="display: none; margin-bottom: 15px;"></div>
       <div id="customer-result-container">
@@ -534,14 +535,14 @@
     <!-- Tab: Rewards -->
     <div class="tab-content" id="tab-rewards">
       <div class="controls">
-        <select id="reward-filter-status" onchange="loadRewards()">
+        <select id="reward-filter-status" data-change="loadRewards">
           <option value="">All Statuses</option>
           <option value="in_progress">In Progress</option>
           <option value="earned">Earned (Available)</option>
           <option value="redeemed">Redeemed</option>
           <option value="revoked">Revoked</option>
         </select>
-        <select id="reward-filter-offer" onchange="loadRewards()">
+        <select id="reward-filter-offer" data-change="loadRewards">
           <option value="">All Offers</option>
         </select>
       </div>
@@ -568,10 +569,10 @@
     <!-- Tab: Redemptions -->
     <div class="tab-content" id="tab-redemptions">
       <div class="controls">
-        <input type="date" id="redemption-start-date" onchange="loadRedemptions()">
+        <input type="date" id="redemption-start-date" data-change="loadRedemptions">
         <span>to</span>
-        <input type="date" id="redemption-end-date" onchange="loadRedemptions()">
-        <select id="redemption-filter-offer" onchange="loadRedemptions()">
+        <input type="date" id="redemption-end-date" data-change="loadRedemptions">
+        <select id="redemption-filter-offer" data-change="loadRedemptions">
           <option value="">All Offers</option>
         </select>
       </div>
@@ -615,7 +616,7 @@
               <input type="date" id="report-redemption-end">
             </div>
           </div>
-          <button class="btn-primary" onclick="downloadReport('redemptions')">Download CSV</button>
+          <button class="btn-primary" data-action="downloadReport" data-action-param="redemptions">Download CSV</button>
         </div>
 
         <div class="customer-result">
@@ -631,19 +632,19 @@
               <input type="date" id="report-audit-end">
             </div>
           </div>
-          <button class="btn-primary" onclick="downloadReport('audit')">Download CSV</button>
+          <button class="btn-primary" data-action="downloadReport" data-action-param="audit">Download CSV</button>
         </div>
 
         <div class="customer-result">
           <h4>Summary by Brand/Offer</h4>
           <p style="color: #6b7280; margin-bottom: 15px;">Summary statistics grouped by brand and offer.</p>
-          <button class="btn-primary" onclick="downloadReport('summary')">Download CSV</button>
+          <button class="btn-primary" data-action="downloadReport" data-action-param="summary">Download CSV</button>
         </div>
 
         <div class="customer-result">
           <h4>Customer Activity</h4>
           <p style="color: #6b7280; margin-bottom: 15px;">All customer loyalty activity and progress.</p>
-          <button class="btn-primary" onclick="downloadReport('customers')">Download CSV</button>
+          <button class="btn-primary" data-action="downloadReport" data-action-param="customers">Download CSV</button>
         </div>
       </div>
     </div>
@@ -677,7 +678,7 @@
           <small>Include loyalty status messages on Square digital receipts.</small>
         </div>
 
-        <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn-primary" data-action="saveSettings">Save Settings</button>
 
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;">
 
@@ -710,7 +711,7 @@
                   <span id="pending-count">0</span> earned reward(s) need to be synced to Square POS
                 </p>
               </div>
-              <button class="btn-primary" onclick="syncRewardsToPOS(false)" id="sync-btn" style="white-space: nowrap;">
+              <button class="btn-primary" data-action="syncRewardsToPOS" data-action-param="false" id="sync-btn" style="white-space: nowrap;">
                 Sync to POS
               </button>
             </div>
@@ -725,7 +726,7 @@
                   <span id="synced-count">0</span> earned reward(s) synced to Square POS
                 </p>
               </div>
-              <button class="btn-warning" onclick="syncRewardsToPOS(true)" id="resync-btn" style="white-space: nowrap;">
+              <button class="btn-warning" data-action="syncRewardsToPOS" data-action-param="true" id="resync-btn" style="white-space: nowrap;">
                 Re-sync All
               </button>
             </div>
@@ -745,7 +746,7 @@
         <h3 style="margin-bottom: 20px;">Maintenance</h3>
 
         <div class="form-group">
-          <button class="btn-warning" onclick="processExpired()">Process Expired Window Entries</button>
+          <button class="btn-warning" data-action="processExpired">Process Expired Window Entries</button>
           <small style="margin-top: 10px; display: block;">
             Remove purchases that have fallen outside the rolling time window and revoke expired earned rewards. This runs automatically but can be triggered manually.
           </small>
@@ -762,10 +763,10 @@
         <div id="discount-validation-results" style="display: none; margin-bottom: 20px;"></div>
 
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn-secondary" onclick="validateDiscounts(false)" id="validate-btn">
+          <button class="btn-secondary" data-action="validateDiscounts" data-action-param="false" id="validate-btn">
             Validate Discounts
           </button>
-          <button class="btn-primary" onclick="validateDiscounts(true)" id="validate-fix-btn">
+          <button class="btn-primary" data-action="validateDiscounts" data-action-param="true" id="validate-fix-btn">
             Validate & Fix Issues
           </button>
         </div>
@@ -781,7 +782,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="offer-modal-title">Create Loyalty Offer</h2>
-        <button class="modal-close" onclick="closeModal('offer-modal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="offer-modal">&times;</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="offer-edit-id">
@@ -834,8 +835,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="closeModal('offer-modal')">Cancel</button>
-        <button class="btn-primary" onclick="saveOffer()">Save Offer</button>
+        <button class="btn-secondary" data-action="closeModal" data-action-param="offer-modal">Cancel</button>
+        <button class="btn-primary" data-action="saveOffer">Save Offer</button>
       </div>
     </div>
   </div>
@@ -845,7 +846,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>Manage Qualifying Variations</h2>
-        <button class="modal-close" onclick="closeModal('variations-modal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="variations-modal">&times;</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="variations-offer-id">
@@ -856,7 +857,7 @@
 
         <div class="form-group">
           <label>Search Catalog</label>
-          <input type="text" id="variation-search" placeholder="Search by item name, variation, SKU, or UPC/GTIN..." onkeyup="searchVariations()">
+          <input type="text" id="variation-search" placeholder="Search by item name, variation, SKU, or UPC/GTIN..." data-keyup="searchVariations">
           <small>Showing up to 100 results. Use search to narrow down.</small>
         </div>
 
@@ -877,8 +878,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="closeModal('variations-modal')">Close</button>
-        <button class="btn-primary" onclick="saveVariations()">Save Variations</button>
+        <button class="btn-secondary" data-action="closeModal" data-action-param="variations-modal">Close</button>
+        <button class="btn-primary" data-action="saveVariations">Save Variations</button>
       </div>
     </div>
   </div>
@@ -888,7 +889,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>Redeem Reward</h2>
-        <button class="modal-close" onclick="closeModal('redeem-modal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="redeem-modal">&times;</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="redeem-reward-id">
@@ -911,8 +912,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="closeModal('redeem-modal')">Cancel</button>
-        <button class="btn-success" onclick="submitRedemption()">Confirm Redemption</button>
+        <button class="btn-secondary" data-action="closeModal" data-action-param="redeem-modal">Cancel</button>
+        <button class="btn-success" data-action="submitRedemption">Confirm Redemption</button>
       </div>
     </div>
   </div>
@@ -922,7 +923,7 @@
     <div class="modal-content" style="max-width: 900px;">
       <div class="modal-header">
         <h2>91-Day Order History Audit</h2>
-        <button class="modal-close" onclick="closeModal('order-audit-modal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="order-audit-modal">&times;</button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="audit-customer-id">
@@ -933,8 +934,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="closeModal('order-audit-modal')">Cancel</button>
-        <button class="btn-primary" id="audit-add-selected-btn" onclick="addSelectedOrdersToLoyalty()" disabled>
+        <button class="btn-secondary" data-action="closeModal" data-action-param="order-audit-modal">Cancel</button>
+        <button class="btn-primary" id="audit-add-selected-btn" data-action="addSelectedOrdersToLoyalty" disabled>
           Add Selected Orders (0)
         </button>
       </div>
@@ -953,6 +954,56 @@
       loadStats();
       loadOffers();
     });
+
+    // Handle image error - hide image and show placeholder
+    document.addEventListener('error', function(event) {
+      if (event.target.tagName === 'IMG' && event.target.dataset.errorAction === 'hideImageShowPlaceholder') {
+        event.target.style.display = 'none';
+        if (event.target.nextElementSibling) {
+          event.target.nextElementSibling.style.display = 'block';
+        }
+      }
+    }, true);
+
+    // Helper functions for event delegation
+    function switchTabFromClick(element) {
+      const tabName = element.dataset.tab;
+      switchTab(tabName);
+    }
+
+    function deleteOfferFromButton(element) {
+      const offerId = element.dataset.offerId;
+      const offerName = element.dataset.offerName;
+      deleteOffer(offerId, offerName);
+    }
+
+    function toggleVariationCardStop(element, event) {
+      event.stopPropagation();
+      const variationId = element.dataset.actionParam;
+      toggleVariationCard(variationId);
+    }
+
+    function viewOrderAuditHistoryFromButton(element) {
+      const customerId = element.dataset.customerId;
+      const displayName = element.dataset.displayName;
+      viewOrderAuditHistory(customerId, displayName);
+    }
+
+    function showRedeemModalFromButton(element) {
+      const rewardId = element.dataset.rewardId;
+      const offerName = element.dataset.offerName;
+      const customerId = element.dataset.customerId;
+      showRedeemModal(rewardId, offerName, customerId);
+    }
+
+    function toggleAllAuditOrdersFromCheckbox(element) {
+      toggleAllAuditOrders(element.checked);
+    }
+
+    function toggleAuditOrderFromCheckbox(element) {
+      const orderId = element.dataset.orderId;
+      toggleAuditOrder(orderId, element.checked);
+    }
 
     function switchTab(tabName) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1023,9 +1074,9 @@
             <td class="text-center">${offer.total_redeemed || 0}</td>
             <td><span class="status-badge ${offer.is_active ? 'active' : 'inactive'}">${offer.is_active ? 'Active' : 'Inactive'}</span></td>
             <td>
-              <button class="action-btn view" onclick="showVariationsModal('${escapeJsString(offer.id)}')">Variations</button>
-              <button class="action-btn edit" onclick="editOffer('${escapeJsString(offer.id)}')">Edit</button>
-              <button class="action-btn danger" onclick="deleteOffer('${escapeJsString(offer.id)}', '${escapeJsString(offer.offer_name)}')">Delete</button>
+              <button class="action-btn view" data-action="showVariationsModal" data-action-param="${escapeJsString(offer.id)}">Variations</button>
+              <button class="action-btn edit" data-action="editOffer" data-action-param="${escapeJsString(offer.id)}">Edit</button>
+              <button class="action-btn danger" data-action="deleteOfferFromButton" data-offer-id="${escapeJsString(offer.id)}" data-offer-name="${escapeJsString(offer.offer_name)}">Delete</button>
             </td>
           </tr>
         `).join('');
@@ -1291,15 +1342,15 @@
         const isAssignedToOther = assignment && assignment.offerId !== currentOfferId;
 
         return `
-          <div class="variation-item ${isSelected ? 'selected' : ''} ${isAssignedToOther ? 'assigned-other' : ''}" onclick="toggleVariationCard('${escapeJsString(v.variationId)}')">
+          <div class="variation-item ${isSelected ? 'selected' : ''} ${isAssignedToOther ? 'assigned-other' : ''}" data-action="toggleVariationCard" data-action-param="${escapeJsString(v.variationId)}">
             <input type="checkbox" class="item-checkbox"
               id="var-${v.variationId}"
               ${isSelected ? 'checked' : ''}
-              onclick="event.stopPropagation(); toggleVariationCard('${escapeJsString(v.variationId)}')"
+              data-action="toggleVariationCardStop" data-action-param="${escapeJsString(v.variationId)}"
             >
             <div class="image-container">
               ${imageUrl
-                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(displayName)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"><div class="no-image" style="display:none;">No image</div>`
+                ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(displayName)}" data-error-action="hideImageShowPlaceholder"><div class="no-image" style="display:none;">No image</div>`
                 : `<div class="no-image">No image</div>`
               }
             </div>
@@ -1496,7 +1547,7 @@
             <strong>Found ${data.customers.length} customers:</strong>
             <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px;">
               ${data.customers.map(c => `
-                <button class="btn-secondary" onclick="showCustomerLoyalty('${escapeJsString(c.id)}')" style="text-align: left; padding: 10px 15px;">
+                <button class="btn-secondary" data-action="showCustomerLoyalty" data-action-param="${escapeJsString(c.id)}" style="text-align: left; padding: 10px 15px;">
                   <strong>${escapeHtml(c.displayName || 'Unknown')}</strong><br>
                   <small style="color: #6b7280;">
                     ${c.phone ? escapeHtml(c.phone) : ''}
@@ -1543,7 +1594,7 @@
               </p>
               <p style="color: #6b7280; margin-top: 10px;">No loyalty activity found for this customer.</p>
               <div style="margin-top: 15px;">
-                <button class="btn-primary" onclick="viewOrderAuditHistory('${escapeJsString(customerId)}', '${escapeJsString(displayName)}')">
+                <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(customerId)}" data-display-name="${escapeJsString(displayName)}">
                   Check for Missed Loyalty Items (91 Days)
                 </button>
               </div>
@@ -1576,7 +1627,7 @@
                 ${offer.window_end_date && !hasReward ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
               </div>
               ${hasReward ? `
-                <button class="btn-redeem-large" onclick="showRedeemModal('${escapeJsString(offer.earned_reward_id)}', '${escapeJsString(offer.offer_name)}', '${escapeJsString(customerId)}')">
+                <button class="btn-redeem-large" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(offer.earned_reward_id)}" data-offer-name="${escapeJsString(offer.offer_name)}" data-customer-id="${escapeJsString(customerId)}">
                   Redeem Free Item Now
                 </button>
               ` : ''}
@@ -1596,8 +1647,8 @@
               ${offersHtml}
             </div>
             <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-              <button class="btn-secondary" onclick="viewCustomerHistory('${escapeJsString(customerId)}')">View Full History</button>
-              <button class="btn-primary" onclick="viewOrderAuditHistory('${escapeJsString(customerId)}', '${escapeJsString(displayName)}')">
+              <button class="btn-secondary" data-action="viewCustomerHistory" data-action-param="${escapeJsString(customerId)}">View Full History</button>
+              <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(customerId)}" data-display-name="${escapeJsString(displayName)}">
                 View Missed Loyalty Items (91 Days)
               </button>
             </div>
@@ -1830,7 +1881,7 @@
       let html = `
         <div style="margin-bottom: 10px;">
           <label style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
-            <input type="checkbox" id="audit-select-all" onchange="toggleAllAuditOrders(this.checked)">
+            <input type="checkbox" id="audit-select-all" data-change="toggleAllAuditOrdersFromCheckbox">
             <span style="font-size: 13px;">Select all eligible orders</span>
           </label>
         </div>
@@ -1913,7 +1964,7 @@
                        class="audit-order-checkbox"
                        data-order-id="${order.orderId}"
                        ${auditSelectedOrders.has(order.orderId) ? 'checked' : ''}
-                       onchange="toggleAuditOrder('${order.orderId}', this.checked)">
+                       data-change="toggleAuditOrderFromCheckbox">
               ` : ''}
             </td>
             <td>${new Date(order.closedAt).toLocaleDateString()}<br>
@@ -2068,7 +2119,7 @@
               <td>${reward.earned_at ? new Date(reward.earned_at).toLocaleDateString() : '-'}</td>
               <td>
                 ${reward.status === 'earned' ? `
-                  <button class="action-btn redeem" onclick="showRedeemModal('${escapeJsString(reward.id)}', '${escapeJsString(reward.offer_name)}', '${escapeJsString(reward.square_customer_id)}')">Redeem</button>
+                  <button class="action-btn redeem" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(reward.id)}" data-offer-name="${escapeJsString(reward.offer_name)}" data-customer-id="${escapeJsString(reward.square_customer_id)}">Redeem</button>
                 ` : '-'}
               </td>
             </tr>
@@ -2161,7 +2212,7 @@
             <td>${r.redeemed_value_cents ? '$' + (r.redeemed_value_cents / 100).toFixed(2) : '-'}</td>
             <td><span class="status-badge ${r.redemption_type}">${r.redemption_type.replace(/_/g, ' ')}</span></td>
             <td>
-              <button class="action-btn view" onclick="viewVendorReceipt('${escapeJsString(r.id)}')">Receipt</button>
+              <button class="action-btn view" data-action="viewVendorReceipt" data-action-param="${escapeJsString(r.id)}">Receipt</button>
             </td>
           </tr>
         `}).join('');

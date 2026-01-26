@@ -689,7 +689,7 @@
               <h3>Upload Vendor Catalog</h3>
               <p>Drag and drop a CSV or XLSX file, or click to select</p>
               <input type="file" id="file-input" class="file-input" accept=".csv,.xlsx">
-              <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+              <button class="upload-btn" data-action="triggerFileInput">
                 Select File
               </button>
               <div class="file-info" id="file-info" style="display: none;">
@@ -754,10 +754,10 @@
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
-              <button onclick="resetImport()" style="padding: 12px 24px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500;">
+              <button data-action="resetImport" style="padding: 12px 24px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500;">
                 Start Over
               </button>
-              <button onclick="confirmImport()" style="padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+              <button data-action="confirmImport" style="padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                 Confirm & Import
               </button>
             </div>
@@ -783,8 +783,8 @@
         <div class="lookup-section">
           <h3 style="text-align: center; margin-bottom: 20px; color: #374151;">Quick UPC Lookup</h3>
           <div class="lookup-input">
-            <input type="text" id="lookup-upc" placeholder="Enter UPC/GTIN..." onkeypress="if(event.key === 'Enter') lookupUPC()">
-            <button onclick="lookupUPC()">Lookup</button>
+            <input type="text" id="lookup-upc" placeholder="Enter UPC/GTIN..." data-keydown="lookupUPCOnEnter">
+            <button data-action="lookupUPC">Lookup</button>
           </div>
 
           <div class="lookup-result" id="lookup-result">
@@ -796,7 +796,7 @@
       <!-- BROWSE TAB -->
       <div class="tab-content" id="tab-browse">
         <div class="search-bar">
-          <input type="text" id="search-input" placeholder="Search by name, vendor item #, or UPC..." onkeypress="if(event.key === 'Enter') searchCatalog()">
+          <input type="text" id="search-input" placeholder="Search by name, vendor item #, or UPC..." data-keydown="searchCatalogOnEnter">
           <select id="vendor-filter">
             <option value="">All Vendors</option>
           </select>
@@ -805,7 +805,7 @@
             <option value="true">Matched Only</option>
             <option value="false">Unmatched Only</option>
           </select>
-          <button onclick="searchCatalog()">Search</button>
+          <button data-action="searchCatalog">Search</button>
         </div>
 
         <div class="table-container">
@@ -834,7 +834,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h3 style="color: #374151;">Import History</h3>
           <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #6b7280; cursor: pointer;">
-            <input type="checkbox" id="show-archived-checkbox" onchange="loadBatches(this.checked)" style="cursor: pointer;">
+            <input type="checkbox" id="show-archived-checkbox" data-change="loadBatchesFromCheckbox" style="cursor: pointer;">
             Show Archived
           </label>
         </div>
@@ -852,6 +852,9 @@
       <a href="/api/vendor-catalog/stats" target="_blank">API: Stats</a>
     </div>
   </div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
@@ -1138,17 +1141,17 @@
                   Check items below to mark them for price update in Square.
                 </p>
                 <div style="display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; align-items: center;">
-                  <button onclick="viewPriceReport()" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                  <button data-action="viewPriceReport" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                     View Full Report
                   </button>
-                  <button onclick="downloadPriceReportCSV()" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                  <button data-action="downloadPriceReportCSV" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                     Download CSV
                   </button>
-                  <button id="push-to-square-btn" onclick="pushSelectedPricesToSquare()" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
+                  <button id="push-to-square-btn" data-action="pushSelectedPricesToSquare" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
                     Push Selected to Square (0)
                   </button>
                   <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #78350f; cursor: pointer; margin-left: 10px;">
-                    <input type="checkbox" id="select-all-prices" onchange="toggleSelectAllPrices(this.checked)" style="cursor: pointer;">
+                    <input type="checkbox" id="select-all-prices" data-change="toggleSelectAllPricesFromCheckbox" style="cursor: pointer;">
                     Select All
                   </label>
                 </div>
@@ -1185,7 +1188,7 @@
                            data-new-price="${p.vendor_srp_cents}"
                            data-sku="${escapeHtml(p.our_sku || '')}"
                            data-item-name="${escapeHtml(p.our_item_name || p.product_name)}"
-                           onchange="updatePushButtonCount()"
+                           data-change="updatePushButtonCount"
                            ${!variationId ? 'disabled title="No matched variation"' : ''}
                            style="cursor: ${variationId ? 'pointer' : 'not-allowed'};">
                   </td>
@@ -1206,7 +1209,7 @@
             html += `<p style="color: #d97706; margin-top: 10px;">${result.validationErrors.length} rows had validation errors and were skipped</p>`;
           }
 
-          html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Import Another File</button>`;
+          html += `<button data-action="resetImport" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Import Another File</button>`;
 
           document.getElementById('result-content').innerHTML = html;
 
@@ -1241,7 +1244,7 @@
         html += '</ul>';
       }
 
-      html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer;">Try Again</button>`;
+      html += `<button data-action="resetImport" style="margin-top: 15px; padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer;">Try Again</button>`;
 
       document.getElementById('result-content').innerHTML = html;
     }
@@ -1576,12 +1579,12 @@
                   <div class="label">Avg Margin</div>
                 </div>
                 <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-                  <button onclick="openBatchReport('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">View Report</button>
+                  <button data-action="openBatchReport" data-action-param="${escapeJsString(batch.import_batch_id)}" style="padding: 8px 12px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">View Report</button>
                   ${isArchived
-                    ? `<button onclick="unarchiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
-                    : `<button onclick="archiveBatch('${escapeJsString(batch.import_batch_id)}')" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
+                    ? `<button data-action="unarchiveBatch" data-action-param="${escapeJsString(batch.import_batch_id)}" style="padding: 8px 12px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Restore</button>`
+                    : `<button data-action="archiveBatch" data-action-param="${escapeJsString(batch.import_batch_id)}" style="padding: 8px 12px; background: #f3f4f6; color: #6b7280; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Archive</button>`
                   }
-                  <button class="delete-btn" onclick="deleteBatch('${escapeJsString(batch.import_batch_id)}')" style="font-size: 12px;">Delete</button>
+                  <button class="delete-btn" data-action="deleteBatch" data-action-param="${escapeJsString(batch.import_batch_id)}" style="font-size: 12px;">Delete</button>
                 </div>
               </div>
             </div>
@@ -1722,17 +1725,17 @@
                 Check items below to mark them for price update in Square.
               </p>
               <div style="display: flex; gap: 10px; margin: 10px 0; flex-wrap: wrap; align-items: center;">
-                <button onclick="viewPriceReport()" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                <button data-action="viewPriceReport" style="padding: 8px 16px; background: #1d4ed8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                   View Full Report
                 </button>
-                <button onclick="downloadPriceReportCSV()" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                <button data-action="downloadPriceReportCSV" style="padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                   Download CSV
                 </button>
-                <button id="push-to-square-btn" onclick="pushSelectedPricesToSquare()" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
+                <button id="push-to-square-btn" data-action="pushSelectedPricesToSquare" style="padding: 8px 16px; background: #7c3aed; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;" disabled>
                   Push Selected to Square (0)
                 </button>
                 <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #78350f; cursor: pointer; margin-left: 10px;">
-                  <input type="checkbox" id="select-all-prices" onchange="toggleSelectAllPrices(this.checked)" style="cursor: pointer;">
+                  <input type="checkbox" id="select-all-prices" data-change="toggleSelectAllPricesFromCheckbox" style="cursor: pointer;">
                   Select All
                 </label>
               </div>
@@ -1770,7 +1773,7 @@
                          data-new-price="${p.vendor_srp_cents}"
                          data-sku="${escapeHtml(p.our_sku || '')}"
                          data-item-name="${escapeHtml(p.our_item_name || p.product_name)}"
-                         onchange="updatePushButtonCount()"
+                         data-change="updatePushButtonCount"
                          ${!variationId ? 'disabled title="No matched variation"' : ''}
                          style="cursor: ${variationId ? 'pointer' : 'not-allowed'};">
                 </td>
@@ -1793,7 +1796,7 @@
           `;
         }
 
-        html += `<button onclick="resetImport()" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Back to Import</button>`;
+        html += `<button data-action="resetImport" style="margin-top: 15px; padding: 10px 20px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;">Back to Import</button>`;
 
         document.getElementById('result-title').textContent = 'Price Report';
         document.getElementById('result-content').innerHTML = html;
@@ -1819,6 +1822,42 @@
         .replace(/'/g, "\\'")
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r');
+    }
+
+    // --- Event delegation helper functions ---
+
+    // Trigger file input click (for data-action handler)
+    function triggerFileInput() {
+      document.getElementById('file-input').click();
+    }
+
+    // Lookup UPC on Enter key (for data-keydown handler)
+    function lookupUPCOnEnter(element, event) {
+      if (event.key === 'Enter') {
+        lookupUPC();
+      }
+    }
+
+    // Search catalog on Enter key (for data-keydown handler)
+    function searchCatalogOnEnter(element, event) {
+      if (event.key === 'Enter') {
+        searchCatalog();
+      }
+    }
+
+    // Load batches from checkbox (for data-change handler)
+    function loadBatchesFromCheckbox(element) {
+      loadBatches(element.checked);
+    }
+
+    // Toggle select all prices from checkbox (for data-change handler)
+    function toggleSelectAllPricesFromCheckbox(element) {
+      toggleSelectAllPrices(element.checked);
+    }
+
+    // Print report (for data-action handler)
+    function printReport() {
+      window.print();
     }
 
     // View price report in new window (from last import)
@@ -1889,8 +1928,8 @@
       </div>
     </div>
     <div class="actions">
-      <button class="btn-csv" onclick="downloadCSV()">Download CSV</button>
-      <button class="btn-print" onclick="window.print()">Print Report</button>
+      <button class="btn-csv" data-action="downloadCSV">Download CSV</button>
+      <button class="btn-print" data-action="printReport">Print Report</button>
     </div>
   </div>
   <table>

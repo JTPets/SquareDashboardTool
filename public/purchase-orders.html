@@ -662,7 +662,7 @@
       toast.className = `toast ${type}`;
       toast.innerHTML = `
         <div class="toast-message">${escapeHtml(message)}</div>
-        <button class="btn-icon" onclick="this.parentElement.remove()">×</button>
+        <button class="btn-icon" data-action="dismissToast">×</button>
       `;
       document.body.appendChild(toast);
 
@@ -671,6 +671,14 @@
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
       }, 4000);
+    }
+
+    // Dismiss toast notification (for data-action handler)
+    function dismissToast(element) {
+      const toast = element.closest('.toast');
+      if (toast) {
+        toast.remove();
+      }
     }
 
     async function loadPurchaseOrders() {

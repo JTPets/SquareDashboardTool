@@ -764,8 +764,8 @@
 
     <!-- Tab Navigation -->
     <div class="tab-nav">
-      <button class="active" onclick="switchTab('product-feed')">Products & Sync</button>
-      <button onclick="switchTab('local-inventory')">Local Inventory</button>
+      <button class="active" data-action="switchTab" data-action-param="product-feed">Products & Sync</button>
+      <button data-action="switchTab" data-action-param="local-inventory">Local Inventory</button>
     </div>
 
     <!-- TAB: Products & Sync -->
@@ -773,7 +773,7 @@
 
     <!-- GMC API Settings (Collapsible) -->
     <div class="settings-section" style="padding: 15px 20px; background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleApiSettings()">
+      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" data-action="toggleApiSettings">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-weight: 600; color: #374151;">⚙️ GMC API Settings</span>
           <span id="gmc-connection-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: #fef3c7; color: #92400e;">Not configured</span>
@@ -800,8 +800,8 @@
           </div>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
-          <button onclick="saveGmcApiSettings()" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Settings</button>
-          <button onclick="testGmcConnection()" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Test Connection</button>
+          <button data-action="saveGmcApiSettings" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Settings</button>
+          <button data-action="testGmcConnection" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Test Connection</button>
           <span id="gmc-connection-status" style="font-size: 13px; color: #6b7280;"></span>
         </div>
       </div>
@@ -809,7 +809,7 @@
 
     <!-- Feed URL Settings (Collapsible) -->
     <div class="settings-section" style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb;">
-      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleFeedSettings()">
+      <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" data-action="toggleFeedSettings">
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-weight: 600; color: #374151;">🔗 Product Link Settings</span>
           <span id="feed-url-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: #991b1b;">Not configured</span>
@@ -853,7 +853,7 @@
           </div>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
-          <button onclick="saveFeedSettings()" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Feed Settings</button>
+          <button data-action="saveFeedSettings" style="background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 500;">Save Feed Settings</button>
           <span id="feed-settings-status" style="font-size: 13px; color: #6b7280;"></span>
         </div>
         <div id="url-preview" style="margin-top: 15px; padding: 12px; background: #f9fafb; border-radius: 4px; display: none;">
@@ -866,7 +866,7 @@
     <!-- Sync Controls & Status -->
     <div style="padding: 15px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
       <div style="display: flex; flex-direction: column; gap: 4px;">
-        <button onclick="syncProductsToGmc()" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;" title="Push products directly to Google Merchant Center via API">
+        <button data-action="syncProductsToGmc" style="background: #16a34a; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;" title="Push products directly to Google Merchant Center via API">
           <span>🔄</span> Sync to GMC
         </button>
         <span style="font-size: 11px; color: #9ca3af;">Push products to Google via API</span>
@@ -910,8 +910,8 @@
       <span class="badge green" data-filter="all">All Products</span>
       <span class="badge red" data-filter="no-image">Missing Image</span>
       <span class="badge red" data-filter="no-gtin">Missing GTIN</span>
-      <span class="badge yellow clickable" data-filter="no-brand" onclick="openBrandManager()" title="Click to bulk assign brands">Missing Brand</span>
-      <span class="badge yellow clickable" data-filter="no-category" onclick="openCategoryManager()" title="Click to map categories to Google taxonomy">Missing Category</span>
+      <span class="badge yellow clickable" data-filter="no-brand" data-action="openBrandManager" title="Click to bulk assign brands">Missing Brand</span>
+      <span class="badge yellow clickable" data-filter="no-category" data-action="openCategoryManager" title="Click to map categories to Google taxonomy">Missing Category</span>
       <span class="badge red" data-filter="out-of-stock">Out of Stock</span>
     </div>
 
@@ -920,7 +920,7 @@
       <div class="modal">
         <div class="modal-header">
           <h2>Brand Manager - Auto-Detect & Bulk Assign</h2>
-          <button class="modal-close" onclick="closeBrandManager()">&times;</button>
+          <button class="modal-close" data-action="closeBrandManager">&times;</button>
         </div>
         <div class="modal-body">
           <div class="brand-input-section">
@@ -938,7 +938,7 @@ Wellness"></textarea>
               <br>Example: "Blue Buffalo Chicken Dog Food" will match "Blue Buffalo"
             </div>
           </div>
-          <button class="btn-detect" id="btn-detect-brands" onclick="detectBrands()">
+          <button class="btn-detect" id="btn-detect-brands" data-action="detectBrands">
             Detect Brands from Item Names
           </button>
 
@@ -955,7 +955,7 @@ Wellness"></textarea>
               <thead>
                 <tr class="select-all-row">
                   <th style="width: 40px;">
-                    <input type="checkbox" id="select-all-brands" onchange="toggleAllBrands(this.checked)" checked>
+                    <input type="checkbox" id="select-all-brands" data-change="toggleAllBrandsFromCheckbox" checked>
                   </th>
                   <th>Item Name</th>
                   <th>Category</th>
@@ -976,7 +976,7 @@ Wellness"></textarea>
             <span id="brand-status-msg" style="color: #6b7280; font-size: 14px;"></span>
           </div>
           <div>
-            <button class="btn-apply" id="btn-apply-brands" onclick="applyBrands()" disabled>
+            <button class="btn-apply" id="btn-apply-brands" data-action="applyBrands" disabled>
               Apply Selected Brands to Square
             </button>
           </div>
@@ -989,12 +989,12 @@ Wellness"></textarea>
       <div class="modal" style="max-width: 1400px;">
         <div class="modal-header">
           <h2>Category Manager - Map Square Categories to Google Taxonomy</h2>
-          <button class="modal-close" onclick="closeCategoryManager()">&times;</button>
+          <button class="modal-close" data-action="closeCategoryManager">&times;</button>
         </div>
         <div class="category-stats">
-          <span class="stat-filter active" id="filter-all" onclick="setCategoryFilter('all')">Total: <strong id="cat-total-count">0</strong></span>
-          <span class="stat-filter" id="filter-mapped" onclick="setCategoryFilter('mapped')">Mapped: <strong id="cat-mapped-count">0</strong></span>
-          <span class="stat-filter" id="filter-unmapped" onclick="setCategoryFilter('unmapped')">Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
+          <span class="stat-filter active" id="filter-all" data-action="setCategoryFilter" data-action-param="all">Total: <strong id="cat-total-count">0</strong></span>
+          <span class="stat-filter" id="filter-mapped" data-action="setCategoryFilter" data-action-param="mapped">Mapped: <strong id="cat-mapped-count">0</strong></span>
+          <span class="stat-filter" id="filter-unmapped" data-action="setCategoryFilter" data-action-param="unmapped">Unmapped: <span class="unmapped" id="cat-unmapped-count">0</span></span>
         </div>
         <div class="modal-body">
           <div class="category-manager-grid">
@@ -1002,7 +1002,7 @@ Wellness"></textarea>
             <div class="category-list-panel">
               <div class="panel-header">
                 <span>Square Categories</span>
-                <input type="text" id="category-search" placeholder="Filter categories..." oninput="filterCategories()">
+                <input type="text" id="category-search" placeholder="Filter categories..." data-input="filterCategories">
               </div>
               <div class="panel-body" id="category-list"></div>
             </div>
@@ -1011,8 +1011,8 @@ Wellness"></textarea>
               <div class="panel-header">
                 <span>Google Product Taxonomy</span>
                 <div style="display: flex; gap: 8px; align-items: center;">
-                  <input type="text" id="taxonomy-search" placeholder="Search taxonomy..." oninput="filterTaxonomy()">
-                  <button class="btn-import-taxonomy" id="btn-import-taxonomy" onclick="importGoogleTaxonomy()" title="Import Google's official taxonomy">
+                  <input type="text" id="taxonomy-search" placeholder="Search taxonomy..." data-input="filterTaxonomy">
+                  <button class="btn-import-taxonomy" id="btn-import-taxonomy" data-action="importGoogleTaxonomy" title="Import Google's official taxonomy">
                     Import
                   </button>
                 </div>
@@ -1031,10 +1031,10 @@ Wellness"></textarea>
             <span id="category-status-msg" style="color: #6b7280; font-size: 14px;"></span>
           </div>
           <div style="display: flex; gap: 10px;">
-            <button class="btn-remove-mapping" id="btn-remove-mapping" onclick="removeCategoryMapping()" disabled>
+            <button class="btn-remove-mapping" id="btn-remove-mapping" data-action="removeCategoryMapping" disabled>
               Remove Mapping
             </button>
-            <button class="btn-assign" id="btn-assign-taxonomy" onclick="assignTaxonomy()" disabled>
+            <button class="btn-assign" id="btn-assign-taxonomy" data-action="assignTaxonomy" disabled>
               Assign Selected Taxonomy
             </button>
           </div>
@@ -1048,8 +1048,8 @@ Wellness"></textarea>
       <select id="category-filter">
         <option value="">All Categories</option>
       </select>
-      <button class="secondary" onclick="downloadTsv()" title="Download the current feed as TSV">Download TSV</button>
-      <button class="secondary" onclick="exportCsv()">Export CSV</button>
+      <button class="secondary" data-action="downloadTsv" title="Download the current feed as TSV">Download TSV</button>
+      <button class="secondary" data-action="exportCsv">Export CSV</button>
     </div>
 
     <!-- Table -->
@@ -1086,9 +1086,9 @@ Wellness"></textarea>
 
     <!-- Pagination -->
     <div class="pagination">
-      <button id="prev-btn" onclick="prevPage()" disabled>Previous</button>
+      <button id="prev-btn" data-action="prevPage" disabled>Previous</button>
       <span class="page-info" id="page-info">Page 1 of 1</span>
-      <button id="next-btn" onclick="nextPage()" disabled>Next</button>
+      <button id="next-btn" data-action="nextPage" disabled>Next</button>
     </div>
     </div><!-- END TAB: Product Feed -->
 
@@ -1129,7 +1129,7 @@ Wellness"></textarea>
             <label style="display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px;">Local Inventory Feed URL:</label>
             <div style="display: flex; gap: 8px;">
               <input type="text" id="local-inventory-feed-url" readonly placeholder="Loading..." style="flex: 1; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px;">
-              <button onclick="copyLocalFeedUrl()" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
+              <button data-action="copyLocalFeedUrl" style="background: #3b82f6; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap;">Copy</button>
             </div>
           </div>
         </div>
@@ -1144,10 +1144,10 @@ Wellness"></textarea>
               </p>
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
-              <select id="local-inventory-location-select" onchange="loadLocalInventoryPreview()" style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
+              <select id="local-inventory-location-select" data-change="loadLocalInventoryPreview" style="padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
                 <option value="">Select a location...</option>
               </select>
-              <button onclick="downloadLocalInventoryTsv()" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">Download TSV</button>
+              <button data-action="downloadLocalInventoryTsv" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px;">Download TSV</button>
             </div>
           </div>
 
@@ -1195,15 +1195,18 @@ Wellness"></textarea>
             </table>
           </div>
           <div id="local-inventory-pagination" style="display: none; padding: 10px; background: #f9fafb; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
-            <button onclick="prevLocalInventoryPage()" id="li-prev-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Previous</button>
+            <button data-action="prevLocalInventoryPage" id="li-prev-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Previous</button>
             <span id="li-page-info" style="font-size: 13px; color: #6b7280;">Page 1 of 1</span>
-            <button onclick="nextLocalInventoryPage()" id="li-next-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Next</button>
+            <button data-action="nextLocalInventoryPage" id="li-next-btn" disabled style="padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer;">Next</button>
           </div>
         </div>
 
       </div>
     </div><!-- END TAB: Local Inventory -->
   </div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
@@ -1403,7 +1406,7 @@ Wellness"></textarea>
         <tr>
           <td>
             ${p.image_link
-              ? `<img src="${p.image_link}" class="thumbnail" alt="" onerror="this.outerHTML='<div class=\\'no-image\\'>ERR</div>'">`
+              ? `<img src="${p.image_link}" class="thumbnail" alt="" data-error-action="showImageError">`
               : '<div class="no-image">NONE</div>'}
           </td>
           <td style="font-family: monospace; font-size: 10px;" title="${escapeHtml(p.id || '')}">${p.id ? p.id.substring(0, 10) + '...' : '-'}</td>
@@ -1618,7 +1621,7 @@ Wellness"></textarea>
         <tr>
           <td>
             <input type="checkbox" class="brand-checkbox" data-index="${idx}"
-                   ${item.selected ? 'checked' : ''} onchange="updateSelectedCount()">
+                   ${item.selected ? 'checked' : ''} data-change="updateSelectedCount">
           </td>
           <td title="${escapeHtml(item.item_name)}">${escapeHtml(item.item_name.substring(0, 60))}${item.item_name.length > 60 ? '...' : ''}</td>
           <td>${escapeHtml(item.category || '-')}</td>
@@ -1888,7 +1891,7 @@ Wellness"></textarea>
       const container = document.getElementById('category-list');
       container.innerHTML = filteredCategories.map(cat => `
         <div class="category-item ${cat.google_taxonomy_id ? 'mapped' : ''} ${selectedCategory?.category_name === cat.category_name ? 'selected' : ''}"
-             onclick="selectCategory('${escapeJsString(cat.category_name)}')">
+             data-action="selectCategory" data-action-param="${escapeJsString(cat.category_name)}">
           <div class="cat-name">${escapeHtml(cat.category_name)} <span class="cat-count">(${cat.product_count} products)</span></div>
           <div class="cat-mapping ${cat.google_taxonomy_id ? '' : 'not-mapped'}">
             ${cat.google_taxonomy_id
@@ -1911,7 +1914,7 @@ Wellness"></textarea>
         }
         return `
           <div class="taxonomy-item ${selectedTaxonomy?.id === tax.id ? 'selected' : ''}"
-               onclick="selectTaxonomy(${tax.id})">
+               data-action="selectTaxonomy" data-action-param="${tax.id}">
             <span class="tax-id">${tax.id}</span>
             <span class="tax-name">${displayName}</span>
           </div>
@@ -2388,7 +2391,7 @@ Wellness"></textarea>
         if (data.async) {
           // Sync is running in background
           statusEl.style.color = '#2563eb';
-          statusEl.innerHTML = 'Sync running in background... <a href="#" onclick="loadSyncHistory(); return false;" style="color: #2563eb;">Refresh history</a>';
+          statusEl.innerHTML = 'Sync running in background... <a href="#" data-action="loadSyncHistory" style="color: #2563eb;">Refresh history</a>';
 
           // Start polling for completion
           pollSyncStatus('product_catalog', statusEl);
@@ -2673,7 +2676,7 @@ Wellness"></textarea>
                    ${loc.enabled ? 'checked' : ''}>
           </td>
           <td>
-            <button class="btn-save-row" onclick="saveLocationSetting('${escapeJsString(loc.location_id)}', ${idx})">Save</button>
+            <button class="btn-save-row" data-action="saveLocationSettingFromButton" data-location-id="${escapeJsString(loc.location_id)}" data-idx="${idx}">Save</button>
           </td>
         </tr>
       `).join('');
@@ -2712,6 +2715,13 @@ Wellness"></textarea>
       } catch (error) {
         alert('Error: ' + error.message);
       }
+    }
+
+    // Helper function for event delegation
+    function saveLocationSettingFromButton(element) {
+      const locationId = element.dataset.locationId;
+      const idx = parseInt(element.dataset.idx, 10);
+      saveLocationSetting(locationId, idx);
     }
 
     // Initialize

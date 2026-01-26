@@ -562,7 +562,7 @@
           <div class="user-email" id="user-email">Loading...</div>
           <div class="user-role" id="user-role"></div>
         </div>
-        <button class="btn-logout" onclick="logout()">Logout</button>
+        <button class="btn-logout" data-action="logout">Logout</button>
       </div>
     </div>
 
@@ -598,11 +598,11 @@
 
       <!-- Row 2: Expiration & Cycle Count Metrics -->
       <div class="stats-row">
-        <div class="stat clickable" onclick="window.location.href='expiry-audit.html?filter=no-data'" title="Audit items missing expiry data">
+        <div class="stat clickable" data-action="navigate" data-action-param="expiry-audit.html?filter=no-data" title="Audit items missing expiry data">
           <div class="stat-number loading-placeholder" id="stat-expiry-data">--</div>
           <div class="stat-label">With Expiry Data</div>
         </div>
-        <div class="stat clickable" onclick="window.location.href='expiry-audit.html'" title="Open expiry audit tool">
+        <div class="stat clickable" data-action="navigate" data-action-param="expiry-audit.html" title="Open expiry audit tool">
           <div class="stat-number loading-placeholder alert" id="stat-expiring-soon">--</div>
           <div class="stat-label">Expiring &lt; 120 Days</div>
         </div>
@@ -751,14 +751,14 @@
 
         <div class="api-category">
           <h4>✏️ Variation Extended Fields</h4>
-          <a href="#" onclick="alert('Use PATCH with variation ID')" target="_blank">PATCH /api/variations/:id/extended</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/variations/bulk-update-extended</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use PATCH with variation ID">PATCH /api/variations/:id/extended</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/variations/bulk-update-extended</a>
         </div>
 
         <div class="api-category">
           <h4>📅 Expiration Tracking</h4>
           <a href="/api/expirations" target="_blank">GET /api/expirations</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/expirations</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/expirations</a>
         </div>
 
         <div class="api-category">
@@ -788,8 +788,8 @@
           <a href="/api/vendor-catalog" target="_blank">GET /api/vendor-catalog</a>
           <a href="/api/vendor-catalog/stats" target="_blank">GET /api/vendor-catalog/stats</a>
           <a href="/api/vendor-catalog/batches" target="_blank">GET /api/vendor-catalog/batches</a>
-          <a href="#" onclick="alert('Use POST with JSON body')" target="_blank">POST /api/vendor-catalog/import</a>
-          <a href="#" onclick="alert('Use GET with UPC param')" target="_blank">GET /api/vendor-catalog/lookup/:upc</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST with JSON body">POST /api/vendor-catalog/import</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use GET with UPC param">GET /api/vendor-catalog/lookup/:upc</a>
         </div>
 
         <div class="api-category">
@@ -809,23 +809,23 @@
           <a href="/api/cycle-counts/pending" target="_blank">GET /api/cycle-counts/pending</a>
           <a href="/api/cycle-counts/stats" target="_blank">GET /api/cycle-counts/stats</a>
           <a href="/api/cycle-counts/history" target="_blank">GET /api/cycle-counts/history</a>
-          <a href="#" onclick="alert('Use POST with count ID')" target="_blank">POST /api/cycle-counts/:id/complete</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/send-now</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/email-report</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/generate-batch</a>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/cycle-counts/reset</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST with count ID">POST /api/cycle-counts/:id/complete</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/cycle-counts/send-now</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/cycle-counts/email-report</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/cycle-counts/generate-batch</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/cycle-counts/reset</a>
         </div>
 
         <div class="api-category">
           <h4>📝 Purchase Orders</h4>
-          <a href="#" onclick="alert('Use POST request')" target="_blank">POST /api/purchase-orders</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST request">POST /api/purchase-orders</a>
           <a href="/api/purchase-orders" target="_blank">GET /api/purchase-orders</a>
-          <a href="#" onclick="alert('Use GET with PO ID')" target="_blank">GET /api/purchase-orders/:id</a>
-          <a href="#" onclick="alert('Use PATCH with PO ID')" target="_blank">PATCH /api/purchase-orders/:id</a>
-          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/submit</a>
-          <a href="#" onclick="alert('Use POST with PO ID')" target="_blank">POST /api/purchase-orders/:id/receive</a>
-          <a href="#" onclick="alert('Use DELETE with PO ID')" target="_blank">DELETE /api/purchase-orders/:id</a>
-          <a href="#" onclick="alert('Use GET with PO number')" target="_blank">GET /api/purchase-orders/:po_number/export-csv</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use GET with PO ID">GET /api/purchase-orders/:id</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use PATCH with PO ID">PATCH /api/purchase-orders/:id</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST with PO ID">POST /api/purchase-orders/:id/submit</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use POST with PO ID">POST /api/purchase-orders/:id/receive</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use DELETE with PO ID">DELETE /api/purchase-orders/:id</a>
+          <a href="#" data-action="showApiInfo" data-action-param="Use GET with PO number">GET /api/purchase-orders/:po_number/export-csv</a>
         </div>
 
         <div class="api-category">
@@ -845,9 +845,9 @@
       |
       <a href="/support.html">Support</a>
       |
-      <a href="#" onclick="toggleApiList(); return false;">API Reference</a>
+      <a href="#" data-action="toggleApiList">API Reference</a>
       |
-      <a href="#" onclick="showHealthModal(); return false;">System Health</a>
+      <a href="#" data-action="showHealthModal">System Health</a>
       |
       Created by <a href="https://jtpets.ca" target="_blank" rel="noopener">JTPets.ca</a>
       |
@@ -860,7 +860,7 @@
     <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h3 style="margin: 0;">💚 System Health</h3>
-        <button onclick="hideHealthModal()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+        <button data-action="hideHealthModal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
       </div>
       <div id="health-content" style="font-size: 14px;">
         <p style="color: #6b7280;">Loading...</p>
@@ -874,7 +874,7 @@
       <div class="icon">🏪</div>
       <h2>Connect Your Square Account</h2>
       <p>To use the dashboard tools, you need to connect your Square merchant account. This allows us to securely access your catalog, inventory, and sales data.</p>
-      <button class="btn-connect" onclick="connectSquare()">
+      <button class="btn-connect" data-action="connectSquare">
         Connect Square Account
       </button>
       <p style="margin-top: 20px; font-size: 12px; color: #9ca3af;">
@@ -882,6 +882,9 @@
       </p>
     </div>
   </div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
@@ -905,6 +908,16 @@
 
     function hideHealthModal() {
       document.getElementById('health-modal').style.display = 'none';
+    }
+
+    // Navigate to URL (for data-action handler)
+    function navigate(url, element, event) {
+      window.location.href = url;
+    }
+
+    // Show API info alert (for data-action handler)
+    function showApiInfo(message, element, event) {
+      alert(message);
     }
 
     async function loadHealthStatus() {
@@ -1127,7 +1140,7 @@
         });
 
         html += parts.join(' | ');
-        html += ' | <button onclick="runSmartSync()">Manual Sync</button>';
+        html += ' | <button data-action="runSmartSync">Manual Sync</button>';
 
         document.getElementById('sync-status').innerHTML = html;
         document.getElementById('sync-status').classList.remove('loading');
