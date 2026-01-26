@@ -101,10 +101,6 @@ function getPublicAppUrl(req) {
     return `${req.protocol}://${req.get('host')}`;
 }
 
-// AWS S3 Configuration for product images
-const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'items-images-production';
-const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
-
 // ==================== SECURITY MIDDLEWARE ====================
 
 // Trust proxy (required when behind Cloudflare, nginx, etc.)
@@ -493,20 +489,13 @@ async function resolveImageUrls(variationImages, itemImages = null) {
             }
         });
 
-        // Return URLs in the same order as imageIds, with fallback format
-        return imageIds.map(id => {
-            if (urlMap[id]) {
-                return urlMap[id];
-            }
-            // Fallback: construct S3 URL from environment variables
-            return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
-        });
+        // Return URLs in the same order as imageIds, filtering out missing ones
+        return imageIds
+            .map(id => urlMap[id] || null)
+            .filter(url => url !== null);
     } catch (error) {
         logger.error('Error resolving image URLs', { error: error.message, stack: error.stack });
-        // Return fallback URLs from environment variables
-        return imageIds.map(id =>
-            `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`
-        );
+        return [];
     }
 }
 
