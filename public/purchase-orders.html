@@ -595,7 +595,7 @@
     <div class="modal-content" id="modal-content">
       <div class="modal-header">
         <h2 id="modal-title">Purchase Order Details</h2>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <button class="modal-close" data-action="closeModal">&times;</button>
       </div>
       <div class="modal-body" id="modal-body">
         <div class="loading">Loading...</div>
@@ -611,20 +611,22 @@
     <div class="modal-content confirm-modal">
       <div class="modal-header">
         <h2 id="confirm-title">Confirm Action</h2>
-        <button class="modal-close" onclick="closeConfirmModal()">&times;</button>
+        <button class="modal-close" data-action="closeConfirmModal">&times;</button>
       </div>
       <div class="confirm-body" id="confirm-body">
         <!-- Confirmation content will be inserted here -->
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
-        <button class="btn btn-primary" id="confirm-action-btn" onclick="confirmAction()">Confirm</button>
+        <button class="btn btn-secondary" data-action="closeConfirmModal">Cancel</button>
+        <button class="btn btn-primary" id="confirm-action-btn" data-action="confirmAction">Confirm</button>
       </div>
     </div>
   </div>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     // Global state
@@ -725,13 +727,13 @@
                   <td class="text-nowrap">${formatDate(po.created_at)}</td>
                   <td class="text-nowrap">
                     <div class="btn-group">
-                      <button onclick="viewPO(${po.id})"
+                      <button data-action="viewPO" data-action-param="${po.id}"
                               class="btn btn-secondary btn-small"
                               title="View purchase order details">
                         👁️ View
                       </button>
                       ${po.status === 'DRAFT' ? `
-                        <button onclick="deletePO(${po.id}, '${escapeJsString(po.po_number)}')"
+                        <button data-action="deletePO" data-action-param="${po.id}" data-po-number="${escapeHtml(po.po_number)}"
                                 class="btn btn-danger btn-small"
                                 title="Delete draft purchase order">
                           🗑️ Delete
@@ -804,7 +806,9 @@
     }
 
     // View PO details in modal
-    async function viewPO(poId) {
+    async function viewPO(elementOrId, event, param) {
+      // Support both: viewPO(poId) and viewPO(element, event, param)
+      const poId = param || elementOrId;
       const modal = document.getElementById('view-po-modal');
       const modalBody = document.getElementById('modal-body');
       const modalTitle = document.getElementById('modal-title');
@@ -980,12 +984,12 @@
                value="${item.quantity_ordered}"
                min="0"
                step="any"
-               onchange="updateItemQuantity(${index}, this.value)">
+               data-change="updateItemQuantity">
       ` : item.quantity_ordered;
 
       const deleteBtn = isEditMode ? `
         <button class="btn-icon delete"
-                onclick="removeItem(${index})"
+                data-action="removeItem" data-action-param="${index}"
                 title="Remove item">
           🗑️
         </button>
@@ -1017,8 +1021,19 @@
     }
 
     // Update item quantity
-    function updateItemQuantity(index, newQty) {
-      const qty = parseFloat(newQty) || 0;
+    function updateItemQuantity(elementOrIndex, eventOrQty) {
+      // Support both: updateItemQuantity(index, newQty) and updateItemQuantity(element, event) for event delegation
+      let index, qty;
+      if (eventOrQty && typeof eventOrQty === 'object') {
+        // Event delegation: (element, event)
+        index = parseInt(elementOrIndex.dataset.index);
+        qty = parseFloat(elementOrIndex.value) || 0;
+      } else {
+        // Direct call: (index, newQty)
+        index = elementOrIndex;
+        qty = parseFloat(eventOrQty) || 0;
+      }
+
       currentPO.items[index].quantity_ordered = qty;
 
       // Update item total
@@ -1037,7 +1052,9 @@
     }
 
     // Remove item
-    function removeItem(index) {
+    function removeItem(elementOrIndex, event, param) {
+      // Support both: removeItem(index) and removeItem(element, event, param)
+      const index = param !== undefined ? parseInt(param) : elementOrIndex;
       if (!confirm('Remove this item from the purchase order?')) return;
 
       currentPO.items.splice(index, 1);
@@ -1052,22 +1069,22 @@
       if (isEditMode) {
         // Edit mode buttons
         modalFooter.innerHTML = `
-          <button class="btn btn-secondary" onclick="cancelEdit()">Cancel</button>
-          <button class="btn btn-success" onclick="saveChanges()">💾 Save Changes</button>
+          <button class="btn btn-secondary" data-action="cancelEdit">Cancel</button>
+          <button class="btn btn-success" data-action="saveChanges">💾 Save Changes</button>
         `;
         modalFooter.style.display = 'flex';
       } else if (po.status === 'DRAFT') {
         // DRAFT PO buttons
         modalFooter.innerHTML = `
-          <button class="btn btn-secondary" onclick="closeModal()">Close</button>
-          <button class="btn btn-warning" onclick="enterEditMode()">✏️ Edit</button>
-          <button class="btn btn-success" onclick="showSubmitConfirmation()">✅ Submit PO</button>
+          <button class="btn btn-secondary" data-action="closeModal">Close</button>
+          <button class="btn btn-warning" data-action="enterEditMode">✏️ Edit</button>
+          <button class="btn btn-success" data-action="showSubmitConfirmation">✅ Submit PO</button>
         `;
         modalFooter.style.display = 'flex';
       } else {
         // Other statuses - just close button
         modalFooter.innerHTML = `
-          <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+          <button class="btn btn-secondary" data-action="closeModal">Close</button>
         `;
         modalFooter.style.display = 'flex';
       }
@@ -1147,7 +1164,19 @@
     }
 
     // Delete PO
-    async function deletePO(poId, poNumber) {
+    async function deletePO(elementOrId, eventOrNumber, param) {
+      // Support both: deletePO(poId, poNumber) and deletePO(element, event, param)
+      let poId, poNumber;
+      if (param !== undefined) {
+        // Event delegation: (element, event, param)
+        poId = param;
+        poNumber = elementOrId.dataset.poNumber || 'this PO';
+      } else {
+        // Direct call: (poId, poNumber)
+        poId = elementOrId;
+        poNumber = eventOrNumber || 'this PO';
+      }
+
       if (!confirm(`Are you sure you want to delete purchase order ${poNumber}?\n\nThis action cannot be undone.`)) {
         return;
       }

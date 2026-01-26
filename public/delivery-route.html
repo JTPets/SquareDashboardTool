@@ -573,7 +573,7 @@
     <div class="header-top">
       <h1 id="routeTitle">Today's Route</h1>
       <div style="display: flex; gap: 15px; align-items: center;">
-        <a href="#" class="back-link" onclick="openShareModal(); return false;">Share</a>
+        <a href="#" class="back-link" data-action="openShareModal">Share</a>
         <a href="/delivery-history.html" class="back-link">History</a>
         <a href="/delivery.html" class="back-link">Back</a>
       </div>
@@ -605,7 +605,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Proof of Delivery</h2>
-        <button class="modal-close" onclick="closePodModal()">&times;</button>
+        <button class="modal-close" data-action="closePodModal">&times;</button>
       </div>
       <div class="modal-body">
         <img class="pod-preview" id="podPreview">
@@ -614,12 +614,12 @@
             <div class="icon">📷</div>
             <div>Tap to take photo or select from gallery</div>
           </div>
-          <input type="file" accept="image/*" capture="environment" id="podFileInput" onchange="handlePodSelect(event)">
+          <input type="file" accept="image/*" capture="environment" id="podFileInput" data-change="handlePodSelect">
         </div>
       </div>
       <div class="modal-footer" id="podModalFooter" style="display: none;">
-        <button class="btn btn-secondary" onclick="resetPodModal()">Retake</button>
-        <button class="btn btn-success" onclick="uploadPod()">Confirm & Save</button>
+        <button class="btn btn-secondary" data-action="resetPodModal">Retake</button>
+        <button class="btn btn-success" data-action="uploadPod">Confirm & Save</button>
       </div>
     </div>
   </div>
@@ -629,7 +629,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Customer Info</h2>
-        <button class="modal-close" onclick="closeNoteModal()">&times;</button>
+        <button class="modal-close" data-action="closeNoteModal">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
@@ -639,8 +639,8 @@
           style="width: 100%; height: 120px; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; resize: none;"></textarea>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeNoteModal()">Cancel</button>
-        <button class="btn btn-success" onclick="saveCustomerNote()">Save to Customer</button>
+        <button class="btn btn-secondary" data-action="closeNoteModal">Cancel</button>
+        <button class="btn btn-success" data-action="saveCustomerNote">Save to Customer</button>
       </div>
     </div>
   </div>
@@ -650,7 +650,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Share Route</h2>
-        <button class="modal-close" onclick="closeShareModal()">&times;</button>
+        <button class="modal-close" data-action="closeShareModal">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 13px; color: #6b7280; margin-bottom: 15px;">
@@ -658,7 +658,7 @@
         </p>
         <div id="shareContent">
           <div id="noShareToken" style="text-align: center; padding: 20px;">
-            <button class="btn btn-primary" onclick="generateShareLink()" style="width: 100%;">
+            <button class="btn btn-primary" data-action="generateShareLink" style="width: 100%;">
               Generate Share Link
             </button>
           </div>
@@ -668,10 +668,10 @@
               <input type="text" id="shareUrlInput" readonly style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; background: white;">
             </div>
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-              <button class="btn btn-primary" onclick="copyShareUrl()" style="flex: 1;">
+              <button class="btn btn-primary" data-action="copyShareUrl" style="flex: 1;">
                 📋 Copy Link
               </button>
-              <button class="btn btn-secondary" onclick="regenerateShareLink()" style="flex: 1;">
+              <button class="btn btn-secondary" data-action="regenerateShareLink" style="flex: 1;">
                 🔄 New Link
               </button>
             </div>
@@ -682,8 +682,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closeShareModal()" style="flex: 1;">Close</button>
-        <button class="btn btn-warning" id="revokeBtn" onclick="revokeShareLink()" style="flex: 1; display: none;">
+        <button class="btn btn-secondary" data-action="closeShareModal" style="flex: 1;">Close</button>
+        <button class="btn btn-warning" id="revokeBtn" data-action="revokeShareLink" style="flex: 1; display: none;">
           Revoke Access
         </button>
       </div>
@@ -700,6 +700,9 @@
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let route = null;
@@ -820,7 +823,7 @@
               <span class="stop-status status-${stop.status}">${stop.status}</span>
             </div>
             <div class="stop-body">
-              <div class="stop-address" onclick="openInMaps('${escapeJsString(stop.address)}')">
+              <div class="stop-address" data-action="openInMaps" data-action-param="${escapeHtml(stop.address)}">
                 <span class="icon">📍</span>
                 <span class="text">${escapeHtml(stop.address)}</span>
                 <span class="arrow">›</span>
@@ -835,13 +838,13 @@
 
               ${stop.customer_note ? `
                 <div class="stop-customer-notes">
-                  <button class="edit-btn" onclick="editCustomerNote('${escapeJsString(stop.id)}', '${escapeJsString(stop.customer_note || '')}')">Edit</button>
+                  <button class="edit-btn" data-action="editCustomerNote" data-action-param="${escapeHtml(stop.id)}" data-note="${escapeHtml(stop.customer_note || '')}">Edit</button>
                   <strong>🏠 Customer Info:</strong>
                   ${escapeHtml(stop.customer_note)}
                 </div>
               ` : (stop.square_customer_id ? `
                 <div class="stop-customer-notes" style="opacity: 0.7;">
-                  <button class="edit-btn" onclick="editCustomerNote('${escapeJsString(stop.id)}', '')">+ Add</button>
+                  <button class="edit-btn" data-action="editCustomerNote" data-action-param="${escapeHtml(stop.id)}" data-note="">+ Add</button>
                   <strong>🏠 Customer Info:</strong>
                   <em>No notes saved for this customer</em>
                 </div>
@@ -856,7 +859,7 @@
 
               ${stop.square_order_data && stop.square_order_data.lineItems && stop.square_order_data.lineItems.length > 0 ? `
                 <div class="stop-order-items">
-                  <button class="order-items-toggle" onclick="toggleOrderItems('${escapeJsString(stop.id)}')">
+                  <button class="order-items-toggle" data-action="toggleOrderItems" data-action-param="${escapeHtml(stop.id)}">
                     📦 View Order Items (${stop.square_order_data.lineItems.length})
                     <span class="toggle-arrow" id="arrow-${stop.id}">▼</span>
                   </button>
@@ -881,15 +884,15 @@
               ${!isCompleted ? `
                 <div class="stop-actions">
                   ${!stop.pod_photo_path ? `
-                    <button class="btn btn-primary" onclick="openPodModal('${escapeJsString(stop.id)}')">
+                    <button class="btn btn-primary" data-action="openPodModal" data-action-param="${escapeHtml(stop.id)}">
                       📷 Photo
                     </button>
                   ` : ''}
-                  <button class="btn btn-success" onclick="completeStop('${escapeJsString(stop.id)}')">
+                  <button class="btn btn-success" data-action="completeStop" data-action-param="${escapeHtml(stop.id)}">
                     ✓ Complete
                   </button>
                   ${stop.status !== 'skipped' ? `
-                    <button class="btn btn-warning" onclick="skipStop('${escapeJsString(stop.id)}')">
+                    <button class="btn btn-warning" data-action="skipStop" data-action-param="${escapeHtml(stop.id)}">
                       Skip
                     </button>
                   ` : ''}
@@ -913,7 +916,7 @@
             </div>
             <div class="stop-body">
               <p style="color: #ef4444;">Error displaying this stop. Check console for details.</p>
-              ${stop?.address ? `<div class="stop-address" onclick="openInMaps('${escapeJsString(stop.address)}')">
+              ${stop?.address ? `<div class="stop-address" data-action="openInMaps" data-action-param="${escapeHtml(stop.address)}">
                 <span class="icon">📍</span>
                 <span class="text">${escapeHtml(stop.address)}</span>
               </div>` : ''}
@@ -989,7 +992,10 @@
       badgeContainer.innerHTML = badges.join('');
     }
 
-    function openInMaps(address) {
+    function openInMaps(elementOrAddress, event, param) {
+      // Support both: openInMaps(address) and openInMaps(element, event, param)
+      const address = param || elementOrAddress;
+
       // Try to detect platform and open in native maps
       const encodedAddress = encodeURIComponent(address);
 
@@ -1006,7 +1012,9 @@
       }
     }
 
-    function toggleOrderItems(orderId) {
+    function toggleOrderItems(elementOrId, event, param) {
+      // Support both: toggleOrderItems(orderId) and toggleOrderItems(element, event, param)
+      const orderId = param || elementOrId;
       const itemsList = document.getElementById(`items-${orderId}`);
       const arrow = document.getElementById(`arrow-${orderId}`);
       if (itemsList && arrow) {
@@ -1016,7 +1024,9 @@
       }
     }
 
-    function openPodModal(orderId) {
+    function openPodModal(elementOrId, event, param) {
+      // Support both: openPodModal(orderId) and openPodModal(element, event, param)
+      const orderId = param || elementOrId;
       currentPodOrderId = orderId;
       podFile = null;
       document.getElementById('podPreview').classList.remove('visible');
@@ -1040,8 +1050,11 @@
       document.getElementById('podFileInput').value = '';
     }
 
-    function handlePodSelect(event) {
-      const file = event.target.files[0];
+    function handlePodSelect(elementOrEvent, event) {
+      // Support both: handlePodSelect(event) and handlePodSelect(element, event) for event delegation
+      const actualEvent = event || elementOrEvent;
+      const target = actualEvent.target || elementOrEvent;
+      const file = target.files ? target.files[0] : null;
       if (!file) return;
 
       podFile = file;
@@ -1099,7 +1112,9 @@
       }
     }
 
-    async function completeStop(orderId) {
+    async function completeStop(elementOrId, event, param) {
+      // Support both: completeStop(orderId) and completeStop(element, event, param)
+      const orderId = param || elementOrId;
       if (!confirm('Mark this delivery as complete?')) return;
 
       showLoading(true);
@@ -1133,7 +1148,9 @@
       }
     }
 
-    async function skipStop(orderId) {
+    async function skipStop(elementOrId, event, param) {
+      // Support both: skipStop(orderId) and skipStop(element, event, param)
+      const orderId = param || elementOrId;
       if (!confirm('Skip this stop? It will return to the queue for tomorrow.')) return;
 
       showLoading(true);
@@ -1157,7 +1174,18 @@
       }
     }
 
-    function editCustomerNote(orderId, currentNote) {
+    function editCustomerNote(elementOrId, eventOrNote, param) {
+      // Support both: editCustomerNote(orderId, currentNote) and editCustomerNote(element, event, param)
+      let orderId, currentNote;
+      if (param !== undefined) {
+        // Event delegation: (element, event, param)
+        orderId = param;
+        currentNote = elementOrId.dataset.note || '';
+      } else {
+        // Direct call: (orderId, currentNote)
+        orderId = elementOrId;
+        currentNote = eventOrNote || '';
+      }
       currentNoteOrderId = orderId;
       document.getElementById('customerNoteInput').value = currentNote || '';
       document.getElementById('noteModal').classList.add('active');
