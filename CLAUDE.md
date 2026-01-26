@@ -401,26 +401,19 @@ scriptSrc: [
 
 #### Migration Plan
 
-**Phase 1: Wire Up Modern Service (Add Feature Flag)**
+**Phase 1: Wire Up Modern Service (Add Feature Flag)** ✅ COMPLETE
 ```
-File: services/webhook-handlers/order-handler.js
+Files modified:
+  - services/webhook-handlers/order-handler.js
+  - services/webhook-handlers/loyalty-handler.js
+  - .env.example (added USE_NEW_LOYALTY_SERVICE=false)
 
-Add at top:
-  const { LoyaltyWebhookService } = require('../loyalty');
+Both handlers now check USE_NEW_LOYALTY_SERVICE and call either:
+  - Modern: LoyaltyWebhookService.processOrder()
+  - Legacy: loyaltyService.processOrderForLoyalty() (default)
 
-Replace (around line 240):
-  // OLD:
-  const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
-
-  // NEW:
-  let loyaltyResult;
-  if (process.env.USE_NEW_LOYALTY_SERVICE === 'true') {
-      const service = new LoyaltyWebhookService(merchantId);
-      await service.initialize();
-      loyaltyResult = await service.processOrder(order, { source: 'WEBHOOK' });
-  } else {
-      loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
-  }
+Results are normalized to legacy format for backward compatibility.
+Other legacy functions (redemption detection, refunds, discounts) still use legacy service.
 ```
 
 **Phase 2: Test in Production**

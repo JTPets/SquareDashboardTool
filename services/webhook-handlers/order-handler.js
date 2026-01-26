@@ -26,8 +26,67 @@ const deliveryApi = require('../../utils/delivery-api');
 const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 
+// Modern loyalty service (feature-flagged)
+const { LoyaltyWebhookService } = require('../loyalty');
+
 // Square API version for direct API calls
 const SQUARE_API_VERSION = '2025-01-16';
+
+/**
+ * Process order for loyalty using either modern or legacy service
+ * Feature flag: USE_NEW_LOYALTY_SERVICE
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @param {Object} [options] - Processing options
+ * @param {string} [options.source] - Source of event (e.g., 'WEBHOOK', 'PAYMENT')
+ * @returns {Promise<Object>} Normalized result compatible with legacy format
+ */
+async function processOrderForLoyalty(order, merchantId, options = {}) {
+    const { source = 'WEBHOOK' } = options;
+
+    if (process.env.USE_NEW_LOYALTY_SERVICE === 'true') {
+        // Use modern service
+        logger.debug('Using modern loyalty service for order processing', {
+            orderId: order.id,
+            merchantId,
+            source
+        });
+
+        const service = new LoyaltyWebhookService(merchantId);
+        await service.initialize();
+        const result = await service.processOrder(order, { source });
+
+        // Adapt modern result to legacy format for compatibility
+        // Modern: { processed, customerId, lineItemResults, summary, trace }
+        // Legacy: { processed, purchasesRecorded, customerId }
+        return {
+            processed: result.processed,
+            customerId: result.customerId || null,
+            purchasesRecorded: (result.lineItemResults || [])
+                .filter(r => r.recorded)
+                .map(r => ({
+                    variationId: r.variationId,
+                    quantity: r.quantity,
+                    rewardEarned: r.rewardEarned || false,
+                    rewardId: r.purchaseResult?.results?.[0]?.progress?.rewardEarned
+                        ? r.purchaseResult.results[0].purchaseEventId
+                        : null,
+                    reward: r.rewardEarned ? {
+                        status: 'earned',
+                        rewardId: r.purchaseResult?.results?.[0]?.purchaseEventId
+                    } : null
+                })),
+            // Include modern-only fields for enhanced logging
+            _modern: true,
+            _trace: result.trace,
+            _summary: result.summary
+        };
+    }
+
+    // Use legacy service (default)
+    return loyaltyService.processOrderForLoyalty(order, merchantId);
+}
 
 class OrderHandler {
     /**
@@ -237,7 +296,7 @@ class OrderHandler {
      */
     async _processLoyalty(order, merchantId, result) {
         try {
-            const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+            const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source: 'WEBHOOK' });
             if (loyaltyResult.processed) {
                 result.loyalty = {
                     purchasesRecorded: loyaltyResult.purchasesRecorded.length,
@@ -540,7 +599,7 @@ class OrderHandler {
             const order = orderResponse.order;
 
             // Process for loyalty
-            const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+            const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source });
             if (loyaltyResult.processed) {
                 result.loyalty = {
                     purchasesRecorded: loyaltyResult.purchasesRecorded.length,
