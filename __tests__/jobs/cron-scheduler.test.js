@@ -53,6 +53,8 @@ describe('CronScheduler', () => {
         jest.clearAllMocks();
         // Clear the internal cronTasks array by stopping any previous jobs
         stopCronJobs();
+        // Clear GMC schedule to ensure consistent test results
+        delete process.env.GMC_SYNC_CRON_SCHEDULE;
     });
 
     describe('initializeCronJobs', () => {
