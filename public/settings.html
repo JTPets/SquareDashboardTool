@@ -338,7 +338,7 @@
               <span class="connection-name">Square API</span>
             </div>
             <div class="connection-status" id="square-status">Checking...</div>
-            <button class="btn-primary" onclick="testSquareConnection()">Test Connection</button>
+            <button class="btn-primary" data-action="testSquareConnection">Test Connection</button>
           </div>
 
           <!-- Database -->
@@ -348,7 +348,7 @@
               <span class="connection-name">PostgreSQL Database</span>
             </div>
             <div class="connection-status" id="database-status">Checking...</div>
-            <button class="btn-primary" onclick="testDatabaseConnection()">Test Connection</button>
+            <button class="btn-primary" data-action="testDatabaseConnection">Test Connection</button>
           </div>
 
           <!-- Google -->
@@ -368,7 +368,7 @@
               <span class="connection-name">Email (SMTP)</span>
             </div>
             <div class="connection-status" id="email-status">Checking...</div>
-            <button class="btn-primary" onclick="testEmailConnection()">Send Test Email</button>
+            <button class="btn-primary" data-action="testEmailConnection">Send Test Email</button>
           </div>
         </div>
       </div>
@@ -511,8 +511,8 @@
 
       <!-- Save Button -->
       <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-        <button class="btn-secondary" onclick="resetMerchantSettingsToDefaults()">Reset to Defaults</button>
-        <button class="btn-primary" onclick="saveMerchantSettings()">Save Business Rules</button>
+        <button class="btn-secondary" data-action="resetMerchantSettingsToDefaults">Reset to Defaults</button>
+        <button class="btn-primary" data-action="saveMerchantSettings">Save Business Rules</button>
       </div>
     </div>
 
@@ -587,8 +587,8 @@
           </div>
           <div class="connection-status" id="current-user-role">-</div>
           <div style="margin-top: 15px; display: flex; gap: 10px;">
-            <button class="btn-primary" onclick="showChangePasswordModal()">Change Password</button>
-            <button class="btn-danger" onclick="logoutUser()">Logout</button>
+            <button class="btn-primary" data-action="showChangePasswordModal">Change Password</button>
+            <button class="btn-danger" data-action="logoutUser">Logout</button>
           </div>
         </div>
       </div>
@@ -646,7 +646,7 @@
             <div class="section-title">User Management</div>
             <div class="section-desc">Manage user accounts (Admin only)</div>
           </div>
-          <button class="btn-primary" onclick="showCreateUserModal()">+ Create User</button>
+          <button class="btn-primary" data-action="showCreateUserModal">+ Create User</button>
         </div>
 
         <div id="users-list">
@@ -718,8 +718,8 @@
           <input type="password" id="confirm-password" class="form-input" style="width: 100%;">
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button class="btn-secondary" onclick="hideChangePasswordModal()">Cancel</button>
-          <button class="btn-primary" onclick="changePassword()">Change Password</button>
+          <button class="btn-secondary" data-action="hideChangePasswordModal">Cancel</button>
+          <button class="btn-primary" data-action="changePassword">Change Password</button>
         </div>
       </div>
     </div>
@@ -750,8 +750,8 @@
           <small style="color: #6b7280;">Min 8 characters, 1 uppercase, 1 number. User should change on first login.</small>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button class="btn-secondary" onclick="hideCreateUserModal()">Cancel</button>
-          <button class="btn-primary" onclick="createUser()">Create User</button>
+          <button class="btn-secondary" data-action="hideCreateUserModal">Cancel</button>
+          <button class="btn-primary" data-action="createUser">Create User</button>
         </div>
       </div>
     </div>
@@ -760,14 +760,16 @@
     <div class="save-bar" id="save-bar">
       <span class="changes-text">You have unsaved changes</span>
       <div>
-        <button class="btn-cancel" onclick="discardChanges()">Discard</button>
-        <button class="btn-save" onclick="saveChanges()">Save Changes</button>
+        <button class="btn-cancel" data-action="discardChanges">Discard</button>
+        <button class="btn-save" data-action="saveChanges">Save Changes</button>
       </div>
     </div>
   </div>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance (P0-4) -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     // Tab switching
@@ -871,16 +873,20 @@
         } else if (!data.authenticated) {
           card.className = 'connection-card disconnected';
           status.textContent = 'Not connected';
-          actions.innerHTML = '<button class="btn-primary" onclick="window.location.href=\'/api/google/auth\'">Connect</button>';
+          actions.innerHTML = '<button class="btn-primary" data-action="connectGoogle">Connect</button>';
         } else {
           card.className = 'connection-card connected';
           status.textContent = 'Connected';
-          actions.innerHTML = '<button class="btn-danger" onclick="disconnectGoogle()">Disconnect</button>';
+          actions.innerHTML = '<button class="btn-danger" data-action="disconnectGoogle">Disconnect</button>';
         }
       } catch (e) {
         card.className = 'connection-card warning';
         status.textContent = 'Error checking status';
       }
+    }
+
+    function connectGoogle() {
+      window.location.href = '/api/google/auth';
     }
 
     async function disconnectGoogle() {
@@ -1056,10 +1062,10 @@
                 ${user.last_login ? `<div style="font-size: 12px; color: #9ca3af;">Last login: ${new Date(user.last_login).toLocaleString()}</div>` : ''}
               </div>
               <div style="display: flex; gap: 8px;">
-                ${isLocked ? `<button class="btn-icon" onclick="unlockUser(${user.id})" title="Unlock">🔓</button>` : ''}
-                <button class="btn-icon" onclick="resetUserPassword(${user.id}, '${escapeJsString(user.email)}')" title="Reset Password">🔑</button>
+                ${isLocked ? `<button class="btn-icon" data-action="unlockUser" data-action-param="${user.id}" title="Unlock">🔓</button>` : ''}
+                <button class="btn-icon" data-action="resetUserPassword" data-action-param="${user.id}" data-user-email="${escapeHtml(user.email)}" title="Reset Password">🔑</button>
                 ${user.id !== currentUser.id ? `
-                  <button class="btn-icon" onclick="toggleUserActive(${user.id}, ${isActive})" title="${isActive ? 'Deactivate' : 'Activate'}">${isActive ? '🚫' : '✅'}</button>
+                  <button class="btn-icon" data-action="toggleUserActive" data-action-param="${user.id}" data-is-active="${isActive}" title="${isActive ? 'Deactivate' : 'Activate'}">${isActive ? '🚫' : '✅'}</button>
                 ` : ''}
               </div>
             </div>
@@ -1174,7 +1180,10 @@
     }
 
     // Admin user actions
-    async function unlockUser(userId) {
+    // Note: These functions support both direct calls (legacy) and event delegation (CSP compliant)
+    async function unlockUser(paramOrElement, event, param) {
+      // Support both: unlockUser(userId) and unlockUser(element, event, param)
+      const userId = param || paramOrElement;
       if (!confirm('Unlock this user account?')) return;
       try {
         const response = await fetch(`/api/auth/users/${userId}/unlock`, { method: 'POST' });
@@ -1189,7 +1198,19 @@
       }
     }
 
-    async function resetUserPassword(userId, email) {
+    async function resetUserPassword(elementOrId, eventOrEmail, param) {
+      // Support both: resetUserPassword(userId, email) and resetUserPassword(element, event, param)
+      let userId, email;
+      if (param !== undefined) {
+        // Event delegation: (element, event, param)
+        userId = param;
+        email = elementOrId.dataset.userEmail || 'this user';
+      } else {
+        // Direct call: (userId, email)
+        userId = elementOrId;
+        email = eventOrEmail || 'this user';
+      }
+
       const newPassword = prompt(`Enter new password for ${email}:\n(Min 8 chars, 1 uppercase, 1 number)`);
       if (!newPassword) return;
 
@@ -1211,7 +1232,19 @@
       }
     }
 
-    async function toggleUserActive(userId, isCurrentlyActive) {
+    async function toggleUserActive(elementOrId, eventOrActive, param) {
+      // Support both: toggleUserActive(userId, isActive) and toggleUserActive(element, event, param)
+      let userId, isCurrentlyActive;
+      if (param !== undefined) {
+        // Event delegation: (element, event, param)
+        userId = param;
+        isCurrentlyActive = elementOrId.dataset.isActive === 'true';
+      } else {
+        // Direct call: (userId, isActive)
+        userId = elementOrId;
+        isCurrentlyActive = eventOrActive;
+      }
+
       const action = isCurrentlyActive ? 'deactivate' : 'activate';
       if (!confirm(`Are you sure you want to ${action} this user?`)) return;
 

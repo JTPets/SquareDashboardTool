@@ -722,42 +722,42 @@
   </div>
 
   <div class="toolbar">
-    <button class="btn btn-secondary" onclick="window.location.href='/dashboard.html'">
+    <button class="btn btn-secondary" data-action="navigateTo" data-action-param="/dashboard.html">
       Home
     </button>
-    <button class="btn btn-secondary" onclick="window.location.href='/expiry.html'">
+    <button class="btn btn-secondary" data-action="navigateTo" data-action-param="/expiry.html">
       Expiry Tracker
     </button>
-    <button class="btn btn-secondary" onclick="window.location.href='/expiry-discounts.html'">
+    <button class="btn btn-secondary" data-action="navigateTo" data-action-param="/expiry-discounts.html">
       Discounts
     </button>
-    <button class="btn btn-primary" onclick="loadItems()">
+    <button class="btn btn-primary" data-action="loadItems">
       Refresh
     </button>
   </div>
 
   <div class="filter-tabs">
-    <div class="filter-tab tab-all active" onclick="filterByTier('all')">
+    <div class="filter-tab tab-all active" data-action="filterByTier" data-action-param="all">
       <span class="count" id="count-all">0</span>
       <span class="label">All</span>
     </div>
-    <div class="filter-tab tab-EXPIRED" onclick="filterByTier('EXPIRED')">
+    <div class="filter-tab tab-EXPIRED" data-action="filterByTier" data-action-param="EXPIRED">
       <span class="count" id="count-EXPIRED">0</span>
       <span class="label" id="label-EXPIRED">Pull from Shelf</span>
     </div>
-    <div class="filter-tab tab-AUTO50" onclick="filterByTier('AUTO50')">
+    <div class="filter-tab tab-AUTO50" data-action="filterByTier" data-action-param="AUTO50">
       <span class="count" id="count-AUTO50">0</span>
       <span class="label" id="label-AUTO50">50% Off</span>
     </div>
-    <div class="filter-tab tab-AUTO25" onclick="filterByTier('AUTO25')">
+    <div class="filter-tab tab-AUTO25" data-action="filterByTier" data-action-param="AUTO25">
       <span class="count" id="count-AUTO25">0</span>
       <span class="label" id="label-AUTO25">25% Off</span>
     </div>
-    <div class="filter-tab tab-REVIEW" onclick="filterByTier('REVIEW')">
+    <div class="filter-tab tab-REVIEW" data-action="filterByTier" data-action-param="REVIEW">
       <span class="count" id="count-REVIEW">0</span>
       <span class="label" id="label-REVIEW">Review</span>
     </div>
-    <div class="filter-tab tab-NO_EXPIRY" onclick="filterByTier('NO_EXPIRY')">
+    <div class="filter-tab tab-NO_EXPIRY" data-action="filterByTier" data-action-param="NO_EXPIRY">
       <span class="count" id="count-NO_EXPIRY">0</span>
       <span class="label">No Date</span>
     </div>
@@ -804,8 +804,8 @@
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
-        <button class="btn btn-success" style="flex: 1;" onclick="confirmItem()" id="confirm-btn">
+        <button class="btn btn-secondary" data-action="closeConfirmModal">Cancel</button>
+        <button class="btn btn-success" style="flex: 1;" data-action="confirmItem" id="confirm-btn">
           Confirm
         </button>
       </div>
@@ -838,8 +838,8 @@
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeUpdateModal()">Cancel</button>
-        <button class="btn btn-success" style="flex: 1; background: #f59e0b;" onclick="updateDate()" id="update-date-btn">
+        <button class="btn btn-secondary" data-action="closeUpdateModal">Cancel</button>
+        <button class="btn btn-success" style="flex: 1; background: #f59e0b;" data-action="updateDate" id="update-date-btn">
           Update Date
         </button>
       </div>
@@ -851,6 +851,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance (P0-4) -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allItems = [];
@@ -1196,7 +1198,15 @@
       return allItems.filter(item => item.tier_code === currentFilter);
     }
 
-    function filterByTier(tier) {
+    // Navigation helper for CSP compliant redirects
+    function navigateTo(elementOrPath, event, param) {
+      const path = param || elementOrPath;
+      window.location.href = path;
+    }
+
+    function filterByTier(elementOrTier, event, param) {
+      // Support both: filterByTier('tier') and filterByTier(element, event, param)
+      const tier = param || elementOrTier;
       currentFilter = tier;
 
       // Update active tab
@@ -1273,7 +1283,7 @@
         const updateButtonText = config.updateButtonText || 'Update Date';
         const updateButton = config.showUpdateButton && !confirmed ? `
           <button class="action-btn update-btn"
-                  onclick="showUpdateModal('${escapeJsString(item.variation_id)}')">
+                  data-action="showUpdateModal" data-action-param="${escapeHtml(item.variation_id)}">
             ${updateButtonText}
           </button>
         ` : '';
@@ -1283,7 +1293,7 @@
             <div class="item-header">
               <div class="item-image-container">
                 ${item.image_urls && item.image_urls[0]
-                  ? `<img src="${item.image_urls[0]}" class="item-image" onerror="this.parentElement.innerHTML='<div class=\\'no-image\\'>Box</div>'">`
+                  ? `<img src="${item.image_urls[0]}" class="item-image" data-fallback="true"><div class="no-image" style="display:none;">Box</div>`
                   : '<div class="no-image">Box</div>'}
               </div>
               <div class="item-info">
@@ -1320,7 +1330,7 @@
             <div class="item-actions">
               ${updateButton}
               <button class="action-btn confirm-btn ${confirmed ? 'disabled' : ''}"
-                      onclick="${confirmed ? '' : `showConfirmModal('${escapeJsString(item.variation_id)}')`}"
+                      ${confirmed ? '' : `data-action="showConfirmModal" data-action-param="${escapeHtml(item.variation_id)}"`}
                       ${confirmed ? 'disabled' : ''}>
                 ${confirmed ? 'Confirmed' : config.buttonText}
               </button>
@@ -1330,7 +1340,9 @@
       }).join('');
     }
 
-    function showConfirmModal(variationId) {
+    function showConfirmModal(elementOrId, event, param) {
+      // Support both: showConfirmModal('id') and showConfirmModal(element, event, param)
+      const variationId = param || elementOrId;
       const item = allItems.find(i => i.variation_id === variationId);
       if (!item) {
         showToast('Item not found. Please refresh the page.', 'error');
@@ -1382,7 +1394,9 @@
       currentItem = null;
     }
 
-    function showUpdateModal(variationId) {
+    function showUpdateModal(elementOrId, event, param) {
+      // Support both: showUpdateModal('id') and showUpdateModal(element, event, param)
+      const variationId = param || elementOrId;
       const item = allItems.find(i => i.variation_id === variationId);
       if (!item) {
         showToast('Item not found. Please refresh the page.', 'error');
@@ -1602,6 +1616,17 @@
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r');
     }
+
+    // Global error handler for images with fallback (CSP compliant - replaces inline onerror)
+    document.addEventListener('error', function(e) {
+      if (e.target.tagName === 'IMG' && e.target.dataset.fallback) {
+        e.target.style.display = 'none';
+        const fallback = e.target.nextElementSibling;
+        if (fallback) {
+          fallback.style.display = 'flex';
+        }
+      }
+    }, true);
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {

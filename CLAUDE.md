@@ -277,13 +277,13 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Progress (2026-01-26)**:
 - ✅ Removed `'unsafe-eval'` - No eval()/new Function()/string setTimeout usage found
-- ❌ `'unsafe-inline'` still required - 30 HTML files with ~400 inline event handlers
+- ❌ `'unsafe-inline'` still required - 21 HTML files with ~354 inline event handlers
 
 **Current Code**:
 ```javascript
 scriptSrc: [
     "'self'",
-    "'unsafe-inline'",    // ⚠️ Still needed - inline handlers in 30 HTML files
+    "'unsafe-inline'",    // ⚠️ Still needed - inline handlers in 21 HTML files
     // 'unsafe-eval' REMOVED - no longer present
     "https://*.cloudflare.com"
 ]
@@ -293,16 +293,19 @@ scriptSrc: [
 
 | Scope | Count |
 |-------|-------|
-| HTML files with inline handlers | 30 |
-| `onclick` handlers | 326 |
-| `onchange` handlers | 44 |
-| Other handlers (onerror, onblur, etc.) | ~30 |
+| HTML files with inline handlers | 21 |
+| `onclick` handlers | ~273 |
+| `onchange` handlers | ~40 |
+| Other handlers (onerror, onblur, etc.) | ~41 |
 
 **Migration Steps**:
 1. ✅ ~~Remove `'unsafe-eval'`~~ (done 2026-01-26)
 2. ✅ ~~Create `/public/js/event-delegation.js`~~ (done 2026-01-26)
-3. 🟡 Convert inline handlers to event listeners (29 files remaining, ~390 handlers)
+3. 🟡 Convert inline handlers to event listeners (21 files remaining, ~354 handlers)
    - ✅ `logs.html` migrated as pattern example
+   - ✅ `settings.html` migrated (19 handlers)
+   - ✅ `catalog-audit.html` migrated (17 handlers)
+   - ✅ `expiry-audit.html` migrated (17 handlers)
 4. Remove `'unsafe-inline'` from CSP
 
 **Event Delegation Pattern** (from `/public/js/event-delegation.js`):
