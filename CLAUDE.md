@@ -1130,3 +1130,158 @@ When completing items, update this section:
 - [ ] Multi-step operations use transactions
 - [ ] Tests added for new functionality
 - [ ] Response format is consistent
+
+---
+
+## Active Implementation: Webhook Logic Extraction (P1 #5)
+
+**Started**: 2026-01-26
+**Status**: IN PROGRESS
+**Branch**: `claude/plan-webhook-extraction-gXyhA`
+
+### Current State
+- **server.js**: 3,057 lines total
+- **Webhook processing**: ~1,435 lines (lines 709-2144)
+- **Cron jobs**: ~405 lines (lines 2443-2848)
+- **Sync queue Maps**: 4 in-memory Maps at lines 22-29
+
+### Target Structure
+```
+server.js (~250 lines - setup + route registration only)
+├── routes/webhooks/
+│   └── square.js                    # POST /api/webhooks/square
+├── services/
+│   ├── webhook-processor.js         # Signature verification, idempotency, routing
+│   ├── sync-queue.js                # In-progress/pending sync state management
+│   └── webhook-handlers/
+│       ├── index.js                 # Handler registry and exports
+│       ├── subscription-handler.js  # subscription.*, invoice.*, customer.deleted
+│       ├── catalog-handler.js       # catalog.version.updated, vendor.*, location.*, customer.updated
+│       ├── inventory-handler.js     # inventory.count.updated
+│       ├── order-handler.js         # order.*, payment.*, refund.* (~400 lines, largest)
+│       ├── loyalty-handler.js       # loyalty.*, gift_card.*
+│       └── oauth-handler.js         # oauth.authorization.revoked
+└── jobs/
+    ├── index.js                     # Job exports
+    ├── cron-scheduler.js            # Cron initialization
+    ├── backup-job.js                # Database backup (~150 lines)
+    ├── cycle-count-job.js           # Daily batch generation
+    ├── sync-job.js                  # Smart sync, GMC sync
+    ├── webhook-retry-job.js         # Retry processor
+    └── expiry-discount-job.js       # Expiry automation
+```
+
+### Implementation Phases
+
+#### Phase 1: Infrastructure (Low Risk) ✅ COMPLETE
+- [x] **1.1** Create `services/sync-queue.js` - Singleton managing sync state Maps
+- [x] **1.2** Create `services/webhook-handlers/index.js` - Handler registry pattern
+
+#### Phase 2: Extract Handlers (Medium Risk) ✅ COMPLETE
+Extract in order of complexity (simplest first):
+- [x] **2.1** `subscription-handler.js` - lines 804-901 (~100 lines)
+- [x] **2.2** `oauth-handler.js` - lines 1563-1593 (~40 lines)
+- [x] **2.3** `catalog-handler.js` - lines 903-1012, 1441-1559 (~200 lines)
+- [x] **2.4** `inventory-handler.js` - lines 1014-1071 (~80 lines)
+- [x] **2.5** `loyalty-handler.js` - lines 1800-2091 (~200 lines)
+- [x] **2.6** `order-handler.js` - lines 1073-1437, 1597-1796 (~400 lines) **LARGEST**
+
+#### Phase 3: Orchestration (Medium Risk) ✅ COMPLETE
+- [x] **3.1** Create `services/webhook-processor.js` - Main entry point
+- [x] **3.2** Create `routes/webhooks/square.js` - Thin route layer
+
+#### Phase 4: Extract Cron Jobs (Low-Medium Risk) ⬜
+- [ ] **4.1** `jobs/backup-job.js` - lines 532-673
+- [ ] **4.2** `jobs/cycle-count-job.js` - lines 2443-2478
+- [ ] **4.3** `jobs/webhook-retry-job.js` - lines 2485-2576
+- [ ] **4.4** `jobs/sync-job.js` - lines 2599-2728
+- [ ] **4.5** `jobs/expiry-discount-job.js` - lines 2752-2845
+- [ ] **4.6** `jobs/cron-scheduler.js` - Central initialization
+- [ ] **4.7** `jobs/index.js` - Exports
+
+#### Phase 5: Final Integration (High Risk) ⬜
+- [ ] **5.1** Update server.js to use new modules
+- [ ] **5.2** Remove extracted code from server.js
+- [ ] **5.3** Verify all tests pass
+- [ ] **5.4** Manual testing of each webhook type
+
+### Key Interfaces
+
+**SyncQueue** (`services/sync-queue.js`):
+```javascript
+class SyncQueue {
+  isCatalogSyncInProgress(merchantId): boolean
+  setCatalogSyncInProgress(merchantId, value): void
+  isCatalogSyncPending(merchantId): boolean
+  setCatalogSyncPending(merchantId, value): void
+  // Same for inventory...
+  async executeWithQueue(type, merchantId, syncFn): Promise<result>
+}
+module.exports = new SyncQueue(); // Singleton
+```
+
+**Handler Context** (passed to all handlers):
+```javascript
+{
+  event,            // Raw Square webhook event
+  data,             // event.data?.object || {}
+  merchantId,       // Internal merchant ID (resolved)
+  squareMerchantId, // Square's merchant ID
+  webhookEventId,   // ID from webhook_events table
+  startTime         // For duration tracking
+}
+```
+
+**Handler Interface** (each handler file):
+```javascript
+class CatalogHandler {
+  constructor(syncQueue) { this.syncQueue = syncQueue; }
+  async handleCatalogVersionUpdated(context) { /* ... */ }
+  async handleVendorCreated(context) { /* ... */ }
+  // etc.
+}
+module.exports = CatalogHandler;
+```
+
+**WebhookProcessor** (`services/webhook-processor.js`):
+```javascript
+class WebhookProcessor {
+  verifySignature(signature, rawBody, notificationUrl): boolean
+  async isDuplicateEvent(eventId): boolean
+  async logEvent(event): number // returns webhookEventId
+  async resolveMerchant(squareMerchantId): number|null
+  async processWebhook(req, res): void // Main entry
+  buildContext(event, merchantId, webhookEventId): Context
+}
+```
+
+### 18 Event Types to Route
+
+| Handler File | Event Types |
+|--------------|-------------|
+| subscription-handler.js | subscription.created, subscription.updated, invoice.payment_made, invoice.payment_failed, customer.deleted |
+| catalog-handler.js | catalog.version.updated, vendor.created, vendor.updated, location.created, location.updated, customer.updated |
+| inventory-handler.js | inventory.count.updated |
+| order-handler.js | order.created, order.updated, order.fulfillment.updated, payment.created, payment.updated, refund.created, refund.updated |
+| loyalty-handler.js | loyalty.event.created, loyalty.account.updated, loyalty.account.created, loyalty.program.updated, gift_card.customer_linked |
+| oauth-handler.js | oauth.authorization.revoked |
+
+### Rollback Strategy
+
+- **Phases 1-4**: Create new files without modifying server.js. Safe to delete new files if issues found.
+- **Phase 5**: Can revert server.js via git. Tag before starting: `git tag -a v1.0-pre-webhook-extraction`
+
+### Testing Strategy
+
+1. **Unit tests** for each handler: `services/webhook-handlers/__tests__/*.test.js`
+2. **Integration test**: `__tests__/integration/webhook-processing.integration.test.js`
+3. **Manual verification**: Test each webhook type via Square dashboard before merging
+
+### Progress Log
+
+| Date | Phase | Item | Notes |
+|------|-------|------|-------|
+| 2026-01-26 | - | Plan | Created detailed extraction plan in CLAUDE.md |
+| 2026-01-26 | 1 | 1.1-1.2 | Created sync-queue.js and webhook-handlers/index.js |
+| 2026-01-26 | 2 | 2.1-2.6 | Extracted all 6 handler files (~1000 lines total) |
+| 2026-01-26 | 3 | 3.1-3.2 | Created webhook-processor.js and routes/webhooks/square.js |
