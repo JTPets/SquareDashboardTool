@@ -84,49 +84,54 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             subtotalCents += item.quantity_ordered * item.unit_cost_cents;
         }
 
-        // Create PO
-        const poResult = await db.query(`
-            INSERT INTO purchase_orders (
-                po_number, vendor_id, location_id, status, supply_days_override,
-                subtotal_cents, total_cents, notes, created_by, merchant_id
-            )
-            VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7, $8)
-            RETURNING *
-        `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by, merchantId]);
-
-        const po = poResult.rows[0];
-
-        // Create PO items with batch insert (avoid N+1 queries)
-        if (validItems.length > 0) {
-            const values = [];
-            const placeholders = validItems.map((item, i) => {
-                const offset = i * 8;
-                const totalCost = item.quantity_ordered * item.unit_cost_cents;
-                values.push(
-                    po.id,
-                    item.variation_id,
-                    item.quantity_override || null,
-                    item.quantity_ordered,
-                    item.unit_cost_cents,
-                    totalCost,
-                    item.notes || null,
-                    merchantId
-                );
-                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
-            }).join(', ');
-
-            await db.query(`
-                INSERT INTO purchase_order_items (
-                    purchase_order_id, variation_id, quantity_override,
-                    quantity_ordered, unit_cost_cents, total_cost_cents, notes, merchant_id
+        // Use transaction to ensure PO and items are created atomically
+        const po = await db.transaction(async (client) => {
+            // Create PO
+            const poResult = await client.query(`
+                INSERT INTO purchase_orders (
+                    po_number, vendor_id, location_id, status, supply_days_override,
+                    subtotal_cents, total_cents, notes, created_by, merchant_id
                 )
-                VALUES ${placeholders}
-            `, values);
-        }
+                VALUES ($1, $2, $3, 'DRAFT', $4, $5, $5, $6, $7, $8)
+                RETURNING *
+            `, [poNumber, vendor_id, location_id, supply_days_override, subtotalCents, notes, created_by, merchantId]);
+
+            const createdPo = poResult.rows[0];
+
+            // Create PO items with batch insert (avoid N+1 queries)
+            if (validItems.length > 0) {
+                const values = [];
+                const placeholders = validItems.map((item, i) => {
+                    const offset = i * 8;
+                    const totalCost = item.quantity_ordered * item.unit_cost_cents;
+                    values.push(
+                        createdPo.id,
+                        item.variation_id,
+                        item.quantity_override || null,
+                        item.quantity_ordered,
+                        item.unit_cost_cents,
+                        totalCost,
+                        item.notes || null,
+                        merchantId
+                    );
+                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+                }).join(', ');
+
+                await client.query(`
+                    INSERT INTO purchase_order_items (
+                        purchase_order_id, variation_id, quantity_override,
+                        quantity_ordered, unit_cost_cents, total_cost_cents, notes, merchant_id
+                    )
+                    VALUES ${placeholders}
+                `, values);
+            }
+
+            return createdPo;
+        });
 
     res.status(201).json({
-        status: 'success',
-        purchase_order: po
+        success: true,
+        data: { purchase_order: po }
     });
 }));
 
