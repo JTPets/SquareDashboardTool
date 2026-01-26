@@ -234,7 +234,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
+| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - unsafe-eval removed, unsafe-inline pending |
 | P1 Architecture | 🟡 3/5 | P1-1 in progress, P1-2 not started, P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
@@ -271,37 +271,40 @@ Fixed 3 locations exposing internal error details to clients:
 
 ---
 
-### P0-4: CSP Allows Unsafe Inline/Eval ❌
+### P0-4: CSP Allows Unsafe Inline 🟡 PARTIAL
 **File**: `middleware/security.js:23-35`
-**Risk**: XSS protection is effectively disabled
+**Risk**: XSS protection partially enabled
+
+**Progress (2026-01-26)**:
+- ✅ Removed `'unsafe-eval'` - No eval()/new Function()/string setTimeout usage found
+- ❌ `'unsafe-inline'` still required - 30 HTML files with ~400 inline event handlers
 
 **Current Code**:
 ```javascript
 scriptSrc: [
     "'self'",
-    "'unsafe-inline'",    // ⚠️ Allows inline scripts (XSS vector)
-    "'unsafe-eval'",      // ⚠️ Allows eval() (code injection vector)
+    "'unsafe-inline'",    // ⚠️ Still needed - inline handlers in 30 HTML files
+    // 'unsafe-eval' REMOVED - no longer present
     "https://*.cloudflare.com"
 ]
 ```
 
-**Required Fix**:
-```javascript
-scriptSrc: [
-    "'self'",
-    "https://*.cloudflare.com",
-    // Use nonces for any required inline scripts
-    // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
-]
-```
+**Remaining Work - Inline Script Migration**:
+
+| Scope | Count |
+|-------|-------|
+| HTML files with inline handlers | 30 |
+| `onclick` handlers | 326 |
+| `onchange` handlers | 44 |
+| Other handlers (onerror, onblur, etc.) | ~30 |
 
 **Migration Steps**:
-1. Audit `public/` for inline `<script>` tags and `onclick` handlers
-2. Move inline scripts to external `.js` files
-3. Remove `'unsafe-inline'` and `'unsafe-eval'`
-4. If Cloudflare requires inline, use nonce-based CSP
+1. ✅ ~~Remove `'unsafe-eval'`~~ (done 2026-01-26)
+2. Create `/public/js/event-delegation.js` for event handling
+3. Convert inline handlers to event listeners (30 files, ~400 handlers)
+4. Remove `'unsafe-inline'` from CSP
 
-**Why**: `'unsafe-inline'` and `'unsafe-eval'` defeat the entire purpose of CSP. If an attacker can inject HTML, they can execute arbitrary JavaScript.
+**Why This Still Matters**: `'unsafe-inline'` allows injected script tags to execute. However, with `'unsafe-eval'` removed, attackers cannot dynamically generate code even if they inject content.
 
 ---
 
