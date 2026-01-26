@@ -16,6 +16,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { batchResolveImageUrls } = require('../utils/image-utils');
 
@@ -25,9 +26,8 @@ const { batchResolveImageUrls } = require('../utils/image-utils');
  * GET /api/sales-velocity
  * Get sales velocity data
  */
-router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVelocity, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
+router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVelocity, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
         const { variation_id, location_id, period_days } = req.query;
 
         // Input validation for period_days
@@ -77,16 +77,12 @@ router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVeloci
 
         query += ' ORDER BY sv.daily_avg_quantity DESC';
 
-        const result = await db.query(query, params);
-        res.json({
-            count: result.rows.length,
-            sales_velocity: result.rows
-        });
-    } catch (error) {
-        logger.error('Get sales velocity error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    const result = await db.query(query, params);
+    res.json({
+        count: result.rows.length,
+        sales_velocity: result.rows
+    });
+}));
 
 // ==================== REORDER SUGGESTIONS ====================
 
@@ -94,9 +90,8 @@ router.get('/sales-velocity', requireAuth, requireMerchant, validators.getVeloci
  * GET /api/reorder-suggestions
  * Calculate reorder suggestions based on sales velocity
  */
-router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getReorderSuggestions, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
+router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getReorderSuggestions, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
         const {
             vendor_id,
             supply_days,
@@ -526,16 +521,12 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             item_images: undefined  // Remove from response
         }));
 
-        res.json({
-            count: suggestionsWithImages.length,
-            supply_days: supplyDaysNum,
-            safety_days: safetyDays,
-            suggestions: suggestionsWithImages
-        });
-    } catch (error) {
-        logger.error('Get reorder suggestions error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        count: suggestionsWithImages.length,
+        supply_days: supplyDaysNum,
+        safety_days: safetyDays,
+        suggestions: suggestionsWithImages
+    });
+}));
 
 module.exports = router;

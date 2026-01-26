@@ -20,6 +20,7 @@ const logger = require('../utils/logger');
 const googleSheets = require('../utils/google-sheets');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/google-oauth');
 
 /**
@@ -37,36 +38,26 @@ function getPublicAppUrl(req) {
  * GET /api/google/status
  * Check Google OAuth authentication status for current merchant
  */
-router.get('/google/status', requireAuth, requireMerchant, validators.status, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const status = await googleSheets.getAuthStatus(merchantId);
-        res.json(status);
-    } catch (error) {
-        logger.error('Google status error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+router.get('/google/status', requireAuth, requireMerchant, validators.status, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const status = await googleSheets.getAuthStatus(merchantId);
+    res.json(status);
+}));
 
 /**
  * GET /api/google/auth
  * Start Google OAuth flow for current merchant - redirects to Google consent screen
  * Uses GOOGLE_REDIRECT_URI from environment (not request hostname) to prevent private IP issues
  */
-router.get('/google/auth', requireAuth, requireMerchant, validators.auth, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const authUrl = googleSheets.getAuthUrl(merchantId);
-        logger.info('Redirecting to Google OAuth', {
-            merchantId,
-            redirectUri: process.env.GOOGLE_REDIRECT_URI
-        });
-        res.redirect(authUrl);
-    } catch (error) {
-        logger.error('Google auth error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+router.get('/google/auth', requireAuth, requireMerchant, validators.auth, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const authUrl = googleSheets.getAuthUrl(merchantId);
+    logger.info('Redirecting to Google OAuth', {
+        merchantId,
+        redirectUri: process.env.GOOGLE_REDIRECT_URI
+    });
+    res.redirect(authUrl);
+}));
 
 /**
  * GET /api/google/callback
@@ -113,15 +104,10 @@ router.get('/google/callback', validators.callback, async (req, res) => {
  * POST /api/google/disconnect
  * Disconnect Google OAuth for current merchant (remove tokens)
  */
-router.post('/google/disconnect', requireAuth, requireMerchant, validators.disconnect, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        await googleSheets.disconnect(merchantId);
-        res.json({ success: true, message: 'Google account disconnected' });
-    } catch (error) {
-        logger.error('Google disconnect error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+router.post('/google/disconnect', requireAuth, requireMerchant, validators.disconnect, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    await googleSheets.disconnect(merchantId);
+    res.json({ success: true, message: 'Google account disconnected' });
+}));
 
 module.exports = router;

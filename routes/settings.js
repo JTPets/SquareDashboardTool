@@ -18,6 +18,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/settings');
 
 /**
@@ -25,34 +26,27 @@ const validators = require('../middleware/validators/settings');
  * Get merchant-specific settings (reorder rules, cycle count config, etc.)
  * Settings are stored per-merchant and override global env var defaults
  */
-router.get('/settings/merchant', requireAuth, requireMerchant, validators.get, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
+router.get('/settings/merchant', requireAuth, requireMerchant, validators.get, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
 
-        const settings = await db.getMerchantSettings(merchantId);
+    const settings = await db.getMerchantSettings(merchantId);
 
-        res.json({
-            success: true,
-            settings,
-            merchantId
-        });
-
-    } catch (error) {
-        logger.error('Failed to get merchant settings', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        success: true,
+        settings,
+        merchantId
+    });
+}));
 
 /**
  * PUT /api/settings/merchant
  * Update merchant-specific settings
  * Only allows updating known setting fields
  */
-router.put('/settings/merchant', requireAuth, requireMerchant, validators.update, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
+router.put('/settings/merchant', requireAuth, requireMerchant, validators.update, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
 
-        const settings = req.body;
+    const settings = req.body;
 
         // Validate numeric fields
         const numericFields = [
@@ -87,17 +81,12 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
             fields: Object.keys(settings)
         });
 
-        res.json({
-            success: true,
-            settings: updated,
-            message: 'Settings saved successfully'
-        });
-
-    } catch (error) {
-        logger.error('Failed to update merchant settings', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        success: true,
+        settings: updated,
+        message: 'Settings saved successfully'
+    });
+}));
 
 /**
  * GET /api/settings/merchant/defaults

@@ -16,6 +16,7 @@ const { SquareClient, SquareEnvironment } = require('square');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
+const asyncHandler = require('../middleware/async-handler');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 
@@ -311,7 +312,7 @@ router.get('/callback', async (req, res) => {
  * Disconnect a merchant's Square account
  * Revokes OAuth tokens and deactivates merchant
  */
-router.post('/revoke', requireAuth, async (req, res) => {
+router.post('/revoke', requireAuth, asyncHandler(async (req, res) => {
     const { merchantId } = req.body;
 
     if (!merchantId) {
@@ -321,9 +322,8 @@ router.post('/revoke', requireAuth, async (req, res) => {
         });
     }
 
-    try {
-        // Verify user has access to this merchant
-        const accessCheck = await db.query(`
+    // Verify user has access to this merchant
+    const accessCheck = await db.query(`
             SELECT um.role, m.square_access_token, m.square_merchant_id
             FROM user_merchants um
             JOIN merchants m ON m.id = um.merchant_id
@@ -392,25 +392,17 @@ router.post('/revoke', requireAuth, async (req, res) => {
             }
         });
 
-        res.json({
-            success: true,
-            message: 'Square account disconnected successfully'
-        });
-
-    } catch (error) {
-        logger.error('Revoke error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to disconnect Square account'
-        });
-    }
-});
+    res.json({
+        success: true,
+        message: 'Square account disconnected successfully'
+    });
+}));
 
 /**
  * POST /api/square/oauth/refresh
  * Manually refresh a merchant's token (admin only)
  */
-router.post('/refresh', requireAuth, requireAdmin, async (req, res) => {
+router.post('/refresh', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
     const { merchantId } = req.body;
 
     if (!merchantId) {
@@ -420,21 +412,13 @@ router.post('/refresh', requireAuth, requireAdmin, async (req, res) => {
         });
     }
 
-    try {
-        const result = await refreshMerchantToken(merchantId);
-        res.json({
-            success: true,
-            message: 'Token refreshed successfully',
-            expiresAt: result.expiresAt
-        });
-    } catch (error) {
-        logger.error('Token refresh error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
+    const result = await refreshMerchantToken(merchantId);
+    res.json({
+        success: true,
+        message: 'Token refreshed successfully',
+        expiresAt: result.expiresAt
+    });
+}));
 
 /**
  * Refresh a merchant's Square OAuth token

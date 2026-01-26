@@ -20,36 +20,29 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { getUserMerchants, switchActiveMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/merchants');
 
 /**
  * GET /api/merchants
  * List all merchants the current user has access to
  */
-router.get('/merchants', requireAuth, validators.list, async (req, res) => {
-    try {
-        const merchants = await getUserMerchants(req.session.user.id);
+router.get('/merchants', requireAuth, validators.list, asyncHandler(async (req, res) => {
+    const merchants = await getUserMerchants(req.session.user.id);
 
-        res.json({
-            success: true,
-            merchants,
-            activeMerchantId: req.session.activeMerchantId || null,
-            activeMerchant: req.merchantContext || null
-        });
-    } catch (error) {
-        logger.error('Error listing merchants:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to list merchants'
-        });
-    }
-});
+    res.json({
+        success: true,
+        merchants,
+        activeMerchantId: req.session.activeMerchantId || null,
+        activeMerchant: req.merchantContext || null
+    });
+}));
 
 /**
  * POST /api/merchants/switch
  * Switch the active merchant for the current session
  */
-router.post('/merchants/switch', requireAuth, validators.switch, async (req, res) => {
+router.post('/merchants/switch', requireAuth, validators.switch, asyncHandler(async (req, res) => {
     const { merchantId } = req.body;
 
     if (!merchantId) {
@@ -59,33 +52,25 @@ router.post('/merchants/switch', requireAuth, validators.switch, async (req, res
         });
     }
 
-    try {
-        const switched = await switchActiveMerchant(
-            req.session,
-            req.session.user.id,
-            parseInt(merchantId)
-        );
+    const switched = await switchActiveMerchant(
+        req.session,
+        req.session.user.id,
+        parseInt(merchantId)
+    );
 
-        if (!switched) {
-            return res.status(403).json({
-                success: false,
-                error: 'You do not have access to this merchant'
-            });
-        }
-
-        res.json({
-            success: true,
-            activeMerchantId: req.session.activeMerchantId,
-            message: 'Merchant switched successfully'
-        });
-    } catch (error) {
-        logger.error('Error switching merchant:', error);
-        res.status(500).json({
+    if (!switched) {
+        return res.status(403).json({
             success: false,
-            error: 'Failed to switch merchant'
+            error: 'You do not have access to this merchant'
         });
     }
-});
+
+    res.json({
+        success: true,
+        activeMerchantId: req.session.activeMerchantId,
+        message: 'Merchant switched successfully'
+    });
+}));
 
 /**
  * GET /api/merchants/context
@@ -104,11 +89,10 @@ router.get('/merchants/context', requireAuth, validators.context, async (req, re
  * GET /api/config
  * Get frontend configuration from environment variables
  */
-router.get('/config', requireAuth, validators.config, async (req, res) => {
+router.get('/config', requireAuth, validators.config, asyncHandler(async (req, res) => {
+    // Check Square connection by checking if merchant has locations synced
+    let squareConnected = false;
     try {
-        // Check Square connection by checking if merchant has locations synced
-        let squareConnected = false;
-        try {
             if (req.merchantContext?.id) {
                 const result = await db.query(
                     'SELECT id FROM locations WHERE merchant_id = $1 LIMIT 1',
@@ -156,12 +140,8 @@ router.get('/config', requireAuth, validators.config, async (req, res) => {
                 inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL || '15'),
                 sales: parseInt(process.env.SYNC_SALES_INTERVAL || '60')
             },
-            usingMerchantSettings: !!merchantSettings
-        });
-    } catch (error) {
-        logger.error('Failed to get config', { error: error.message, stack: error.stack, merchantId: req.merchantContext?.id });
-        res.status(500).json({ error: 'Failed to get configuration' });
-    }
-});
+        usingMerchantSettings: !!merchantSettings
+    });
+}));
 
 module.exports = router;

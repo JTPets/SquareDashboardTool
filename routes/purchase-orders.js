@@ -30,6 +30,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('../utils/csv-helpers');
 const validators = require('../middleware/validators/purchase-orders');
 
@@ -37,9 +38,8 @@ const validators = require('../middleware/validators/purchase-orders');
  * POST /api/purchase-orders
  * Create a new purchase order
  */
-router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
+router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
         const { vendor_id, location_id, supply_days_override, items, notes, created_by } = req.body;
 
         // Filter out any items with zero or negative quantity
@@ -124,24 +124,19 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             `, values);
         }
 
-        res.status(201).json({
-            status: 'success',
-            purchase_order: po
-        });
-    } catch (error) {
-        logger.error('Create PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.status(201).json({
+        status: 'success',
+        purchase_order: po
+    });
+}));
 
 /**
  * GET /api/purchase-orders
  * List purchase orders with filtering
  */
-router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const { status, vendor_id } = req.query;
+router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { status, vendor_id } = req.query;
         let query = `
             SELECT
                 po.*,
@@ -168,25 +163,20 @@ router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, asy
 
         query += ' GROUP BY po.id, v.name, l.name ORDER BY po.created_at DESC';
 
-        const result = await db.query(query, params);
-        res.json({
-            count: result.rows.length,
-            purchase_orders: result.rows
-        });
-    } catch (error) {
-        logger.error('Get POs error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    const result = await db.query(query, params);
+    res.json({
+        count: result.rows.length,
+        purchase_orders: result.rows
+    });
+}));
 
 /**
  * GET /api/purchase-orders/:id
  * Get single purchase order with all items
  */
-router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const { id } = req.params;
+router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { id } = req.params;
 
         // Get PO header
         const poResult = await db.query(`
@@ -224,24 +214,19 @@ router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, as
             ORDER BY i.name, v.name
         `, [id, merchantId, po.vendor_id]);
 
-        po.items = itemsResult.rows;
+    po.items = itemsResult.rows;
 
-        res.json(po);
-    } catch (error) {
-        logger.error('Get PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json(po);
+}));
 
 /**
  * PATCH /api/purchase-orders/:id
  * Update a draft purchase order
  */
-router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrder, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const { id } = req.params;
-        const { supply_days_override, items, notes } = req.body;
+router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrder, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { id } = req.params;
+    const { supply_days_override, items, notes } = req.body;
 
         // Check if PO is in DRAFT status and belongs to this merchant
         const statusCheck = await db.query(
@@ -317,28 +302,23 @@ router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrde
             }
         });
 
-        // Return updated PO
-        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-        res.json({
-            status: 'success',
-            purchase_order: result.rows[0]
-        });
-    } catch (error) {
-        logger.error('Update PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    // Return updated PO
+    const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
+    res.json({
+        status: 'success',
+        purchase_order: result.rows[0]
+    });
+}));
 
 /**
  * POST /api/purchase-orders/:id/submit
  * Submit a purchase order (change from DRAFT to SUBMITTED)
  */
-router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurchaseOrder, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const merchantId = req.merchantContext.id;
+router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurchaseOrder, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const merchantId = req.merchantContext.id;
 
-        const result = await db.query(`
+    const result = await db.query(`
             UPDATE purchase_orders po
             SET
                 status = 'SUBMITTED',
@@ -357,25 +337,20 @@ router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurcha
             });
         }
 
-        res.json({
-            status: 'success',
-            purchase_order: result.rows[0]
-        });
-    } catch (error) {
-        logger.error('Submit PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        status: 'success',
+        purchase_order: result.rows[0]
+    });
+}));
 
 /**
  * POST /api/purchase-orders/:id/receive
  * Record received quantities for PO items
  */
-router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurchaseOrder, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { items } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurchaseOrder, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { items } = req.body;
+    const merchantId = req.merchantContext.id;
 
         // Verify PO belongs to this merchant
         const poCheck = await db.query(
@@ -423,26 +398,21 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
             }
         });
 
-        // Return updated PO
-        const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-        res.json({
-            status: 'success',
-            purchase_order: result.rows[0]
-        });
-    } catch (error) {
-        logger.error('Receive PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    // Return updated PO
+    const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
+    res.json({
+        status: 'success',
+        purchase_order: result.rows[0]
+    });
+}));
 
 /**
  * DELETE /api/purchase-orders/:id
  * Delete a purchase order (only DRAFT orders can be deleted)
  */
-router.delete('/:id', requireAuth, requireMerchant, validators.deletePurchaseOrder, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const merchantId = req.merchantContext.id;
+router.delete('/:id', requireAuth, requireMerchant, validators.deletePurchaseOrder, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const merchantId = req.merchantContext.id;
 
         // Check if PO exists and is in DRAFT status
         const poCheck = await db.query(
@@ -466,24 +436,19 @@ router.delete('/:id', requireAuth, requireMerchant, validators.deletePurchaseOrd
         // Delete PO (items will be cascade deleted)
         await db.query('DELETE FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
 
-        res.json({
-            status: 'success',
-            message: `Purchase order ${po.po_number} deleted successfully`
-        });
-    } catch (error) {
-        logger.error('Delete PO error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        status: 'success',
+        message: `Purchase order ${po.po_number} deleted successfully`
+    });
+}));
 
 /**
  * GET /api/purchase-orders/:po_number/export-csv
  * Export a purchase order in Square's CSV format
  */
-router.get('/:po_number/export-csv', requireAuth, requireMerchant, validators.exportPurchaseOrderCsv, async (req, res) => {
-    try {
-        const { po_number } = req.params;
-        const merchantId = req.merchantContext.id;
+router.get('/:po_number/export-csv', requireAuth, requireMerchant, validators.exportPurchaseOrderCsv, asyncHandler(async (req, res) => {
+    const { po_number } = req.params;
+    const merchantId = req.merchantContext.id;
 
         // Get PO header with vendor and location info
         const poResult = await db.query(`
@@ -604,27 +569,21 @@ router.get('/:po_number/export-csv', requireAuth, requireMerchant, validators.ex
         // Send CSV
         res.send(csvContent);
 
-        logger.info('Square CSV export generated', {
-            po_number: po.po_number,
-            vendor: po.vendor_name,
-            items: itemsResult.rows.length
-        });
-
-    } catch (error) {
-        logger.error('CSV export error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    logger.info('Square CSV export generated', {
+        po_number: po.po_number,
+        vendor: po.vendor_name,
+        items: itemsResult.rows.length
+    });
+}));
 
 /**
  * GET /api/purchase-orders/:po_number/export-xlsx
  * Export a purchase order as Square-compatible XLSX file
  */
-router.get('/:po_number/export-xlsx', requireAuth, requireMerchant, validators.exportPurchaseOrderXlsx, async (req, res) => {
-    try {
-        const ExcelJS = require('exceljs');
-        const { po_number } = req.params;
-        const merchantId = req.merchantContext.id;
+router.get('/:po_number/export-xlsx', requireAuth, requireMerchant, validators.exportPurchaseOrderXlsx, asyncHandler(async (req, res) => {
+    const ExcelJS = require('exceljs');
+    const { po_number } = req.params;
+    const merchantId = req.merchantContext.id;
 
         // Get PO header with vendor and location info
         const poResult = await db.query(`
@@ -752,16 +711,11 @@ router.get('/:po_number/export-xlsx', requireAuth, requireMerchant, validators.e
         // Send Excel file
         res.send(buffer);
 
-        logger.info('Square XLSX export generated', {
-            po_number: po.po_number,
-            vendor: po.vendor_name,
-            items: itemsResult.rows.length
-        });
-
-    } catch (error) {
-        logger.error('XLSX export error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    logger.info('Square XLSX export generated', {
+        po_number: po.po_number,
+        vendor: po.vendor_name,
+        items: itemsResult.rows.length
+    });
+}));
 
 module.exports = router;
