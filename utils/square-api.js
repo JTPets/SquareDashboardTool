@@ -411,7 +411,7 @@ async function syncCatalog(merchantId) {
                 await syncCategory({ id, category_data: cat }, merchantId);
                 stats.categories++;
             } catch (error) {
-                logger.error('Failed to sync category', { id, error: error.message });
+                logger.error('Failed to sync category', { id, error: error.message, stack: error.stack });
             }
         }
         logger.info('Categories synced', { count: stats.categories });
@@ -422,7 +422,7 @@ async function syncCatalog(merchantId) {
                 await syncImage({ id, image_data: img }, merchantId);
                 stats.images++;
             } catch (error) {
-                logger.error('Failed to sync image', { id, error: error.message });
+                logger.error('Failed to sync image', { id, error: error.message, stack: error.stack });
             }
         }
 
@@ -461,7 +461,7 @@ async function syncCatalog(merchantId) {
                 stats.items++;
                 syncedItemIds.add(id);
             } catch (error) {
-                logger.error('Failed to sync item', { id, error: error.message });
+                logger.error('Failed to sync item', { id, error: error.message, stack: error.stack });
             }
         }
         logger.info('Items synced', { count: stats.items });
@@ -483,7 +483,7 @@ async function syncCatalog(merchantId) {
                 stats.variationVendors += vendorCount;
                 syncedVariationIds.add(id);
             } catch (error) {
-                logger.error('Failed to sync variation', { id, error: error.message });
+                logger.error('Failed to sync variation', { id, error: error.message, stack: error.stack });
             }
         }
 
@@ -886,7 +886,7 @@ async function syncVariation(obj, merchantId) {
                     merchantId
                 ]);
             } catch (error) {
-                logger.error('Error syncing location override', { variation_id: obj.id, location_id: override.location_id, error: error.message });
+                logger.error('Error syncing location override', { variation_id: obj.id, location_id: override.location_id, error: error.message, stack: error.stack });
             }
         }
     }
@@ -1094,7 +1094,7 @@ async function syncInventory(merchantId) {
 
                 logger.info('Inventory sync batch complete', { merchantId, batch: Math.floor(i / batchSize) + 1, total_synced: totalSynced });
             } catch (error) {
-                logger.error('Inventory sync batch failed', { merchantId, batch: Math.floor(i / batchSize) + 1, error: error.message });
+                logger.error('Inventory sync batch failed', { merchantId, batch: Math.floor(i / batchSize) + 1, error: error.message, stack: error.stack });
                 // Continue with next batch
             }
 

@@ -706,18 +706,6 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
         const { expiry, category } = req.query;
         const merchantId = req.merchantContext.id;
 
-        // Check if reviewed_at column exists (for backwards compatibility)
-        let hasReviewedColumn = false;
-        try {
-            const colCheck = await db.query(`
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'variation_expiration' AND column_name = 'reviewed_at'
-            `);
-            hasReviewedColumn = colCheck.rows.length > 0;
-        } catch (e) {
-            // Column check failed, assume it doesn't exist
-        }
-
         let query = `
             SELECT
                 v.id as identifier,
@@ -730,7 +718,7 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
                 i.category_name,
                 ve.expiration_date,
                 ve.does_not_expire,
-                ${hasReviewedColumn ? 've.reviewed_at,' : ''}
+                ve.reviewed_at,
                 COALESCE(SUM(ic.quantity), 0) as quantity,
                 v.images,
                 i.images as item_images
@@ -751,7 +739,7 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
         // Group by to aggregate inventory across locations
         query += `
             GROUP BY v.id, i.name, v.name, v.sku, v.upc, v.price_money, v.currency,
-                     i.category_name, ve.expiration_date, ve.does_not_expire, ${hasReviewedColumn ? 've.reviewed_at,' : ''} v.images, i.images
+                     i.category_name, ve.expiration_date, ve.does_not_expire, ve.reviewed_at, v.images, i.images
         `;
 
         // Filter by expiry timeframe (applied after grouping)
@@ -765,10 +753,8 @@ router.get('/expirations', requireAuth, requireMerchant, validators.getExpiratio
                 query += ` HAVING ve.expiration_date IS NOT NULL
                           AND ve.does_not_expire = FALSE
                           AND ve.expiration_date >= NOW() + INTERVAL '90 days'
-                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'`;
-                if (hasReviewedColumn) {
-                    query += ` AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
-                }
+                          AND ve.expiration_date <= NOW() + INTERVAL '120 days'
+                          AND (ve.reviewed_at IS NULL OR ve.reviewed_at < NOW() - INTERVAL '30 days')`;
             } else {
                 const days = parseInt(expiry, 10);
                 if (!isNaN(days) && days >= 0 && days <= 3650) {

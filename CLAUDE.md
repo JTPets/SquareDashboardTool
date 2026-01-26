@@ -588,6 +588,8 @@ logger.error('Operation failed', { error: err.message, stack: err.stack });
 /home/user/SquareDashboardTool/
 ├── server.js                 # Main server (2,981 lines) - webhook processing, route setup
 ├── package.json              # Dependencies: square@43.2.1, googleapis@144, pg, express
+├── config/
+│   └── constants.js          # Centralized configuration constants
 ├── database/
 │   ├── schema.sql            # Base schema (895 lines, 50+ tables)
 │   └── migrations/           # 23 migration files (003-025)
@@ -1097,18 +1099,21 @@ When completing items, update this section:
 | Date       | Item | Notes |
 |------------|------|-------|
 | 2026-01-26 | Created TODO | Initial code review |
-| YYYY-MM-DD | #X   | Description of fix |
+| 2026-01-26 | #7   | Added stack traces to 6 error logs in square-api.js |
+| 2026-01-26 | #8   | Removed runtime schema detection in catalog.js |
+| 2026-01-26 | #16  | Added pool monitoring with getPoolStats() to database.js |
+| 2026-01-26 | #14  | Created config/constants.js with centralized magic numbers |
 ```
 
 ---
 
 ### Quick Wins Checklist (< 1 hour each)
 
-- [ ] Add `stack: error.stack` to all error logs in `utils/square-api.js`
-- [ ] Remove runtime schema detection in `routes/catalog.js:709-718`
-- [ ] Replace `console.log` in `server.js` and `utils/database.js`
-- [ ] Add pool monitoring to `utils/database.js`
-- [ ] Create `config/constants.js` and migrate 5 most-used magic numbers
+- [x] Add `stack: error.stack` to all error logs in `utils/square-api.js`
+- [x] Remove runtime schema detection in `routes/catalog.js:709-718`
+- [x] Replace `console.log` in `server.js` and `utils/database.js` (verified: already using logger)
+- [x] Add pool monitoring to `utils/database.js`
+- [x] Create `config/constants.js` and migrate 5 most-used magic numbers
 
 ### Before Each PR Checklist
 
