@@ -159,20 +159,20 @@
         <input type="date" id="start-date">
         <label>To:</label>
         <input type="date" id="end-date">
-        <button onclick="setToday()" style="background: #6b7280; padding: 8px 12px;">Today</button>
-        <button onclick="setLast7Days()" style="background: #6b7280; padding: 8px 12px;">Last 7 Days</button>
-        <button onclick="setLast30Days()" style="background: #6b7280; padding: 8px 12px;">Last 30 Days</button>
+        <button data-action="setToday" style="background: #6b7280; padding: 8px 12px;">Today</button>
+        <button data-action="setLast7Days" style="background: #6b7280; padding: 8px 12px;">Last 7 Days</button>
+        <button data-action="setLast30Days" style="background: #6b7280; padding: 8px 12px;">Last 30 Days</button>
       </div>
 
       <div class="filter-group">
         <label>Category:</label>
-        <select id="category-filter" onchange="filterHistory()">
+        <select id="category-filter" data-change="filterHistory">
           <option value="">All Categories</option>
         </select>
       </div>
 
-      <button onclick="loadHistory()">Load History</button>
-      <button onclick="clearFilters()" style="background: #6b7280;">Clear Filters</button>
+      <button data-action="loadHistory">Load History</button>
+      <button data-action="clearFilters" style="background: #6b7280;">Clear Filters</button>
     </div>
 
     <div class="table-container">
@@ -202,6 +202,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allItems = [];

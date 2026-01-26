@@ -241,14 +241,14 @@
 
     <div class="controls">
       <label for="status-filter">Status:</label>
-      <select id="status-filter" onchange="loadDeletedItems()">
+      <select id="status-filter" data-change="loadDeletedItems">
         <option value="all">All (Deleted + Archived)</option>
         <option value="deleted">Deleted Only</option>
         <option value="archived">Archived Only</option>
       </select>
 
       <label for="age-filter">Inactive For:</label>
-      <select id="age-filter" onchange="loadDeletedItems()">
+      <select id="age-filter" data-change="loadDeletedItems">
         <option value="">Any Time</option>
         <option value="12">Over 1 Year</option>
         <option value="6">Over 6 Months</option>
@@ -256,11 +256,11 @@
       </select>
 
       <label for="category-filter">Category:</label>
-      <select id="category-filter" onchange="filterItems()">
+      <select id="category-filter" data-change="filterItems">
         <option value="">All Categories</option>
       </select>
 
-      <button onclick="loadDeletedItems()">🔄 Refresh</button>
+      <button data-action="loadDeletedItems">🔄 Refresh</button>
     </div>
 
     <div class="table-container">
@@ -294,6 +294,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allItems = [];
@@ -376,7 +378,7 @@
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const statusIcon = item.status === 'archived' ? '📦' : '🗑️';
         const imageHtml = imageUrl
-          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          ? `<img src="${imageUrl}" class="product-image fallback-image" alt="Product" data-fallback-icon="${statusIcon}">
              <div class="no-image" style="display:none;">${statusIcon}</div>`
           : `<div class="no-image">${statusIcon}</div>`;
 
@@ -453,6 +455,17 @@
     document.addEventListener('DOMContentLoaded', () => {
       loadDeletedItems();
     });
+
+    // Handle image load errors (CSP-compliant replacement for onerror attribute)
+    document.addEventListener('error', function(event) {
+      if (event.target.classList && event.target.classList.contains('fallback-image')) {
+        event.target.style.display = 'none';
+        const fallback = event.target.nextElementSibling;
+        if (fallback) {
+          fallback.style.display = 'flex';
+        }
+      }
+    }, true);
   </script>
 </body>
 </html>
