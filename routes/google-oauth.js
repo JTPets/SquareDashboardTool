@@ -95,8 +95,12 @@ router.get('/google/callback', validators.callback, async (req, res) => {
         logger.info('Google OAuth successful for merchant', { merchantId, publicUrl });
         res.redirect(`${publicUrl}/gmc-feed.html?google_connected=true`);
     } catch (error) {
-        logger.error('Google callback error', { error: error.message, stack: error.stack });
-        res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(error.message)}`);
+        logger.error('Google OAuth callback error', {
+            error: error.message,
+            stack: error.stack
+        });
+        // Don't expose internal error details in URL - use generic error code
+        res.redirect(`${publicUrl}/gmc-feed.html?google_error=oauth_failed`);
     }
 });
 
