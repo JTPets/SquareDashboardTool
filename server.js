@@ -251,7 +251,8 @@ app.use(loadMerchantContext);
 
 // ==================== API AUTHENTICATION MIDDLEWARE ====================
 // Protect all API routes - auth is always enabled (AUTH_DISABLED bypass removed 2026-01-05)
-app.use('/api', (req, res, next) => {
+// Authentication middleware for /api and /api/v1 routes
+const apiAuthMiddleware = (req, res, next) => {
     // Public routes that don't require authentication
     const publicPaths = [
         '/health',
@@ -279,8 +280,11 @@ app.use('/api', (req, res, next) => {
 
     // Require authentication for all other API routes
     return requireAuthApi(req, res, next);
-});
-logger.info('Authentication middleware enabled');
+};
+
+// Apply auth middleware to both /api and /api/v1
+app.use('/api', apiAuthMiddleware);
+logger.info('Authentication middleware enabled for /api and /api/v1');
 
 // Subscription check middleware (optional, in addition to auth)
 if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
@@ -337,6 +341,31 @@ app.use('/api', analyticsRoutes);
 app.use('/api', merchantsRoutes);
 app.use('/api', settingsRoutes);
 app.use('/api', logsRoutes);
+
+// ==================== API VERSIONING (v1) ====================
+// Versioned routes for future API changes - currently aliases to unversioned routes
+// New integrations should use /api/v1/*, existing clients can continue using /api/*
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/square/oauth', squareOAuthRoutes);
+app.use('/api/v1/purchase-orders', purchaseOrdersRoutes);
+app.use('/api/v1/loyalty', loyaltyRoutes);
+app.use('/api/v1/gmc', gmcRoutes);
+app.use('/api/v1/delivery', deliveryRoutes);
+app.use('/api/v1/webhooks', webhooksSquareRoute);
+app.use('/api/v1', driverApiRoutes);
+app.use('/api/v1', subscriptionsRoutes);
+app.use('/api/v1', webhooksRoutes);
+app.use('/api/v1', expiryDiscountsRoutes);
+app.use('/api/v1', vendorCatalogRoutes);
+app.use('/api/v1', cycleCountsRoutes);
+app.use('/api/v1', syncRoutes);
+app.use('/api/v1', catalogRoutes);
+app.use('/api/v1', squareAttributesRoutes);
+app.use('/api/v1', googleOAuthRoutes);
+app.use('/api/v1', analyticsRoutes);
+app.use('/api/v1', merchantsRoutes);
+app.use('/api/v1', settingsRoutes);
+app.use('/api/v1', logsRoutes);
 
 // ==================== HEALTH & STATUS ====================
 

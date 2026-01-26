@@ -8,8 +8,7 @@
  * @module jobs/backup-job
  */
 
-const { exec } = require('child_process');
-const { promisify } = require('util');
+const { spawn } = require('child_process');
 const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +16,55 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
 
-const execAsync = promisify(exec);
+/**
+ * Run pg_dump using spawn with password in env (more secure than command line)
+ * @param {Object} options - Database connection options
+ * @returns {Promise<{stdout: string, stderr: string}>}
+ */
+function runPgDump({ host, port, user, database, password }) {
+    return new Promise((resolve, reject) => {
+        const args = [
+            '-h', host,
+            '-p', port,
+            '-U', user,
+            '-d', database,
+            '--no-owner',
+            '--no-acl'
+        ];
+
+        const child = spawn('pg_dump', args, {
+            env: { ...process.env, PGPASSWORD: password },
+            maxBuffer: 100 * 1024 * 1024, // 100MB
+            timeout: 300000 // 5 minutes
+        });
+
+        const chunks = [];
+        let stderr = '';
+
+        child.stdout.on('data', (chunk) => {
+            chunks.push(chunk);
+        });
+
+        child.stderr.on('data', (chunk) => {
+            stderr += chunk.toString();
+        });
+
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({
+                    stdout: Buffer.concat(chunks).toString('utf8'),
+                    stderr
+                });
+            } else {
+                reject(new Error(`pg_dump exited with code ${code}: ${stderr}`));
+            }
+        });
+
+        child.on('error', (err) => {
+            reject(err);
+        });
+    });
+}
 
 // Gmail attachment limit is 25MB, use 24MB for safety margin
 const MAX_EMAIL_SIZE_MB = 24;
@@ -57,13 +104,14 @@ async function runAutomatedBackup() {
         tables: statsResult.rows
     };
 
-    // Run pg_dump with password via environment variable (secure)
-    const pgDumpCmd = `PGPASSWORD="${dbPassword}" pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} --no-owner --no-acl`;
-
+    // Run pg_dump with password via environment variable (secure - not visible in process list)
     try {
-        const { stdout: sqlDump, stderr } = await execAsync(pgDumpCmd, {
-            maxBuffer: 100 * 1024 * 1024, // 100MB buffer for large databases
-            timeout: 300000 // 5 minute timeout
+        const { stdout: sqlDump, stderr } = await runPgDump({
+            host: dbHost,
+            port: dbPort,
+            user: dbUser,
+            database: dbName,
+            password: dbPassword
         });
 
         if (stderr && !stderr.includes('Warning')) {
