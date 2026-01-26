@@ -84,7 +84,7 @@ const updateCost = [
             }
             return true;
         }),
-    body('vendor_id').optional().isString(),
+    body('vendor_id').optional({ nullable: true }).isString(),
     handleValidationErrors
 ];
 
