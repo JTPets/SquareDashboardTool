@@ -24,6 +24,7 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/sync');
+const asyncHandler = require('../middleware/async-handler');
 
 // ==================== SYNC HELPER FUNCTIONS ====================
 
@@ -396,220 +397,181 @@ async function runSmartSync({ merchantId } = {}) {
  * POST /api/sync
  * Trigger full synchronization from Square (force sync, ignores intervals)
  */
-router.post('/sync', requireAuth, requireMerchant, validators.sync, async (req, res) => {
+router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    logger.info('Full sync requested', { merchantId });
+    const summary = await squareApi.fullSync(merchantId);
+
+    // Generate GMC feed after sync completes
+    let gmcFeedResult = null;
     try {
-        const merchantId = req.merchantContext.id;
-        logger.info('Full sync requested', { merchantId });
-        const summary = await squareApi.fullSync(merchantId);
-
-        // Generate GMC feed after sync completes
-        let gmcFeedResult = null;
-        try {
-            logger.info('Generating GMC feed after sync...');
-            const gmcFeedModule = require('../utils/gmc-feed');
-            gmcFeedResult = await gmcFeedModule.generateFeed();
-            logger.info('GMC feed generated successfully', {
-                products: gmcFeedResult.stats.total,
-                feedUrl: gmcFeedResult.feedUrl
-            });
-        } catch (gmcError) {
-            logger.error('GMC feed generation failed (non-blocking)', {
-                error: gmcError.message
-            });
-            gmcFeedResult = { error: gmcError.message };
-        }
-
-        res.json({
-            status: summary.success ? 'success' : 'partial',
-            summary: {
-                locations: summary.locations,
-                vendors: summary.vendors,
-                items: summary.catalog.items || 0,
-                variations: summary.catalog.variations || 0,
-                categories: summary.catalog.categories || 0,
-                images: summary.catalog.images || 0,
-                variation_vendors: summary.catalog.variationVendors || 0,
-                inventory_records: summary.inventory,
-                sales_velocity_91d: summary.salesVelocity['91d'] || 0,
-                sales_velocity_182d: summary.salesVelocity['182d'] || 0,
-                sales_velocity_365d: summary.salesVelocity['365d'] || 0,
-                gmc_feed: gmcFeedResult ? {
-                    products: gmcFeedResult.stats?.total || 0,
-                    feedUrl: gmcFeedResult.feedUrl,
-                    error: gmcFeedResult.error
-                } : null
-            },
-            errors: summary.errors
+        logger.info('Generating GMC feed after sync...');
+        const gmcFeedModule = require('../utils/gmc-feed');
+        gmcFeedResult = await gmcFeedModule.generateFeed();
+        logger.info('GMC feed generated successfully', {
+            products: gmcFeedResult.stats.total,
+            feedUrl: gmcFeedResult.feedUrl
         });
-    } catch (error) {
-        logger.error('Sync error', { error: error.message, stack: error.stack });
-        res.status(500).json({
-            status: 'error',
-            message: error.message
+    } catch (gmcError) {
+        logger.error('GMC feed generation failed (non-blocking)', {
+            error: gmcError.message
         });
+        gmcFeedResult = { error: gmcError.message };
     }
-});
+
+    res.json({
+        status: summary.success ? 'success' : 'partial',
+        summary: {
+            locations: summary.locations,
+            vendors: summary.vendors,
+            items: summary.catalog.items || 0,
+            variations: summary.catalog.variations || 0,
+            categories: summary.catalog.categories || 0,
+            images: summary.catalog.images || 0,
+            variation_vendors: summary.catalog.variationVendors || 0,
+            inventory_records: summary.inventory,
+            sales_velocity_91d: summary.salesVelocity['91d'] || 0,
+            sales_velocity_182d: summary.salesVelocity['182d'] || 0,
+            sales_velocity_365d: summary.salesVelocity['365d'] || 0,
+            gmc_feed: gmcFeedResult ? {
+                products: gmcFeedResult.stats?.total || 0,
+                feedUrl: gmcFeedResult.feedUrl,
+                error: gmcFeedResult.error
+            } : null
+        },
+        errors: summary.errors
+    });
+}));
 
 /**
  * POST /api/sync-sales
  * Sync only sales velocity data - optimized to fetch orders once for all periods
  */
-router.post('/sync-sales', requireAuth, requireMerchant, validators.syncSales, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        logger.info('Sales velocity sync requested (optimized)', { merchantId });
+router.post('/sync-sales', requireAuth, requireMerchant, validators.syncSales, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    logger.info('Sales velocity sync requested (optimized)', { merchantId });
 
-        // Use optimized function that fetches orders once for all periods
-        const results = await squareApi.syncSalesVelocityAllPeriods(merchantId);
+    // Use optimized function that fetches orders once for all periods
+    const results = await squareApi.syncSalesVelocityAllPeriods(merchantId);
 
-        res.json({
-            status: 'success',
-            periods: [91, 182, 365],
-            variations_updated: results,
-            optimization: 'single_fetch'
-        });
-    } catch (error) {
-        logger.error('Sales sync error', { error: error.message, stack: error.stack });
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
-    }
-});
+    res.json({
+        status: 'success',
+        periods: [91, 182, 365],
+        variations_updated: results,
+        optimization: 'single_fetch'
+    });
+}));
 
 /**
  * POST /api/sync-smart
  * Smart sync that only syncs data types whose interval has elapsed
  * This is the recommended endpoint for scheduled/cron jobs
  */
-router.post('/sync-smart', requireAuth, requireMerchant, validators.syncSmart, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        logger.info('Smart sync requested', { merchantId });
-        const result = await runSmartSync({ merchantId });
-        res.json(result);
-    } catch (error) {
-        logger.error('Smart sync error', { error: error.message, stack: error.stack });
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
-    }
-});
+router.post('/sync-smart', requireAuth, requireMerchant, validators.syncSmart, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    logger.info('Smart sync requested', { merchantId });
+    const result = await runSmartSync({ merchantId });
+    res.json(result);
+}));
 
 /**
  * GET /api/sync-history
  * Get recent sync history
  */
-router.get('/sync-history', requireAuth, requireMerchant, validators.syncHistory, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const limit = parseInt(req.query.limit) || 20;
+router.get('/sync-history', requireAuth, requireMerchant, validators.syncHistory, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const limit = parseInt(req.query.limit) || 20;
 
-        const result = await db.query(`
-            SELECT
-                id,
-                sync_type,
-                started_at,
-                completed_at,
-                status,
-                records_synced,
-                error_message,
-                duration_seconds
-            FROM sync_history
-            WHERE merchant_id = $1
-            ORDER BY started_at DESC
-            LIMIT $2
-        `, [merchantId, limit]);
+    const result = await db.query(`
+        SELECT
+            id,
+            sync_type,
+            started_at,
+            completed_at,
+            status,
+            records_synced,
+            error_message,
+            duration_seconds
+        FROM sync_history
+        WHERE merchant_id = $1
+        ORDER BY started_at DESC
+        LIMIT $2
+    `, [merchantId, limit]);
 
-        res.json({
-            count: result.rows.length,
-            history: result.rows
-        });
-    } catch (error) {
-        logger.error('Get sync history error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        count: result.rows.length,
+        history: result.rows
+    });
+}));
 
 /**
  * GET /api/sync-intervals
  * Get configured sync intervals (read-only, from env vars)
  */
-router.get('/sync-intervals', requireAuth, validators.syncIntervals, async (req, res) => {
-    try {
-        res.json({
-            intervals: {
-                catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
-                locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
-                vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
-                inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
-                sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
-                sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
-                sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168'),
-                gmc: process.env.GMC_SYNC_CRON_SCHEDULE || null
-            },
-            cronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *'
-        });
-    } catch (error) {
-        logger.error('Get sync intervals error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+router.get('/sync-intervals', requireAuth, validators.syncIntervals, asyncHandler(async (req, res) => {
+    res.json({
+        intervals: {
+            catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+            locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
+            vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+            inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+            sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+            sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+            sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168'),
+            gmc: process.env.GMC_SYNC_CRON_SCHEDULE || null
+        },
+        cronSchedule: process.env.SYNC_CRON_SCHEDULE || '0 * * * *'
+    });
+}));
 
 /**
  * GET /api/sync-status
  * Get current sync status for all sync types
  */
-router.get('/sync-status', requireAuth, requireMerchant, validators.syncStatus, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const intervals = {
-            catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
-            vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
-            inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
-            sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
-            sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
-            sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+router.get('/sync-status', requireAuth, requireMerchant, validators.syncStatus, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const intervals = {
+        catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+        vendors: parseInt(process.env.SYNC_VENDORS_INTERVAL_HOURS || '24'),
+        inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+        sales_91d: parseInt(process.env.SYNC_SALES_91D_INTERVAL_HOURS || '3'),
+        sales_182d: parseInt(process.env.SYNC_SALES_182D_INTERVAL_HOURS || '24'),
+        sales_365d: parseInt(process.env.SYNC_SALES_365D_INTERVAL_HOURS || '168')
+    };
+
+    const status = {};
+
+    for (const [syncType, intervalHours] of Object.entries(intervals)) {
+        const check = await isSyncNeeded(syncType, intervalHours, merchantId);
+
+        status[syncType] = {
+            last_sync: check.lastSync,
+            next_sync_due: check.nextDue,
+            interval_hours: intervalHours,
+            needs_sync: check.needed,
+            hours_since_last_sync: check.hoursSince
         };
 
-        const status = {};
+        // Get the last sync status
+        if (check.lastSync) {
+            const lastSyncResult = await db.query(`
+                SELECT status, records_synced, duration_seconds
+                FROM sync_history
+                WHERE sync_type = $1 AND completed_at IS NOT NULL AND merchant_id = $2
+                ORDER BY completed_at DESC
+                LIMIT 1
+            `, [syncType, merchantId]);
 
-        for (const [syncType, intervalHours] of Object.entries(intervals)) {
-            const check = await isSyncNeeded(syncType, intervalHours, merchantId);
-
-            status[syncType] = {
-                last_sync: check.lastSync,
-                next_sync_due: check.nextDue,
-                interval_hours: intervalHours,
-                needs_sync: check.needed,
-                hours_since_last_sync: check.hoursSince
-            };
-
-            // Get the last sync status
-            if (check.lastSync) {
-                const lastSyncResult = await db.query(`
-                    SELECT status, records_synced, duration_seconds
-                    FROM sync_history
-                    WHERE sync_type = $1 AND completed_at IS NOT NULL AND merchant_id = $2
-                    ORDER BY completed_at DESC
-                    LIMIT 1
-                `, [syncType, merchantId]);
-
-                if (lastSyncResult.rows.length > 0) {
-                    status[syncType].last_status = lastSyncResult.rows[0].status;
-                    status[syncType].last_records_synced = lastSyncResult.rows[0].records_synced;
-                    status[syncType].last_duration_seconds = lastSyncResult.rows[0].duration_seconds;
-                }
+            if (lastSyncResult.rows.length > 0) {
+                status[syncType].last_status = lastSyncResult.rows[0].status;
+                status[syncType].last_records_synced = lastSyncResult.rows[0].records_synced;
+                status[syncType].last_duration_seconds = lastSyncResult.rows[0].duration_seconds;
             }
         }
-
-        res.json(status);
-    } catch (error) {
-        logger.error('Get sync status error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
     }
-});
+
+    res.json(status);
+}));
 
 module.exports = router;
 
