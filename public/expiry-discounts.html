@@ -394,27 +394,27 @@
 
     <!-- Tier Summary Cards -->
     <div class="tier-summary" id="tier-summary">
-      <div class="tier-card tier-EXPIRED" data-tier="EXPIRED" onclick="filterByTier('EXPIRED')">
+      <div class="tier-card tier-EXPIRED" data-tier="EXPIRED" data-action="filterByTier" data-action-param="EXPIRED">
         <div class="count" id="count-EXPIRED">-</div>
         <div class="label">Expired - Pull</div>
         <div class="discount">Remove from shelf</div>
       </div>
-      <div class="tier-card tier-AUTO50" data-tier="AUTO50" onclick="filterByTier('AUTO50')">
+      <div class="tier-card tier-AUTO50" data-tier="AUTO50" data-action="filterByTier" data-action-param="AUTO50">
         <div class="count" id="count-AUTO50">-</div>
         <div class="label">50% Off</div>
         <div class="discount">1-30 days</div>
       </div>
-      <div class="tier-card tier-AUTO25" data-tier="AUTO25" onclick="filterByTier('AUTO25')">
+      <div class="tier-card tier-AUTO25" data-tier="AUTO25" data-action="filterByTier" data-action-param="AUTO25">
         <div class="count" id="count-AUTO25">-</div>
         <div class="label">25% Off</div>
         <div class="discount">31-89 days</div>
       </div>
-      <div class="tier-card tier-REVIEW" data-tier="REVIEW" onclick="filterByTier('REVIEW')">
+      <div class="tier-card tier-REVIEW" data-tier="REVIEW" data-action="filterByTier" data-action-param="REVIEW">
         <div class="count" id="count-REVIEW">-</div>
         <div class="label">Review</div>
         <div class="discount">90-120 days</div>
       </div>
-      <div class="tier-card tier-OK" data-tier="OK" onclick="filterByTier('OK')">
+      <div class="tier-card tier-OK" data-tier="OK" data-action="filterByTier" data-action-param="OK">
         <div class="count" id="count-OK">-</div>
         <div class="label">OK</div>
         <div class="discount">>120 days</div>
@@ -429,16 +429,16 @@
 
     <!-- Controls -->
     <div class="controls">
-      <button class="btn-primary" onclick="runEvaluation(false)">
+      <button class="btn-primary" data-action="runEvaluation">
         Evaluate All Items
       </button>
-      <button class="btn-success" onclick="runFullAutomation(false)">
+      <button class="btn-success" data-action="runFullAutomation">
         Run Full Automation
       </button>
-      <button class="btn-warning" onclick="runFullAutomation(true)">
+      <button class="btn-warning" data-action="runFullAutomationDryRun">
         Dry Run (Preview)
       </button>
-      <button class="btn-primary" onclick="initSquareDiscounts()">
+      <button class="btn-primary" data-action="initSquareDiscounts">
         Initialize Square Discounts
       </button>
       <span style="margin-left: auto; color: #6b7280; font-size: 13px;">
@@ -449,10 +449,10 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <div class="tab active" data-tab="items" onclick="switchTab('items')">Items by Tier</div>
-      <div class="tab" data-tab="upcoming" onclick="switchTab('upcoming')">Upcoming Changes</div>
-      <div class="tab" data-tab="audit" onclick="switchTab('audit')">Audit Log</div>
-      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+      <div class="tab active" data-tab="items" data-action="switchTab" data-action-param="items">Items by Tier</div>
+      <div class="tab" data-tab="upcoming" data-action="switchTab" data-action-param="upcoming">Upcoming Changes</div>
+      <div class="tab" data-tab="audit" data-action="switchTab" data-action-param="audit">Audit Log</div>
+      <div class="tab" data-tab="settings" data-action="switchTab" data-action-param="settings">Settings</div>
     </div>
 
     <!-- Tab Content: Items -->
@@ -561,7 +561,7 @@
           </label>
         </div>
 
-        <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn-primary" data-action="saveSettings">Save Settings</button>
       </div>
 
       <hr style="margin: 40px 0; border: none; border-top: 1px solid #e5e7eb;">
@@ -599,10 +599,10 @@
       <div id="validation-results" style="display: none; margin-bottom: 20px;"></div>
 
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button class="btn-secondary" onclick="validateDiscounts(false)" id="validate-discounts-btn">
+        <button class="btn-secondary" data-action="validateDiscounts" id="validate-discounts-btn">
           Validate Discounts
         </button>
-        <button class="btn-primary" onclick="validateDiscounts(true)" id="validate-fix-discounts-btn">
+        <button class="btn-primary" data-action="validateDiscountsFix" id="validate-fix-discounts-btn">
           Validate & Fix Issues
         </button>
       </div>
@@ -612,6 +612,7 @@
     </div>
   </div>
 
+  <script src="/js/event-delegation.js"></script>
   <script data-cfasync="false">
     let currentTierFilter = null;
     let statusData = null;
@@ -625,7 +626,11 @@
       loadTierConfig();
     });
 
-    function switchTab(tabName) {
+    function switchTab(element, event, tabName) {
+      // Support both direct call and event delegation
+      if (typeof element === 'string') {
+        tabName = element;
+      }
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
@@ -636,7 +641,11 @@
       }
     }
 
-    function filterByTier(tierCode) {
+    function filterByTier(element, event, tierCode) {
+      // Support both direct call and event delegation
+      if (typeof element === 'string') {
+        tierCode = element;
+      }
       // Toggle filter
       if (currentTierFilter === tierCode) {
         currentTierFilter = null;
@@ -885,7 +894,7 @@
             <td><input type="number" value="${tier.discount_percent}" data-field="discount_percent" min="0" max="100" step="1" style="width: 70px;"></td>
             <td class="text-center"><input type="checkbox" ${tier.is_auto_apply ? 'checked' : ''} data-field="is_auto_apply"></td>
             <td class="text-center"><input type="checkbox" ${tier.requires_review ? 'checked' : ''} data-field="requires_review"></td>
-            <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" onclick="saveTierConfig(${tier.id})">Save</button></td>
+            <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" data-action="saveTierConfig" data-action-param="${tier.id}">Save</button></td>
           </tr>
         `).join('');
 
@@ -921,7 +930,11 @@
       }
     }
 
-    async function saveTierConfig(tierId) {
+    async function saveTierConfig(element, event, tierId) {
+      // Support both direct call and event delegation
+      if (typeof element === 'number' || (typeof element === 'string' && !isNaN(element))) {
+        tierId = element;
+      }
       const row = document.querySelector(`tr[data-tier-id="${tierId}"]`);
       const updates = {};
 
@@ -957,10 +970,11 @@
       }
     }
 
-    async function runEvaluation(dryRun) {
-      if (!confirm(`Run tier evaluation${dryRun ? ' (dry run)' : ''}?\n\nThis will evaluate all items and assign discount tiers based on expiration dates.`)) {
+    async function runEvaluation() {
+      if (!confirm('Run tier evaluation?\n\nThis will evaluate all items and assign discount tiers based on expiration dates.')) {
         return;
       }
+      const dryRun = false;
 
       try {
         const response = await fetch('/api/expiry-discounts/evaluate', {
@@ -992,7 +1006,16 @@
       }
     }
 
-    async function runFullAutomation(dryRun) {
+    // Wrapper for dry run
+    function runFullAutomationDryRun() {
+      runFullAutomationInternal(true);
+    }
+
+    function runFullAutomation() {
+      runFullAutomationInternal(false);
+    }
+
+    async function runFullAutomationInternal(dryRun) {
       if (!confirm(`Run full automation${dryRun ? ' (dry run)' : ''}?\n\nThis will:\n1. Initialize Square discount objects\n2. Evaluate all items\n3. Apply discounts to Square`)) {
         return;
       }
@@ -1056,7 +1079,16 @@
       }
     }
 
-    async function validateDiscounts(fix = false) {
+    // Wrapper for validate & fix
+    function validateDiscountsFix() {
+      validateDiscountsInternal(true);
+    }
+
+    function validateDiscounts() {
+      validateDiscountsInternal(false);
+    }
+
+    async function validateDiscountsInternal(fix = false) {
       const validateBtn = document.getElementById('validate-discounts-btn');
       const fixBtn = document.getElementById('validate-fix-discounts-btn');
       const resultsDiv = document.getElementById('validation-results');

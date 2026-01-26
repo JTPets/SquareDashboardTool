@@ -396,21 +396,21 @@
   </div>
 
   <div class="toolbar">
-    <button class="btn btn-secondary" onclick="window.location.href='/dashboard.html'">
+    <a href="/dashboard.html" class="btn btn-secondary">
       🏠 Home
-    </button>
-    <button class="btn btn-secondary" onclick="showSendNowModal()">
+    </a>
+    <button class="btn btn-secondary" data-action="showSendNowModal">
       📌 Send Now
     </button>
-    <button class="btn btn-primary" onclick="generateBatch()" id="generate-batch-btn">
+    <button class="btn btn-primary" data-action="generateBatch" id="generate-batch-btn">
       ⚡ Generate Batch
     </button>
-    <button class="btn btn-primary" onclick="loadPendingItems()">
+    <button class="btn btn-primary" data-action="loadPendingItems">
       🔄 Refresh
     </button>
-    <button class="btn btn-secondary" onclick="window.location.href='/cycle-count-history.html'">
+    <a href="/cycle-count-history.html" class="btn btn-secondary">
       📊 History
-    </button>
+    </a>
   </div>
 
   <div class="items-container" id="items-container">
@@ -431,8 +431,8 @@ SKU-002
 SKU-003"></textarea>
       </div>
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeSendNowModal()">Cancel</button>
-        <button class="btn btn-primary" style="flex: 1;" onclick="submitSendNow()">Add to Queue</button>
+        <button class="btn btn-secondary" data-action="closeSendNowModal">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" data-action="submitSendNow">Add to Queue</button>
       </div>
     </div>
   </div>
@@ -455,8 +455,8 @@ SKU-003"></textarea>
         <textarea class="form-input" id="count-notes" rows="3" placeholder="Note any issues or discrepancies..."></textarea>
       </div>
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="closeCountModal()">Cancel</button>
-        <button class="btn btn-primary" style="flex: 1;" onclick="submitCount()" id="submit-count-btn">Submit Count</button>
+        <button class="btn btn-secondary" data-action="closeCountModal">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" data-action="submitCount" id="submit-count-btn">Submit Count</button>
       </div>
     </div>
   </div>
@@ -466,6 +466,7 @@ SKU-003"></textarea>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let pendingItems = [];
@@ -578,14 +579,14 @@ SKU-003"></textarea>
         .map((item, index) => {
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
-          ? `<img src="${imageUrl}" class="item-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          ? `<img src="${imageUrl}" class="item-image cycle-count-image" alt="Product">
              <div class="no-image" style="display:none;">📦</div>`
           : `<div class="no-image">📦</div>`;
 
         const price = item.price_money ? `${item.currency || 'CAD'} $${(item.price_money / 100).toFixed(2)}` : 'N/A';
 
         return `
-          <div class="item-card ${item.is_priority ? 'priority' : ''}" id="item-${item.id}">
+          <div class="item-card ${item.is_priority ? 'priority' : ''}" id="item-${escapeHtml(item.id)}">
             <div class="item-header">
               <div class="item-image-container">
                 ${imageHtml}
@@ -616,7 +617,7 @@ SKU-003"></textarea>
               </div>
             </div>
             <div class="item-actions">
-              <button class="mark-counted-btn" onclick="showCountModal('${escapeJsString(item.id)}')">
+              <button class="mark-counted-btn" data-action="showCountModal" data-action-param="${escapeHtml(item.id)}">
                 ✓ Mark as Counted
               </button>
             </div>
@@ -625,7 +626,11 @@ SKU-003"></textarea>
       }).join('');
     }
 
-    function showCountModal(itemId) {
+    function showCountModal(element, event, itemId) {
+      // Support both direct call and event delegation
+      if (typeof element === 'string') {
+        itemId = element;
+      }
       // Validate item ID
       if (!itemId || itemId === 'null' || itemId === 'undefined') {
         console.error('Invalid item ID:', itemId);
@@ -941,16 +946,6 @@ SKU-003"></textarea>
       return div.innerHTML;
     }
 
-    // Escape strings for use in JavaScript onclick handlers (single-quoted)
-    function escapeJsString(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r');
-    }
-
     function getLastCountedBadge(item) {
       if (!item.last_counted_date) {
         return '<span class="badge" style="background: #fef3c7; color: #92400e;">📋 Never Counted</span>';
@@ -999,6 +994,17 @@ SKU-003"></textarea>
     document.addEventListener('DOMContentLoaded', () => {
       lastLoadTime = Date.now();
       loadPendingItems();
+
+      // Handle image errors via delegation for cycle count images
+      document.addEventListener('error', function(event) {
+        if (event.target.classList && event.target.classList.contains('cycle-count-image')) {
+          event.target.style.display = 'none';
+          const nextSibling = event.target.nextElementSibling;
+          if (nextSibling && nextSibling.classList.contains('no-image')) {
+            nextSibling.style.display = 'flex';
+          }
+        }
+      }, true);
     });
 
     // Refresh data when tab becomes visible (with debounce and scroll preservation)

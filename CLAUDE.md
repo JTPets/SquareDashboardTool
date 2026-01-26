@@ -234,7 +234,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 11 HTML files remaining |
+| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 6 HTML files remaining |
 | P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
@@ -277,7 +277,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Progress (2026-01-26)**:
 - ✅ Removed `'unsafe-eval'` - No eval()/new Function()/string setTimeout usage found
-- ❌ `'unsafe-inline'` still required - 14 HTML files with ~292 inline event handlers
+- 🟡 `'unsafe-inline'` still required - 6 HTML files with ~150 inline event handlers remaining
 
 **Current Code**:
 ```javascript
@@ -293,15 +293,15 @@ scriptSrc: [
 
 | Scope | Count |
 |-------|-------|
-| HTML files with inline handlers | 11 |
-| `onclick` handlers | ~202 |
-| `onchange` handlers | ~23 |
-| Other handlers (onerror, onblur, etc.) | ~30 |
+| HTML files with inline handlers | 6 |
+| `onclick` handlers | ~120 |
+| `onchange` handlers | ~15 |
+| Other handlers (onerror, onblur, etc.) | ~15 |
 
 **Migration Steps**:
 1. ✅ ~~Remove `'unsafe-eval'`~~ (done 2026-01-26)
 2. ✅ ~~Create `/public/js/event-delegation.js`~~ (done 2026-01-26)
-3. 🟡 Convert inline handlers to event listeners (11 files remaining, ~202 handlers)
+3. 🟡 Convert inline handlers to event listeners (6 files remaining, ~150 handlers)
    - ✅ `logs.html` migrated as pattern example
    - ✅ `settings.html` migrated (19 handlers)
    - ✅ `catalog-audit.html` migrated (17 handlers)
@@ -318,6 +318,11 @@ scriptSrc: [
    - ✅ `subscribe.html` migrated (9 handlers)
    - ✅ `merchants.html` migrated (7 handlers)
    - ✅ `expiry.html` migrated (15 handlers)
+   - ✅ `delivery-history.html` migrated (10 handlers)
+   - ✅ `delivery.html` migrated (15 handlers)
+   - ✅ `cycle-count.html` migrated (15 handlers)
+   - ✅ `expiry-discounts.html` migrated (18 handlers)
+   - ✅ `inventory.html` migrated (23 handlers)
 4. Remove `'unsafe-inline'` from CSP
 
 **Event Delegation Pattern** (from `/public/js/event-delegation.js`):
