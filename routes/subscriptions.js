@@ -599,8 +599,17 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
 
             squareRefund = refundResponse.refund;
         } catch (refundError) {
-            logger.error('Square refund failed', { error: refundError.message });
-            return res.status(500).json({ error: 'Refund processing failed: ' + refundError.message });
+            logger.error('Square refund failed', {
+                error: refundError.message,
+                stack: refundError.stack,
+                subscriberId: subscriber.id,
+                paymentId: lastPayment.id
+            });
+            return res.status(500).json({
+                success: false,
+                error: 'Refund processing failed. Please try again or contact support.',
+                code: 'REFUND_FAILED'
+            });
         }
     }
 

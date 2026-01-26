@@ -137,12 +137,24 @@ async function subscriptionCheck(req, res, next) {
         return res.redirect('/subscription-expired.html');
 
     } catch (error) {
-        logger.error('Subscription check error:', error);
+        // SECURITY: Fail closed - deny access when subscription status cannot be verified
+        logger.error('Subscription check failed - denying access', {
+            error: error.message,
+            stack: error.stack,
+            userId: req.session?.user?.id,
+            path: req.path
+        });
 
-        // On error, allow access but log the issue
-        // This prevents blocking users if there's a database issue
-        // You may want to change this behavior in production
-        return next();
+        if (req.path.startsWith('/api/')) {
+            return res.status(503).json({
+                success: false,
+                error: 'Service temporarily unavailable. Please try again.',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        }
+
+        // For HTML requests, redirect to a generic error page or subscription page
+        return res.redirect('/subscription-expired.html?error=service_unavailable');
     }
 }
 

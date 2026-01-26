@@ -234,8 +234,8 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🔴 0/4 | Critical security fixes required |
-| P1 Architecture | 🔴 0/5 | Code organization and consistency |
+| P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
+| P1 Architecture | 🔴 1/5 | Code organization and consistency |
 | P2 Testing | 🔴 0/6 | Test coverage for critical paths |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -245,120 +245,29 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 These must be fixed before any production deployment or Square partnership discussions.
 
-### P0-1: JSON Body Limit Enables DoS ❌
+### P0-1: JSON Body Limit Enables DoS ✅
 **File**: `server.js:129`
-**Risk**: Denial of Service attack via large JSON payloads
+**Status**: FIXED (2026-01-26)
 
-**Current Code**:
-```javascript
-app.use(express.json({
-    limit: '50mb',  // ⚠️ Allows 50MB JSON payloads
-}));
-```
-
-**Required Fix**:
-```javascript
-app.use(express.json({
-    limit: '5mb',  // Reasonable limit for API payloads
-    verify: (req, res, buf) => {
-        if (req.originalUrl === '/api/webhooks/square') {
-            req.rawBody = buf.toString('utf8');
-        }
-    }
-}));
-```
-
-**Why**: 50MB JSON payloads can exhaust server memory. POD uploads already use multer with separate limits.
+Reduced JSON body limit from 50mb to 5mb. POD uploads use multer with separate limits.
 
 ---
 
-### P0-2: Subscription Check Fails Open ❌
-**File**: `middleware/subscription-check.js:145`
-**Risk**: Subscription bypass when database errors occur
+### P0-2: Subscription Check Fails Open ✅
+**File**: `middleware/subscription-check.js:139-146`
+**Status**: FIXED (2026-01-26)
 
-**Current Code**:
-```javascript
-} catch (error) {
-    // On error, allow access but log the issue
-    logger.error('Subscription check error:', error);
-    return next();  // ⚠️ ALLOWS ACCESS ON ERROR
-}
-```
-
-**Required Fix**:
-```javascript
-} catch (error) {
-    logger.error('Subscription check failed - denying access', {
-        error: error.message,
-        stack: error.stack,
-        userId: req.session?.user?.id
-    });
-    return res.status(503).json({
-        success: false,
-        error: 'Service temporarily unavailable. Please try again.',
-        code: 'SERVICE_UNAVAILABLE'
-    });
-}
-```
-
-**Why**: Security controls must fail closed. If you can't verify subscription status, deny access.
+Changed error handler to fail closed - returns 503 for API requests and redirects HTML requests when subscription status cannot be verified.
 
 ---
 
-### P0-3: Error Messages Expose Internal Details ❌
-**Files**: Multiple locations expose raw error messages to clients
+### P0-3: Error Messages Expose Internal Details ✅
+**Status**: FIXED (2026-01-26)
 
-**Location 1**: `routes/subscriptions.js:603`
-```javascript
-// ❌ CURRENT - Exposes Square API internals
-return res.status(500).json({
-    error: 'Refund processing failed: ' + refundError.message
-});
-
-// ✅ REQUIRED
-logger.error('Refund processing failed', {
-    error: refundError.message,
-    stack: refundError.stack,
-    merchantId
-});
-return res.status(500).json({
-    success: false,
-    error: 'Refund processing failed. Please try again or contact support.',
-    code: 'REFUND_FAILED'
-});
-```
-
-**Location 2**: `routes/loyalty.js:1058`
-```javascript
-// ❌ CURRENT - Exposes Square API error text
-return res.status(orderResponse.status).json({
-    error: `Square API error: ${errText}`
-});
-
-// ✅ REQUIRED
-logger.error('Square API error in loyalty processing', {
-    status: orderResponse.status,
-    error: errText,
-    merchantId
-});
-return res.status(502).json({
-    success: false,
-    error: 'Unable to process request. Please try again.',
-    code: 'EXTERNAL_API_ERROR'
-});
-```
-
-**Location 3**: `routes/google-oauth.js:99`
-```javascript
-// ❌ CURRENT - Stack traces in URL parameters
-res.redirect(`${publicUrl}/gmc-feed.html?google_error=${encodeURIComponent(error.message)}`);
-
-// ✅ REQUIRED
-logger.error('Google OAuth error', { error: error.message, stack: error.stack });
-res.redirect(`${publicUrl}/gmc-feed.html?google_error=oauth_failed`);
-```
-
-**Why**: Error messages can leak API keys, internal paths, stack traces, and implementation details.
+Fixed 3 locations exposing internal error details to clients:
+- `routes/subscriptions.js:601-612` - Refund errors now log details server-side, return generic message
+- `routes/loyalty.js:1056-1066` - Square API errors now logged, return 502 with generic message
+- `routes/google-oauth.js:97-101` - OAuth errors use generic `oauth_failed` code in redirect URL
 
 ---
 
@@ -500,23 +409,11 @@ services/                # Business logic services
 
 ---
 
-### P1-4: Helper Function in server.js ❌
-**File**: `server.js:494-530`
-**Problem**: `resolveImageUrls()` is business logic in the server file
+### P1-4: Helper Function in server.js ✅
+**File**: `utils/image-utils.js`
+**Status**: FIXED (2026-01-26)
 
-**Required Action**: Move to `utils/image-utils.js`
-
-```javascript
-// utils/image-utils.js
-const db = require('./database');
-const logger = require('./logger');
-
-async function resolveImageUrls(variationImages, itemImages = null) {
-    // ... existing implementation
-}
-
-module.exports = { resolveImageUrls };
-```
+Moved `resolveImageUrls()` from server.js to `utils/image-utils.js` alongside the existing `batchResolveImageUrls()` function.
 
 ---
 

@@ -1055,7 +1055,18 @@ router.post('/process-order/:orderId', requireAuth, requireMerchant, requireWrit
 
     if (!orderResponse.ok) {
         const errText = await orderResponse.text();
-        return res.status(orderResponse.status).json({ error: `Square API error: ${errText}` });
+        const merchantId = req.merchantContext?.id;
+        logger.error('Square API error in loyalty order lookup', {
+            status: orderResponse.status,
+            error: errText,
+            merchantId,
+            squareOrderId
+        });
+        return res.status(502).json({
+            success: false,
+            error: 'Unable to retrieve order details. Please try again.',
+            code: 'EXTERNAL_API_ERROR'
+        });
     }
 
     const orderData = await orderResponse.json();

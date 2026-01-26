@@ -12,6 +12,53 @@ const db = require('./database');
 const logger = require('./logger');
 
 /**
+ * Resolve image IDs to URLs with fallback support
+ *
+ * For single item resolution. For batch operations, use batchResolveImageUrls.
+ *
+ * @param {Array|null} variationImages - Array of image IDs from variation
+ * @param {Array|null} itemImages - Array of image IDs from parent item (fallback)
+ * @returns {Promise<Array>} Array of image URLs
+ */
+async function resolveImageUrls(variationImages, itemImages = null) {
+    // Try variation images first, then fall back to item images
+    let imageIds = variationImages;
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+        imageIds = itemImages;
+    }
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+        return [];
+    }
+
+    try {
+        // Query the images table to get URLs
+        const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
+        const result = await db.query(
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
+            imageIds
+        );
+
+        // Create a map of id -> url
+        const urlMap = {};
+        result.rows.forEach(row => {
+            if (row.url) {
+                urlMap[row.id] = row.url;
+            }
+        });
+
+        // Return URLs in the same order as imageIds, filtering out missing ones
+        return imageIds
+            .map(id => urlMap[id] || null)
+            .filter(url => url !== null);
+    } catch (error) {
+        logger.error('Error resolving image URLs', { error: error.message, stack: error.stack });
+        return [];
+    }
+}
+
+/**
  * Resolve image IDs to URLs in batch
  *
  * Efficiently resolves multiple image IDs to their URLs in a single query.
@@ -78,5 +125,6 @@ async function batchResolveImageUrls(items) {
 }
 
 module.exports = {
+    resolveImageUrls,
     batchResolveImageUrls
 };

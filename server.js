@@ -125,8 +125,9 @@ app.use(configureCors());
 app.use(corsErrorHandler);
 
 // Body parsing - capture raw body for webhook signature verification
+// Note: 5mb is sufficient for API payloads; POD uploads use multer with separate limits
 app.use(express.json({
-    limit: '50mb',
+    limit: '5mb',
     verify: (req, res, buf) => {
         // Store raw body for webhook signature verification
         if (req.originalUrl === '/api/webhooks/square') {
@@ -482,53 +483,6 @@ if (process.env.NODE_ENV !== 'production') {
         }
     });
 }
-
-// ==================== HELPER FUNCTIONS ====================
-
-/**
- * Resolve image IDs to URLs with fallback support
- * @param {Array|null} variationImages - Array of image IDs from variation
- * @param {Array|null} itemImages - Array of image IDs from parent item (fallback)
- * @returns {Promise<Array>} Array of image URLs
- */
-async function resolveImageUrls(variationImages, itemImages = null) {
-    // Try variation images first, then fall back to item images
-    let imageIds = variationImages;
-
-    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
-        imageIds = itemImages;
-    }
-
-    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
-        return [];
-    }
-
-    try {
-        // Query the images table to get URLs
-        const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
-        const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
-            imageIds
-        );
-
-        // Create a map of id -> url
-        const urlMap = {};
-        result.rows.forEach(row => {
-            if (row.url) {
-                urlMap[row.id] = row.url;
-            }
-        });
-
-        // Return URLs in the same order as imageIds, filtering out missing ones
-        return imageIds
-            .map(id => urlMap[id] || null)
-            .filter(url => url !== null);
-    } catch (error) {
-        logger.error('Error resolving image URLs', { error: error.message, stack: error.stack });
-        return [];
-    }
-}
-
 
 // ==================== GMC ROUTES (EXTRACTED) ====================
 // GMC routes have been extracted to routes/gmc.js
