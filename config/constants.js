@@ -70,4 +70,13 @@ module.exports = {
         CLIENT_CHECKOUT_WARNING_MS: 5000,            // Warn if client held > 5 seconds
         SLOW_QUERY_THRESHOLD_MS: 1000,               // Log queries > 1 second
     },
+
+    // Feature flags for gradual rollout of new functionality
+    // These allow toggling between legacy and modern implementations
+    FEATURE_FLAGS: {
+        // Use modern loyalty service (services/loyalty/) instead of legacy (services/loyalty-admin/)
+        // Modern service has better tracing, error handling, and is unit tested
+        // Set to true in .env: USE_NEW_LOYALTY_SERVICE=true
+        USE_NEW_LOYALTY_SERVICE: process.env.USE_NEW_LOYALTY_SERVICE === 'true',
+    },
 };
