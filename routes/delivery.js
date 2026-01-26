@@ -50,6 +50,7 @@ const logger = require('../utils/logger');
 const deliveryApi = require('../utils/delivery-api');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant, getSquareClientForMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
 const { validateUploadedImage } = require('../utils/file-validation');
 const validators = require('../middleware/validators/delivery');
@@ -92,95 +93,80 @@ async function getLocationIds(merchantId) {
  * GET /api/delivery/orders
  * List delivery orders with optional filtering
  */
-router.get('/orders', requireAuth, requireMerchant, validators.listOrders, async (req, res) => {
-    try {
-        const { status, routeDate, routeId, dateFrom, dateTo, includeCompleted, limit, offset } = req.query;
-        const merchantId = req.merchantContext.id;
+router.get('/orders', requireAuth, requireMerchant, validators.listOrders, asyncHandler(async (req, res) => {
+    const { status, routeDate, routeId, dateFrom, dateTo, includeCompleted, limit, offset } = req.query;
+    const merchantId = req.merchantContext.id;
 
-        const orders = await deliveryApi.getOrders(merchantId, {
-            status: status ? status.split(',') : null,
-            routeDate,
-            routeId,
-            dateFrom,
-            dateTo,
-            includeCompleted: includeCompleted === 'true',
-            limit: parseInt(limit) || 100,
-            offset: parseInt(offset) || 0
-        });
+    const orders = await deliveryApi.getOrders(merchantId, {
+        status: status ? status.split(',') : null,
+        routeDate,
+        routeId,
+        dateFrom,
+        dateTo,
+        includeCompleted: includeCompleted === 'true',
+        limit: parseInt(limit) || 100,
+        offset: parseInt(offset) || 0
+    });
 
-        res.json({ orders });
-    } catch (error) {
-        logger.error('Error fetching delivery orders', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({ orders });
+}));
 
 /**
  * POST /api/delivery/orders
  * Create a manual delivery order
  */
-router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validators.createOrder, async (req, res) => {
-    try {
-        const { customerName, address, phone, notes } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/orders', deliveryRateLimit, requireAuth, requireMerchant, validators.createOrder, asyncHandler(async (req, res) => {
+    const { customerName, address, phone, notes } = req.body;
+    const merchantId = req.merchantContext.id;
 
-        if (!customerName || !address) {
-            return res.status(400).json({ error: 'Customer name and address are required' });
-        }
-
-        const order = await deliveryApi.createOrder(merchantId, {
-            customerName,
-            address,
-            phone,
-            notes
-        });
-
-        // Attempt geocoding
-        const settings = await deliveryApi.getSettings(merchantId);
-        const coords = await deliveryApi.geocodeAddress(address, settings?.openrouteservice_api_key);
-
-        if (coords) {
-            await deliveryApi.updateOrder(merchantId, order.id, {
-                addressLat: coords.lat,
-                addressLng: coords.lng,
-                geocodedAt: new Date()
-            });
-            order.address_lat = coords.lat;
-            order.address_lng = coords.lng;
-            order.geocoded_at = new Date();
-        }
-
-        await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_created', order.id, null, {
-            manual: true,
-            customerName
-        });
-
-        res.status(201).json({ order });
-    } catch (error) {
-        logger.error('Error creating delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
+    if (!customerName || !address) {
+        return res.status(400).json({ error: 'Customer name and address are required' });
     }
-});
+
+    const order = await deliveryApi.createOrder(merchantId, {
+        customerName,
+        address,
+        phone,
+        notes
+    });
+
+    // Attempt geocoding
+    const settings = await deliveryApi.getSettings(merchantId);
+    const coords = await deliveryApi.geocodeAddress(address, settings?.openrouteservice_api_key);
+
+    if (coords) {
+        await deliveryApi.updateOrder(merchantId, order.id, {
+            addressLat: coords.lat,
+            addressLng: coords.lng,
+            geocodedAt: new Date()
+        });
+        order.address_lat = coords.lat;
+        order.address_lng = coords.lng;
+        order.geocoded_at = new Date();
+    }
+
+    await deliveryApi.logAuditEvent(merchantId, req.session.user.id, 'order_created', order.id, null, {
+        manual: true,
+        customerName
+    });
+
+    res.status(201).json({ order });
+}));
 
 /**
  * GET /api/delivery/orders/:id
  * Get a single delivery order
  */
-router.get('/orders/:id', requireAuth, requireMerchant, validators.getOrder, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+router.get('/orders/:id', requireAuth, requireMerchant, validators.getOrder, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const order = await deliveryApi.getOrderById(merchantId, req.params.id);
 
-        if (!order) {
-            return res.status(404).json({ error: 'Order not found' });
-        }
-
-        res.json({ order });
-    } catch (error) {
-        logger.error('Error fetching delivery order', { merchantId: req.merchantContext?.id, error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
+    if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
     }
-});
+
+    res.json({ order });
+}));
 
 /**
  * PATCH /api/delivery/orders/:id
