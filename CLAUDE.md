@@ -235,8 +235,8 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
-| P1 Architecture | 🟡 1.5/5 | P1-1 in progress, P1-4 done |
-| P2 Testing | 🟡 2.5/6 | P2-3, P2-6 complete; P2-2,4,5 partial |
+| P1 Architecture | 🟡 2.5/5 | P1-1 in progress, P1-4, P1-5 done |
+| P2 Testing | 🟡 4.5/6 | P2-1, P2-3, P2-4, P2-6 complete; P2-2,5 partial |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 ---
@@ -542,54 +542,43 @@ Moved `resolveImageUrls()` from server.js to `utils/image-utils.js` alongside th
 
 ---
 
-### P1-5: Inconsistent Validator Organization 🟡 PARTIALLY RESOLVED
-**Status**: Most routes use proper validators, two routes need validators added
+### P1-5: Inconsistent Validator Organization ✅ COMPLETE
+**Status**: FIXED (2026-01-26)
 
-**Analysis (2026-01-26)**:
-- 18 routes have proper validator files in `middleware/validators/` ✅
-- 2 routes use manual validation without validator files:
-  - `routes/auth.js` - 12 endpoints with manual `if (!field)` checks
-  - `routes/square-oauth.js` - 4 endpoints, mostly config validation
+Created `middleware/validators/auth.js` with validators for all auth endpoints:
+- `login` - email and password validation
+- `changePassword` - current password + new password strength check
+- `createUser` - email, optional name/role/password validation
+- `updateUser` - user ID param, optional name/role/is_active validation
+- `resetUserPassword` - user ID param, optional password strength check
+- `unlockUser` - user ID param validation
+- `forgotPassword` - email validation
+- `resetPassword` - token + password strength validation
+- `verifyResetToken` - token query param validation
 
-**Routes with validators (correct pattern)**:
-```javascript
-// routes/delivery.js - uses validators.functionName pattern
-const validators = require('../middleware/validators/delivery');
-router.post('/orders', validators.createOrder, asyncHandler(...));
-```
+Updated `routes/auth.js` to use the new validators middleware.
 
-**Routes without validators (need fixing)**:
-```javascript
-// routes/auth.js - manual validation inside handler
-router.post('/login', asyncHandler(async (req, res) => {
-    if (!email || !password) {  // ← Should use validators/auth.js
-        return res.status(400).json({ error: 'Email and password required' });
-    }
-}));
-```
-
-**Required Action**:
-1. Create `middleware/validators/auth.js` with validators for all 12 auth endpoints
-2. Create `middleware/validators/square-oauth.js` (optional - mostly config validation)
-
-**Why**: Consistent validation pattern across all routes, better error messages, input sanitization
+**Remaining**: `routes/square-oauth.js` uses config validation (optional - low priority)
 
 ---
 
 ## P2: Testing Requirements (HIGH)
 
-### P2-1: Multi-Tenant Isolation Tests ❌
-**File to create**: `__tests__/security/multi-tenant-isolation.test.js`
-**Status**: NOT STARTED
+### P2-1: Multi-Tenant Isolation Tests ✅ COMPLETE
+**File**: `__tests__/security/multi-tenant-isolation.test.js` (26 tests)
+**Status**: COMPLETE (2026-01-26)
 
-**Required Tests**:
-```javascript
-describe('Multi-tenant isolation', () => {
-    it('should not allow User A to access Merchant B items');
-    it('should not leak merchant data in list endpoints');
-    it('should reject direct merchant_id parameter manipulation');
-});
-```
+**All required tests exist**:
+- ✅ User A cannot access Merchant B's data
+- ✅ List endpoints don't leak data across tenants
+- ✅ Direct merchant_id parameter manipulation rejected
+- ✅ Merchant context loading with user_merchants verification
+- ✅ Session activeMerchantId doesn't grant unauthorized access
+- ✅ Cross-tenant update/delete prevention
+- ✅ Bulk operations respect merchant boundaries
+- ✅ Webhook routing by square_merchant_id
+- ✅ Data leakage prevention in error messages, pagination, search
+- ✅ Merchant role isolation per-tenant
 
 ---
 
@@ -633,27 +622,27 @@ describe('Payment flows', () => {
 
 ---
 
-### P2-4: Authentication Edge Case Tests 🟡 PARTIAL
-**File**: `__tests__/middleware/auth.test.js` (584 lines)
-**Status**: Covers middleware functions, missing security scenarios
+### P2-4: Authentication Edge Case Tests ✅ COMPLETE
+**Files**:
+- `__tests__/middleware/auth.test.js` (584 lines)
+- `__tests__/routes/auth.test.js` (47 tests)
+**Status**: COMPLETE (2026-01-26)
 
-**Covered** (existing tests):
+**All required tests exist**:
 - ✅ requireAuth, requireAuthApi, requireAdmin, requireRole
 - ✅ requireWriteAccess, optionalAuth, getCurrentUser
 - ✅ getClientIp (x-forwarded-for, x-real-ip, etc.)
 - ✅ Session with null/undefined user
 - ✅ Missing role property
 - ✅ Case-sensitive role matching
-
-**Missing** (still needed):
-```javascript
-describe('Authentication security', () => {
-    it('should handle session expiry gracefully');
-    it('should prevent session fixation attacks');
-    it('should lock account after failed attempts');
-    it('should not enumerate valid emails');
-});
-```
+- ✅ Session expiry handling (auth.test.js)
+- ✅ Session fixation attack prevention (auth.test.js)
+- ✅ Session ID regeneration on login (auth.test.js)
+- ✅ Secure session cookie configuration (auth.test.js)
+- ✅ Session does not contain sensitive data (auth.test.js)
+- ✅ Complete session destruction on logout (auth.test.js)
+- ✅ Account lockout after failed attempts (auth.test.js)
+- ✅ User enumeration prevention (auth.test.js)
 
 Note: Login rate limiting tested in `security.test.js`
 

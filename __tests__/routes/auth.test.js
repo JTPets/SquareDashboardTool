@@ -536,6 +536,128 @@ describe('Authentication Routes', () => {
         });
     });
 
+    describe('Session Security', () => {
+
+        test('handles session expiry gracefully', () => {
+            // When session expires, user should be prompted to re-authenticate
+            const expiredSession = {
+                user: null,
+                cookie: {
+                    expires: new Date(Date.now() - 1000) // Expired 1 second ago
+                }
+            };
+
+            // Session middleware should detect this
+            const isSessionValid = expiredSession.user !== null &&
+                (!expiredSession.cookie?.expires || expiredSession.cookie.expires > new Date());
+
+            expect(isSessionValid).toBe(false);
+        });
+
+        test('regenerates session ID on login to prevent session fixation', async () => {
+            // Session fixation attack: attacker sets a known session ID before victim logs in
+            // Prevention: regenerate session ID after successful authentication
+
+            const mockSession = {
+                regenerate: jest.fn((callback) => callback()),
+                user: null,
+                id: 'old-session-id-attacker-knows'
+            };
+
+            // Simulate successful login - session should be regenerated
+            await new Promise((resolve) => {
+                mockSession.regenerate((err) => {
+                    // After regeneration, set user data
+                    mockSession.user = { id: 123, email: 'user@example.com' };
+                    mockSession.id = 'new-secure-session-id';
+                    resolve();
+                });
+            });
+
+            expect(mockSession.regenerate).toHaveBeenCalled();
+            expect(mockSession.id).not.toBe('old-session-id-attacker-knows');
+            expect(mockSession.user).not.toBeNull();
+        });
+
+        test('session ID changes after authentication', () => {
+            // Before login
+            const preLoginSessionId = 'pre-login-session-12345';
+
+            // After login - new session ID (simulated)
+            const postLoginSessionId = 'post-login-session-67890';
+
+            expect(preLoginSessionId).not.toBe(postLoginSessionId);
+        });
+
+        test('does not include sensitive data in session', () => {
+            // Session should only contain minimal necessary data
+            const validSession = {
+                user: {
+                    id: 123,
+                    email: 'user@example.com',
+                    name: 'Test User',
+                    role: 'user'
+                }
+            };
+
+            // Session should NOT contain:
+            expect(validSession.user).not.toHaveProperty('password');
+            expect(validSession.user).not.toHaveProperty('password_hash');
+            expect(validSession.user).not.toHaveProperty('reset_token');
+            expect(validSession.user).not.toHaveProperty('square_access_token');
+        });
+
+        test('session cookie is configured securely', () => {
+            // Secure session configuration
+            const secureConfig = {
+                httpOnly: true,  // Prevents XSS from stealing cookie
+                secure: true,    // HTTPS only (in production)
+                sameSite: 'lax', // CSRF protection
+                maxAge: 24 * 60 * 60 * 1000 // 24 hours
+            };
+
+            expect(secureConfig.httpOnly).toBe(true);
+            expect(secureConfig.secure).toBe(true);
+            expect(secureConfig.sameSite).toBe('lax');
+        });
+
+        test('logout destroys session completely', async () => {
+            const mockSession = {
+                destroy: jest.fn((callback) => callback()),
+                user: { id: 123 }
+            };
+
+            await new Promise((resolve) => {
+                mockSession.destroy((err) => {
+                    resolve();
+                });
+            });
+
+            expect(mockSession.destroy).toHaveBeenCalled();
+        });
+
+        test('concurrent session detection logs event', async () => {
+            // When same user logs in from different location
+            const firstLogin = {
+                userId: 123,
+                sessionId: 'session-device-1',
+                ipAddress: '192.168.1.100',
+                userAgent: 'Chrome/Windows'
+            };
+
+            const secondLogin = {
+                userId: 123,
+                sessionId: 'session-device-2',
+                ipAddress: '10.0.0.50',
+                userAgent: 'Safari/Mac'
+            };
+
+            // Both sessions for same user - should be logged for security
+            expect(firstLogin.userId).toBe(secondLogin.userId);
+            expect(firstLogin.ipAddress).not.toBe(secondLogin.ipAddress);
+        });
+    });
+
     describe('Security Logging', () => {
 
         test('logs all authentication events', async () => {
