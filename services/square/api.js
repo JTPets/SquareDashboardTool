@@ -1343,7 +1343,7 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
     let loyaltyService = null;
     if (loyaltyBackfill) {
         try {
-            loyaltyService = require('./loyalty-service');
+            loyaltyService = require('../loyalty-admin');
         } catch (err) {
             logger.warn('Could not load loyalty-service for backfill', { error: err.message });
         }

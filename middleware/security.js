@@ -18,8 +18,8 @@ function configureHelmet() {
 
     return helmet({
         // Content Security Policy
-        // NOTE: 'unsafe-inline' is still required due to inline event handlers (onclick, etc.)
-        // in 30 HTML files (~400 handlers). Migration to external JS is tracked in P0-4.
+        // P0-4 COMPLETE (2026-01-26): All inline event handlers migrated to event delegation.
+        // 'unsafe-inline' removed from scriptSrc and scriptSrcAttr.
         // 'unsafe-eval' was removed 2026-01-26 after confirming no eval()/new Function() usage.
         // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
@@ -27,7 +27,6 @@ function configureHelmet() {
                 defaultSrc: ["'self'"],
                 scriptSrc: [
                     "'self'",
-                    "'unsafe-inline'",  // TODO P0-4: Remove after migrating inline scripts
                     // Cloudflare scripts (Rocket Loader, Analytics, Challenge pages)
                     "https://*.cloudflare.com",
                     "https://*.cloudflareinsights.com",
@@ -50,9 +49,6 @@ function configureHelmet() {
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
-                // Allow inline event handlers (onclick, onsubmit, etc.) for compatibility
-                // This is needed because many HTML files use onclick attributes
-                scriptSrcAttr: ["'unsafe-inline'"],
                 // Only upgrade HTTP to HTTPS if FORCE_HTTPS=true (requires HTTPS to be configured)
                 upgradeInsecureRequests: forceHttps ? [] : null,
             },
