@@ -28,6 +28,28 @@ pool.on('error', (err, client) => {
     process.exit(-1);
 });
 
+// Log pool connection events for monitoring
+pool.on('connect', () => {
+    logger.debug('New client connected to pool', {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+    });
+});
+
+/**
+ * Get pool statistics for monitoring
+ * @returns {Object} Pool stats including total, idle, and waiting counts
+ */
+function getPoolStats() {
+    return {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+        activeQueries
+    };
+}
+
 /**
  * Execute a query with parameters
  * @param {string} text - SQL query
@@ -2518,6 +2540,7 @@ module.exports = {
     close,
     pool,
     isPoolShuttingDown,
+    getPoolStats,
     // Merchant settings functions
     getMerchantSettings,
     updateMerchantSettings,
