@@ -3325,6 +3325,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
  */
 async function updateVariationCost(variationId, vendorId, newCostCents, currency = 'CAD', options = {}) {
     const { merchantId } = options;
+    const COST_UPDATE_MAX_RETRIES = 3;
 
     if (!merchantId) {
         throw new Error('merchantId is required for updateVariationCost');
@@ -3335,114 +3336,137 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
     // Get merchant-specific access token
     const accessToken = await getMerchantToken(merchantId);
 
-    try {
-        // First, retrieve the current catalog object to get its version and existing data
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`, { accessToken });
+    let oldCostCents = null;
 
-        if (!retrieveData.object) {
-            throw new Error(`Catalog object not found: ${variationId}`);
-        }
+    for (let attempt = 1; attempt <= COST_UPDATE_MAX_RETRIES; attempt++) {
+        try {
+            // Retrieve the current catalog object to get its version and existing data
+            // This is done inside the retry loop to get the latest version on each attempt
+            const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`, { accessToken });
 
-        const currentObject = retrieveData.object;
+            if (!retrieveData.object) {
+                throw new Error(`Catalog object not found: ${variationId}`);
+            }
 
-        if (currentObject.type !== 'ITEM_VARIATION') {
-            throw new Error(`Object is not a variation: ${currentObject.type}`);
-        }
+            const currentObject = retrieveData.object;
 
-        const currentVariationData = currentObject.item_variation_data || {};
-        const currentVendorInfo = currentVariationData.vendor_information || [];
+            if (currentObject.type !== 'ITEM_VARIATION') {
+                throw new Error(`Object is not a variation: ${currentObject.type}`);
+            }
 
-        // Find old cost for the specified vendor
-        const existingVendorIdx = currentVendorInfo.findIndex(v => v.vendor_id === vendorId);
-        const oldCostCents = existingVendorIdx >= 0
-            ? currentVendorInfo[existingVendorIdx].unit_cost_money?.amount
-            : null;
+            const currentVariationData = currentObject.item_variation_data || {};
+            const currentVendorInfo = currentVariationData.vendor_information || [];
 
-        // Update or add vendor information
-        let updatedVendorInfo;
-        if (existingVendorIdx >= 0) {
-            // Update existing vendor entry
-            updatedVendorInfo = [...currentVendorInfo];
-            updatedVendorInfo[existingVendorIdx] = {
-                ...updatedVendorInfo[existingVendorIdx],
-                unit_cost_money: {
-                    amount: newCostCents,
-                    currency: currency
-                }
-            };
-        } else {
-            // Add new vendor entry
-            updatedVendorInfo = [
-                ...currentVendorInfo,
-                {
-                    vendor_id: vendorId,
+            // Find old cost for the specified vendor
+            const existingVendorIdx = currentVendorInfo.findIndex(v => v.vendor_id === vendorId);
+            oldCostCents = existingVendorIdx >= 0
+                ? currentVendorInfo[existingVendorIdx].unit_cost_money?.amount
+                : null;
+
+            // Update or add vendor information
+            let updatedVendorInfo;
+            if (existingVendorIdx >= 0) {
+                // Update existing vendor entry
+                updatedVendorInfo = [...currentVendorInfo];
+                updatedVendorInfo[existingVendorIdx] = {
+                    ...updatedVendorInfo[existingVendorIdx],
                     unit_cost_money: {
                         amount: newCostCents,
                         currency: currency
                     }
-                }
-            ];
-        }
-
-        // Build the update request
-        const idempotencyKey = generateIdempotencyKey('cost-update');
-
-        const updateBody = {
-            idempotency_key: idempotencyKey,
-            object: {
-                type: 'ITEM_VARIATION',
-                id: variationId,
-                version: currentObject.version,
-                item_variation_data: {
-                    ...currentVariationData,
-                    vendor_information: updatedVendorInfo
-                }
+                };
+            } else {
+                // Add new vendor entry
+                updatedVendorInfo = [
+                    ...currentVendorInfo,
+                    {
+                        vendor_id: vendorId,
+                        unit_cost_money: {
+                            amount: newCostCents,
+                            currency: currency
+                        }
+                    }
+                ];
             }
-        };
 
-        const data = await makeSquareRequest('/v2/catalog/object', {
-            method: 'POST',
-            body: JSON.stringify(updateBody),
-            accessToken
-        });
+            // Build the update request - use unique key per attempt to avoid idempotency conflicts
+            const idempotencyKey = generateIdempotencyKey(`cost-update-${attempt}`);
 
-        logger.info('Variation cost updated in Square', {
-            variationId,
-            vendorId,
-            merchantId,
-            oldCost: oldCostCents,
-            newCost: newCostCents,
-            newVersion: data.catalog_object?.version
-        });
+            const updateBody = {
+                idempotency_key: idempotencyKey,
+                object: {
+                    type: 'ITEM_VARIATION',
+                    id: variationId,
+                    version: currentObject.version,
+                    item_variation_data: {
+                        ...currentVariationData,
+                        vendor_information: updatedVendorInfo
+                    }
+                }
+            };
 
-        // Update local database to reflect the change (upsert)
-        await db.query(`
-            INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-            ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
-                unit_cost_money = EXCLUDED.unit_cost_money,
-                currency = EXCLUDED.currency,
-                updated_at = CURRENT_TIMESTAMP
-        `, [variationId, vendorId, newCostCents, currency, merchantId]);
+            const data = await makeSquareRequest('/v2/catalog/object', {
+                method: 'POST',
+                body: JSON.stringify(updateBody),
+                accessToken
+            });
 
-        return {
-            success: true,
-            variationId,
-            vendorId,
-            oldCostCents,
-            newCostCents,
-            catalog_object: data.catalog_object
-        };
-    } catch (error) {
-        logger.error('Failed to update variation cost', {
-            variationId,
-            vendorId,
-            merchantId,
-            newCostCents,
-            error: error.message,
-            stack: error.stack
-        });
-        throw error;
+            logger.info('Variation cost updated in Square', {
+                variationId,
+                vendorId,
+                merchantId,
+                oldCost: oldCostCents,
+                newCost: newCostCents,
+                newVersion: data.catalog_object?.version,
+                attempt
+            });
+
+            // Update local database to reflect the change (upsert)
+            await db.query(`
+                INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
+                    unit_cost_money = EXCLUDED.unit_cost_money,
+                    currency = EXCLUDED.currency,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [variationId, vendorId, newCostCents, currency, merchantId]);
+
+            return {
+                success: true,
+                variationId,
+                vendorId,
+                oldCostCents,
+                newCostCents,
+                catalog_object: data.catalog_object
+            };
+        } catch (error) {
+            // Check if this is a VERSION_MISMATCH error that we can retry
+            const isVersionMismatch = error.message && error.message.includes('VERSION_MISMATCH');
+
+            if (isVersionMismatch && attempt < COST_UPDATE_MAX_RETRIES) {
+                logger.warn('VERSION_MISMATCH on cost update, retrying with fresh version', {
+                    variationId,
+                    vendorId,
+                    attempt,
+                    maxRetries: COST_UPDATE_MAX_RETRIES
+                });
+                // Small delay before retry to allow concurrent updates to complete
+                await sleep(100 * attempt);
+                continue;
+            }
+
+            // Non-retryable error or max retries reached
+            logger.error('Failed to update variation cost', {
+                variationId,
+                vendorId,
+                merchantId,
+                newCostCents,
+                attempt,
+                error: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
     }
 }
 
