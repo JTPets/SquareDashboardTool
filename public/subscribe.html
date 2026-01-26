@@ -620,7 +620,7 @@
           <li>Multi-location support</li>
           <li>Email notifications</li>
         </ul>
-        <button class="select-btn secondary" onclick="selectPlan('monthly')">Select Monthly</button>
+        <button class="select-btn secondary" data-action="selectPlan" data-action-param="monthly">Select Monthly</button>
       </div>
 
       <!-- ANNUAL -->
@@ -639,7 +639,7 @@
           <li>Data export tools</li>
           <li>API access</li>
         </ul>
-        <button class="select-btn primary" onclick="selectPlan('annual')">Select Annual</button>
+        <button class="select-btn primary" data-action="selectPlan" data-action-param="annual">Select Annual</button>
       </div>
     </div>
 
@@ -649,7 +649,7 @@
 
       <div id="message" class="message"></div>
 
-      <form id="payment-form" onsubmit="handleSubscribe(event)">
+      <form id="payment-form" data-submit="handleSubscribe">
         <div class="form-group">
           <label for="email">Email Address</label>
           <input type="email" id="email" name="email" placeholder="your@email.com" required>
@@ -674,7 +674,7 @@
         <div class="terms-acceptance">
           <label class="checkbox-label">
             <input type="checkbox" id="terms-accepted" required>
-            <span>I agree to the <a href="#" onclick="openTermsModal(); return false;">Terms of Service</a> and acknowledge the <a href="#" onclick="openTermsModal(); return false;">Liability Disclaimer</a></span>
+            <span>I agree to the <a href="#" data-action="openTermsModal">Terms of Service</a> and acknowledge the <a href="#" data-action="openTermsModal">Liability Disclaimer</a></span>
           </label>
         </div>
 
@@ -682,7 +682,7 @@
           <label for="promo-code">Promo Code (Optional)</label>
           <div style="display: flex; gap: 8px;">
             <input type="text" id="promo-code" name="promoCode" placeholder="Enter code" style="flex: 1;">
-            <button type="button" class="apply-btn" onclick="applyPromoCode()">Apply</button>
+            <button type="button" class="apply-btn" data-action="applyPromoCode">Apply</button>
           </div>
           <div id="promo-message" class="promo-message"></div>
         </div>
@@ -735,7 +735,7 @@
   <!-- TERMS OF SERVICE MODAL -->
   <div class="modal-overlay" id="terms-modal">
     <div class="modal-content">
-      <button class="modal-close" onclick="closeTermsModal()">&times;</button>
+      <button class="modal-close" data-action="closeTermsModal">&times;</button>
 
       <h2>Terms of Service & Liability Disclaimer</h2>
 
@@ -801,12 +801,13 @@
       <h3>10. Contact</h3>
       <p>For questions about these terms, please contact us through the Support page.</p>
 
-      <button class="modal-accept-btn" onclick="acceptTerms()">I Understand and Accept</button>
+      <button class="modal-accept-btn" data-action="acceptTerms">I Understand and Accept</button>
     </div>
   </div>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     // Set year
@@ -1039,9 +1040,9 @@
     }
 
     // Handle subscription
-    async function handleSubscribe(event) {
-      event.preventDefault();
-
+    // Note: For event delegation, global functions receive (param, element, event)
+    // event.preventDefault() is already called by the event delegation system for data-submit
+    async function handleSubscribe(param, element, event) {
       if (!selectedPlan) {
         showMessage('error', 'Please select a plan first.');
         return;

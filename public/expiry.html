@@ -246,7 +246,7 @@
 
     <div class="controls">
       <label>Filter by expiry:</label>
-      <select id="expiry-filter" onchange="loadItems()">
+      <select id="expiry-filter" data-change="loadItems">
         <option value="">All items</option>
         <option value="30">Expiring in 30 days</option>
         <option value="60">Expiring in 60 days</option>
@@ -258,13 +258,13 @@
       </select>
 
       <label>Category:</label>
-      <select id="category-filter" onchange="loadItems()">
+      <select id="category-filter" data-change="loadItems">
         <option value="">All categories</option>
       </select>
 
-      <button onclick="loadItems()">Refresh</button>
-      <button id="mark-all-reviewed-btn" class="mark-all-reviewed" onclick="markAllAsReviewed()" style="display: none;">Mark All as Reviewed</button>
-      <button class="sync-button" onclick="syncFromSquare()">Sync from Square</button>
+      <button data-action="loadItems">Refresh</button>
+      <button id="mark-all-reviewed-btn" class="mark-all-reviewed" data-action="markAllAsReviewed" style="display: none;">Mark All as Reviewed</button>
+      <button class="sync-button" data-action="syncFromSquare">Sync from Square</button>
     </div>
 
     <div class="table-container">
@@ -292,11 +292,11 @@
 
     <div class="save-section">
       <div class="pagination">
-        <button id="prev-page" onclick="changePage(-1)" disabled>Previous</button>
+        <button id="prev-page" data-action="changePage" data-action-param="-1" disabled>Previous</button>
         <span id="page-info">Page 1 of 1</span>
-        <button id="next-page" onclick="changePage(1)" disabled>Next</button>
+        <button id="next-page" data-action="changePage" data-action-param="1" disabled>Next</button>
         <span> | Items per page:</span>
-        <select id="items-per-page" onchange="changeItemsPerPage()">
+        <select id="items-per-page" data-change="changeItemsPerPage">
           <option value="25">25</option>
           <option value="50" selected>50</option>
           <option value="100">100</option>
@@ -308,6 +308,7 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allItems = [];
@@ -324,6 +325,31 @@
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r');
     }
+
+    // Escape HTML entities
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Escape for HTML attributes
+    function escapeHtmlAttr(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    // Handle image fallback (replaces onerror handlers)
+    document.addEventListener('error', function(e) {
+      if (e.target.tagName === 'IMG' && e.target.dataset.fallback === 'image') {
+        e.target.style.display = 'none';
+      }
+    }, true);
 
     async function loadItems() {
       const expiryFilter = document.getElementById('expiry-filter').value;
@@ -439,37 +465,38 @@
       tbody.innerHTML = pageItems.map(item => {
         const expiryValue = item.expiration_date ? item.expiration_date.split('T')[0] : '';
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
+        const safeId = escapeHtmlAttr(item.identifier);
 
-        return `<tr data-id="${item.identifier}">
+        return `<tr data-id="${safeId}">
           <td>
             ${imageUrl ?
-              `<img src="${imageUrl}" class="product-image" onerror="this.style.display='none'">` :
+              `<img src="${imageUrl}" class="product-image" data-fallback="image">` :
               '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}
           </td>
-          <td class="product-name">${item.name || ''}</td>
-          <td><small>${item.category_name || '-'}</small></td>
-          <td class="variation-name variation-col">${item.variation || 'Regular'}</td>
-          <td class="gtin gtin-col">${item.gtin || 'N/A'}</td>
+          <td class="product-name">${escapeHtml(item.name || '')}</td>
+          <td><small>${escapeHtml(item.category_name || '-')}</small></td>
+          <td class="variation-name variation-col">${escapeHtml(item.variation || 'Regular')}</td>
+          <td class="gtin gtin-col">${escapeHtml(item.gtin || 'N/A')}</td>
           <td class="price">$${((item.price_money || 0) / 100).toFixed(2)}</td>
           <td>${item.quantity || 0}</td>
           <td>${formatDate(item.expiration_date)}</td>
           <td>
             <div class="date-input-container">
               <input type="date" value="${expiryValue}"
-                     onchange="showDateConfirmation('${escapeJsString(item.identifier)}', this.value, this)"
+                     data-change="showDateConfirmation" data-item-id="${safeId}"
                      ${item.does_not_expire ? 'disabled' : ''}>
-              <div id="confirm-${item.identifier}" class="date-confirmation">
-                <button onclick="confirmDateChange('${escapeJsString(item.identifier)}')" class="confirm-btn">✓</button>
-                <button onclick="cancelDateChange('${escapeJsString(item.identifier)}')" class="cancel-btn">✕</button>
+              <div id="confirm-${safeId}" class="date-confirmation">
+                <button data-action="confirmDateChange" data-action-param="${safeId}" class="confirm-btn">✓</button>
+                <button data-action="cancelDateChange" data-action-param="${safeId}" class="cancel-btn">✕</button>
               </div>
             </div>
           </td>
           <td>
             <input type="checkbox" ${item.does_not_expire ? 'checked' : ''}
-                   onchange="updateNeverExpires('${escapeJsString(item.identifier)}', this.checked)">
+                   data-change="updateNeverExpires" data-item-id="${safeId}">
           </td>
           <td class="review-col">
-            <button class="review-btn" onclick="markAsReviewed('${escapeJsString(item.identifier)}', this)">Mark Reviewed</button>
+            <button class="review-btn" data-action="markAsReviewed" data-action-param="${safeId}">Mark Reviewed</button>
           </td>
         </tr>`;
       }).join('');
@@ -481,7 +508,11 @@
       return dateStr.split('T')[0];
     }
 
-    function showDateConfirmation(id, newValue, input) {
+    // For event delegation: called with (param, element, event) for global functions
+    function showDateConfirmation(param, element, event) {
+      const input = element;
+      const id = input.dataset.itemId;
+      const newValue = input.value;
       if (!input.dataset.originalValue) {
         input.dataset.originalValue = input.defaultValue;
       }
@@ -528,7 +559,10 @@
       }
     }
 
-    async function updateNeverExpires(id, checked) {
+    // For event delegation: called with (param, element, event) for global functions
+    async function updateNeverExpires(param, element, event) {
+      const id = element.dataset.itemId;
+      const checked = element.checked;
       const row = document.querySelector(`tr[data-id="${id}"]`);
       const dateInput = row.querySelector('input[type="date"]');
       dateInput.disabled = checked;
@@ -552,7 +586,9 @@
       }
     }
 
-    function changePage(direction) {
+    // For event delegation: called with (param, element, event) for global functions
+    function changePage(directionParam) {
+      const direction = parseInt(directionParam, 10);
       const totalPages = Math.ceil(allItems.length / itemsPerPage);
       currentPage = Math.max(1, Math.min(totalPages, currentPage + direction));
       renderTable();
@@ -605,7 +641,9 @@
       }
     }
 
-    async function markAsReviewed(variationId, button) {
+    // For event delegation: called with (param, element, event) for global functions
+    async function markAsReviewed(variationId, element, event) {
+      const button = element;
       button.disabled = true;
       button.textContent = 'Saving...';
 

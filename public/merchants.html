@@ -487,7 +487,7 @@
       <div class="header-actions">
         <a href="settings.html" class="btn btn-secondary" style="background: #6b7280;">⚙️ Settings</a>
         <a href="dashboard.html" class="btn btn-secondary">← Dashboard</a>
-        <button class="btn btn-primary" onclick="connectSquare()">
+        <button class="btn btn-primary" data-action="connectSquare">
           + Connect Account
         </button>
       </div>
@@ -517,7 +517,7 @@
 
         <div class="referral-link">
           <input type="text" value="https://squareup.com/i/JTPETS0000" readonly id="referral-url">
-          <button onclick="copyReferralLink()">Copy Link</button>
+          <button data-action="copyReferralLink">Copy Link</button>
         </div>
       </div>
     </div>
@@ -536,12 +536,13 @@
       <h3>Disconnect Square Account?</h3>
       <p>This will remove access to <strong id="disconnect-merchant-name"></strong>. You can reconnect at any time, but any pending operations will be cancelled.</p>
       <div class="modal-actions">
-        <button class="btn btn-outline" onclick="closeDisconnectModal()">Cancel</button>
-        <button class="btn btn-danger" onclick="confirmDisconnect()">Disconnect</button>
+        <button class="btn btn-outline" data-action="closeDisconnectModal">Cancel</button>
+        <button class="btn btn-danger" data-action="confirmDisconnect">Disconnect</button>
       </div>
     </div>
   </div>
 
+  <script src="/js/event-delegation.js"></script>
   <script data-cfasync="false">
     let merchants = [];
     let activeMerchantId = null;
@@ -632,7 +633,7 @@
             <div class="empty-state-icon">🏪</div>
             <h2>No Square Accounts Connected</h2>
             <p>Connect your Square account to start managing your inventory, tracking sales, and more.</p>
-            <button class="btn btn-primary" onclick="connectSquare()">
+            <button class="btn btn-primary" data-action="connectSquare">
               Connect Square Account
             </button>
           </div>
@@ -655,13 +656,13 @@
           </div>
           <div class="merchant-actions">
             ${merchant.id !== activeMerchantId ? `
-              <button class="btn btn-primary" onclick="switchMerchant(${merchant.id})">
+              <button class="btn btn-primary" data-action="switchMerchant" data-action-param="${merchant.id}">
                 Switch to This Account
               </button>
             ` : `
               <span class="btn btn-outline" style="cursor: default;">Currently Active</span>
             `}
-            <button class="btn btn-outline" onclick="showDisconnectModal(${merchant.id}, '${escapeJsString(merchant.business_name)}')">
+            <button class="btn btn-outline" data-action="showDisconnectModal" data-merchant-id="${merchant.id}" data-merchant-name="${escapeHtml(merchant.business_name)}">
               Disconnect
             </button>
           </div>
@@ -676,12 +677,16 @@
     }
 
     // Switch active merchant
+    // For event delegation: called with (param, element, event) for global functions
     async function switchMerchant(merchantId) {
+      // Handle being called from event delegation (merchantId will be the param string)
+      const id = parseInt(merchantId, 10);
+      if (isNaN(id)) return;
       try {
         const response = await fetch('/api/merchants/switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ merchantId })
+          body: JSON.stringify({ merchantId: id })
         });
 
         if (!response.ok) {
@@ -697,7 +702,13 @@
     }
 
     // Show disconnect confirmation
-    function showDisconnectModal(merchantId, merchantName) {
+    // For event delegation: called with (param, element, event) for global functions
+    // We use custom data attributes for merchant info
+    function showDisconnectModal(param, element, event) {
+      // Read merchant info from element's data attributes
+      const merchantId = element ? parseInt(element.dataset.merchantId, 10) : parseInt(param, 10);
+      const merchantName = element ? element.dataset.merchantName : '';
+      if (isNaN(merchantId)) return;
       disconnectMerchantId = merchantId;
       document.getElementById('disconnect-merchant-name').textContent = merchantName;
       document.getElementById('disconnect-modal').classList.add('show');
