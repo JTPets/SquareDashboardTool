@@ -298,7 +298,7 @@ await db.query(`
 
 ## Webhook Event Flow
 
-The webhook processor in `server.js` (lines 614-1628) handles all Square webhook events.
+The webhook processor is in `services/webhook-processor.js` with handlers in `services/webhook-handlers/`.
 
 ### Webhook Processing Decision Tree
 
@@ -505,7 +505,7 @@ All major feature tables are now consolidated into `database/schema.sql` for fre
 - **Loyalty**: loyalty_offers, loyalty_qualifying_variations, loyalty_purchase_events, loyalty_rewards, loyalty_redemptions, loyalty_audit_logs, loyalty_settings, loyalty_customer_summary
 
 ### Migration files (for existing installs)
-The `database/migrations/` directory contains incremental migrations (003-025) for:
+The `database/migrations/` directory contains incremental migrations (003-026) for:
 - Existing database upgrades (run migrations in order)
 - Reference for what changed when
 - Small column additions and constraint fixes
@@ -586,17 +586,19 @@ logger.error('Operation failed', { error: err.message, stack: err.stack });
 ### Directory Structure (20 routes, 25+ utilities)
 ```
 /home/user/SquareDashboardTool/
-├── server.js                 # Main server (2,981 lines) - webhook processing, route setup
+├── server.js                 # Main server (~1,000 lines) - route setup, middleware config
 ├── package.json              # Dependencies: square@43.2.1, googleapis@144, pg, express
 ├── config/
 │   └── constants.js          # Centralized configuration constants
 ├── database/
 │   ├── schema.sql            # Base schema (895 lines, 50+ tables)
-│   └── migrations/           # 23 migration files (003-025)
+│   └── migrations/           # 24 migration files (003-026)
 ├── routes/                   # 20 route modules
 │   ├── catalog.js            # Items, variations, inventory, expirations
 │   ├── delivery.js           # Delivery order management
 │   ├── loyalty.js            # Loyalty rewards program
+│   ├── webhooks/
+│   │   └── square.js         # Square webhook endpoint
 │   └── ...
 ├── middleware/
 │   ├── auth.js               # Authentication
@@ -604,10 +606,26 @@ logger.error('Operation failed', { error: err.message, stack: err.stack });
 │   ├── security.js           # Helmet, rate limiting
 │   └── validators/           # 20 validator modules
 ├── services/
+│   ├── webhook-processor.js  # Webhook signature verification, routing
+│   ├── sync-queue.js         # Sync state management (in-progress/pending)
+│   ├── webhook-handlers/     # Event-specific handlers
+│   │   ├── catalog-handler.js
+│   │   ├── inventory-handler.js
+│   │   ├── order-handler.js
+│   │   ├── subscription-handler.js
+│   │   ├── loyalty-handler.js
+│   │   └── oauth-handler.js
 │   └── loyalty/              # Service layer example (8 modules)
 │       ├── webhook-service.js
 │       ├── customer-service.js
 │       └── ...
+├── jobs/                     # Background jobs and cron tasks
+│   ├── cron-scheduler.js     # Cron job definitions
+│   ├── backup-job.js         # Database backup
+│   ├── sync-job.js           # Smart sync, GMC sync
+│   ├── cycle-count-job.js    # Daily batch generation
+│   ├── webhook-retry-job.js  # Failed webhook retry
+│   └── expiry-discount-job.js
 └── utils/                    # 25+ utilities
     ├── database.js           # PostgreSQL pool (query wrapper, transactions)
     ├── square-api.js         # Square SDK wrapper (95 queries)
@@ -712,27 +730,22 @@ WHERE po.merchant_id = $1
 GROUP BY po.id
 ```
 
-#### 4. Missing Composite Indexes for Multi-Tenant Queries
+#### 4. Missing Composite Indexes for Multi-Tenant Queries ✅ FIXED
 **Problem**: Indexes don't have `merchant_id` as leading column
 **Impact**: Full table scans on large tables
+**Status**: Fixed - Created migration `026_optimize_indexes.sql` with composite indexes for 10 tables
 
-**Remediation** - Create migration `026_optimize_indexes.sql`:
-```sql
--- Drop single-column indexes that should be composite
-DROP INDEX IF EXISTS idx_variations_sku;
-DROP INDEX IF EXISTS idx_items_square_id;
-
--- Create optimized composite indexes (merchant_id first)
-CREATE INDEX CONCURRENTLY idx_variations_merchant_sku ON variations(merchant_id, sku);
-CREATE INDEX CONCURRENTLY idx_variations_merchant_item ON variations(merchant_id, item_id);
-CREATE INDEX CONCURRENTLY idx_items_merchant_square ON items(merchant_id, square_id);
-CREATE INDEX CONCURRENTLY idx_inventory_merchant_variation ON inventory_counts(merchant_id, variation_id);
-CREATE INDEX CONCURRENTLY idx_sales_velocity_merchant_var ON sales_velocity(merchant_id, variation_id);
-
--- Covering indexes for common queries
-CREATE INDEX CONCURRENTLY idx_variations_merchant_sku_covering
-    ON variations(merchant_id, sku) INCLUDE (id, name, item_id);
-```
+**Migration includes**:
+- `variations`: merchant_sku, merchant_item, merchant_sku_covering
+- `items`: merchant_square, merchant_category
+- `inventory_counts`: merchant_variation, merchant_variation_location
+- `sales_velocity`: merchant_var, merchant_var_period
+- `purchase_orders`: merchant_status, merchant_date
+- `variation_expiration`: merchant_variation, merchant_date
+- `vendors`: merchant_square
+- `count_history`: merchant_catalog
+- `categories`: merchant_square
+- `webhook_events`: square_event_id (for idempotency)
 
 ---
 
@@ -1110,6 +1123,7 @@ When completing items, update this section:
 | 2026-01-26 | P0 #2 | Batched PO item inserts with multi-row INSERT (purchase-orders.js) |
 | 2026-01-26 | P0 #3 | Replaced correlated subquery with LEFT JOIN + GROUP BY (purchase-orders.js) |
 | 2026-01-26 | Bonus | Batched variation lookups + upsert in /expirations/review (catalog.js) |
+| 2026-01-26 | P0 #4 | Created migration 026_optimize_indexes.sql with composite indexes for 10 tables |
 ```
 
 ---
