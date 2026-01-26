@@ -234,8 +234,8 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | ✅ 4/4 | All complete - CSP 'unsafe-inline' can now be removed |
-| P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 nearly complete (1 file left), P1-4, P1-5 done |
+| P0 Security | ✅ 4/4 | All complete - CSP 'unsafe-inline' removed from scriptSrc |
+| P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 complete, P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -275,16 +275,7 @@ Fixed 3 locations exposing internal error details to clients:
 **File**: `middleware/security.js:23-35`
 **Status**: FIXED (2026-01-26)
 
-All inline event handlers have been migrated to use event delegation. The `'unsafe-inline'` directive can now be removed from CSP.
-
-**Final Step**: Remove `'unsafe-inline'` from `middleware/security.js`:
-```javascript
-scriptSrc: [
-    "'self'",
-    // "'unsafe-inline'" - REMOVE THIS LINE
-    "https://*.cloudflare.com"
-]
-```
+All inline event handlers have been migrated to use event delegation. The `'unsafe-inline'` directive has been removed from CSP `scriptSrc` and `scriptSrcAttr`.
 
 **Completed Migration (27 HTML files, ~335 handlers)**:
 - ✅ `logs.html` (pattern example)
@@ -521,10 +512,11 @@ async function getItems(merchantId, filters) {
 
 ---
 
-### P1-3: Utils Directory Reorganization 🟡 IN PROGRESS
+### P1-3: Utils Directory Reorganization ✅ COMPLETE
 **Problem**: 26 files (23,253 lines) mixing utilities, services, and domain logic
+**Status**: FIXED (2026-01-26)
 
-**Progress (2026-01-26)**:
+**Progress**:
 - ✅ Created `services/merchant/` with settings-service.js (extracted from database.js)
 - ✅ Created `services/delivery/` with delivery-service.js (moved from utils/)
 - ✅ Created `services/expiry/` with discount-service.js (moved from utils/)
@@ -533,14 +525,17 @@ async function getItems(merchantId, filters) {
 - ✅ Created `services/vendor/` with catalog-service.js (moved from utils/)
 - ✅ Created `services/reports/` with loyalty-reports.js (moved from utils/)
 - ✅ Created `services/square/` with api.js (moved from utils/)
+- ✅ Created `services/loyalty-admin/` with loyalty-service.js (5,475 lines)
 - ✅ Re-export stubs in utils/ maintain backward compatibility
-- ❌ Remaining: loyalty-service.js (5,475 lines)
 
 **Current Structure**:
 ```
 services/                # Business logic services
 ├── loyalty/             # ✅ Modern service (P1-1)
-├── catalog/             # ✅ NEW - Catalog data management (P1-2)
+├── loyalty-admin/       # ✅ Legacy loyalty admin service (5,475 lines)
+│   ├── index.js
+│   └── loyalty-service.js   # Offer CRUD, customer management, rewards
+├── catalog/             # ✅ Catalog data management (P1-2)
 │   ├── index.js
 │   ├── item-service.js      # Locations, categories, items
 │   ├── variation-service.js # Variations, costs, bulk updates
@@ -582,24 +577,20 @@ utils/                   # Re-export stubs for backward compatibility
 ├── merchant-center-api.js # → services/gmc/merchant-service.js
 ├── vendor-catalog.js    # → services/vendor/
 ├── loyalty-reports.js   # → services/reports/
+├── loyalty-service.js   # → services/loyalty-admin/
 ├── square-api.js        # → services/square/
 ├── database.js          # Re-exports getMerchantSettings from services/merchant/
 └── ... (remaining true utilities)
 ```
 
-**Remaining Work**:
-```
-utils/                   # Files still needing extraction
-└── loyalty-service.js   # ❌ Large service (5,475 lines - migrate to services/loyalty-admin/)
-```
-
-**Completed Extractions (this session)**:
+**Completed Extractions**:
 - ✅ `cycle-count-utils.js` → `services/inventory/cycle-count-service.js` (349 lines)
 - ✅ `gmc-feed.js` → `services/gmc/feed-service.js` (589 lines)
 - ✅ `merchant-center-api.js` → `services/gmc/merchant-service.js` (1,100 lines)
 - ✅ `vendor-catalog.js` → `services/vendor/catalog-service.js` (1,331 lines)
 - ✅ `loyalty-reports.js` → `services/reports/loyalty-reports.js` (969 lines)
 - ✅ `square-api.js` → `services/square/api.js` (3,517 lines)
+- ✅ `loyalty-service.js` → `services/loyalty-admin/loyalty-service.js` (5,475 lines)
 
 ---
 
