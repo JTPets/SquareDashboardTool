@@ -17,8 +17,55 @@
 const logger = require('../../utils/logger');
 const loyaltyService = require('../../utils/loyalty-service');
 
+// Modern loyalty service (feature-flagged)
+const { LoyaltyWebhookService } = require('../loyalty');
+
 // Square API version for direct API calls
 const SQUARE_API_VERSION = '2025-01-16';
+
+/**
+ * Process order for loyalty using either modern or legacy service
+ * Feature flag: USE_NEW_LOYALTY_SERVICE
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @param {Object} [options] - Processing options
+ * @param {string} [options.source] - Source of event
+ * @returns {Promise<Object>} Normalized result compatible with legacy format
+ */
+async function processOrderForLoyalty(order, merchantId, options = {}) {
+    const { source = 'LOYALTY_WEBHOOK' } = options;
+
+    if (process.env.USE_NEW_LOYALTY_SERVICE === 'true') {
+        logger.debug('Using modern loyalty service for order processing', {
+            orderId: order.id,
+            merchantId,
+            source
+        });
+
+        const service = new LoyaltyWebhookService(merchantId);
+        await service.initialize();
+        const result = await service.processOrder(order, { source });
+
+        // Adapt modern result to legacy format
+        return {
+            processed: result.processed,
+            customerId: result.customerId || null,
+            purchasesRecorded: (result.lineItemResults || [])
+                .filter(r => r.recorded)
+                .map(r => ({
+                    variationId: r.variationId,
+                    quantity: r.quantity,
+                    rewardEarned: r.rewardEarned || false
+                })),
+            _modern: true,
+            _trace: result.trace
+        };
+    }
+
+    // Use legacy service (default)
+    return loyaltyService.processOrderForLoyalty(order, merchantId, options);
+}
 
 class LoyaltyHandler {
     /**
@@ -164,10 +211,10 @@ class LoyaltyHandler {
             customer_id: order.customer_id || customerId
         };
 
-        const loyaltyResult = await loyaltyService.processOrderForLoyalty(
+        const loyaltyResult = await processOrderForLoyalty(
             effectiveOrder,
             merchantId,
-            { customerSourceOverride: 'loyalty_api' }
+            { source: 'LOYALTY_EVENT', customerSourceOverride: 'loyalty_api' }
         );
 
         if (loyaltyResult.processed) {
