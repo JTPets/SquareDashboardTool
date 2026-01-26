@@ -96,25 +96,32 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
 
         const po = poResult.rows[0];
 
-        // Create PO items
-        for (const item of validItems) {
-            const totalCost = item.quantity_ordered * item.unit_cost_cents;
+        // Create PO items with batch insert (avoid N+1 queries)
+        if (validItems.length > 0) {
+            const values = [];
+            const placeholders = validItems.map((item, i) => {
+                const offset = i * 8;
+                const totalCost = item.quantity_ordered * item.unit_cost_cents;
+                values.push(
+                    po.id,
+                    item.variation_id,
+                    item.quantity_override || null,
+                    item.quantity_ordered,
+                    item.unit_cost_cents,
+                    totalCost,
+                    item.notes || null,
+                    merchantId
+                );
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`;
+            }).join(', ');
+
             await db.query(`
                 INSERT INTO purchase_order_items (
                     purchase_order_id, variation_id, quantity_override,
                     quantity_ordered, unit_cost_cents, total_cost_cents, notes, merchant_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `, [
-                po.id,
-                item.variation_id,
-                item.quantity_override || null,
-                item.quantity_ordered,
-                item.unit_cost_cents,
-                totalCost,
-                item.notes || null,
-                merchantId
-            ]);
+                VALUES ${placeholders}
+            `, values);
         }
 
         res.status(201).json({
@@ -140,10 +147,11 @@ router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, asy
                 po.*,
                 v.name as vendor_name,
                 l.name as location_name,
-                (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id AND merchant_id = $1) as item_count
+                COUNT(poi.id) as item_count
             FROM purchase_orders po
             JOIN vendors v ON po.vendor_id = v.id AND v.merchant_id = $1
             JOIN locations l ON po.location_id = l.id AND l.merchant_id = $1
+            LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id AND poi.merchant_id = $1
             WHERE po.merchant_id = $1
         `;
         const params = [merchantId];
@@ -158,7 +166,7 @@ router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, asy
             query += ` AND po.vendor_id = $${params.length}`;
         }
 
-        query += ' ORDER BY po.created_at DESC';
+        query += ' GROUP BY po.id, v.name, l.name ORDER BY po.created_at DESC';
 
         const result = await db.query(query, params);
         res.json({

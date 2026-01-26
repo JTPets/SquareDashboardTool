@@ -613,6 +613,25 @@ router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, va
         const errors = [];
         const squarePushResults = { success: 0, failed: 0, errors: [] };
 
+        // Batch lookup all variation IDs by SKU (avoid N+1 queries)
+        const skusToLookup = updates.filter(u => u.sku).map(u => u.sku);
+        const skuToIdMap = new Map();
+        if (skusToLookup.length > 0) {
+            const variationsResult = await db.query(
+                'SELECT id, sku FROM variations WHERE sku = ANY($1) AND merchant_id = $2',
+                [skusToLookup, merchantId]
+            );
+            for (const row of variationsResult.rows) {
+                skuToIdMap.set(row.sku, row.id);
+            }
+        }
+
+        const allowedFields = [
+            'case_pack_quantity', 'stock_alert_min', 'stock_alert_max',
+            'preferred_stock_level', 'shelf_location', 'bin_location',
+            'reorder_multiple', 'discontinued', 'notes'
+        ];
+
         for (const update of updates) {
             if (!update.sku) {
                 errors.push({ error: 'SKU required', data: update });
@@ -620,12 +639,6 @@ router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, va
             }
 
             try {
-                const allowedFields = [
-                    'case_pack_quantity', 'stock_alert_min', 'stock_alert_max',
-                    'preferred_stock_level', 'shelf_location', 'bin_location',
-                    'reorder_multiple', 'discontinued', 'notes'
-                ];
-
                 const sets = [];
                 const values = [];
                 let paramCount = 1;
@@ -647,12 +660,6 @@ router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, va
                     values.push(update.sku);
                     values.push(merchantId);
 
-                    // Get variation ID before updating (needed for Square sync)
-                    const variationResult = await db.query(
-                        'SELECT id FROM variations WHERE sku = $1 AND merchant_id = $2',
-                        [update.sku, merchantId]
-                    );
-
                     await db.query(`
                         UPDATE variations
                         SET ${sets.join(', ')}
@@ -661,8 +668,8 @@ router.post('/variations/bulk-update-extended', requireAuth, requireMerchant, va
                     updatedCount++;
 
                     // Auto-sync case_pack_quantity to Square if updated with valid value (must be > 0)
-                    if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0 && variationResult.rows.length > 0) {
-                        const variationId = variationResult.rows[0].id;
+                    const variationId = skuToIdMap.get(update.sku);
+                    if (casePackUpdate && newCasePackValue !== null && newCasePackValue > 0 && variationId) {
                         try {
                             await squareApi.updateCustomAttributeValues(variationId, {
                                 case_pack_quantity: {
@@ -935,58 +942,40 @@ router.post('/expirations/review', requireAuth, requireMerchant, validators.revi
             return res.status(400).json({ error: 'Expected array of variation_ids' });
         }
 
-        // Check if reviewed_at column exists
-        let hasReviewedColumn = false;
-        try {
-            const colCheck = await db.query(`
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'variation_expiration' AND column_name = 'reviewed_at'
-            `);
-            hasReviewedColumn = colCheck.rows.length > 0;
-        } catch (e) {
-            // Column check failed
-        }
-
-        if (!hasReviewedColumn) {
-            return res.status(503).json({
-                error: 'Review feature not available',
-                details: 'Please restart the server to apply database migrations.'
-            });
-        }
-
-        let reviewedCount = 0;
         const reviewedAt = new Date().toISOString();
         let squarePushResults = { success: 0, failed: 0, errors: [] };
 
-        for (const variation_id of variation_ids) {
-            // Verify variation belongs to this merchant
-            const varCheck = await db.query(
-                'SELECT id FROM variations WHERE id = $1 AND merchant_id = $2',
-                [variation_id, merchantId]
-            );
-            if (varCheck.rows.length === 0) {
-                continue;
-            }
+        // Batch verify all variations belong to this merchant (avoid N+1 queries)
+        const validVariations = await db.query(
+            'SELECT id FROM variations WHERE id = ANY($1) AND merchant_id = $2',
+            [variation_ids, merchantId]
+        );
+        const validIds = new Set(validVariations.rows.map(v => v.id));
 
-            // Save to local database
-            await db.query(`
-                INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
-                VALUES ($1, NOW(), $2, NOW(), $3)
-                ON CONFLICT (variation_id, merchant_id)
-                DO UPDATE SET
-                    reviewed_at = NOW(),
-                    reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
-                    updated_at = NOW()
-            `, [variation_id, reviewed_by || 'User', merchantId]);
+        if (validIds.size === 0) {
+            return res.status(400).json({ error: 'No valid variations found for this merchant' });
+        }
 
-            reviewedCount++;
+        // Batch upsert all valid variations
+        const validIdsArray = Array.from(validIds);
+        await db.query(`
+            INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
+            SELECT unnest($1::integer[]), NOW(), $2, NOW(), $3
+            ON CONFLICT (variation_id, merchant_id)
+            DO UPDATE SET
+                reviewed_at = NOW(),
+                reviewed_by = COALESCE($2, variation_expiration.reviewed_by),
+                updated_at = NOW()
+        `, [validIdsArray, reviewed_by || 'User', merchantId]);
 
-            // Push to Square for cross-platform consistency (both timestamp and user)
+        const reviewedCount = validIds.size;
+
+        // Push to Square for cross-platform consistency (external API calls must be individual)
+        for (const variation_id of validIds) {
             try {
                 const customAttributeValues = {
                     expiry_reviewed_at: { string_value: reviewedAt }
                 };
-                // Also push reviewed_by if provided
                 if (reviewed_by) {
                     customAttributeValues.expiry_reviewed_by = { string_value: reviewed_by };
                 }
