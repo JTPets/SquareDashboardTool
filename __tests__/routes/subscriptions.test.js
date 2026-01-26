@@ -373,10 +373,19 @@ describe('Subscription Routes', () => {
         describe('Configuration Checks', () => {
 
             test('requires SQUARE_LOCATION_ID', () => {
+                // Save and clear the env var to test the requirement
+                const originalLocationId = process.env.SQUARE_LOCATION_ID;
+                delete process.env.SQUARE_LOCATION_ID;
+
                 const locationId = process.env.SQUARE_LOCATION_ID;
 
-                // In test, env var is not set
+                // Without env var set, locationId should be undefined
                 expect(locationId).toBeFalsy();
+
+                // Restore the env var
+                if (originalLocationId) {
+                    process.env.SQUARE_LOCATION_ID = originalLocationId;
+                }
             });
         });
 
