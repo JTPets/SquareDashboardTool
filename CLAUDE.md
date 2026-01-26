@@ -234,7 +234,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 14 HTML files remaining |
+| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 11 HTML files remaining |
 | P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
@@ -293,15 +293,15 @@ scriptSrc: [
 
 | Scope | Count |
 |-------|-------|
-| HTML files with inline handlers | 14 |
-| `onclick` handlers | ~226 |
-| `onchange` handlers | ~27 |
-| Other handlers (onerror, onblur, etc.) | ~39 |
+| HTML files with inline handlers | 11 |
+| `onclick` handlers | ~202 |
+| `onchange` handlers | ~23 |
+| Other handlers (onerror, onblur, etc.) | ~30 |
 
 **Migration Steps**:
 1. ✅ ~~Remove `'unsafe-eval'`~~ (done 2026-01-26)
 2. ✅ ~~Create `/public/js/event-delegation.js`~~ (done 2026-01-26)
-3. 🟡 Convert inline handlers to event listeners (14 files remaining, ~292 handlers)
+3. 🟡 Convert inline handlers to event listeners (11 files remaining, ~202 handlers)
    - ✅ `logs.html` migrated as pattern example
    - ✅ `settings.html` migrated (19 handlers)
    - ✅ `catalog-audit.html` migrated (17 handlers)
@@ -313,6 +313,11 @@ scriptSrc: [
    - ✅ `admin-subscriptions.html` migrated (2 handlers)
    - ✅ `cycle-count-history.html` migrated (6 handlers)
    - ✅ `driver.html` migrated (10 handlers)
+   - ✅ `index.html` migrated (1 handler)
+   - ✅ `delivery-settings.html` migrated (1 handler)
+   - ✅ `subscribe.html` migrated (9 handlers)
+   - ✅ `merchants.html` migrated (7 handlers)
+   - ✅ `expiry.html` migrated (15 handlers)
 4. Remove `'unsafe-inline'` from CSP
 
 **Event Delegation Pattern** (from `/public/js/event-delegation.js`):

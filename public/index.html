@@ -375,7 +375,7 @@
         <a href="/login.html" class="btn btn-secondary">Log In</a>
         <a href="/subscribe.html" class="btn btn-primary">Get Started</a>
       </div>
-      <button class="nav-mobile-toggle" onclick="window.location.href='/login.html'">Menu</button>
+      <button class="nav-mobile-toggle" data-action="navigateToLogin">Menu</button>
     </div>
   </nav>
 
@@ -502,6 +502,7 @@
     </div>
   </footer>
 
+  <script src="/js/event-delegation.js"></script>
   <script data-cfasync="false">
     document.getElementById('year').textContent = new Date().getFullYear();
 
@@ -515,6 +516,11 @@
         }
       });
     });
+
+    // Global handlers for event delegation
+    function navigateToLogin() {
+      window.location.href = '/login.html';
+    }
   </script>
 </body>
 </html>
