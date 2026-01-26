@@ -232,9 +232,13 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
     });
 
     if (!customerResponse.customer) {
-        const errorMsg = customerResponse.errors?.[0]?.detail || 'Failed to create customer';
-        logger.error('Square customer creation failed', { error: errorMsg });
-        return res.status(400).json({ error: errorMsg });
+        const errorDetail = customerResponse.errors?.[0]?.detail || 'Unknown error';
+        logger.error('Square customer creation failed', { error: errorDetail, email });
+        return res.status(400).json({
+            success: false,
+            error: 'Account creation failed. Please try again.',
+            code: 'CUSTOMER_CREATION_FAILED'
+        });
     }
 
     squareCustomerId = customerResponse.customer.id;
@@ -252,9 +256,13 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
     });
 
     if (!cardResponse.card) {
-        const errorMsg = cardResponse.errors?.[0]?.detail || 'Failed to save payment method';
-        logger.error('Square card creation failed', { error: errorMsg, customerId: squareCustomerId });
-        return res.status(400).json({ error: errorMsg });
+        const errorDetail = cardResponse.errors?.[0]?.detail || 'Unknown error';
+        logger.error('Square card creation failed', { error: errorDetail, customerId: squareCustomerId });
+        return res.status(400).json({
+            success: false,
+            error: 'Failed to save payment method. Please check your card details.',
+            code: 'CARD_CREATION_FAILED'
+        });
     }
 
     cardId = cardResponse.card.id;
@@ -330,9 +338,15 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
             });
 
         } catch (paymentError) {
-            logger.error('Discounted payment failed', { error: paymentError.message });
+            logger.error('Discounted payment failed', {
+                error: paymentError.message,
+                subscriberId: subscriber?.id,
+                amount: finalPriceCents
+            });
             return res.status(400).json({
-                error: 'Payment failed: ' + (paymentError.message || 'Please check your card details')
+                success: false,
+                error: 'Payment failed. Please check your card details and try again.',
+                code: 'PAYMENT_FAILED'
             });
         }
 
@@ -376,9 +390,15 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
             });
 
         } catch (subError) {
-            logger.error('Subscription creation failed', { error: subError.message });
+            logger.error('Subscription creation failed', {
+                error: subError.message,
+                subscriberId: subscriber?.id,
+                customerId: squareCustomerId
+            });
             return res.status(400).json({
-                error: 'Subscription failed: ' + (subError.message || 'Please try again')
+                success: false,
+                error: 'Subscription creation failed. Please try again.',
+                code: 'SUBSCRIPTION_FAILED'
             });
         }
     }

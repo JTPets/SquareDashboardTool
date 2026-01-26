@@ -226,6 +226,64 @@ function configureSensitiveOperationRateLimit() {
 }
 
 /**
+ * Configure rate limiting for webhook endpoint
+ * P1-8: Prevents DDoS and replay attacks on webhook processing
+ */
+function configureWebhookRateLimit() {
+    return rateLimit({
+        windowMs: 60 * 1000,  // 1 minute
+        max: 100,  // 100 webhooks per minute per merchant
+        message: {
+            error: 'Too many webhook requests',
+            code: 'WEBHOOK_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Webhook rate limit exceeded', {
+                ip: req.ip,
+                merchantId: req.body?.merchant_id || 'unknown'
+            });
+            res.status(429).json(options.message);
+        },
+        // Key by Square merchant ID from payload
+        keyGenerator: (req) => {
+            const merchantId = req.body?.merchant_id || req.ip;
+            return `webhook-${merchantId}`;
+        }
+    });
+}
+
+/**
+ * Configure rate limiting for password reset endpoint
+ * P1-7: Prevents brute-force attacks on password reset tokens
+ */
+function configurePasswordResetRateLimit() {
+    return rateLimit({
+        windowMs: 15 * 60 * 1000,  // 15 minutes
+        max: 5,  // 5 attempts per 15 minutes per token
+        message: {
+            error: 'Too many password reset attempts, please try again later',
+            code: 'RESET_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Password reset rate limit exceeded', {
+                ip: req.ip,
+                token: req.body?.token ? req.body.token.substring(0, 10) + '...' : 'none'
+            });
+            res.status(429).json(options.message);
+        },
+        // Key by token to limit attempts per reset token
+        keyGenerator: (req) => {
+            const token = req.body?.token || '';
+            return `reset-${token.substring(0, 16)}`;  // Use first 16 chars for key
+        }
+    });
+}
+
+/**
  * Configure CORS
  */
 function configureCors() {
@@ -303,6 +361,8 @@ module.exports = {
     configureHelmet,
     configureRateLimit,
     configureLoginRateLimit,
+    configurePasswordResetRateLimit,
+    configureWebhookRateLimit,
     configureDeliveryRateLimit,
     configureDeliveryStrictRateLimit,
     configureSensitiveOperationRateLimit,

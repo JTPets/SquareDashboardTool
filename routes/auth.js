@@ -9,12 +9,13 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { hashPassword, verifyPassword, validatePassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
-const { configureLoginRateLimit } = require('../middleware/security');
+const { configureLoginRateLimit, configurePasswordResetRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/auth');
 
-// Apply login rate limiting to login route
+// Apply rate limiting to sensitive routes
 const loginRateLimit = configureLoginRateLimit();
+const passwordResetRateLimit = configurePasswordResetRateLimit();
 
 // Account lockout settings
 const MAX_FAILED_ATTEMPTS = 5;
@@ -658,15 +659,19 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
 /**
  * POST /api/auth/reset-password
  * Reset password using a valid token
+ *
+ * Security: Token has limited attempts (default 5) to prevent brute-force.
+ * Each request with a valid token decrements attempts_remaining.
  */
-router.post('/reset-password', validators.resetPassword, asyncHandler(async (req, res) => {
+router.post('/reset-password', passwordResetRateLimit, validators.resetPassword, asyncHandler(async (req, res) => {
     const { token, newPassword } = req.body;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
     // Token and password validated by middleware
 
-    // Find valid token
+    // Find valid token with attempt limiting
+    // COALESCE handles tokens created before migration (NULL attempts_remaining)
     const tokenResult = await db.query(`
         SELECT prt.*, u.email
         FROM password_reset_tokens prt
@@ -674,10 +679,28 @@ router.post('/reset-password', validators.resetPassword, asyncHandler(async (req
         WHERE prt.token = $1
           AND prt.expires_at > NOW()
           AND prt.used_at IS NULL
+          AND COALESCE(prt.attempts_remaining, 5) > 0
     `, [token]);
 
     if (tokenResult.rows.length === 0) {
-        logger.warn('Invalid or expired password reset token', { token: token.substring(0, 10) + '...', ipAddress });
+        // Check if token exists but has exhausted attempts
+        const exhaustedCheck = await db.query(`
+            SELECT id, attempts_remaining FROM password_reset_tokens
+            WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
+        `, [token]);
+
+        if (exhaustedCheck.rows.length > 0 && exhaustedCheck.rows[0].attempts_remaining <= 0) {
+            logger.warn('Password reset token exhausted all attempts', {
+                token: token.substring(0, 10) + '...',
+                ipAddress
+            });
+        } else {
+            logger.warn('Invalid or expired password reset token', {
+                token: token.substring(0, 10) + '...',
+                ipAddress
+            });
+        }
+
         return res.status(400).json({
             success: false,
             error: 'Invalid or expired reset token. Please request a new password reset.'
@@ -686,6 +709,14 @@ router.post('/reset-password', validators.resetPassword, asyncHandler(async (req
 
     const resetRecord = tokenResult.rows[0];
     const userId = resetRecord.user_id;
+
+    // Decrement attempts atomically BEFORE processing
+    // This ensures attempt is consumed even if something fails later
+    await db.query(`
+        UPDATE password_reset_tokens
+        SET attempts_remaining = COALESCE(attempts_remaining, 5) - 1
+        WHERE id = $1
+    `, [resetRecord.id]);
 
     // Hash new password and update user
     const passwordHash = await hashPassword(newPassword);
@@ -730,13 +761,15 @@ router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(asyn
 
     // Token validated by middleware
 
+    // Check token validity including attempt limit
     const tokenResult = await db.query(`
-        SELECT prt.id, prt.expires_at, u.email
+        SELECT prt.id, prt.expires_at, prt.attempts_remaining, u.email
         FROM password_reset_tokens prt
         JOIN users u ON u.id = prt.user_id
         WHERE prt.token = $1
           AND prt.expires_at > NOW()
           AND prt.used_at IS NULL
+          AND COALESCE(prt.attempts_remaining, 5) > 0
     `, [token]);
 
     if (tokenResult.rows.length === 0) {

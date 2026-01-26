@@ -398,7 +398,7 @@ router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.get
  * POST /api/cycle-counts/email-report
  * Send completion report email
  */
-router.post('/cycle-counts/email-report', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/email-report', requireAuth, requireMerchant, validators.emailReport, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await sendCycleCountReport(merchantId);
 
@@ -413,7 +413,7 @@ router.post('/cycle-counts/email-report', requireAuth, requireMerchant, asyncHan
  * POST /api/cycle-counts/generate-batch
  * Manually trigger daily batch generation
  */
-router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, validators.generateBatch, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Manual batch generation requested', { merchantId });
     const result = await generateDailyBatch(merchantId);

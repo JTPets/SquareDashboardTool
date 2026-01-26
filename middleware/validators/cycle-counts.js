@@ -132,11 +132,31 @@ const reset = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/cycle-counts/email-report
+ * No body params required - uses merchant context
+ * Validator documents API contract for consistency
+ */
+const emailReport = [
+    handleValidationErrors
+];
+
+/**
+ * POST /api/cycle-counts/generate-batch
+ * No body params required - uses merchant context
+ * Validator documents API contract for consistency
+ */
+const generateBatch = [
+    handleValidationErrors
+];
+
 module.exports = {
     complete,
     syncToSquare,
     sendNow,
     getStats,
     getHistory,
-    reset
+    reset,
+    emailReport,
+    generateBatch
 };
