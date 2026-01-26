@@ -1417,7 +1417,7 @@
         `).join('');
 
       } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="8" class="error">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="error">Error: ${escapeHtml(error.message)}</td></tr>`;
       }
     }
 
@@ -1522,7 +1522,7 @@
         resultEl.innerHTML = html;
 
       } catch (error) {
-        resultEl.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        resultEl.innerHTML = `<div class="error">Error: ${escapeHtml(error.message)}</div>`;
       }
     }
 
@@ -1592,7 +1592,7 @@
         }).join('');
 
       } catch (error) {
-        container.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        container.innerHTML = `<div class="error">Error: ${escapeHtml(error.message)}</div>`;
       }
     }
 

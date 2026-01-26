@@ -224,6 +224,14 @@
   </div>
 
   <script data-cfasync="false">
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     const form = document.getElementById('login-form');
     const errorMessage = document.getElementById('error-message');
     const sessionMessage = document.getElementById('session-message');
@@ -347,7 +355,13 @@
 
           // In development mode, show the reset link
           if (data.resetUrl) {
-            forgotSuccess.innerHTML = `${data.message}<br><br><strong>Development mode:</strong><br><a href="${data.resetUrl}" style="color: #16a34a;">Click here to reset password</a>`;
+            // Validate URL is relative path (not javascript: or external)
+            const safeUrl = data.resetUrl.startsWith('/') ? data.resetUrl : '';
+            if (safeUrl) {
+              forgotSuccess.innerHTML = `${escapeHtml(data.message)}<br><br><strong>Development mode:</strong><br><a href="${escapeHtml(safeUrl)}" style="color: #16a34a;">Click here to reset password</a>`;
+            } else {
+              forgotSuccess.textContent = data.message;
+            }
           }
         } else {
           forgotError.textContent = data.error || 'Failed to send reset email';

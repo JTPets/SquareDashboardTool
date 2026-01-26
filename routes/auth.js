@@ -134,32 +134,55 @@ router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req,
         [user.id]
     );
 
-    // Create session
-    req.session.user = {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role
-    };
+    // SECURITY: Regenerate session ID to prevent session fixation attacks
+    // This ensures any pre-existing session ID cannot be used by an attacker
+    req.session.regenerate(async (err) => {
+        if (err) {
+            logger.error('Session regeneration failed', { error: err.message, stack: err.stack, userId: user.id });
+            return res.status(500).json({
+                success: false,
+                error: 'Login failed. Please try again.'
+            });
+        }
 
-    await logAuthEvent(db, {
-        userId: user.id,
-        email: user.email,
-        eventType: 'login_success',
-        ipAddress,
-        userAgent
-    });
-
-    logger.info('User logged in', { userId: user.id, email: user.email });
-
-    res.json({
-        success: true,
-        user: {
+        // Create session with user data after regeneration
+        req.session.user = {
             id: user.id,
             email: user.email,
             name: user.name,
             role: user.role
-        }
+        };
+
+        // Save session to ensure it's persisted before responding
+        req.session.save(async (saveErr) => {
+            if (saveErr) {
+                logger.error('Session save failed', { error: saveErr.message, stack: saveErr.stack, userId: user.id });
+                return res.status(500).json({
+                    success: false,
+                    error: 'Login failed. Please try again.'
+                });
+            }
+
+            await logAuthEvent(db, {
+                userId: user.id,
+                email: user.email,
+                eventType: 'login_success',
+                ipAddress,
+                userAgent
+            });
+
+            logger.info('User logged in', { userId: user.id, email: user.email });
+
+            res.json({
+                success: true,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    role: user.role
+                }
+            });
+        });
     });
 }));
 
@@ -188,7 +211,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
         if (err) {
             logger.error('Session destroy error', { error: err.message, stack: err.stack });
         }
-        res.clearCookie('connect.sid');
+        res.clearCookie('sid');
         res.json({ success: true });
     });
 }));
