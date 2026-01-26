@@ -822,13 +822,15 @@ router.get('/endpoint', asyncHandler(async (req, res) => {
 - [x] `routes/webhooks.js` (8 routes) - COMPLETE
 - [x] `routes/google-oauth.js` (3/4 routes) - callback keeps try/catch for redirect
 - [x] `routes/square-oauth.js` (2/4 routes) - connect/callback keep try/catch for redirect
-- [ ] `routes/expiry-discounts.js` (13 routes)
-- [ ] `routes/sync.js` (14 routes)
-- [ ] `routes/vendor-catalog.js` (13 routes)
-- [ ] `routes/square-attributes.js` (12 routes)
-- [ ] `routes/subscriptions.js` (10 routes)
-- [ ] `routes/auth.js` (10 routes)
-- [ ] `routes/gmc.js` (33 routes)
+- [x] `routes/expiry-discounts.js` (13 routes) - COMPLETE
+- [x] `routes/sync.js` (6 routes) - COMPLETE
+- [x] `routes/vendor-catalog.js` (13 routes) - COMPLETE
+- [x] `routes/square-attributes.js` (10 routes) - COMPLETE
+- [x] `routes/subscriptions.js` (11 routes) - COMPLETE
+- [x] `routes/auth.js` (10 routes) - COMPLETE
+- [x] `routes/gmc.js` (33 routes) - COMPLETE
+
+**P1 #6 STATUS: COMPLETE** - All 20 route files now use asyncHandler (~246 routes total)
 
 #### 7. Add Stack Traces to All Error Logs
 **File**: `utils/square-api.js` (20+ occurrences)
@@ -1137,6 +1139,7 @@ When completing items, update this section:
 | 2026-01-26 | P1 #6 | asyncHandler adoption: analytics.js (2), settings.js (2), merchants.js (3), logs.js (4) |
 | 2026-01-26 | P1 #6 | asyncHandler adoption: driver-api.js (8), google-oauth.js (3/4), square-oauth.js (2/4) |
 | 2026-01-26 | P1 #6 | asyncHandler adoption: cycle-counts.js (9), webhooks.js (8) - ~150 routes total, ~1000 lines removed |
+| 2026-01-26 | P1 #6 | asyncHandler adoption COMPLETE: expiry-discounts.js (13), sync.js (6), vendor-catalog.js (13), square-attributes.js (10), subscriptions.js (11), auth.js (10), gmc.js (33) - ALL 20 route files done |
 ```
 
 ---
