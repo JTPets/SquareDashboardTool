@@ -1307,7 +1307,7 @@ Wellness"></textarea>
 
       } catch (error) {
         console.error('Load error:', error);
-        document.getElementById('loading').innerHTML = 'Error loading feed: ' + error.message;
+        document.getElementById('loading').innerHTML = 'Error loading feed: ' + escapeHtml(error.message);
       }
     }
 

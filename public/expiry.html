@@ -400,7 +400,7 @@
 
       } catch (error) {
         console.error('Failed to load items:', error);
-        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">Error: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="loading">Error: ${escapeHtml(error.message)}</td></tr>`;
       }
     }
 

@@ -796,7 +796,7 @@
         const friendlyMsg = window.ErrorHelper
           ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
           : 'Unable to load reorder suggestions. Please refresh the page.';
-        tbody.innerHTML = `<tr><td colspan="17" class="loading">${friendlyMsg}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="17" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
       }
     }
 

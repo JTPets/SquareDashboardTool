@@ -1074,7 +1074,7 @@
         html += '</div>';
         container.innerHTML = html;
       } catch (e) {
-        container.innerHTML = '<div class="alert error">Error loading users: ' + e.message + '</div>';
+        container.innerHTML = '<div class="alert error">Error loading users: ' + escapeHtml(e.message) + '</div>';
       }
     }
 

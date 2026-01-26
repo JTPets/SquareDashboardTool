@@ -1011,7 +1011,8 @@
 
     function showAlert(message, type) {
       const alertArea = document.getElementById('alertArea');
-      alertArea.innerHTML = `<div class="alert ${type}">${message}</div>`;
+      // Escape message to prevent XSS; type is a controlled CSS class name
+      alertArea.innerHTML = `<div class="alert ${type}">${escapeHtml(message)}</div>`;
       setTimeout(() => { alertArea.innerHTML = ''; }, 5000);
     }
 
