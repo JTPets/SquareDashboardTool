@@ -11,6 +11,7 @@ const { hashPassword, verifyPassword, validatePassword, generateRandomPassword }
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { configureLoginRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
+const validators = require('../middleware/validators/auth');
 
 // Apply login rate limiting to login route
 const loginRateLimit = configureLoginRateLimit();
@@ -23,19 +24,12 @@ const LOCKOUT_DURATION_MINUTES = 30;
  * POST /api/auth/login
  * Authenticate user with email and password
  */
-router.post('/login', loginRateLimit, asyncHandler(async (req, res) => {
+router.post('/login', loginRateLimit, validators.login, asyncHandler(async (req, res) => {
     const { email, password } = req.body;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    // Validate input
-    if (!email || !password) {
-        return res.status(400).json({
-            success: false,
-            error: 'Email and password are required'
-        });
-    }
-
+    // Email is already normalized by validator
     const normalizedEmail = email.toLowerCase().trim();
 
     // Find user by email
@@ -222,20 +216,13 @@ router.get('/me', (req, res) => {
  * POST /api/auth/change-password
  * Change current user's password
  */
-router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
+router.post('/change-password', requireAuth, validators.changePassword, asyncHandler(async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.session.user.id;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    // Validate new password
-    const validation = validatePassword(newPassword);
-    if (!validation.valid) {
-        return res.status(400).json({
-            success: false,
-            error: validation.errors.join('. ')
-        });
-    }
+    // Password strength validated by middleware
 
     // Get current password hash
     const userResult = await db.query(
@@ -302,19 +289,12 @@ router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =>
  * POST /api/auth/users
  * Create new user (admin only)
  */
-router.post('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHandler(async (req, res) => {
     const { email, name, role, password } = req.body;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    // Validate email
-    if (!email || !email.includes('@')) {
-        return res.status(400).json({
-            success: false,
-            error: 'Valid email is required'
-        });
-    }
-
+    // Email validated and normalized by middleware
     const normalizedEmail = email.toLowerCase().trim();
 
     // Check if email already exists
@@ -330,27 +310,16 @@ router.post('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =
         });
     }
 
-    // Validate role
-    const validRoles = ['admin', 'user', 'readonly'];
-    const userRole = role && validRoles.includes(role) ? role : 'user';
+    // Role validated by middleware, default to 'user' if not provided
+    const userRole = role || 'user';
 
-    // Generate or validate password
+    // Generate password if not provided (password strength validated by middleware if provided)
     let userPassword = password;
     let generatedPassword = null;
 
     if (!password) {
-        // Generate random password
         userPassword = generateRandomPassword();
         generatedPassword = userPassword;
-    } else {
-        // Validate provided password
-        const validation = validatePassword(password);
-        if (!validation.valid) {
-            return res.status(400).json({
-                success: false,
-                error: validation.errors.join('. ')
-            });
-        }
     }
 
     // Hash password
@@ -398,7 +367,7 @@ router.post('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =
  * PUT /api/auth/users/:id
  * Update user (admin only)
  */
-router.put('/users/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
     const { name, role, is_active } = req.body;
     const ipAddress = getClientIp(req);
@@ -425,7 +394,7 @@ router.put('/users/:id', requireAuth, requireAdmin, asyncHandler(async (req, res
         });
     }
 
-    // Build update query
+    // Build update query (role validated by middleware)
     const updates = [];
     const values = [];
     let paramCount = 1;
@@ -437,13 +406,6 @@ router.put('/users/:id', requireAuth, requireAdmin, asyncHandler(async (req, res
     }
 
     if (role !== undefined) {
-        const validRoles = ['admin', 'user', 'readonly'];
-        if (!validRoles.includes(role)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid role'
-            });
-        }
         updates.push(`role = $${paramCount}`);
         values.push(role);
         paramCount++;
@@ -494,7 +456,7 @@ router.put('/users/:id', requireAuth, requireAdmin, asyncHandler(async (req, res
  * POST /api/auth/users/:id/reset-password
  * Reset user password (admin only)
  */
-router.post('/users/:id/reset-password', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.resetUserPassword, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
     const { newPassword } = req.body;
     const ipAddress = getClientIp(req);
@@ -513,21 +475,13 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, asyncHandler
         });
     }
 
-    // Generate or validate password
+    // Generate password if not provided (password strength validated by middleware if provided)
     let password = newPassword;
     let generatedPassword = null;
 
     if (!newPassword) {
         password = generateRandomPassword();
         generatedPassword = password;
-    } else {
-        const validation = validatePassword(newPassword);
-        if (!validation.valid) {
-            return res.status(400).json({
-                success: false,
-                error: validation.errors.join('. ')
-            });
-        }
     }
 
     // Hash and update password
@@ -568,7 +522,7 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, asyncHandler
  * POST /api/auth/users/:id/unlock
  * Unlock a locked user account (admin only)
  */
-router.post('/users/:id/unlock', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUser, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
@@ -613,17 +567,11 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, asyncHandler(async (
  * POST /api/auth/forgot-password
  * Request a password reset email/token
  */
-router.post('/forgot-password', asyncHandler(async (req, res) => {
+router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (req, res) => {
     const { email } = req.body;
     const ipAddress = getClientIp(req);
 
-    if (!email) {
-        return res.status(400).json({
-            success: false,
-            error: 'Email is required'
-        });
-    }
-
+    // Email validated by middleware
     const normalizedEmail = email.toLowerCase().trim();
 
     // Find user by email
@@ -688,26 +636,12 @@ router.post('/forgot-password', asyncHandler(async (req, res) => {
  * POST /api/auth/reset-password
  * Reset password using a valid token
  */
-router.post('/reset-password', asyncHandler(async (req, res) => {
+router.post('/reset-password', validators.resetPassword, asyncHandler(async (req, res) => {
     const { token, newPassword } = req.body;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    if (!token || !newPassword) {
-        return res.status(400).json({
-            success: false,
-            error: 'Token and new password are required'
-        });
-    }
-
-    // Validate password
-    const validation = validatePassword(newPassword);
-    if (!validation.valid) {
-        return res.status(400).json({
-            success: false,
-            error: validation.errors.join('. ')
-        });
-    }
+    // Token and password validated by middleware
 
     // Find valid token
     const tokenResult = await db.query(`
@@ -768,16 +702,10 @@ router.post('/reset-password', asyncHandler(async (req, res) => {
  * GET /api/auth/verify-reset-token
  * Check if a reset token is valid
  */
-router.get('/verify-reset-token', asyncHandler(async (req, res) => {
+router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(async (req, res) => {
     const { token } = req.query;
 
-    if (!token) {
-        return res.status(400).json({
-            success: false,
-            valid: false,
-            error: 'Token is required'
-        });
-    }
+    // Token validated by middleware
 
     const tokenResult = await db.query(`
         SELECT prt.id, prt.expires_at, u.email
