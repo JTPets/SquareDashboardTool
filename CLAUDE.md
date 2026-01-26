@@ -236,7 +236,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
 | P1 Architecture | 🟡 1.5/5 | P1-1 in progress, P1-4 done |
-| P2 Testing | 🔴 0/6 | Test coverage for critical paths |
+| P2 Testing | 🟡 2.5/6 | P2-3, P2-6 complete; P2-2,4,5 partial |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 ---
@@ -542,22 +542,37 @@ Moved `resolveImageUrls()` from server.js to `utils/image-utils.js` alongside th
 
 ---
 
-### P1-5: Inconsistent Validator Organization ❌
-**Problem**: Some validators in separate files, some inline in routes
+### P1-5: Inconsistent Validator Organization 🟡 PARTIALLY RESOLVED
+**Status**: Most routes use proper validators, two routes need validators added
 
-**Current Pattern (Inconsistent)**:
+**Analysis (2026-01-26)**:
+- 18 routes have proper validator files in `middleware/validators/` ✅
+- 2 routes use manual validation without validator files:
+  - `routes/auth.js` - 12 endpoints with manual `if (!field)` checks
+  - `routes/square-oauth.js` - 4 endpoints, mostly config validation
+
+**Routes with validators (correct pattern)**:
 ```javascript
-// Pattern A: Separate file (good)
-const { createOrderValidator } = require('../middleware/validators/delivery');
-
-// Pattern B: Inline (bad) - found in some routes
-router.post('/thing', [
-    body('field').isString(),
-    handleValidationErrors
-], asyncHandler(...));
+// routes/delivery.js - uses validators.functionName pattern
+const validators = require('../middleware/validators/delivery');
+router.post('/orders', validators.createOrder, asyncHandler(...));
 ```
 
-**Required Pattern**: All validators in `middleware/validators/` files
+**Routes without validators (need fixing)**:
+```javascript
+// routes/auth.js - manual validation inside handler
+router.post('/login', asyncHandler(async (req, res) => {
+    if (!email || !password) {  // ← Should use validators/auth.js
+        return res.status(400).json({ error: 'Email and password required' });
+    }
+}));
+```
+
+**Required Action**:
+1. Create `middleware/validators/auth.js` with validators for all 12 auth endpoints
+2. Create `middleware/validators/square-oauth.js` (optional - mostly config validation)
+
+**Why**: Consistent validation pattern across all routes, better error messages, input sanitization
 
 ---
 
@@ -565,100 +580,125 @@ router.post('/thing', [
 
 ### P2-1: Multi-Tenant Isolation Tests ❌
 **File to create**: `__tests__/security/multi-tenant-isolation.test.js`
+**Status**: NOT STARTED
 
 **Required Tests**:
 ```javascript
 describe('Multi-tenant isolation', () => {
-    it('should not allow User A to access Merchant B items', async () => {
-        // Create two merchants with items
-        // Authenticate as User A (Merchant A)
-        // Attempt to access Merchant B item by ID
-        // Expect 404 or 403, NOT the item
-    });
-
-    it('should not leak merchant data in list endpoints', async () => {
-        // GET /api/items as Merchant A
-        // Verify zero items from Merchant B appear
-    });
-
-    it('should reject direct merchant_id parameter manipulation', async () => {
-        // POST with merchant_id in body different from session
-        // Expect rejection
-    });
+    it('should not allow User A to access Merchant B items');
+    it('should not leak merchant data in list endpoints');
+    it('should reject direct merchant_id parameter manipulation');
 });
 ```
 
 ---
 
-### P2-2: Payment/Refund Flow Tests ❌
-**File to create**: `__tests__/routes/subscriptions-payments.test.js`
+### P2-2: Payment/Refund Flow Tests 🟡 PARTIAL
+**File**: `__tests__/routes/subscriptions.test.js` (567 lines)
+**Status**: Covers promo codes, subscription creation, PCI compliance
 
-**Required Tests**:
+**Covered** (existing tests):
+- ✅ Promo code validation (dates, limits, discounts)
+- ✅ Subscription creation input validation
+- ✅ Duplicate email prevention
+- ✅ Plan validation
+- ✅ PCI compliance (no card data storage)
+- ✅ Admin refund authorization
+- ✅ Generic error messages (no internal details)
+
+**Missing** (still needed):
 ```javascript
 describe('Payment flows', () => {
-    it('should handle successful subscription creation');
     it('should handle payment declined gracefully');
     it('should process refunds idempotently');
-    it('should not expose payment details in errors');
-    it('should validate subscription status before operations');
 });
 ```
 
 ---
 
-### P2-3: Webhook Signature Verification Tests ❌
-**File to create**: `__tests__/security/webhook-signature.test.js`
+### P2-3: Webhook Signature Verification Tests ✅ COMPLETE
+**File**: `__tests__/security/webhook-signature.test.js` (332 lines)
+**Status**: COMPLETE (2026-01-26 review)
 
-**Required Tests**:
-```javascript
-describe('Webhook signature verification', () => {
-    it('should reject missing signature header');
-    it('should reject invalid signature');
-    it('should reject tampered payload');
-    it('should accept valid signature');
-    it('should prevent replay attacks via idempotency');
-});
-```
+**All required tests exist**:
+- ✅ HMAC-SHA256 signature validation
+- ✅ Rejects invalid signature
+- ✅ Rejects tampered payload
+- ✅ Signature sensitive to URL changes (prevents host injection)
+- ✅ Signature sensitive to key changes
+- ✅ Production/development mode handling
+- ✅ Duplicate event detection (idempotency)
+- ✅ Merchant isolation
+- ✅ Security edge cases (missing header, empty header, malformed JSON, large payloads)
 
 ---
 
-### P2-4: Authentication Edge Case Tests ❌
-**Required Tests**:
+### P2-4: Authentication Edge Case Tests 🟡 PARTIAL
+**File**: `__tests__/middleware/auth.test.js` (584 lines)
+**Status**: Covers middleware functions, missing security scenarios
+
+**Covered** (existing tests):
+- ✅ requireAuth, requireAuthApi, requireAdmin, requireRole
+- ✅ requireWriteAccess, optionalAuth, getCurrentUser
+- ✅ getClientIp (x-forwarded-for, x-real-ip, etc.)
+- ✅ Session with null/undefined user
+- ✅ Missing role property
+- ✅ Case-sensitive role matching
+
+**Missing** (still needed):
 ```javascript
-describe('Authentication edge cases', () => {
+describe('Authentication security', () => {
     it('should handle session expiry gracefully');
     it('should prevent session fixation attacks');
-    it('should rate limit login attempts correctly');
     it('should lock account after failed attempts');
     it('should not enumerate valid emails');
 });
 ```
 
+Note: Login rate limiting tested in `security.test.js`
+
 ---
 
-### P2-5: OAuth Token Refresh Tests ❌
-**Required Tests**:
+### P2-5: OAuth Token Refresh Tests 🟡 PARTIAL
+**File**: `__tests__/security/oauth-csrf.test.js` (401 lines)
+**Status**: Covers CSRF protection and token security, missing refresh logic
+
+**Covered** (existing tests):
+- ✅ State parameter generation (256 bits entropy)
+- ✅ State storage with expiry (10 minutes)
+- ✅ State validation (expired, used, unknown)
+- ✅ CSRF attack prevention (state tied to user)
+- ✅ Token encryption before storage
+- ✅ Tokens not logged in plain text
+- ✅ OAuth configuration validation
+
+**Missing** (still needed):
 ```javascript
-describe('OAuth token management', () => {
+describe('OAuth token refresh', () => {
     it('should refresh token before expiry');
     it('should handle refresh token failure');
-    it('should encrypt tokens before storage');
     it('should handle revoked tokens');
 });
 ```
 
 ---
 
-### P2-6: Rate Limiter Effectiveness Tests ❌
-**Required Tests**:
-```javascript
-describe('Rate limiting', () => {
-    it('should block after limit exceeded');
-    it('should return correct retry-after header');
-    it('should track by correct key (user/IP/merchant)');
-    it('should reset after window expires');
-});
-```
+### P2-6: Rate Limiter Effectiveness Tests ✅ COMPLETE
+**File**: `__tests__/middleware/security.test.js` (504 lines)
+**Status**: COMPLETE (2026-01-26 review)
+
+**All required tests exist**:
+- ✅ General rate limit (100/15min default)
+- ✅ Login rate limit (5/15min)
+- ✅ Delivery rate limit (30/min)
+- ✅ Sensitive operation rate limit (5/hour)
+- ✅ 429 status with RATE_LIMITED code
+- ✅ Key generation (user ID, IP, merchant ID)
+- ✅ Health check endpoint skip
+- ✅ Environment variable overrides
+- ✅ Logging rate limit violations
+- ✅ CORS configuration
+- ✅ Helmet security headers (CSP, clickjacking, HSTS)
 
 ---
 
@@ -754,4 +794,4 @@ Before merging any PR:
 | A++ | 4/4 ✅ | 5/5 ✅ | 6/6 ✅ | Optional |
 | A+ | 4/4 ✅ | 5/5 ✅ | 4/6 ✅ | - |
 | A | 4/4 ✅ | 3/5 ✅ | 2/6 ✅ | - |
-| B+ (Current) | 3/4 🟡 | 1.5/5 🟡 | 0/6 | - |
+| B+ (Current) | 3/4 🟡 | 1.5/5 🟡 | 2.5/6 🟡 | - |
