@@ -16,6 +16,7 @@ const { runScheduledBatchGeneration, runStartupBatchCheck } = require('./cycle-c
 const { runScheduledWebhookRetry, runScheduledWebhookCleanup } = require('./webhook-retry-job');
 const { runScheduledSmartSync, runScheduledGmcSync } = require('./sync-job');
 const { runScheduledExpiryDiscount } = require('./expiry-discount-job');
+const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
 const cronTasks = [];
@@ -106,6 +107,11 @@ function getCronTasks() {
  * @returns {Promise<void>}
  */
 async function runStartupTasks() {
+    // Initialize sync queue (clean up stale entries, restore state)
+    setImmediate(async () => {
+        await syncQueue.initialize();
+    });
+
     // Run startup batch check asynchronously (don't block server startup)
     setImmediate(async () => {
         await runStartupBatchCheck();

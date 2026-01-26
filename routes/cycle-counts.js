@@ -148,33 +148,38 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
             variance = actual_quantity - expected_quantity;
         }
 
-        // Insert or update count history
-        await db.query(
-            `INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, is_accurate, actual_quantity, expected_quantity, variance, notes, merchant_id)
-             VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (catalog_object_id, merchant_id) DO UPDATE SET
-                last_counted_date = CURRENT_TIMESTAMP, counted_by = EXCLUDED.counted_by, is_accurate = EXCLUDED.is_accurate,
-                actual_quantity = EXCLUDED.actual_quantity, expected_quantity = EXCLUDED.expected_quantity,
-                variance = EXCLUDED.variance, notes = EXCLUDED.notes`,
-            [id, counted_by || 'System', is_accurate, actual_quantity, expected_quantity, variance, notes, merchantId]
-        );
+        // Use transaction to ensure all count updates are atomic
+        const { pendingCount, isFullyComplete } = await db.transaction(async (client) => {
+            // Insert or update count history
+            await client.query(
+                `INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, is_accurate, actual_quantity, expected_quantity, variance, notes, merchant_id)
+                 VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (catalog_object_id, merchant_id) DO UPDATE SET
+                    last_counted_date = CURRENT_TIMESTAMP, counted_by = EXCLUDED.counted_by, is_accurate = EXCLUDED.is_accurate,
+                    actual_quantity = EXCLUDED.actual_quantity, expected_quantity = EXCLUDED.expected_quantity,
+                    variance = EXCLUDED.variance, notes = EXCLUDED.notes`,
+                [id, counted_by || 'System', is_accurate, actual_quantity, expected_quantity, variance, notes, merchantId]
+            );
 
-        // Mark as completed in queues
-        await db.query(`UPDATE count_queue_priority SET completed = TRUE, completed_date = CURRENT_TIMESTAMP WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`, [id, merchantId]);
-        await db.query(`UPDATE count_queue_daily SET completed = TRUE, completed_date = CURRENT_TIMESTAMP WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`, [id, merchantId]);
+            // Mark as completed in queues
+            await client.query(`UPDATE count_queue_priority SET completed = TRUE, completed_date = CURRENT_TIMESTAMP WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`, [id, merchantId]);
+            await client.query(`UPDATE count_queue_daily SET completed = TRUE, completed_date = CURRENT_TIMESTAMP WHERE catalog_object_id = $1 AND completed = FALSE AND merchant_id = $2`, [id, merchantId]);
 
-        // Update session
-        await db.query(`UPDATE count_sessions SET items_completed = items_completed + 1, completion_rate = (items_completed + 1)::DECIMAL / items_expected * 100 WHERE session_date = CURRENT_DATE AND merchant_id = $1`, [merchantId]);
+            // Update session
+            await client.query(`UPDATE count_sessions SET items_completed = items_completed + 1, completion_rate = (items_completed + 1)::DECIMAL / items_expected * 100 WHERE session_date = CURRENT_DATE AND merchant_id = $1`, [merchantId]);
 
-        // Check completion status
-        const completionCheck = await db.query(`
-            SELECT COUNT(*) FILTER (WHERE completed = FALSE) as pending_count, COUNT(*) as total_count
-            FROM (SELECT catalog_object_id, completed FROM count_queue_daily WHERE batch_date <= CURRENT_DATE AND merchant_id = $1
-                  UNION SELECT catalog_object_id, completed FROM count_queue_priority WHERE merchant_id = $1) combined
-        `, [merchantId]);
+            // Check completion status
+            const completionCheck = await client.query(`
+                SELECT COUNT(*) FILTER (WHERE completed = FALSE) as pending_count, COUNT(*) as total_count
+                FROM (SELECT catalog_object_id, completed FROM count_queue_daily WHERE batch_date <= CURRENT_DATE AND merchant_id = $1
+                      UNION SELECT catalog_object_id, completed FROM count_queue_priority WHERE merchant_id = $1) combined
+            `, [merchantId]);
 
-        const pendingCount = parseInt(completionCheck.rows[0]?.pending_count || 0);
-        const isFullyComplete = pendingCount === 0 && completionCheck.rows[0]?.total_count > 0;
+            const pending = parseInt(completionCheck.rows[0]?.pending_count || 0);
+            const complete = pending === 0 && completionCheck.rows[0]?.total_count > 0;
+
+            return { pendingCount: pending, isFullyComplete: complete };
+        });
 
         if (isFullyComplete) {
             sendCycleCountReport(merchantId).catch(error => {
@@ -182,7 +187,7 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
             });
         }
 
-    res.json({ success: true, catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount });
+    res.json({ success: true, data: { catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount } });
 }));
 
 /**
@@ -249,21 +254,26 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
             });
         }
 
-        // Update Square
+        // Update Square first (external API call)
         await squareApi.setSquareInventoryCount(id, targetLocationId, actualQty, `Cycle count adjustment - SKU: ${variation.sku || 'N/A'}`, merchantId);
 
-        // Update local DB
-        await db.query(
-            `INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, updated_at, merchant_id)
-             VALUES ($1, $2, 'IN_STOCK', $3, CURRENT_TIMESTAMP, $4)
-             ON CONFLICT (catalog_object_id, location_id, state, merchant_id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP`,
-            [id, targetLocationId, actualQty, merchantId]);
+        // Update local DB atomically (both inventory and history updates together)
+        await db.transaction(async (client) => {
+            await client.query(
+                `INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, updated_at, merchant_id)
+                 VALUES ($1, $2, 'IN_STOCK', $3, CURRENT_TIMESTAMP, $4)
+                 ON CONFLICT (catalog_object_id, location_id, state, merchant_id) DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP`,
+                [id, targetLocationId, actualQty, merchantId]);
 
-        await db.query(`UPDATE count_history SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']' WHERE catalog_object_id = $1 AND merchant_id = $2`, [id, merchantId]);
+            await client.query(`UPDATE count_history SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']' WHERE catalog_object_id = $1 AND merchant_id = $2`, [id, merchantId]);
+        });
 
     res.json({
-        success: true, catalog_object_id: id, sku: variation.sku, item_name: variation.item_name,
-        location_id: targetLocationId, previous_quantity: squareQuantity, new_quantity: actualQty, variance: actualQty - squareQuantity
+        success: true,
+        data: {
+            catalog_object_id: id, sku: variation.sku, item_name: variation.item_name,
+            location_id: targetLocationId, previous_quantity: squareQuantity, new_quantity: actualQty, variance: actualQty - squareQuantity
+        }
     });
 }));
 
@@ -419,31 +429,38 @@ router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.rese
     const { preserve_history } = req.body;
     const merchantId = req.merchantContext.id;
 
+    // Use transaction to ensure atomic reset (especially for full reset with deletes)
+    const totalItems = await db.transaction(async (client) => {
         if (preserve_history !== false) {
-            await db.query(`
+            await client.query(`
                 INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, merchant_id)
                 SELECT v.id, '1970-01-01'::timestamp, 'System Reset', $1
                 FROM variations v WHERE COALESCE(v.is_deleted, FALSE) = FALSE AND v.track_inventory = TRUE AND v.merchant_id = $1
                 AND NOT EXISTS (SELECT 1 FROM count_history ch WHERE ch.catalog_object_id = v.id AND ch.merchant_id = $1)
             `, [merchantId]);
         } else {
-            await db.query('DELETE FROM count_history WHERE merchant_id = $1', [merchantId]);
-            await db.query('DELETE FROM count_queue_priority WHERE merchant_id = $1', [merchantId]);
-            await db.query('DELETE FROM count_sessions WHERE merchant_id = $1', [merchantId]);
+            // Full reset - delete all and re-insert (must be atomic)
+            await client.query('DELETE FROM count_history WHERE merchant_id = $1', [merchantId]);
+            await client.query('DELETE FROM count_queue_priority WHERE merchant_id = $1', [merchantId]);
+            await client.query('DELETE FROM count_sessions WHERE merchant_id = $1', [merchantId]);
 
-            await db.query(`
+            await client.query(`
                 INSERT INTO count_history (catalog_object_id, last_counted_date, counted_by, merchant_id)
                 SELECT id, '1970-01-01'::timestamp, 'System Reset', $1
                 FROM variations WHERE COALESCE(is_deleted, FALSE) = FALSE AND track_inventory = TRUE AND merchant_id = $1
             `, [merchantId]);
         }
 
-        const countResult = await db.query('SELECT COUNT(*) as count FROM count_history WHERE merchant_id = $1', [merchantId]);
+        const countResult = await client.query('SELECT COUNT(*) as count FROM count_history WHERE merchant_id = $1', [merchantId]);
+        return parseInt(countResult.rows[0].count);
+    });
 
     res.json({
         success: true,
-        message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
-        total_items: parseInt(countResult.rows[0].count)
+        data: {
+            message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
+            total_items: totalItems
+        }
     });
 }));
 
