@@ -315,7 +315,7 @@
         <div class="section">
           <div class="section-header">
             <h2 class="section-title">Subscription Statistics</h2>
-            <button class="btn btn-secondary btn-sm" onclick="loadStats()">Refresh</button>
+            <button class="btn btn-secondary btn-sm" data-action="loadStats">Refresh</button>
           </div>
           <div id="stats-container">
             <div class="loading"><div class="spinner"></div><p>Loading statistics...</p></div>
@@ -326,7 +326,7 @@
         <div class="section">
           <div class="section-header">
             <h2 class="section-title">Subscription Plans</h2>
-            <button class="btn btn-primary" onclick="setupPlans()" id="setup-btn">
+            <button class="btn btn-primary" data-action="setupPlans" id="setup-btn">
               Setup Plans in Square
             </button>
           </div>
@@ -347,6 +347,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     // Check access and load data on page load

@@ -208,7 +208,7 @@
         <option value="182">182 Days (6 months)</option>
         <option value="365">365 Days (1 year)</option>
       </select>
-      <button onclick="loadData()">📊 Load Data</button>
+      <button data-action="loadData">📊 Load Data</button>
       <div class="info-badge" id="lastUpdated"></div>
     </div>
 
@@ -264,6 +264,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let currentData = [];

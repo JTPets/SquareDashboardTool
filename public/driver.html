@@ -605,7 +605,7 @@
     <h3>All deliveries complete? Finish this route:</h3>
     <input type="text" class="driver-input" id="driverName" placeholder="Your name (optional)">
     <input type="text" class="driver-input" id="driverNotes" placeholder="Any notes about the route (optional)">
-    <button class="btn btn-finish" onclick="finishRoute()" style="width: 100%;">
+    <button class="btn btn-finish" data-action="finishRoute" style="width: 100%;">
       Finish Route
     </button>
   </div>
@@ -615,7 +615,7 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Proof of Delivery</h2>
-        <button class="modal-close" onclick="closePodModal()">&times;</button>
+        <button class="modal-close" data-action="closePodModal">&times;</button>
       </div>
       <div class="modal-body">
         <img id="podPreview" class="pod-preview" src="" alt="POD Preview">
@@ -624,13 +624,13 @@
             <div class="icon">📷</div>
             <div>Tap to take photo or select from gallery</div>
           </div>
-          <input type="file" id="podFileInput" accept="image/*" capture="environment" onchange="handlePodFileSelect(event)">
+          <input type="file" id="podFileInput" accept="image/*" capture="environment" data-change="handlePodFileSelect">
         </div>
         <div id="locationStatus" style="font-size: 12px; color: #6b7280; margin-top: 10px; text-align: center;"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="closePodModal()">Cancel</button>
-        <button class="btn btn-primary" id="uploadPodBtn" onclick="uploadPod()" disabled>Upload Photo</button>
+        <button class="btn btn-secondary" data-action="closePodModal">Cancel</button>
+        <button class="btn btn-primary" id="uploadPodBtn" data-action="uploadPod" disabled>Upload Photo</button>
       </div>
     </div>
   </div>
@@ -645,6 +645,9 @@
 
   <!-- Toast -->
   <div class="toast" id="toast"></div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     // Get token from URL
@@ -779,7 +782,7 @@
           const itemCount = stop.orderData.lineItems.reduce((sum, item) => sum + parseInt(item.quantity || 1), 0);
           orderItemsHtml = `
             <div class="stop-order-items">
-              <button class="order-items-toggle" onclick="toggleOrderItems(this)">
+              <button class="order-items-toggle" data-action="toggleOrderItems">
                 <span>📦 ${itemCount} item${itemCount !== 1 ? 's' : ''}</span>
                 <span class="toggle-arrow">▼</span>
               </button>
@@ -810,7 +813,7 @@
               <span class="stop-status ${statusClass}">${statusText}</span>
             </div>
             <div class="stop-body">
-              <div class="stop-address" onclick="openMaps('${escapeHtml(stop.address)}')">
+              <div class="stop-address" data-action="openMaps" data-action-param="${escapeHtml(stop.address)}">
                 <span class="icon">📍</span>
                 <span class="text">${escapeHtml(stop.address)}</span>
                 <span class="arrow">→</span>
@@ -847,13 +850,13 @@
 
               ${!isCompleted && !isSkipped ? `
                 <div class="stop-actions">
-                  <button class="btn btn-secondary" onclick="openPodModal('${stop.id}')">
+                  <button class="btn btn-secondary" data-action="openPodModal" data-action-param="${stop.id}">
                     📷 Photo
                   </button>
-                  <button class="btn btn-warning" onclick="skipStop('${stop.id}')">
+                  <button class="btn btn-warning" data-action="skipStop" data-action-param="${stop.id}">
                     ⏭️ Skip
                   </button>
-                  <button class="btn btn-success" onclick="completeStop('${stop.id}')">
+                  <button class="btn btn-success" data-action="completeStop" data-action-param="${stop.id}">
                     ✅ Complete
                   </button>
                 </div>
@@ -866,14 +869,17 @@
       document.getElementById('stopList').innerHTML = html;
     }
 
-    function toggleOrderItems(button) {
+    function toggleOrderItems(param, element, event) {
+      // element is the button (from event delegation)
+      const button = element;
       const list = button.nextElementSibling;
       const arrow = button.querySelector('.toggle-arrow');
       list.classList.toggle('visible');
       arrow.classList.toggle('open');
     }
 
-    function openMaps(address) {
+    function openMaps(address, element, event) {
+      // address comes from data-action-param via event delegation
       const encoded = encodeURIComponent(address);
       // Try to detect iOS vs Android
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -884,7 +890,8 @@
       }
     }
 
-    async function completeStop(orderId) {
+    async function completeStop(orderId, element, event) {
+      // orderId comes from data-action-param via event delegation
       if (!confirm('Mark this delivery as complete?')) return;
 
       showLoading('Completing delivery...');
@@ -908,7 +915,8 @@
       }
     }
 
-    async function skipStop(orderId) {
+    async function skipStop(orderId, element, event) {
+      // orderId comes from data-action-param via event delegation
       if (!confirm('Skip this delivery? It will be returned to the queue.')) return;
 
       showLoading('Skipping...');
@@ -933,7 +941,8 @@
     }
 
     // POD Modal Functions
-    function openPodModal(orderId) {
+    function openPodModal(orderId, element, event) {
+      // orderId comes from data-action-param via event delegation
       currentPodOrderId = orderId;
       currentPodFile = null;
       document.getElementById('podPreview').classList.remove('visible');
@@ -971,8 +980,9 @@
       currentLocation = null;
     }
 
-    function handlePodFileSelect(event) {
-      const file = event.target.files[0];
+    function handlePodFileSelect(param, element, event) {
+      // element is the input, event is the change event (from event delegation)
+      const file = element.files[0];
       if (!file) return;
 
       currentPodFile = file;
