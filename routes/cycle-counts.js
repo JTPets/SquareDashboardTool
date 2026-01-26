@@ -30,16 +30,16 @@ const { batchResolveImageUrls } = require('../utils/image-utils');
 const { generateDailyBatch, sendCycleCountReport } = require('../utils/cycle-count-utils');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cycle-counts');
 
 /**
  * GET /api/cycle-counts/pending
  * Get pending items for cycle counting from daily batch queue
  */
-router.get('/cycle-counts/pending', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
-        const merchantId = req.merchantContext.id;
+router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+    const merchantId = req.merchantContext.id;
 
         // Get today's session or create it
         await db.query(
@@ -113,29 +113,23 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, async (req, re
 
         const validItems = itemsWithImages.filter(item => item.id);
 
-        res.json({
-            count: validItems.length,
-            target: dailyTarget,
-            priority_count: priorityItems.rows.length,
-            daily_batch_count: dailyBatchItems.rows.length,
-            items: validItems
-        });
-
-    } catch (error) {
-        logger.error('Get pending cycle counts error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        count: validItems.length,
+        target: dailyTarget,
+        priority_count: priorityItems.rows.length,
+        daily_batch_count: dailyBatchItems.rows.length,
+        items: validItems
+    });
+}));
 
 /**
  * POST /api/cycle-counts/:id/complete
  * Mark an item as counted with accuracy tracking
  */
-router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validators.complete, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validators.complete, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { counted_by, is_accurate, actual_quantity, expected_quantity, notes } = req.body;
+    const merchantId = req.merchantContext.id;
 
         if (!id || id === 'null' || id === 'undefined') {
             return res.status(400).json({ error: 'Invalid item ID. Please refresh the page and try again.' });
@@ -188,23 +182,17 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
             });
         }
 
-        res.json({ success: true, catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount });
-
-    } catch (error) {
-        logger.error('Complete cycle count error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({ success: true, catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount });
+}));
 
 /**
  * POST /api/cycle-counts/:id/sync-to-square
  * Push the cycle count adjustment to Square
  */
-router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, validators.syncToSquare, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { actual_quantity, location_id } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, validators.syncToSquare, asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { actual_quantity, location_id } = req.body;
+    const merchantId = req.merchantContext.id;
 
         if (!id || id === 'null' || id === 'undefined') {
             return res.status(400).json({ error: 'Invalid item ID.' });
@@ -273,25 +261,19 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
 
         await db.query(`UPDATE count_history SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']' WHERE catalog_object_id = $1 AND merchant_id = $2`, [id, merchantId]);
 
-        res.json({
-            success: true, catalog_object_id: id, sku: variation.sku, item_name: variation.item_name,
-            location_id: targetLocationId, previous_quantity: squareQuantity, new_quantity: actualQty, variance: actualQty - squareQuantity
-        });
-
-    } catch (error) {
-        logger.error('Sync to Square error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        success: true, catalog_object_id: id, sku: variation.sku, item_name: variation.item_name,
+        location_id: targetLocationId, previous_quantity: squareQuantity, new_quantity: actualQty, variance: actualQty - squareQuantity
+    });
+}));
 
 /**
  * POST /api/cycle-counts/send-now
  * Add item(s) to priority queue
  */
-router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.sendNow, async (req, res) => {
-    try {
-        const { skus, added_by, notes } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.sendNow, asyncHandler(async (req, res) => {
+    const { skus, added_by, notes } = req.body;
+    const merchantId = req.merchantContext.id;
 
         if (!skus || !Array.isArray(skus) || skus.length === 0) {
             return res.status(400).json({ error: 'SKUs array is required' });
@@ -315,23 +297,17 @@ router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.s
 
         await Promise.all(insertPromises);
 
-        res.json({ success: true, items_added: variations.rows.length, skus: variations.rows.map(r => r.sku) });
-
-    } catch (error) {
-        logger.error('Add to priority queue error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({ success: true, items_added: variations.rows.length, skus: variations.rows.map(r => r.sku) });
+}));
 
 /**
  * GET /api/cycle-counts/stats
  * Get cycle count statistics and history
  */
-router.get('/cycle-counts/stats', requireAuth, requireMerchant, validators.getStats, async (req, res) => {
-    try {
-        const { days } = req.query;
-        const lookbackDays = parseInt(days || '30');
-        const merchantId = req.merchantContext.id;
+router.get('/cycle-counts/stats', requireAuth, requireMerchant, validators.getStats, asyncHandler(async (req, res) => {
+    const { days } = req.query;
+    const lookbackDays = parseInt(days || '30');
+    const merchantId = req.merchantContext.id;
 
         const sessions = await db.query(`
             SELECT session_date, items_expected, items_completed, completion_rate, started_at, completed_at
@@ -350,25 +326,19 @@ router.get('/cycle-counts/stats', requireAuth, requireMerchant, validators.getSt
         const itemsCounted = parseInt(overall.rows[0].total_items_counted);
         const coveragePercent = totalVariations > 0 ? ((itemsCounted / totalVariations) * 100).toFixed(2) : 0;
 
-        res.json({
-            sessions: sessions.rows,
-            overall: { ...overall.rows[0], total_variations: totalVariations, coverage_percent: coveragePercent }
-        });
-
-    } catch (error) {
-        logger.error('Get cycle count stats error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        sessions: sessions.rows,
+        overall: { ...overall.rows[0], total_variations: totalVariations, coverage_percent: coveragePercent }
+    });
+}));
 
 /**
  * GET /api/cycle-counts/history
  * Get historical cycle count data with variance details
  */
-router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.getHistory, async (req, res) => {
-    try {
-        const { date, start_date, end_date } = req.query;
-        const merchantId = req.merchantContext.id;
+router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.getHistory, asyncHandler(async (req, res) => {
+    const { date, start_date, end_date } = req.query;
+    const merchantId = req.merchantContext.id;
 
         let dateFilter = '';
         const params = [merchantId];
@@ -410,62 +380,44 @@ router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.get
                 total_counts: totalCounts, accurate_counts: accurateCounts, inaccurate_counts: inaccurateCounts,
                 accuracy_rate: parseFloat(accuracyRate), total_variance_units: totalVariance, total_variance_value: totalVarianceValue
             },
-            items: result.rows.map(row => ({ ...row, variance_value: parseFloat((Number(row.variance_value) || 0).toFixed(2)) }))
-        });
-
-    } catch (error) {
-        logger.error('Get cycle count history error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+        items: result.rows.map(row => ({ ...row, variance_value: parseFloat((Number(row.variance_value) || 0).toFixed(2)) }))
+    });
+}));
 
 /**
  * POST /api/cycle-counts/email-report
  * Send completion report email
  */
-router.post('/cycle-counts/email-report', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        const result = await sendCycleCountReport(merchantId);
+router.post('/cycle-counts/email-report', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const result = await sendCycleCountReport(merchantId);
 
-        if (!result.sent) {
-            return res.status(400).json({ error: result.reason || 'Email reporting is disabled' });
-        }
-
-        res.json({ success: true, message: 'Report sent successfully', ...result });
-
-    } catch (error) {
-        logger.error('Send cycle count report error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
+    if (!result.sent) {
+        return res.status(400).json({ error: result.reason || 'Email reporting is disabled' });
     }
-});
+
+    res.json({ success: true, message: 'Report sent successfully', ...result });
+}));
 
 /**
  * POST /api/cycle-counts/generate-batch
  * Manually trigger daily batch generation
  */
-router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, async (req, res) => {
-    try {
-        const merchantId = req.merchantContext.id;
-        logger.info('Manual batch generation requested', { merchantId });
-        const result = await generateDailyBatch(merchantId);
+router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    logger.info('Manual batch generation requested', { merchantId });
+    const result = await generateDailyBatch(merchantId);
 
-        res.json({ success: true, message: 'Batch generated successfully', ...result });
-
-    } catch (error) {
-        logger.error('Manual batch generation failed', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({ success: true, message: 'Batch generated successfully', ...result });
+}));
 
 /**
  * POST /api/cycle-counts/reset
  * Admin function to rebuild count history from current catalog
  */
-router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.reset, async (req, res) => {
-    try {
-        const { preserve_history } = req.body;
-        const merchantId = req.merchantContext.id;
+router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.reset, asyncHandler(async (req, res) => {
+    const { preserve_history } = req.body;
+    const merchantId = req.merchantContext.id;
 
         if (preserve_history !== false) {
             await db.query(`
@@ -488,16 +440,11 @@ router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.rese
 
         const countResult = await db.query('SELECT COUNT(*) as count FROM count_history WHERE merchant_id = $1', [merchantId]);
 
-        res.json({
-            success: true,
-            message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
-            total_items: parseInt(countResult.rows[0].count)
-        });
-
-    } catch (error) {
-        logger.error('Reset count history error', { error: error.message, stack: error.stack });
-        res.status(500).json({ error: error.message });
-    }
-});
+    res.json({
+        success: true,
+        message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
+        total_items: parseInt(countResult.rows[0].count)
+    });
+}));
 
 module.exports = router;
