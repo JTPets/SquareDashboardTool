@@ -235,7 +235,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
-| P1 Architecture | 🟡 3/5 | P1-1, P1-3 in progress, P1-4, P1-5 done |
+| P1 Architecture | 🟡 3/5 | P1-1 in progress, P1-2 not started, P1-3 significant progress, P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -501,28 +501,40 @@ class ItemService {
 - ✅ Created `services/merchant/` with settings-service.js (extracted from database.js)
 - ✅ Created `services/delivery/` with delivery-service.js (moved from utils/)
 - ✅ Created `services/expiry/` with discount-service.js (moved from utils/)
+- ✅ Created `services/inventory/` with cycle-count-service.js (moved from utils/)
+- ✅ Created `services/gmc/` with feed-service.js and merchant-service.js (moved from utils/)
 - ✅ Re-export stubs in utils/ maintain backward compatibility
-- ❌ Remaining: loyalty-service.js (3,349 lines), square-api.js (3,800+ lines), vendor-catalog.js, etc.
+- ❌ Remaining: loyalty-service.js (5,475 lines), square-api.js (3,505 lines), vendor-catalog.js (1,331 lines)
 
 **Current Structure**:
 ```
 services/                # Business logic services
 ├── loyalty/             # ✅ Modern service (P1-1)
-├── merchant/            # ✅ NEW - Settings service
+├── merchant/            # ✅ Settings service
 │   ├── index.js
 │   └── settings-service.js
-├── delivery/            # ✅ NEW - Delivery order management
+├── delivery/            # ✅ Delivery order management
 │   ├── index.js
 │   └── delivery-service.js
-├── expiry/              # ✅ NEW - Expiry discount automation
+├── expiry/              # ✅ Expiry discount automation
 │   ├── index.js
 │   └── discount-service.js
+├── inventory/           # ✅ NEW - Cycle count batch generation
+│   ├── index.js
+│   └── cycle-count-service.js
+├── gmc/                 # ✅ NEW - Google Merchant Center
+│   ├── index.js
+│   ├── feed-service.js      # TSV feed generation
+│   └── merchant-service.js  # GMC API sync
 ├── webhook-handlers/    # ✅ Already organized
 └── webhook-processor.js # ✅ Already here
 
 utils/                   # Re-export stubs for backward compatibility
 ├── delivery-api.js      # → services/delivery/
 ├── expiry-discount.js   # → services/expiry/
+├── cycle-count-utils.js # → services/inventory/
+├── gmc-feed.js          # → services/gmc/feed-service.js
+├── merchant-center-api.js # → services/gmc/merchant-service.js
 ├── database.js          # Re-exports getMerchantSettings from services/merchant/
 └── ... (remaining true utilities)
 ```
@@ -530,14 +542,16 @@ utils/                   # Re-export stubs for backward compatibility
 **Remaining Work**:
 ```
 utils/                   # Files still needing extraction
-├── loyalty-service.js   # ❌ Large service (migrate to services/loyalty-admin/)
-├── square-api.js        # ❌ Large service (migrate to services/square/)
-├── vendor-catalog.js    # ❌ Domain logic
-├── loyalty-reports.js   # ❌ Reports service
-├── cycle-count-utils.js # ❌ Domain logic
-├── gmc-feed.js          # ❌ GMC service
-└── merchant-center-api.js # ❌ GMC service
+├── loyalty-service.js   # ❌ Large service (5,475 lines - migrate to services/loyalty-admin/)
+├── square-api.js        # ❌ Large service (3,505 lines - migrate to services/square/)
+├── vendor-catalog.js    # ❌ Domain logic (1,331 lines - migrate to services/vendor/)
+└── loyalty-reports.js   # ❌ Reports service (969 lines - migrate to services/reports/)
 ```
+
+**Completed Extractions (this session)**:
+- ✅ `cycle-count-utils.js` → `services/inventory/cycle-count-service.js` (349 lines)
+- ✅ `gmc-feed.js` → `services/gmc/feed-service.js` (589 lines)
+- ✅ `merchant-center-api.js` → `services/gmc/merchant-service.js` (1,100 lines)
 
 ---
 
