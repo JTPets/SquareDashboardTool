@@ -128,7 +128,7 @@ class EmailNotifier {
     logger.info('Test email sent successfully');
   }
 
-  async sendBackup(sqlDump, dbInfo) {
+  async sendBackup(compressedBackup, dbInfo, compressionStats = {}) {
     if (!this.enabled) {
       logger.warn('Email notifications disabled, database backup not sent');
       return;
@@ -136,8 +136,8 @@ class EmailNotifier {
 
     try {
       const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `square_dashboard_addon_backup_${timestamp}.sql`;
-      const sizeInMB = (sqlDump.length / 1024 / 1024).toFixed(2);
+      const filename = `square_dashboard_addon_backup_${timestamp}.sql.gz`;
+      const sizeInMB = (compressedBackup.length / 1024 / 1024).toFixed(2);
 
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
@@ -147,7 +147,8 @@ class EmailNotifier {
           <h2 style="color: #8b5cf6;">💾 Weekly Database Backup</h2>
           <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
           <p><strong>Database:</strong> ${dbInfo.database || 'square_dashboard_addon'}</p>
-          <p><strong>Backup Size:</strong> ${sizeInMB} MB</p>
+          <p><strong>Original Size:</strong> ${compressionStats.originalSizeMB || 'N/A'} MB</p>
+          <p><strong>Compressed Size:</strong> ${sizeInMB} MB ${compressionStats.compressionRatio ? `(${compressionStats.compressionRatio}% reduction)` : ''}</p>
 
           <hr>
 
@@ -163,7 +164,8 @@ class EmailNotifier {
 
           <p style="background: #fef3c7; padding: 10px; border-radius: 5px; border-left: 4px solid #f59e0b;">
             <strong>📎 Attachment:</strong> ${filename}<br>
-            This backup can be restored using the Database Backup & Restore tool.
+            <strong>Format:</strong> Gzip-compressed SQL<br>
+            To restore: <code>gunzip ${filename}</code> then import the .sql file
           </p>
 
           <hr>
@@ -175,8 +177,8 @@ class EmailNotifier {
         attachments: [
           {
             filename: filename,
-            content: sqlDump,
-            contentType: 'application/sql'
+            content: compressedBackup,
+            contentType: 'application/gzip'
           }
         ]
       };
@@ -184,12 +186,84 @@ class EmailNotifier {
       await this.transporter.sendMail(mailOptions);
       logger.info('Backup email sent successfully', {
         filename,
-        size_mb: sizeInMB,
+        compressed_size_mb: sizeInMB,
+        original_size_mb: compressionStats.originalSizeMB,
         to: process.env.EMAIL_TO
       });
 
     } catch (error) {
       logger.error('Failed to send backup email', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async sendBackupNotification(dbInfo, backupInfo) {
+    if (!this.enabled) {
+      logger.warn('Email notifications disabled, backup notification not sent');
+      return;
+    }
+
+    try {
+      const timestamp = new Date().toISOString().split('T')[0];
+
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: process.env.EMAIL_TO,
+        subject: `[Square Dashboard Addon] Database Backup Saved Locally - ${timestamp}`,
+        html: `
+          <h2 style="color: #f59e0b;">💾 Database Backup - Saved Locally</h2>
+          <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+          <p><strong>Database:</strong> ${dbInfo.database || 'square_dashboard_addon'}</p>
+
+          <hr>
+
+          <p style="background: #fef3c7; padding: 15px; border-radius: 5px; border-left: 4px solid #f59e0b;">
+            <strong>⚠️ Note:</strong> ${backupInfo.reason}<br><br>
+            The backup has been saved to the server instead of being attached to this email.
+          </p>
+
+          <h3>Backup Details</h3>
+          <ul>
+            <li><strong>Location:</strong> <code>${backupInfo.filepath}</code></li>
+            <li><strong>Filename:</strong> ${backupInfo.filename}</li>
+            <li><strong>Original Size:</strong> ${backupInfo.originalSizeMB} MB</li>
+            <li><strong>Compressed Size:</strong> ${backupInfo.compressedSizeMB} MB (${backupInfo.compressionRatio}% reduction)</li>
+          </ul>
+
+          <h3>How to Retrieve</h3>
+          <p>SSH into the server and copy the backup file:</p>
+          <pre style="background: #f3f4f6; padding: 10px; border-radius: 5px;">scp user@server:${backupInfo.filepath} ./</pre>
+
+          <hr>
+
+          <h3>Database Statistics</h3>
+          <ul>
+            ${dbInfo.tables ? dbInfo.tables.slice(0, 10).map(t =>
+              `<li><strong>${t.tablename}:</strong> ${parseInt(t.row_count).toLocaleString()} rows</li>`
+            ).join('') : ''}
+          </ul>
+          ${dbInfo.tables && dbInfo.tables.length > 10 ? `<p><em>...and ${dbInfo.tables.length - 10} more tables</em></p>` : ''}
+
+          <hr>
+          <p style="color: #6b7280; font-size: 12px;">
+            Server: ${require('os').hostname()}<br>
+            This is an automated weekly backup from Square Dashboard Addon Tool.
+          </p>
+        `
+      };
+
+      await this.transporter.sendMail(mailOptions);
+      logger.info('Backup notification email sent', {
+        filepath: backupInfo.filepath,
+        compressed_size_mb: backupInfo.compressedSizeMB,
+        to: process.env.EMAIL_TO
+      });
+
+    } catch (error) {
+      logger.error('Failed to send backup notification email', {
         error: error.message,
         stack: error.stack
       });

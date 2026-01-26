@@ -13,9 +13,13 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Output folder (consolidated file writes - logs, feeds, temp files)
+# Output folder (consolidated file writes - logs, feeds, temp files, backups)
 # This folder is excluded from pm2 watch to prevent restart loops
-output/
+# But we keep .gitkeep files to preserve directory structure
+output/*
+!output/backups/
+output/backups/*
+!output/backups/.gitkeep
 
 # Legacy log/temp paths (in case any remain)
 logs/
