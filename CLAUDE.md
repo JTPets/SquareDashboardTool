@@ -234,8 +234,8 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - unsafe-eval removed, unsafe-inline pending |
-| P1 Architecture | 🟡 3/5 | P1-1 in progress, P1-2 not started, P1-3 nearly complete (1 file left), P1-4, P1-5 done |
+| P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 29 HTML files remaining |
+| P1 Architecture | 🟡 3.5/5 | P1-1 in progress, P1-2 service created, P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -300,9 +300,22 @@ scriptSrc: [
 
 **Migration Steps**:
 1. ✅ ~~Remove `'unsafe-eval'`~~ (done 2026-01-26)
-2. Create `/public/js/event-delegation.js` for event handling
-3. Convert inline handlers to event listeners (30 files, ~400 handlers)
+2. ✅ ~~Create `/public/js/event-delegation.js`~~ (done 2026-01-26)
+3. 🟡 Convert inline handlers to event listeners (29 files remaining, ~390 handlers)
+   - ✅ `logs.html` migrated as pattern example
 4. Remove `'unsafe-inline'` from CSP
+
+**Event Delegation Pattern** (from `/public/js/event-delegation.js`):
+```html
+<!-- BEFORE (requires unsafe-inline): -->
+<button onclick="refreshLogs()">Refresh</button>
+<select onchange="filterLogs()">
+
+<!-- AFTER (CSP compliant): -->
+<button data-action="refreshLogs">Refresh</button>
+<select data-change="filterLogs">
+```
+Global functions are automatically discovered by the event delegation module.
 
 **Why This Still Matters**: `'unsafe-inline'` allows injected script tags to execute. However, with `'unsafe-eval'` removed, attackers cannot dynamically generate code even if they inject content.
 
@@ -458,26 +471,24 @@ Options:
 
 ---
 
-### P1-2: Fat Routes Need Service Extraction ❌
+### P1-2: Fat Routes Need Service Extraction 🟡 IN PROGRESS
 **Problem**: Business logic in route handlers instead of services
 
-| Route File | Lines | Should Be |
-|------------|-------|-----------|
-| `routes/loyalty.js` | 1,645 | ~300 (thin controller) |
-| `routes/catalog.js` | 1,493 | ~250 |
-| `routes/delivery.js` | 1,211 | ~200 |
+| Route File | Lines | Service Created | Status |
+|------------|-------|-----------------|--------|
+| `routes/loyalty.js` | 1,645 | `services/loyalty/` | ✅ Service exists (P1-1) |
+| `routes/catalog.js` | 1,493 | `services/catalog/` | ✅ Service created 2026-01-26 |
+| `routes/delivery.js` | 1,211 | `services/delivery/` | ✅ Service exists |
 
-**Example - Current** (`routes/catalog.js`):
-```javascript
-router.get('/items', asyncHandler(async (req, res) => {
-    const merchantId = req.merchantContext.id;
-    // 50+ lines of business logic here
-    // Database queries, transformations, filtering
-    // This should be in a service
-}));
-```
+**Progress (2026-01-26)**:
+- ✅ Created `services/catalog/` with 4 service modules:
+  - `item-service.js` - Locations, categories, items
+  - `variation-service.js` - Variations, costs, bulk updates
+  - `inventory-service.js` - Inventory, low stock, expirations
+  - `audit-service.js` - Catalog audit, location fixes
+- ❌ Routes not yet updated to use new services (backward compatible)
 
-**Example - Required**:
+**Example - Target Pattern**:
 ```javascript
 // routes/catalog.js (thin)
 router.get('/items', asyncHandler(async (req, res) => {
@@ -486,12 +497,15 @@ router.get('/items', asyncHandler(async (req, res) => {
 }));
 
 // services/catalog/item-service.js (business logic)
-class ItemService {
-    async getItems(merchantId, filters) {
-        // All business logic here
-    }
+async function getItems(merchantId, filters) {
+    // All business logic here
 }
 ```
+
+**Remaining Work**:
+- Update routes to call catalog service methods
+- Update routes to call delivery service methods
+- Thin down routes/loyalty.js to call services/loyalty/
 
 **Why**: Routes should be thin controllers. Business logic in routes can't be unit tested without HTTP mocking.
 
@@ -516,6 +530,12 @@ class ItemService {
 ```
 services/                # Business logic services
 ├── loyalty/             # ✅ Modern service (P1-1)
+├── catalog/             # ✅ NEW - Catalog data management (P1-2)
+│   ├── index.js
+│   ├── item-service.js      # Locations, categories, items
+│   ├── variation-service.js # Variations, costs, bulk updates
+│   ├── inventory-service.js # Inventory, low stock, expirations
+│   └── audit-service.js     # Catalog audit, location fixes
 ├── merchant/            # ✅ Settings service
 │   ├── index.js
 │   └── settings-service.js
@@ -532,13 +552,13 @@ services/                # Business logic services
 │   ├── index.js
 │   ├── feed-service.js      # TSV feed generation
 │   └── merchant-service.js  # GMC API sync
-├── vendor/              # ✅ NEW - Vendor catalog import
+├── vendor/              # ✅ Vendor catalog import
 │   ├── index.js
 │   └── catalog-service.js   # CSV/XLSX import, price comparison
-├── reports/             # ✅ NEW - Report generation
+├── reports/             # ✅ Report generation
 │   ├── index.js
 │   └── loyalty-reports.js   # Vendor receipts, audit exports
-├── square/              # ✅ NEW - Square API integration
+├── square/              # ✅ Square API integration
 │   ├── index.js
 │   └── api.js               # Sync, inventory, custom attributes, prices
 ├── webhook-handlers/    # ✅ Already organized

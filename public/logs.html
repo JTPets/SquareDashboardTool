@@ -334,9 +334,9 @@
 
   <div class="container">
     <div class="actions">
-      <button class="btn btn-primary" onclick="refreshLogs()">🔄 Refresh Now</button>
+      <button class="btn btn-primary" data-action="refreshLogs">🔄 Refresh Now</button>
       <a href="/api/logs/download" class="btn btn-secondary" download>⬇️ Download Logs</a>
-      <button class="btn btn-success" onclick="testEmail()">✉️ Test Email</button>
+      <button class="btn btn-success" data-action="testEmail">✉️ Test Email</button>
       <div class="auto-refresh">Auto-refresh: <span id="countdown">30</span>s</div>
     </div>
 
@@ -347,7 +347,7 @@
 
       <div class="filters">
         <label for="level-filter">Filter by Level:</label>
-        <select id="level-filter" onchange="filterLogs()">
+        <select id="level-filter" data-change="filterLogs">
           <option value="all">All Levels</option>
           <option value="error">Errors Only</option>
           <option value="warn">Warnings Only</option>
@@ -356,7 +356,7 @@
         </select>
 
         <label for="limit-select">Show:</label>
-        <select id="limit-select" onchange="refreshLogs()">
+        <select id="limit-select" data-change="refreshLogs">
           <option value="50">Last 50</option>
           <option value="100" selected>Last 100</option>
           <option value="250">Last 250</option>
@@ -376,6 +376,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance (P0-4) -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allLogs = [];
@@ -463,8 +465,9 @@
       resetCountdown();
     }
 
-    async function testEmail() {
-      const btn = event.target;
+    async function testEmail(element) {
+      // Element passed by PageActions event delegation
+      const btn = element;
       btn.disabled = true;
       btn.textContent = '⏳ Sending...';
 
@@ -529,6 +532,11 @@
       clearInterval(refreshInterval);
       clearInterval(countdownInterval);
     });
+
+    // Note: refreshLogs, filterLogs, and testEmail are defined globally above.
+    // The event-delegation.js module automatically finds these global functions
+    // when data-action or data-change attributes are used in the HTML.
+    // This allows for gradual migration without wrapping all handlers in PageActions.register().
   </script>
 </body>
 </html>
