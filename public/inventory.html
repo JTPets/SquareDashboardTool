@@ -352,24 +352,24 @@
     </div>
 
     <div class="controls">
-      <input type="text" id="searchBox" placeholder="Search by product name or SKU..." oninput="filterData()">
-      <select id="locationFilter" onchange="filterData()">
+      <input type="text" id="searchBox" placeholder="Search by product name or SKU..." data-input="filterData">
+      <select id="locationFilter" data-change="filterData">
         <option value="">All Locations</option>
       </select>
-      <select id="categoryFilter" onchange="filterData()">
+      <select id="categoryFilter" data-change="filterData">
         <option value="">All Categories</option>
       </select>
-      <select id="vendorFilter" onchange="filterData()">
+      <select id="vendorFilter" data-change="filterData">
         <option value="">All Vendors</option>
       </select>
-      <select id="stockFilter" onchange="filterData()">
+      <select id="stockFilter" data-change="filterData">
         <option value="">All Stock Levels</option>
         <option value="in_stock">In Stock (> 0)</option>
         <option value="low_stock">Low Stock (< Min)</option>
         <option value="out_of_stock">Out of Stock (= 0)</option>
         <option value="negative_stock">Negative Stock (< 0)</option>
       </select>
-      <button onclick="loadData()">🔄 Refresh</button>
+      <button data-action="loadData">🔄 Refresh</button>
       <div class="info-badge" id="statusBadge">Loading...</div>
     </div>
 
@@ -409,25 +409,25 @@
           <thead>
             <tr>
               <th>Image</th>
-              <th onclick="sortTable('item_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="item_name" class="sortable">
                 Product <span class="sort-indicator" id="sort-item_name"></span>
               </th>
-              <th onclick="sortTable('sku')" class="sortable">
+              <th data-action="sortTable" data-action-param="sku" class="sortable">
                 SKU <span class="sort-indicator" id="sort-sku"></span>
               </th>
-              <th onclick="sortTable('location_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="location_name" class="sortable">
                 Location <span class="sort-indicator" id="sort-location_name"></span>
               </th>
-              <th onclick="sortTable('quantity')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="quantity" class="sortable text-right">
                 Quantity <span class="sort-indicator" id="sort-quantity"></span>
               </th>
-              <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right" title="Sales velocity (items per week)">
+              <th data-action="sortTable" data-action-param="weekly_avg_91d" class="sortable text-right" title="Sales velocity (items per week)">
                 Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
               </th>
-              <th onclick="sortTable('days_until_stockout')" class="sortable text-right" title="Days until stockout based on current sales rate">
+              <th data-action="sortTable" data-action-param="days_until_stockout" class="sortable text-right" title="Days until stockout based on current sales rate">
                 Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
               </th>
-              <th onclick="sortTable('stock_alert_min')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="stock_alert_min" class="sortable text-right">
                 Min <span class="sort-indicator" id="sort-stock_alert_min"></span>
               </th>
               <th class="text-right" title="Stock Maximum (editable)">
@@ -436,19 +436,19 @@
               <th class="text-right" title="Case Pack Quantity (editable)">
                 Case Pack
               </th>
-              <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="unit_cost_cents" class="sortable text-right">
                 Unit Cost <span class="sort-indicator" id="sort-unit_cost_cents"></span>
               </th>
-              <th onclick="sortTable('total_value')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="total_value" class="sortable text-right">
                 Total Value <span class="sort-indicator" id="sort-total_value"></span>
               </th>
-              <th onclick="sortTable('vendor_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="vendor_name" class="sortable">
                 Vendor <span class="sort-indicator" id="sort-vendor_name"></span>
               </th>
-              <th onclick="sortTable('vendor_code')" class="sortable">
+              <th data-action="sortTable" data-action-param="vendor_code" class="sortable">
                 Vendor Code <span class="sort-indicator" id="sort-vendor_code"></span>
               </th>
-              <th onclick="sortTable('category_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="category_name" class="sortable">
                 Category <span class="sort-indicator" id="sort-category_name"></span>
               </th>
               <th>Status</th>
@@ -462,6 +462,7 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allData = [];
@@ -471,6 +472,46 @@
     let vendors = new Set();
     let currentSortField = null;
     let sortDirections = {}; // Track direction for each field
+
+    // Setup event delegation for dynamic elements
+    document.addEventListener('DOMContentLoaded', function() {
+      // Handle image errors via delegation
+      document.addEventListener('error', function(event) {
+        if (event.target.classList && event.target.classList.contains('product-image')) {
+          event.target.style.display = 'none';
+          const nextSibling = event.target.nextElementSibling;
+          if (nextSibling && nextSibling.classList.contains('no-image')) {
+            nextSibling.style.display = 'flex';
+          }
+        }
+      }, true);
+
+      // Handle clicks on editable display elements
+      document.addEventListener('click', function(event) {
+        const editableDisplay = event.target.closest('.editable-display');
+        if (editableDisplay) {
+          const variationId = editableDisplay.dataset.variationId;
+          const field = editableDisplay.dataset.field;
+          const currentValue = editableDisplay.dataset.currentValue === 'null' ? null : parseInt(editableDisplay.dataset.currentValue);
+          enterEditMode(editableDisplay, variationId, field, currentValue);
+        }
+      });
+
+      // Handle blur/keydown on case pack inputs via delegation
+      document.addEventListener('blur', function(event) {
+        if (event.target.classList && event.target.classList.contains('case-pack-input')) {
+          saveField(event.target);
+        }
+      }, true);
+
+      document.addEventListener('keydown', function(event) {
+        if (event.target.classList && event.target.classList.contains('case-pack-input')) {
+          if (event.key === 'Enter') {
+            event.target.blur();
+          }
+        }
+      });
+    });
 
     function showLoading() {
       document.querySelector('.loading').style.display = 'block';
@@ -630,7 +671,12 @@
       }
     }
 
-    function sortTable(field, forceDirection = null) {
+    function sortTable(element, event, field, forceDirection = null) {
+      // Support both direct call and event delegation
+      if (typeof element === 'string') {
+        field = element;
+        forceDirection = event; // event is actually forceDirection in direct call
+      }
       // Toggle sort direction or use forced direction
       if (forceDirection !== null) {
         sortDirections[field] = forceDirection;
@@ -715,7 +761,7 @@
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
-          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          ? `<img src="${imageUrl}" class="product-image" alt="Product">
              <div class="no-image" style="display:none;">📦</div>`
           : `<div class="no-image">📦</div>`;
 
@@ -765,20 +811,20 @@
           <td class="text-right">${item.stock_alert_min || '-'}</td>
           <td class="text-right editable-cell">
             <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
-                 onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
+                 data-variation-id="${escapeHtml(item.variation_id)}"
+                 data-field="stock_alert_max"
+                 data-current-value="${item.stock_alert_max || 'null'}">
               ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
             </div>
           </td>
           <td class="text-right editable-cell">
             <input type="number"
-                   class="editable-input"
+                   class="editable-input case-pack-input"
                    value="${item.case_pack_quantity || ''}"
                    placeholder="-"
                    min="1"
                    data-field="case_pack_quantity"
-                   data-variation-id="${item.variation_id}"
-                   onblur="saveField(this)"
-                   onkeydown="if(event.key==='Enter') this.blur()">
+                   data-variation-id="${escapeHtml(item.variation_id)}">
           </td>
           <td class="text-right">$${unitCost.toFixed(2)}</td>
           <td class="text-right"><strong>$${totalValue.toFixed(2)}</strong></td>
@@ -954,9 +1000,9 @@
     function recreateDisplay(cell, variationId, field, value) {
       const displayDiv = document.createElement('div');
       displayDiv.className = `editable-display ${value ? 'has-value' : ''}`;
-      displayDiv.onclick = function() {
-        enterEditMode(this, variationId, field, value);
-      };
+      displayDiv.dataset.variationId = variationId;
+      displayDiv.dataset.field = field;
+      displayDiv.dataset.currentValue = value === null ? 'null' : value;
 
       if (value) {
         displayDiv.textContent = value;
@@ -972,16 +1018,6 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
-    }
-
-    // Escape strings for use in JavaScript onclick handlers (single-quoted)
-    function escapeJsString(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r');
     }
 
     // Load data on page load

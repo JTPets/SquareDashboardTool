@@ -328,10 +328,10 @@
         <label for="dateTo">To:</label>
         <input type="date" id="dateTo" class="filter-input">
       </div>
-      <button class="btn btn-primary" onclick="loadHistory()">Search</button>
-      <button class="btn btn-secondary" onclick="setQuickRange('today')">Today</button>
-      <button class="btn btn-secondary" onclick="setQuickRange('week')">Last 7 Days</button>
-      <button class="btn btn-secondary" onclick="setQuickRange('month')">Last 30 Days</button>
+      <button class="btn btn-primary" data-action="loadHistory">Search</button>
+      <button class="btn btn-secondary" data-action="setQuickRange" data-action-param="today">Today</button>
+      <button class="btn btn-secondary" data-action="setQuickRange" data-action-param="week">Last 7 Days</button>
+      <button class="btn btn-secondary" data-action="setQuickRange" data-action-param="month">Last 30 Days</button>
     </div>
 
     <!-- Stats -->
@@ -360,11 +360,11 @@
   </div>
 
   <!-- POD Photo Modal -->
-  <div class="modal-overlay" id="podModal" onclick="closePodModal(event)">
-    <div class="modal" onclick="event.stopPropagation()">
+  <div class="modal-overlay" id="podModal" data-action="closePodModalOverlay">
+    <div class="modal" data-modal-content>
       <div class="modal-header">
         <h2 id="podModalTitle">Proof of Delivery</h2>
-        <button class="modal-close" onclick="closePodModal()">&times;</button>
+        <button class="modal-close" data-action="closePodModal">&times;</button>
       </div>
       <div class="modal-body">
         <img id="podModalImage" src="" alt="Proof of Delivery">
@@ -375,6 +375,7 @@
     </div>
   </div>
 
+  <script src="/js/event-delegation.js"></script>
   <script data-cfasync="false">
     let orders = [];
 
@@ -382,6 +383,29 @@
     document.addEventListener('DOMContentLoaded', () => {
       setQuickRange('week');
       loadHistory();
+
+      // Handle image errors for POD thumbnails via delegation
+      document.addEventListener('error', function(event) {
+        if (event.target.classList && event.target.classList.contains('pod-thumbnail')) {
+          event.target.style.display = 'none';
+        }
+      }, true);
+
+      // Handle POD thumbnail clicks via delegation
+      document.addEventListener('click', function(event) {
+        const thumbnail = event.target.closest('.pod-thumbnail');
+        if (thumbnail) {
+          const podId = thumbnail.dataset.podId;
+          const customerName = thumbnail.dataset.customerName;
+          const captureTime = thumbnail.dataset.captureTime;
+          openPodModal(podId, customerName, captureTime);
+        }
+
+        // Stop propagation for modal content clicks
+        if (event.target.closest('[data-modal-content]') && !event.target.closest('[data-action]')) {
+          event.stopPropagation();
+        }
+      });
     });
 
     function setQuickRange(range) {
@@ -510,8 +534,9 @@
                 class="pod-thumbnail"
                 src="/api/delivery/pod/${order.pod_id}"
                 alt="POD"
-                onclick="openPodModal('${escapeJsString(order.pod_id)}', '${escapeJsString(order.customer_name)}', '${podTime}')"
-                onerror="this.style.display='none'"
+                data-pod-id="${escapeHtml(order.pod_id)}"
+                data-customer-name="${escapeHtml(order.customer_name)}"
+                data-capture-time="${podTime}"
               >
             ` : ''}
           </div>
@@ -526,9 +551,14 @@
       document.getElementById('podModal').classList.add('active');
     }
 
-    function closePodModal(event) {
-      if (!event || event.target.id === 'podModal') {
-        document.getElementById('podModal').classList.remove('active');
+    function closePodModal() {
+      document.getElementById('podModal').classList.remove('active');
+    }
+
+    function closePodModalOverlay(element, event) {
+      // Only close if clicking directly on overlay, not on modal content
+      if (event.target.id === 'podModal') {
+        closePodModal();
       }
     }
 
@@ -543,11 +573,6 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
-    }
-
-    function escapeJsString(str) {
-      if (!str) return '';
-      return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
 
     // Close modal on escape key

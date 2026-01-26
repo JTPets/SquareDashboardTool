@@ -354,7 +354,7 @@
     <div class="header">
       <h1>Delivery Scheduler</h1>
       <div class="header-actions">
-        <button class="btn btn-success" onclick="showAddOrderModal()">+ Add Order</button>
+        <button class="btn btn-success" data-action="showAddOrderModal">+ Add Order</button>
         <a href="/delivery-route.html" class="btn btn-primary">Driver View</a>
         <a href="/delivery-history.html" class="btn btn-secondary header-btn">History</a>
         <a href="/delivery-settings.html" class="btn btn-secondary header-btn">Settings</a>
@@ -376,7 +376,7 @@
         </div>
         <div class="route-actions">
           <a href="/delivery-route.html" class="btn btn-primary">Open Route</a>
-          <button class="btn btn-warning" onclick="finishRoute()">Finish Route</button>
+          <button class="btn btn-warning" data-action="finishRoute">Finish Route</button>
         </div>
       </div>
     </div>
@@ -415,9 +415,9 @@
       <!-- Pending Tab -->
       <div class="tab-content active" id="tab-pending">
         <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn btn-primary" id="generateRouteBtn" onclick="generateRoute()">Generate Today's Route</button>
-          <button class="btn btn-secondary" id="geocodeBtn" onclick="geocodePending()">Geocode Pending Addresses</button>
-          <button class="btn btn-secondary" id="syncBtn" onclick="syncFromSquare()">Sync from Square</button>
+          <button class="btn btn-primary" id="generateRouteBtn" data-action="generateRoute">Generate Today's Route</button>
+          <button class="btn btn-secondary" id="geocodeBtn" data-action="geocodePending">Geocode Pending Addresses</button>
+          <button class="btn btn-secondary" id="syncBtn" data-action="syncFromSquare">Sync from Square</button>
         </div>
         <div class="order-list" id="pendingOrders">
           <div class="empty-state">
@@ -454,9 +454,9 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Add Manual Order</h2>
-        <button class="modal-close" onclick="closeModal('addOrderModal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="addOrderModal">&times;</button>
       </div>
-      <form id="addOrderForm" onsubmit="submitAddOrder(event)">
+      <form id="addOrderForm" data-submit="submitAddOrder">
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label">Customer Name *</label>
@@ -494,7 +494,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('addOrderModal')">Cancel</button>
+          <button type="button" class="btn btn-secondary" data-action="closeModal" data-action-param="addOrderModal">Cancel</button>
           <button type="submit" class="btn btn-primary">Add Order</button>
         </div>
       </form>
@@ -506,9 +506,9 @@
     <div class="modal">
       <div class="modal-header">
         <h2>Edit Order</h2>
-        <button class="modal-close" onclick="closeModal('editOrderModal')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-action-param="editOrderModal">&times;</button>
       </div>
-      <form id="editOrderForm" onsubmit="submitEditOrder(event)">
+      <form id="editOrderForm" data-submit="submitEditOrder">
         <div class="modal-body">
           <input type="hidden" id="editOrderId">
           <div class="form-group">
@@ -547,13 +547,14 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" onclick="closeModal('editOrderModal')">Cancel</button>
+          <button type="button" class="btn btn-secondary" data-action="closeModal" data-action-param="editOrderModal">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
     </div>
   </div>
 
+  <script src="/js/event-delegation.js"></script>
   <script data-cfasync="false">
     let orders = { pending: [], active: [], completed: [] };
     let activeRoute = null;
@@ -669,12 +670,12 @@
       let actions = '';
 
       if (type === 'pending') {
-        actions += `<button class="btn btn-secondary" onclick="editOrder('${escapeJsString(order.id)}')">Edit</button>`;
+        actions += `<button class="btn btn-secondary" data-action="editOrder" data-action-param="${escapeHtml(order.id)}">Edit</button>`;
         if (!order.square_order_id) {
-          actions += `<button class="btn btn-danger" onclick="deleteOrder('${escapeJsString(order.id)}')">Delete</button>`;
+          actions += `<button class="btn btn-danger" data-action="deleteOrder" data-action-param="${escapeHtml(order.id)}">Delete</button>`;
         }
       } else if (type === 'active' && order.status !== 'completed') {
-        actions += `<button class="btn btn-secondary" onclick="editOrder('${escapeJsString(order.id)}')">Edit Notes</button>`;
+        actions += `<button class="btn btn-secondary" data-action="editOrder" data-action-param="${escapeHtml(order.id)}">Edit Notes</button>`;
       }
 
       return actions;
@@ -756,7 +757,11 @@
       return { street: address, unit: '', city: '', postalCode: '', country: '' };
     }
 
-    function editOrder(orderId) {
+    function editOrder(element, event, orderId) {
+      // Support both direct call editOrder(id) and event delegation editOrder(el, ev, id)
+      if (typeof element === 'string') {
+        orderId = element;
+      }
       const order = [...orders.pending, ...orders.active, ...orders.completed].find(o => o.id === orderId);
       if (!order) return;
 
@@ -774,7 +779,11 @@
       document.getElementById('editOrderModal').classList.add('active');
     }
 
-    function closeModal(modalId) {
+    function closeModal(element, event, modalId) {
+      // Support both direct call closeModal(id) and event delegation closeModal(el, ev, id)
+      if (typeof element === 'string') {
+        modalId = element;
+      }
       document.getElementById(modalId).classList.remove('active');
     }
 
@@ -787,8 +796,12 @@
       return address;
     }
 
-    async function submitAddOrder(e) {
-      e.preventDefault();
+    async function submitAddOrder(element, e) {
+      // Support both direct call and event delegation
+      if (element && element.preventDefault) {
+        e = element;
+      }
+      if (e) e.preventDefault();
 
       const address = buildAddressString(
         document.getElementById('orderStreet').value,
@@ -823,8 +836,12 @@
       }
     }
 
-    async function submitEditOrder(e) {
-      e.preventDefault();
+    async function submitEditOrder(element, e) {
+      // Support both direct call and event delegation
+      if (element && element.preventDefault) {
+        e = element;
+      }
+      if (e) e.preventDefault();
 
       const orderId = document.getElementById('editOrderId').value;
       const address = buildAddressString(
@@ -860,7 +877,11 @@
       }
     }
 
-    async function deleteOrder(orderId) {
+    async function deleteOrder(element, event, orderId) {
+      // Support both direct call deleteOrder(id) and event delegation deleteOrder(el, ev, id)
+      if (typeof element === 'string') {
+        orderId = element;
+      }
       if (!confirm('Are you sure you want to delete this order?')) return;
 
       try {
@@ -999,16 +1020,6 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
-    }
-
-    // Escape strings for use in JavaScript onclick handlers (single-quoted)
-    function escapeJsString(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r');
     }
 
     // Initial load
