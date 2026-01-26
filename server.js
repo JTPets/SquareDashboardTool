@@ -543,6 +543,8 @@ async function resolveImageUrls(variationImages, itemImages = null) {
 async function runAutomatedBackup() {
     const { exec } = require('child_process');
     const { promisify } = require('util');
+    const zlib = require('zlib');
+    const fsSync = require('fs');
     const execAsync = promisify(exec);
 
     const dbHost = process.env.DB_HOST || 'localhost';
@@ -550,6 +552,11 @@ async function runAutomatedBackup() {
     const dbName = process.env.DB_NAME || 'square_dashboard_addon';
     const dbUser = process.env.DB_USER || 'postgres';
     const dbPassword = process.env.DB_PASSWORD;
+
+    // Gmail attachment limit is 25MB, use 24MB for safety margin
+    const MAX_EMAIL_SIZE_MB = 24;
+    const MAX_EMAIL_SIZE_BYTES = MAX_EMAIL_SIZE_MB * 1024 * 1024;
+    const BACKUP_RETENTION_COUNT = 4; // Keep last 4 local backups
 
     if (!dbPassword) {
         throw new Error('DB_PASSWORD environment variable is required for automated backup');
@@ -584,14 +591,89 @@ async function runAutomatedBackup() {
             logger.warn('pg_dump warnings', { stderr });
         }
 
-        // Send backup via email
-        await emailNotifier.sendBackup(sqlDump, dbInfo);
+        const originalSizeMB = (sqlDump.length / 1024 / 1024).toFixed(2);
 
-        logger.info('Automated backup completed', {
+        // Compress the backup with gzip
+        const compressedBackup = zlib.gzipSync(sqlDump, { level: 9 });
+        const compressedSizeMB = (compressedBackup.length / 1024 / 1024).toFixed(2);
+        const compressionRatio = ((1 - compressedBackup.length / sqlDump.length) * 100).toFixed(1);
+
+        logger.info('Backup compressed', {
             database: dbName,
-            backupSize: `${(sqlDump.length / 1024 / 1024).toFixed(2)} MB`,
-            tableCount: statsResult.rows.length
+            originalSize: `${originalSizeMB} MB`,
+            compressedSize: `${compressedSizeMB} MB`,
+            compressionRatio: `${compressionRatio}%`
         });
+
+        // Check if compressed backup fits in email
+        if (compressedBackup.length <= MAX_EMAIL_SIZE_BYTES) {
+            // Send compressed backup via email
+            await emailNotifier.sendBackup(compressedBackup, dbInfo, {
+                originalSizeMB,
+                compressedSizeMB,
+                compressionRatio
+            });
+
+            logger.info('Automated backup completed (sent via email)', {
+                database: dbName,
+                originalSize: `${originalSizeMB} MB`,
+                compressedSize: `${compressedSizeMB} MB`,
+                tableCount: statsResult.rows.length
+            });
+        } else {
+            // Backup too large for email - save locally
+            const backupDir = path.join(__dirname, 'output', 'backups');
+
+            // Ensure backup directory exists
+            if (!fsSync.existsSync(backupDir)) {
+                fsSync.mkdirSync(backupDir, { recursive: true });
+            }
+
+            const timestamp = new Date().toISOString().split('T')[0];
+            const filename = `backup_${timestamp}.sql.gz`;
+            const filepath = path.join(backupDir, filename);
+
+            // Save backup locally
+            fsSync.writeFileSync(filepath, compressedBackup);
+
+            logger.info('Backup saved locally (too large for email)', {
+                filepath,
+                compressedSize: `${compressedSizeMB} MB`,
+                maxEmailSize: `${MAX_EMAIL_SIZE_MB} MB`
+            });
+
+            // Clean up old backups (keep last N)
+            const backupFiles = fsSync.readdirSync(backupDir)
+                .filter(f => f.startsWith('backup_') && f.endsWith('.sql.gz'))
+                .sort()
+                .reverse();
+
+            if (backupFiles.length > BACKUP_RETENTION_COUNT) {
+                const filesToDelete = backupFiles.slice(BACKUP_RETENTION_COUNT);
+                for (const file of filesToDelete) {
+                    fsSync.unlinkSync(path.join(backupDir, file));
+                    logger.info('Deleted old backup', { file });
+                }
+            }
+
+            // Send notification email about local backup
+            await emailNotifier.sendBackupNotification(dbInfo, {
+                filepath,
+                filename,
+                originalSizeMB,
+                compressedSizeMB,
+                compressionRatio,
+                reason: 'Backup exceeds email attachment limit'
+            });
+
+            logger.info('Automated backup completed (saved locally)', {
+                database: dbName,
+                filepath,
+                originalSize: `${originalSizeMB} MB`,
+                compressedSize: `${compressedSizeMB} MB`,
+                tableCount: statsResult.rows.length
+            });
+        }
     } catch (error) {
         // Check if pg_dump is not installed
         if (error.message.includes('pg_dump: not found') || error.message.includes('command not found')) {
