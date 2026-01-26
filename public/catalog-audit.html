@@ -348,8 +348,8 @@
     </div>
 
     <div class="controls">
-      <input type="text" id="searchBox" placeholder="Search by product name or SKU..." oninput="filterData()">
-      <select id="issueFilter" onchange="filterByIssue()">
+      <input type="text" id="searchBox" placeholder="Search by product name or SKU..." data-input="filterData">
+      <select id="issueFilter" data-change="filterByIssue">
         <option value="">All Issues</option>
         <optgroup label="Data Quality">
           <option value="missing_category">Missing Category</option>
@@ -381,19 +381,19 @@
           <option value="online_disabled">Online Disabled</option>
         </optgroup>
       </select>
-      <select id="categoryFilter" onchange="filterData()">
+      <select id="categoryFilter" data-change="filterData">
         <option value="">All Categories</option>
       </select>
-      <select id="issueCountFilter" onchange="filterData()">
+      <select id="issueCountFilter" data-change="filterData">
         <option value="">Any Issue Count</option>
         <option value="0">No Issues</option>
         <option value="1-3">1-3 Issues</option>
         <option value="4-6">4-6 Issues</option>
         <option value="7+">7+ Issues</option>
       </select>
-      <button onclick="loadData()">Refresh</button>
-      <button onclick="exportCSV()" class="export-btn">Export CSV</button>
-      <button onclick="fixLocationMismatches()" class="fix-btn" style="background: #dc2626;" id="fixLocationsBtn">Fix Location Mismatches</button>
+      <button data-action="loadData">Refresh</button>
+      <button data-action="exportCSV" class="export-btn">Export CSV</button>
+      <button data-action="fixLocationMismatches" class="fix-btn" style="background: #dc2626;" id="fixLocationsBtn">Fix Location Mismatches</button>
       <div class="info-badge" id="statusBadge">Loading...</div>
     </div>
 
@@ -434,28 +434,28 @@
           <thead>
             <tr>
               <th>Image</th>
-              <th onclick="sortTable('item_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="item_name" class="sortable">
                 Product <span class="sort-indicator" id="sort-item_name"></span>
               </th>
-              <th onclick="sortTable('sku')" class="sortable">
+              <th data-action="sortTable" data-action-param="sku" class="sortable">
                 SKU <span class="sort-indicator" id="sort-sku"></span>
               </th>
-              <th onclick="sortTable('category_name')" class="sortable">
+              <th data-action="sortTable" data-action-param="category_name" class="sortable">
                 Category <span class="sort-indicator" id="sort-category_name"></span>
               </th>
-              <th onclick="sortTable('price_money')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="price_money" class="sortable text-right">
                 Price <span class="sort-indicator" id="sort-price_money"></span>
               </th>
-              <th onclick="sortTable('current_stock')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="current_stock" class="sortable text-right">
                 Stock <span class="sort-indicator" id="sort-current_stock"></span>
               </th>
-              <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="weekly_avg_91d" class="sortable text-right">
                 Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
               </th>
-              <th onclick="sortTable('days_of_stock')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="days_of_stock" class="sortable text-right">
                 Days Stock <span class="sort-indicator" id="sort-days_of_stock"></span>
               </th>
-              <th onclick="sortTable('issue_count')" class="sortable text-right">
+              <th data-action="sortTable" data-action-param="issue_count" class="sortable text-right">
                 Issues <span class="sort-indicator" id="sort-issue_count"></span>
               </th>
               <th>Issue Details</th>
@@ -469,6 +469,8 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
+  <!-- Event delegation for CSP compliance (P0-4) -->
+  <script src="/js/event-delegation.js"></script>
 
   <script data-cfasync="false">
     let allData = [];
@@ -703,7 +705,9 @@
       }
     }
 
-    function sortTable(field) {
+    function sortTable(elementOrField, event, param) {
+      // Support both: sortTable('field') and sortTable(element, event, param)
+      const field = param || elementOrField;
       sortDirections[field] = !sortDirections[field];
       const ascending = sortDirections[field];
       currentSortField = field;
@@ -782,7 +786,7 @@
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
-          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          ? `<img src="${imageUrl}" class="product-image" alt="Product" data-fallback="true">
              <div class="no-image" style="display:none;">?</div>`
           : `<div class="no-image">?</div>`;
 
@@ -949,6 +953,17 @@
         btn.style.background = '#dc2626';
       }
     }
+
+    // Global error handler for images with fallback (CSP compliant - replaces inline onerror)
+    document.addEventListener('error', function(e) {
+      if (e.target.tagName === 'IMG' && e.target.dataset.fallback) {
+        e.target.style.display = 'none';
+        const fallback = e.target.nextElementSibling;
+        if (fallback) {
+          fallback.style.display = 'flex';
+        }
+      }
+    }, true);
 
     // Load data on page load
     loadData();
