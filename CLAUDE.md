@@ -235,7 +235,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
-| P1 Architecture | 🟡 2.5/5 | P1-1 in progress, P1-4, P1-5 done |
+| P1 Architecture | 🟡 3/5 | P1-1, P1-3 in progress, P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -494,42 +494,49 @@ class ItemService {
 
 ---
 
-### P1-3: Utils Directory is Unorganized ❌
+### P1-3: Utils Directory Reorganization 🟡 IN PROGRESS
 **Problem**: 26 files (23,253 lines) mixing utilities, services, and domain logic
+
+**Progress (2026-01-26)**:
+- ✅ Created `services/merchant/` with settings-service.js (extracted from database.js)
+- ✅ Created `services/delivery/` with delivery-service.js (moved from utils/)
+- ✅ Created `services/expiry/` with discount-service.js (moved from utils/)
+- ✅ Re-export stubs in utils/ maintain backward compatibility
+- ❌ Remaining: loyalty-service.js (3,349 lines), square-api.js (3,800+ lines), vendor-catalog.js, etc.
 
 **Current Structure**:
 ```
-utils/
-├── database.js          # ✅ True utility
-├── logger.js            # ✅ True utility
-├── loyalty-service.js   # ❌ Service (3,349 lines!)
-├── expiry-discount.js   # ❌ Domain logic
-├── delivery-api.js      # ❌ Service
-└── ... (23 more files)
-```
-
-**Required Structure**:
-```
-utils/                   # Only shared utilities
-├── database.js
-├── logger.js
-├── response-helper.js
-├── app-error.js
-├── token-encryption.js
-└── password.js
-
 services/                # Business logic services
-├── loyalty/             # (already exists - good)
-├── catalog/
+├── loyalty/             # ✅ Modern service (P1-1)
+├── merchant/            # ✅ NEW - Settings service
 │   ├── index.js
-│   ├── item-service.js
-│   └── sync-service.js
-├── delivery/
+│   └── settings-service.js
+├── delivery/            # ✅ NEW - Delivery order management
 │   ├── index.js
-│   ├── order-service.js
-│   └── route-service.js
-└── expiry/
-    └── discount-service.js
+│   └── delivery-service.js
+├── expiry/              # ✅ NEW - Expiry discount automation
+│   ├── index.js
+│   └── discount-service.js
+├── webhook-handlers/    # ✅ Already organized
+└── webhook-processor.js # ✅ Already here
+
+utils/                   # Re-export stubs for backward compatibility
+├── delivery-api.js      # → services/delivery/
+├── expiry-discount.js   # → services/expiry/
+├── database.js          # Re-exports getMerchantSettings from services/merchant/
+└── ... (remaining true utilities)
+```
+
+**Remaining Work**:
+```
+utils/                   # Files still needing extraction
+├── loyalty-service.js   # ❌ Large service (migrate to services/loyalty-admin/)
+├── square-api.js        # ❌ Large service (migrate to services/square/)
+├── vendor-catalog.js    # ❌ Domain logic
+├── loyalty-reports.js   # ❌ Reports service
+├── cycle-count-utils.js # ❌ Domain logic
+├── gmc-feed.js          # ❌ GMC service
+└── merchant-center-api.js # ❌ GMC service
 ```
 
 ---
@@ -785,4 +792,4 @@ Before merging any PR:
 | A++ | 4/4 ✅ | 5/5 ✅ | 6/6 ✅ | Optional |
 | A+ | 4/4 ✅ | 5/5 ✅ | 4/6 ✅ | - |
 | A | 4/4 ✅ | 3/5 ✅ | 2/6 ✅ | - |
-| B+ (Current) | 3/4 🟡 | 2.5/5 🟡 | 6/6 ✅ | - |
+| B+ (Current) | 3/4 🟡 | 3/5 🟡 | 6/6 ✅ | - |
