@@ -661,7 +661,7 @@ Request → requireAuth → loadMerchantContext → requireMerchant → validato
 | P1 High | 6 | 6 ✅ | 0 |
 | P1 Testing | 2 | 0 | 2 (tests) |
 | P2 Medium | 5 | 5 ✅ | 0 |
-| P3 Low | 5 | 1 ✅ | 4 |
+| P3 Low | 5 | 3 ✅ | 2 |
 
 **Key Achievements**:
 - server.js reduced from 3,057 → 1,023 lines (66% reduction)
@@ -1040,50 +1040,26 @@ grep -rn "console.log" --include="*.js" --exclude-dir="node_modules" --exclude-d
 
 ### P3: Low Priority - Nice to Have
 
-#### 16. Add Database Connection Pool Monitoring
+#### 16. Add Database Connection Pool Monitoring ✅ COMPLETE
 **File**: `utils/database.js`
+**Status**: Already implemented - `getPoolStats()` function exports pool metrics
 
+#### 17. Add API Versioning ✅ COMPLETE
+**Status**: Implemented in `server.js`
+
+All routes now accessible at both `/api/*` and `/api/v1/*`:
 ```javascript
-// Add pool metrics
-const pool = new Pool(config);
-
-pool.on('connect', () => {
-    logger.debug('New client connected to pool', {
-        total: pool.totalCount,
-        idle: pool.idleCount,
-        waiting: pool.waitingCount
-    });
-});
-
-pool.on('error', (err) => {
-    logger.error('Unexpected pool error', { error: err.message, stack: err.stack });
-});
-
-// Export metrics for monitoring
-function getPoolStats() {
-    return {
-        total: pool.totalCount,
-        idle: pool.idleCount,
-        waiting: pool.waitingCount,
-    };
-}
-```
-
-#### 17. Add API Versioning
-**Problem**: No versioning strategy for breaking changes
-
-**Remediation**:
-```javascript
-// server.js
+// New integrations should use versioned endpoints
 app.use('/api/v1/catalog', catalogRoutes);
 app.use('/api/v1/loyalty', loyaltyRoutes);
 
-// Keep unversioned for backwards compatibility (deprecate later)
+// Legacy unversioned routes maintained for backwards compatibility
 app.use('/api/catalog', catalogRoutes);
 ```
 
 #### 18. Add OpenAPI/Swagger Documentation
 **Problem**: No API documentation for client integration
+**Status**: Not implemented (requires significant effort)
 
 **Options**:
 1. Add `swagger-jsdoc` + `swagger-ui-express`
@@ -1093,6 +1069,7 @@ app.use('/api/catalog', catalogRoutes);
 #### 19. Consider Background Job Queue
 **Problem**: Long-running syncs block event loop
 **Current**: Sync operations run inline in request/webhook handlers
+**Status**: Not implemented (requires Redis infrastructure)
 
 **Recommendation**: Implement Bull/BullMQ for:
 - Catalog sync jobs
@@ -1104,18 +1081,17 @@ app.use('/api/catalog', catalogRoutes);
 
 ### Security Improvements (Minor)
 
-#### 20. Use spawn Instead of exec for pg_dump
-**File**: `server.js` line 571
-**Risk**: LOW (password visible in process list)
+#### 20. Use spawn Instead of exec for pg_dump ✅ COMPLETE
+**File**: `jobs/backup-job.js`
+**Status**: Fixed - Now uses spawn() with PGPASSWORD in env
 
 ```javascript
-// CURRENT
+// BEFORE (password visible in process list)
 const pgDumpCmd = `PGPASSWORD="${dbPassword}" pg_dump -h ${dbHost} ...`;
-const { stdout } = await execAsync(pgDumpCmd);
+await execAsync(pgDumpCmd);
 
-// BETTER
-const { spawn } = require('child_process');
-const child = spawn('pg_dump', ['-h', dbHost, '-p', dbPort, ...], {
+// AFTER (password hidden from process list)
+const child = spawn('pg_dump', ['-h', dbHost, ...], {
     env: { ...process.env, PGPASSWORD: dbPassword }
 });
 ```
@@ -1149,6 +1125,8 @@ When completing items, update this section:
 | 2026-01-26 | P2 #11 | Added transactions: purchase-orders.js (create), cycle-counts.js (reset, complete, sync) |
 | 2026-01-26 | P2 #12 | Created utils/response-helper.js with sendSuccess/sendError helpers |
 | 2026-01-26 | P2 #13 | Persisted sync queue state to sync_history table, added startup recovery |
+| 2026-01-26 | P3 #17 | Added API versioning: all routes now available at /api/v1/* |
+| 2026-01-26 | P3 #20 | Replaced exec with spawn for pg_dump (password no longer in process list) |
 ```
 
 ---
