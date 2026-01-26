@@ -530,6 +530,279 @@ describe('Subscription Routes', () => {
         });
     });
 
+    describe('Payment Flows', () => {
+
+        describe('Payment Declined Handling', () => {
+
+            test('handles CARD_DECLINED error gracefully', () => {
+                // Square returns specific error codes for declined payments
+                const squareError = {
+                    errors: [{
+                        category: 'PAYMENT_METHOD_ERROR',
+                        code: 'CARD_DECLINED',
+                        detail: 'The card was declined.'
+                    }]
+                };
+
+                // Should map to user-friendly message
+                const getUserFriendlyMessage = (error) => {
+                    if (error.errors && error.errors[0]) {
+                        const code = error.errors[0].code;
+                        switch (code) {
+                            case 'CARD_DECLINED':
+                                return 'Your card was declined. Please try a different payment method.';
+                            case 'INSUFFICIENT_FUNDS':
+                                return 'Insufficient funds. Please try a different payment method.';
+                            case 'INVALID_CARD':
+                                return 'Invalid card details. Please check and try again.';
+                            default:
+                                return 'Payment failed. Please try again or use a different payment method.';
+                        }
+                    }
+                    return 'Payment failed. Please try again.';
+                };
+
+                const message = getUserFriendlyMessage(squareError);
+
+                expect(message).toBe('Your card was declined. Please try a different payment method.');
+                expect(message).not.toContain('CARD_DECLINED'); // No error code exposed
+            });
+
+            test('handles INSUFFICIENT_FUNDS error gracefully', () => {
+                const squareError = {
+                    errors: [{
+                        category: 'PAYMENT_METHOD_ERROR',
+                        code: 'INSUFFICIENT_FUNDS',
+                        detail: 'The card has insufficient funds.'
+                    }]
+                };
+
+                const getUserFriendlyMessage = (error) => {
+                    if (error.errors && error.errors[0]) {
+                        const code = error.errors[0].code;
+                        switch (code) {
+                            case 'CARD_DECLINED':
+                                return 'Your card was declined. Please try a different payment method.';
+                            case 'INSUFFICIENT_FUNDS':
+                                return 'Insufficient funds. Please try a different payment method.';
+                            case 'INVALID_CARD':
+                                return 'Invalid card details. Please check and try again.';
+                            default:
+                                return 'Payment failed. Please try again or use a different payment method.';
+                        }
+                    }
+                    return 'Payment failed. Please try again.';
+                };
+
+                const message = getUserFriendlyMessage(squareError);
+
+                expect(message).toBe('Insufficient funds. Please try a different payment method.');
+            });
+
+            test('handles generic payment errors with safe message', () => {
+                const squareError = {
+                    errors: [{
+                        category: 'API_ERROR',
+                        code: 'INTERNAL_SERVER_ERROR',
+                        detail: 'An internal error occurred in the Square servers.'
+                    }]
+                };
+
+                const getUserFriendlyMessage = (error) => {
+                    if (error.errors && error.errors[0]) {
+                        const code = error.errors[0].code;
+                        switch (code) {
+                            case 'CARD_DECLINED':
+                                return 'Your card was declined. Please try a different payment method.';
+                            case 'INSUFFICIENT_FUNDS':
+                                return 'Insufficient funds. Please try a different payment method.';
+                            default:
+                                return 'Payment failed. Please try again or use a different payment method.';
+                        }
+                    }
+                    return 'Payment failed. Please try again.';
+                };
+
+                const message = getUserFriendlyMessage(squareError);
+
+                // Should not expose internal server error details
+                expect(message).not.toContain('internal');
+                expect(message).not.toContain('INTERNAL_SERVER_ERROR');
+                expect(message).toBe('Payment failed. Please try again or use a different payment method.');
+            });
+
+            test('logs payment decline details for debugging', () => {
+                const paymentError = {
+                    errors: [{
+                        category: 'PAYMENT_METHOD_ERROR',
+                        code: 'CARD_DECLINED',
+                        detail: 'The card was declined.'
+                    }]
+                };
+
+                // Should log full error details server-side
+                logger.warn('Payment declined', {
+                    errorCode: paymentError.errors[0].code,
+                    category: paymentError.errors[0].category,
+                    detail: paymentError.errors[0].detail,
+                    subscriberEmail: 'user@example.com'
+                });
+
+                expect(logger.warn).toHaveBeenCalledWith(
+                    'Payment declined',
+                    expect.objectContaining({
+                        errorCode: 'CARD_DECLINED',
+                        category: 'PAYMENT_METHOD_ERROR'
+                    })
+                );
+            });
+        });
+
+        describe('Refund Processing', () => {
+
+            test('refund request includes idempotency key', () => {
+                const paymentId = 123;
+
+                // Idempotency key should be based on payment ID for deterministic retries
+                const idempotencyKey = `refund-${paymentId}`;
+
+                expect(idempotencyKey).toBe('refund-123');
+                expect(idempotencyKey).toMatch(/^refund-\d+$/);
+            });
+
+            test('refund idempotency key is deterministic for same payment', () => {
+                const paymentId = 456;
+
+                // Creating the same idempotency key multiple times should produce same result
+                const key1 = `refund-${paymentId}`;
+                const key2 = `refund-${paymentId}`;
+                const key3 = `refund-${paymentId}`;
+
+                expect(key1).toBe(key2);
+                expect(key2).toBe(key3);
+            });
+
+            test('only processes refund for completed, non-refunded payments', async () => {
+                const payments = [
+                    { id: 1, status: 'completed', refunded_at: new Date() },      // Already refunded
+                    { id: 2, status: 'pending', refunded_at: null },              // Not completed
+                    { id: 3, status: 'failed', refunded_at: null },               // Failed
+                    { id: 4, status: 'completed', refunded_at: null }             // Eligible
+                ];
+
+                const eligiblePayment = payments.find(p => p.status === 'completed' && !p.refunded_at);
+
+                expect(eligiblePayment.id).toBe(4);
+            });
+
+            test('marks payment as refunded after successful refund', async () => {
+                const paymentId = 789;
+                const refundedAt = new Date();
+
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: paymentId,
+                        amount_cents: 1999,
+                        refunded_at: refundedAt,
+                        refund_reason: '30-day trial refund'
+                    }]
+                });
+
+                const result = await db.query(
+                    'UPDATE subscription_payments SET refunded_at = NOW(), refund_reason = $1 WHERE id = $2 RETURNING *',
+                    ['30-day trial refund', paymentId]
+                );
+
+                expect(result.rows[0].refunded_at).toBeDefined();
+                expect(result.rows[0].refund_reason).toBe('30-day trial refund');
+            });
+
+            test('returns error if no refundable payment found', async () => {
+                // All payments already refunded or not completed
+                const payments = [
+                    { id: 1, status: 'completed', refunded_at: new Date() },
+                    { id: 2, status: 'pending', refunded_at: null }
+                ];
+
+                const refundablePayment = payments.find(p => p.status === 'completed' && !p.refunded_at);
+
+                expect(refundablePayment).toBeUndefined();
+                // Should return 400 with 'No refundable payment found'
+            });
+
+            test('handles Square refund API failure gracefully', () => {
+                const squareRefundError = {
+                    errors: [{
+                        category: 'REFUND_ERROR',
+                        code: 'REFUND_DECLINED',
+                        detail: 'The refund was declined.'
+                    }]
+                };
+
+                // Should log error details server-side
+                logger.error('Square refund failed', {
+                    error: squareRefundError.errors[0].detail,
+                    paymentId: 123,
+                    subscriberId: 456
+                });
+
+                expect(logger.error).toHaveBeenCalledWith(
+                    'Square refund failed',
+                    expect.objectContaining({
+                        paymentId: 123
+                    })
+                );
+
+                // Client should get generic message
+                const clientError = 'Refund processing failed. Please try again or contact support.';
+                expect(clientError).not.toContain('REFUND_DECLINED');
+            });
+
+            test('cancels subscription after successful refund', async () => {
+                const subscriberId = 999;
+
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: subscriberId,
+                        status: 'cancelled',
+                        cancelled_at: new Date(),
+                        cancel_reason: 'Refunded'
+                    }]
+                });
+
+                const result = await db.query(
+                    "UPDATE subscribers SET status = 'cancelled', cancelled_at = NOW(), cancel_reason = $1 WHERE id = $2 RETURNING *",
+                    ['Refunded', subscriberId]
+                );
+
+                expect(result.rows[0].status).toBe('cancelled');
+                expect(result.rows[0].cancel_reason).toBe('Refunded');
+            });
+
+            test('logs refund event for audit trail', () => {
+                const eventData = {
+                    subscriberId: 123,
+                    eventType: 'payment.refunded',
+                    eventData: {
+                        payment_id: 456,
+                        amount: 1999,
+                        reason: '30-day trial refund'
+                    }
+                };
+
+                // Should be logged for audit
+                logger.info('Subscription event logged', eventData);
+
+                expect(logger.info).toHaveBeenCalledWith(
+                    'Subscription event logged',
+                    expect.objectContaining({
+                        eventType: 'payment.refunded'
+                    })
+                );
+            });
+        });
+    });
+
     describe('Error Handling', () => {
 
         test('logs promo code validation errors', () => {

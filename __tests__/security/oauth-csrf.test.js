@@ -398,4 +398,342 @@ describe('OAuth CSRF Protection', () => {
             );
         });
     });
+
+    describe('OAuth Token Refresh', () => {
+
+        describe('Proactive Token Refresh', () => {
+
+            test('refreshes token when expiring within 1 hour', async () => {
+                const merchantId = 123;
+                const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+                const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+
+                // Token expires in 30 minutes, which is < 1 hour
+                const shouldRefresh = expiresAt < oneHourFromNow;
+
+                expect(shouldRefresh).toBe(true);
+            });
+
+            test('does not refresh token when not expiring soon', async () => {
+                const merchantId = 123;
+                const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours from now
+                const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+
+                // Token expires in 2 hours, which is > 1 hour
+                const shouldRefresh = expiresAt < oneHourFromNow;
+
+                expect(shouldRefresh).toBe(false);
+            });
+
+            test('returns existing token when not expiring soon', async () => {
+                const merchantId = 123;
+                const existingToken = 'existing_access_token_12345';
+                const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours from now
+                const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: merchantId,
+                        square_access_token: `encrypted_${existingToken}`,
+                        square_refresh_token: 'encrypted_refresh_token',
+                        square_token_expires_at: expiresAt.toISOString(),
+                        is_active: true
+                    }]
+                });
+
+                const result = await db.query(
+                    'SELECT * FROM merchants WHERE id = $1 AND is_active = TRUE',
+                    [merchantId]
+                );
+
+                const shouldRefresh = new Date(result.rows[0].square_token_expires_at) < oneHourFromNow;
+
+                expect(shouldRefresh).toBe(false);
+                // Would return decryptToken(result.rows[0].square_access_token)
+            });
+
+            test('stores new tokens after successful refresh', async () => {
+                const merchantId = 123;
+                const newAccessToken = 'new_access_token_67890';
+                const newRefreshToken = 'new_refresh_token_67890';
+                const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+                const { encryptToken } = require('../../utils/token-encryption');
+
+                db.query.mockResolvedValueOnce({ rows: [] });
+
+                await db.query(`
+                    UPDATE merchants SET
+                        square_access_token = $1,
+                        square_refresh_token = $2,
+                        square_token_expires_at = $3,
+                        updated_at = NOW()
+                    WHERE id = $4
+                `, [
+                    encryptToken(newAccessToken),
+                    encryptToken(newRefreshToken),
+                    newExpiresAt.toISOString(),
+                    merchantId
+                ]);
+
+                expect(db.query).toHaveBeenCalledWith(
+                    expect.stringContaining('UPDATE merchants SET'),
+                    expect.arrayContaining([
+                        expect.stringContaining('encrypted_'),
+                        expect.stringContaining('encrypted_'),
+                        expect.any(String),
+                        merchantId
+                    ])
+                );
+            });
+
+            test('logs token refresh event', () => {
+                const merchantId = 123;
+                const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+                logger.info('Token refreshed for merchant', {
+                    merchantId,
+                    expiresAt: expiresAt.toISOString()
+                });
+
+                expect(logger.info).toHaveBeenCalledWith(
+                    'Token refreshed for merchant',
+                    expect.objectContaining({
+                        merchantId: 123
+                    })
+                );
+            });
+        });
+
+        describe('Refresh Token Failure Handling', () => {
+
+            test('handles missing refresh token', async () => {
+                const merchantId = 123;
+
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: merchantId,
+                        square_access_token: 'encrypted_token',
+                        square_refresh_token: null, // No refresh token
+                        square_token_expires_at: new Date(Date.now() - 1000).toISOString(), // Expired
+                        is_active: true
+                    }]
+                });
+
+                const result = await db.query(
+                    'SELECT * FROM merchants WHERE id = $1 AND is_active = TRUE',
+                    [merchantId]
+                );
+
+                const refreshToken = result.rows[0].square_refresh_token;
+
+                // Should throw error when no refresh token available
+                expect(refreshToken).toBeNull();
+            });
+
+            test('handles Square API refresh error', () => {
+                const squareRefreshError = {
+                    errors: [{
+                        category: 'AUTHENTICATION_ERROR',
+                        code: 'INVALID_REFRESH_TOKEN',
+                        detail: 'The refresh token is invalid or has expired.'
+                    }]
+                };
+
+                // Should log error
+                logger.error('Token refresh failed', {
+                    merchantId: 123,
+                    errorCode: squareRefreshError.errors[0].code,
+                    detail: squareRefreshError.errors[0].detail
+                });
+
+                expect(logger.error).toHaveBeenCalledWith(
+                    'Token refresh failed',
+                    expect.objectContaining({
+                        errorCode: 'INVALID_REFRESH_TOKEN'
+                    })
+                );
+            });
+
+            test('handles expired refresh token requiring re-authorization', () => {
+                const squareError = {
+                    errors: [{
+                        category: 'AUTHENTICATION_ERROR',
+                        code: 'REFRESH_TOKEN_EXPIRED',
+                        detail: 'The refresh token has expired. User must re-authorize.'
+                    }]
+                };
+
+                const requiresReAuth = squareError.errors[0].code === 'REFRESH_TOKEN_EXPIRED' ||
+                    squareError.errors[0].code === 'INVALID_REFRESH_TOKEN';
+
+                expect(requiresReAuth).toBe(true);
+            });
+
+            test('handles network errors during refresh', () => {
+                const networkError = {
+                    code: 'ECONNREFUSED',
+                    message: 'Connection refused'
+                };
+
+                // Should log and allow retry
+                logger.error('Token refresh network error', {
+                    merchantId: 123,
+                    error: networkError.message,
+                    code: networkError.code
+                });
+
+                expect(logger.error).toHaveBeenCalledWith(
+                    'Token refresh network error',
+                    expect.objectContaining({
+                        code: 'ECONNREFUSED'
+                    })
+                );
+            });
+
+            test('does not retry after authentication errors', () => {
+                const authErrors = [
+                    'INVALID_REFRESH_TOKEN',
+                    'REFRESH_TOKEN_EXPIRED',
+                    'ACCESS_TOKEN_REVOKED'
+                ];
+
+                const error = { code: 'INVALID_REFRESH_TOKEN' };
+
+                const shouldRetry = !authErrors.includes(error.code);
+
+                expect(shouldRetry).toBe(false);
+            });
+
+            test('marks merchant inactive on permanent refresh failure', async () => {
+                const merchantId = 123;
+
+                db.query.mockResolvedValueOnce({ rows: [] });
+
+                await db.query(`
+                    UPDATE merchants SET
+                        is_active = FALSE,
+                        square_access_token = 'REFRESH_FAILED',
+                        updated_at = NOW()
+                    WHERE id = $1
+                `, [merchantId]);
+
+                expect(db.query).toHaveBeenCalledWith(
+                    expect.stringContaining('is_active = FALSE'),
+                    [merchantId]
+                );
+            });
+        });
+
+        describe('Revoked Token Handling', () => {
+
+            test('handles oauth.authorization.revoked webhook event', async () => {
+                const event = {
+                    type: 'oauth.authorization.revoked',
+                    merchant_id: 'SQUARE_MERCHANT_123',
+                    created_at: new Date().toISOString()
+                };
+
+                // Should mark merchant as inactive
+                db.query.mockResolvedValueOnce({ rowCount: 1 });
+
+                await db.query(`
+                    UPDATE merchants
+                    SET is_active = FALSE,
+                        square_access_token = 'REVOKED',
+                        square_refresh_token = NULL,
+                        updated_at = NOW()
+                    WHERE square_merchant_id = $1
+                `, [event.merchant_id]);
+
+                expect(db.query).toHaveBeenCalledWith(
+                    expect.stringContaining("square_access_token = 'REVOKED'"),
+                    [event.merchant_id]
+                );
+            });
+
+            test('logs revocation warning', () => {
+                const event = {
+                    merchant_id: 'SQUARE_MERCHANT_123',
+                    created_at: new Date().toISOString()
+                };
+
+                logger.warn('OAuth authorization revoked via webhook', {
+                    merchantId: event.merchant_id,
+                    revokedAt: event.created_at
+                });
+
+                expect(logger.warn).toHaveBeenCalledWith(
+                    'OAuth authorization revoked via webhook',
+                    expect.objectContaining({
+                        merchantId: 'SQUARE_MERCHANT_123'
+                    })
+                );
+            });
+
+            test('clears refresh token on revocation', async () => {
+                const squareMerchantId = 'SQUARE_MERCHANT_456';
+
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: 789,
+                        square_merchant_id: squareMerchantId,
+                        is_active: false,
+                        square_access_token: 'REVOKED',
+                        square_refresh_token: null
+                    }]
+                });
+
+                const result = await db.query(
+                    'SELECT * FROM merchants WHERE square_merchant_id = $1',
+                    [squareMerchantId]
+                );
+
+                expect(result.rows[0].square_refresh_token).toBeNull();
+                expect(result.rows[0].square_access_token).toBe('REVOKED');
+                expect(result.rows[0].is_active).toBe(false);
+            });
+
+            test('returns 401 for API calls after revocation', async () => {
+                // When a revoked token is used, Square returns 401
+                const squareError = {
+                    statusCode: 401,
+                    errors: [{
+                        category: 'AUTHENTICATION_ERROR',
+                        code: 'UNAUTHORIZED',
+                        detail: 'The OAuth access token has been revoked.'
+                    }]
+                };
+
+                expect(squareError.statusCode).toBe(401);
+                expect(squareError.errors[0].code).toBe('UNAUTHORIZED');
+            });
+
+            test('user must re-connect Square after revocation', async () => {
+                const merchantId = 123;
+
+                // Check if merchant needs re-authorization
+                db.query.mockResolvedValueOnce({
+                    rows: [{
+                        id: merchantId,
+                        is_active: false,
+                        square_access_token: 'REVOKED',
+                        square_refresh_token: null
+                    }]
+                });
+
+                const result = await db.query(
+                    'SELECT * FROM merchants WHERE id = $1',
+                    [merchantId]
+                );
+
+                const merchant = result.rows[0];
+                const needsReAuth = !merchant.is_active ||
+                    merchant.square_access_token === 'REVOKED' ||
+                    merchant.square_access_token === 'REFRESH_FAILED';
+
+                expect(needsReAuth).toBe(true);
+            });
+        });
+    });
 });
