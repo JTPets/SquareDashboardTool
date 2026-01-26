@@ -46,7 +46,7 @@ router.get('/square/custom-attributes', requireAuth, requireMerchant, asyncHandl
  * Initialize custom attribute definitions in Square
  * Creates: case_pack_quantity (NUMBER), brand (STRING)
  */
-router.post('/square/custom-attributes/init', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/init', requireAuth, requireMerchant, validators.init, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Initializing custom attribute definitions', { merchantId });
     const result = await squareApi.initializeCustomAttributes({ merchantId });
@@ -103,7 +103,7 @@ router.put('/square/custom-attributes/:objectId', requireAuth, requireMerchant, 
  * POST /api/square/custom-attributes/push/case-pack
  * Push all local case_pack_quantity values to Square
  */
-router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerchant, validators.pushCasePack, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing case pack quantities to Square', { merchantId });
     const result = await squareApi.pushCasePackToSquare({ merchantId });
@@ -114,7 +114,7 @@ router.post('/square/custom-attributes/push/case-pack', requireAuth, requireMerc
  * POST /api/square/custom-attributes/push/brand
  * Push all local brand assignments to Square
  */
-router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant, validators.pushBrand, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing brand assignments to Square', { merchantId });
     const result = await squareApi.pushBrandsToSquare({ merchantId });
@@ -125,7 +125,7 @@ router.post('/square/custom-attributes/push/brand', requireAuth, requireMerchant
  * POST /api/square/custom-attributes/push/expiry
  * Push all local expiration dates to Square
  */
-router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchant, validators.pushExpiry, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing expiry dates to Square', { merchantId });
     const result = await squareApi.pushExpiryDatesToSquare({ merchantId });
@@ -136,7 +136,7 @@ router.post('/square/custom-attributes/push/expiry', requireAuth, requireMerchan
  * POST /api/square/custom-attributes/push/all
  * Push all local custom attribute data to Square (case pack, brand, expiry)
  */
-router.post('/square/custom-attributes/push/all', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/square/custom-attributes/push/all', requireAuth, requireMerchant, validators.pushAll, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     logger.info('Pushing all custom attributes to Square', { merchantId });
 
