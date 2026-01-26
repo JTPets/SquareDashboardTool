@@ -236,7 +236,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
 | P1 Architecture | 🟡 2.5/5 | P1-1 in progress, P1-4, P1-5 done |
-| P2 Testing | 🟡 4.5/6 | P2-1, P2-3, P2-4, P2-6 complete; P2-2,5 partial |
+| P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 ---
@@ -582,11 +582,11 @@ Updated `routes/auth.js` to use the new validators middleware.
 
 ---
 
-### P2-2: Payment/Refund Flow Tests 🟡 PARTIAL
-**File**: `__tests__/routes/subscriptions.test.js` (567 lines)
-**Status**: Covers promo codes, subscription creation, PCI compliance
+### P2-2: Payment/Refund Flow Tests ✅ COMPLETE
+**File**: `__tests__/routes/subscriptions.test.js` (59 tests)
+**Status**: COMPLETE (2026-01-26)
 
-**Covered** (existing tests):
+**All required tests exist**:
 - ✅ Promo code validation (dates, limits, discounts)
 - ✅ Subscription creation input validation
 - ✅ Duplicate email prevention
@@ -594,14 +594,13 @@ Updated `routes/auth.js` to use the new validators middleware.
 - ✅ PCI compliance (no card data storage)
 - ✅ Admin refund authorization
 - ✅ Generic error messages (no internal details)
-
-**Missing** (still needed):
-```javascript
-describe('Payment flows', () => {
-    it('should handle payment declined gracefully');
-    it('should process refunds idempotently');
-});
-```
+- ✅ Payment declined handling (CARD_DECLINED, INSUFFICIENT_FUNDS, generic errors)
+- ✅ Payment decline logging for debugging
+- ✅ Refund idempotency key generation
+- ✅ Refund eligibility checks (completed + non-refunded only)
+- ✅ Refund marking and audit trail
+- ✅ Square refund API failure handling
+- ✅ Subscription cancellation after refund
 
 ---
 
@@ -648,11 +647,11 @@ Note: Login rate limiting tested in `security.test.js`
 
 ---
 
-### P2-5: OAuth Token Refresh Tests 🟡 PARTIAL
-**File**: `__tests__/security/oauth-csrf.test.js` (401 lines)
-**Status**: Covers CSRF protection and token security, missing refresh logic
+### P2-5: OAuth Token Refresh Tests ✅ COMPLETE
+**File**: `__tests__/security/oauth-csrf.test.js` (41 tests)
+**Status**: COMPLETE (2026-01-26)
 
-**Covered** (existing tests):
+**All required tests exist**:
 - ✅ State parameter generation (256 bits entropy)
 - ✅ State storage with expiry (10 minutes)
 - ✅ State validation (expired, used, unknown)
@@ -660,15 +659,18 @@ Note: Login rate limiting tested in `security.test.js`
 - ✅ Token encryption before storage
 - ✅ Tokens not logged in plain text
 - ✅ OAuth configuration validation
-
-**Missing** (still needed):
-```javascript
-describe('OAuth token refresh', () => {
-    it('should refresh token before expiry');
-    it('should handle refresh token failure');
-    it('should handle revoked tokens');
-});
-```
+- ✅ Proactive token refresh (within 1 hour of expiry)
+- ✅ Token refresh storage and logging
+- ✅ Missing refresh token handling
+- ✅ Square API refresh error handling
+- ✅ Expired refresh token requiring re-authorization
+- ✅ Network error handling during refresh
+- ✅ Authentication error non-retry logic
+- ✅ Merchant deactivation on permanent refresh failure
+- ✅ oauth.authorization.revoked webhook handling
+- ✅ Revocation logging and token clearing
+- ✅ 401 response for revoked tokens
+- ✅ Re-authorization flow after revocation
 
 ---
 
@@ -783,4 +785,4 @@ Before merging any PR:
 | A++ | 4/4 ✅ | 5/5 ✅ | 6/6 ✅ | Optional |
 | A+ | 4/4 ✅ | 5/5 ✅ | 4/6 ✅ | - |
 | A | 4/4 ✅ | 3/5 ✅ | 2/6 ✅ | - |
-| B+ (Current) | 3/4 🟡 | 1.5/5 🟡 | 2.5/6 🟡 | - |
+| B+ (Current) | 3/4 🟡 | 2.5/5 🟡 | 6/6 ✅ | - |
