@@ -235,7 +235,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
-| P1 Architecture | 🟡 3/5 | P1-1 in progress, P1-2 not started, P1-3 significant progress, P1-4, P1-5 done |
+| P1 Architecture | 🟡 3/5 | P1-1 in progress, P1-2 not started, P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -505,8 +505,9 @@ class ItemService {
 - ✅ Created `services/gmc/` with feed-service.js and merchant-service.js (moved from utils/)
 - ✅ Created `services/vendor/` with catalog-service.js (moved from utils/)
 - ✅ Created `services/reports/` with loyalty-reports.js (moved from utils/)
+- ✅ Created `services/square/` with api.js (moved from utils/)
 - ✅ Re-export stubs in utils/ maintain backward compatibility
-- ❌ Remaining: loyalty-service.js (5,475 lines), square-api.js (3,505 lines)
+- ❌ Remaining: loyalty-service.js (5,475 lines)
 
 **Current Structure**:
 ```
@@ -534,6 +535,9 @@ services/                # Business logic services
 ├── reports/             # ✅ NEW - Report generation
 │   ├── index.js
 │   └── loyalty-reports.js   # Vendor receipts, audit exports
+├── square/              # ✅ NEW - Square API integration
+│   ├── index.js
+│   └── api.js               # Sync, inventory, custom attributes, prices
 ├── webhook-handlers/    # ✅ Already organized
 └── webhook-processor.js # ✅ Already here
 
@@ -545,6 +549,7 @@ utils/                   # Re-export stubs for backward compatibility
 ├── merchant-center-api.js # → services/gmc/merchant-service.js
 ├── vendor-catalog.js    # → services/vendor/
 ├── loyalty-reports.js   # → services/reports/
+├── square-api.js        # → services/square/
 ├── database.js          # Re-exports getMerchantSettings from services/merchant/
 └── ... (remaining true utilities)
 ```
@@ -552,8 +557,7 @@ utils/                   # Re-export stubs for backward compatibility
 **Remaining Work**:
 ```
 utils/                   # Files still needing extraction
-├── loyalty-service.js   # ❌ Large service (5,475 lines - migrate to services/loyalty-admin/)
-└── square-api.js        # ❌ Large service (3,505 lines - migrate to services/square/)
+└── loyalty-service.js   # ❌ Large service (5,475 lines - migrate to services/loyalty-admin/)
 ```
 
 **Completed Extractions (this session)**:
@@ -562,6 +566,7 @@ utils/                   # Files still needing extraction
 - ✅ `merchant-center-api.js` → `services/gmc/merchant-service.js` (1,100 lines)
 - ✅ `vendor-catalog.js` → `services/vendor/catalog-service.js` (1,331 lines)
 - ✅ `loyalty-reports.js` → `services/reports/loyalty-reports.js` (969 lines)
+- ✅ `square-api.js` → `services/square/api.js` (3,517 lines)
 
 ---
 
