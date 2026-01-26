@@ -25,6 +25,7 @@ const squareApi = require('../../utils/square-api');
 const deliveryApi = require('../../utils/delivery-api');
 const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
+const { FEATURE_FLAGS } = require('../../config/constants');
 
 // Modern loyalty service (feature-flagged)
 const { LoyaltyWebhookService } = require('../loyalty');
@@ -45,7 +46,7 @@ const SQUARE_API_VERSION = '2025-01-16';
 async function processOrderForLoyalty(order, merchantId, options = {}) {
     const { source = 'WEBHOOK' } = options;
 
-    if (process.env.USE_NEW_LOYALTY_SERVICE === 'true') {
+    if (FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE) {
         // Use modern service
         logger.debug('Using modern loyalty service for order processing', {
             orderId: order.id,

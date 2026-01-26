@@ -18,8 +18,9 @@ function configureHelmet() {
 
     return helmet({
         // Content Security Policy
-        // P0-4 COMPLETE (2026-01-26): All inline event handlers migrated to event delegation.
-        // 'unsafe-inline' removed from scriptSrc and scriptSrcAttr.
+        // P0-4 PARTIAL: Inline EVENT HANDLERS (onclick, onchange) migrated to event delegation.
+        // However, inline <script> blocks still exist in HTML files and require 'unsafe-inline'.
+        // TODO: Externalize inline scripts to complete CSP hardening (see P0-4 in CLAUDE.md).
         // 'unsafe-eval' was removed 2026-01-26 after confirming no eval()/new Function() usage.
         // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
@@ -27,6 +28,7 @@ function configureHelmet() {
                 defaultSrc: ["'self'"],
                 scriptSrc: [
                     "'self'",
+                    "'unsafe-inline'",  // Required until inline <script> blocks externalized
                     // Cloudflare scripts (Rocket Loader, Analytics, Challenge pages)
                     "https://*.cloudflare.com",
                     "https://*.cloudflareinsights.com",

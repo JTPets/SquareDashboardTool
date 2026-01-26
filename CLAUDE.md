@@ -234,7 +234,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 
 | Priority | Status | Items |
 |----------|--------|-------|
-| P0 Security | ✅ 4/4 | All complete - CSP 'unsafe-inline' removed from scriptSrc |
+| P0 Security | 🟡 3.5/4 | P0-1,2,3 complete; P0-4 partial (event handlers done, inline scripts pending) |
 | P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 complete, P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
@@ -271,11 +271,15 @@ Fixed 3 locations exposing internal error details to clients:
 
 ---
 
-### P0-4: CSP Allows Unsafe Inline ✅ COMPLETE
+### P0-4: CSP Allows Unsafe Inline 🟡 PARTIAL
 **File**: `middleware/security.js:23-35`
-**Status**: FIXED (2026-01-26)
+**Status**: PARTIALLY FIXED (2026-01-26)
 
-All inline event handlers have been migrated to use event delegation. The `'unsafe-inline'` directive has been removed from CSP `scriptSrc` and `scriptSrcAttr`.
+**Phase 1 COMPLETE**: All inline EVENT HANDLERS (`onclick`, `onchange`, etc.) migrated to event delegation pattern using `data-action` attributes.
+
+**Phase 2 PENDING**: Inline `<script>` blocks still exist in HTML files. The `'unsafe-inline'` directive remains in `scriptSrc` until these are externalized to separate .js files.
+
+**Remaining Work**: Externalize inline scripts from ~30 HTML files to `/public/js/` directory. Each page's inline script should become an external file (e.g., `login.html` inline script → `/public/js/login.js`).
 
 **Completed Migration (27 HTML files, ~335 handlers)**:
 - ✅ `logs.html` (pattern example)
@@ -421,8 +425,9 @@ Files modified:
   - services/webhook-handlers/order-handler.js
   - services/webhook-handlers/loyalty-handler.js
   - .env.example (added USE_NEW_LOYALTY_SERVICE=false)
+  - config/constants.js (added FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE)
 
-Both handlers now check USE_NEW_LOYALTY_SERVICE and call either:
+Both handlers now use FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE from config/constants.js:
   - Modern: LoyaltyWebhookService.processOrder()
   - Legacy: loyaltyService.processOrderForLoyalty() (default)
 
@@ -449,18 +454,18 @@ Options:
 2. Keep legacy as "admin service" separate from webhook processing
 3. Extract to new `services/loyalty-admin/` module
 
-#### Files to Modify
+#### Files Modified
 
-| File | Changes |
-|------|---------|
-| `services/webhook-handlers/order-handler.js` | Add feature flag for modern service |
-| `services/webhook-handlers/loyalty-handler.js` | Add feature flag for modern service |
-| `.env.example` | Add `USE_NEW_LOYALTY_SERVICE=false` |
-| `config/constants.js` | Add feature flag constant |
+| File | Changes | Status |
+|------|---------|--------|
+| `services/webhook-handlers/order-handler.js` | Uses `FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE` | ✅ |
+| `services/webhook-handlers/loyalty-handler.js` | Uses `FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE` | ✅ |
+| `.env.example` | Added `USE_NEW_LOYALTY_SERVICE=false` | ✅ |
+| `config/constants.js` | Added `FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE` | ✅ |
 
 #### Success Criteria
 
-- [ ] Feature flag `USE_NEW_LOYALTY_SERVICE` added
+- [x] Feature flag `USE_NEW_LOYALTY_SERVICE` added (in `config/constants.js`)
 - [ ] Modern service processes orders when flag is `true`
 - [ ] Legacy service still works when flag is `false`
 - [ ] No regression in loyalty tracking (compare results)
