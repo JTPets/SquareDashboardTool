@@ -235,7 +235,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3/4 | P0-4 (CSP) remaining |
-| P1 Architecture | 🔴 1/5 | Code organization and consistency |
+| P1 Architecture | 🟡 1.5/5 | P1-1 in progress, P1-4 done |
 | P2 Testing | 🔴 0/6 | Test coverage for critical paths |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -307,26 +307,158 @@ scriptSrc: [
 
 ## P1: Architecture Fixes (HIGH)
 
-### P1-1: Duplicate Loyalty Implementations ❌
-**Problem**: Two competing implementations exist
+### P1-1: Loyalty Service Migration 🟡 IN PROGRESS
+**Status**: Modern service built & tested, but NOT wired into production
 
-| Implementation | Location | Lines | Pattern |
-|----------------|----------|-------|---------|
-| Legacy | `utils/loyalty-service.js` | 3,349 | Monolithic utility |
-| Modern | `services/loyalty/` | ~800 | Service layer with DI |
+#### Architecture Overview
 
-**Required Action**: Delete `utils/loyalty-service.js` after verifying `services/loyalty/` covers all functionality.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ CURRENT PRODUCTION FLOW                                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Webhook Events ──► webhook-processor.js ──► webhook-handlers/          │
+│                                               ├── order-handler.js      │
+│                                               └── loyalty-handler.js    │
+│                                                        │                │
+│                                                        ▼                │
+│                                        ┌──────────────────────────────┐ │
+│                                        │ utils/loyalty-service.js    │ │
+│                                        │ (5,476 lines - LEGACY)      │ │
+│                                        │                              │ │
+│                                        │ • Order processing           │ │
+│                                        │ • Customer identification    │ │
+│                                        │ • Offer CRUD                 │ │
+│                                        │ • Square Customer Groups     │ │
+│                                        │ • Refund handling            │ │
+│                                        │ • Catchup/backfill           │ │
+│                                        │ • Settings & Audit           │ │
+│                                        └───────────┬──────────────────┘ │
+│                                                    │ uses               │
+│                                                    ▼                    │
+│                                        ┌──────────────────────────────┐ │
+│                                        │ services/loyalty/            │ │
+│                                        │   loyaltyLogger (only)       │ │
+│                                        └──────────────────────────────┘ │
+│                                                                         │
+│  routes/loyalty.js ───────────────────► utils/loyalty-service.js       │
+│  (Admin API - 35+ function calls)                                       │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 
-**Verification Steps**:
-```bash
-# Find all imports of legacy service
-grep -r "require.*loyalty-service" routes/ services/ --include="*.js"
-
-# Update each file to use new service
-const { LoyaltyWebhookService } = require('../services/loyalty');
+┌─────────────────────────────────────────────────────────────────────────┐
+│ MODERN SERVICE (Built, Tested, NOT Connected)                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  services/loyalty/                                                      │
+│  ├── index.js                 # Public API exports                      │
+│  ├── webhook-service.js       # LoyaltyWebhookService (main entry)      │
+│  ├── square-client.js         # LoyaltySquareClient + SquareApiError    │
+│  ├── customer-service.js      # LoyaltyCustomerService                  │
+│  ├── offer-service.js         # LoyaltyOfferService                     │
+│  ├── purchase-service.js      # LoyaltyPurchaseService                  │
+│  ├── reward-service.js        # LoyaltyRewardService                    │
+│  ├── loyalty-logger.js        # Structured logging (USED by legacy)     │
+│  ├── loyalty-tracer.js        # Request tracing                         │
+│  └── __tests__/               # 2,931 lines of tests ✅                 │
+│      ├── webhook-service.test.js    (491 lines)                         │
+│      ├── purchase-service.test.js   (524 lines)                         │
+│      ├── reward-service.test.js     (520 lines)                         │
+│      ├── customer-service.test.js   (294 lines)                         │
+│      ├── square-client.test.js      (303 lines)                         │
+│      ├── offer-service.test.js      (245 lines)                         │
+│      ├── loyalty-tracer.test.js     (241 lines)                         │
+│      └── loyalty-logger.test.js     (313 lines)                         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Why**: Two implementations means bugs fixed in one aren't fixed in the other. Technical debt compounds.
+#### What Modern Service Covers
+
+| Feature | Modern Service | Method |
+|---------|----------------|--------|
+| Order processing | ✅ | `LoyaltyWebhookService.processOrder()` |
+| Customer ID (5 methods) | ✅ | `LoyaltyCustomerService.identifyCustomerFromOrder()` |
+| Purchase recording | ✅ | `LoyaltyPurchaseService.recordPurchase()` |
+| Reward management | ✅ | `LoyaltyRewardService.*` |
+| Offer lookups | ✅ | `LoyaltyOfferService.getActiveOffers()` |
+| Square API calls | ✅ | `LoyaltySquareClient.*` |
+| Structured logging | ✅ | `loyaltyLogger.*` |
+| Request tracing | ✅ | `LoyaltyTracer` |
+
+#### What Stays in Legacy (Admin Features)
+
+| Feature | Used By | Notes |
+|---------|---------|-------|
+| Offer CRUD | `routes/loyalty.js` | Create/update/delete offers |
+| Variation management | `routes/loyalty.js` | Add qualifying variations |
+| Settings | `routes/loyalty.js` | Loyalty program settings |
+| Audit logs | `routes/loyalty.js` | Query audit history |
+| Customer caching | `routes/loyalty.js` | Local customer cache |
+| Square Customer Group Discount | `order-handler.js` | Reward delivery mechanism |
+| Refund processing | `order-handler.js` | Adjust quantities on refund |
+| Catchup/backfill | `loyalty-handler.js` | Process missed orders |
+
+#### Migration Plan
+
+**Phase 1: Wire Up Modern Service (Add Feature Flag)**
+```
+File: services/webhook-handlers/order-handler.js
+
+Add at top:
+  const { LoyaltyWebhookService } = require('../loyalty');
+
+Replace (around line 240):
+  // OLD:
+  const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+
+  // NEW:
+  let loyaltyResult;
+  if (process.env.USE_NEW_LOYALTY_SERVICE === 'true') {
+      const service = new LoyaltyWebhookService(merchantId);
+      await service.initialize();
+      loyaltyResult = await service.processOrder(order, { source: 'WEBHOOK' });
+  } else {
+      loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
+  }
+```
+
+**Phase 2: Test in Production**
+```bash
+# .env - Enable for testing
+USE_NEW_LOYALTY_SERVICE=true
+
+# Monitor logs for [LOYALTY:*] entries
+tail -f output/logs/app-*.log | grep LOYALTY
+```
+
+**Phase 3: Migrate Remaining Handlers**
+- `services/webhook-handlers/loyalty-handler.js` - Use modern for order processing
+- Keep legacy calls for: `runLoyaltyCatchup`, `isOrderAlreadyProcessedForLoyalty`
+
+**Phase 4: Decide on Admin Features**
+Options:
+1. Add to modern service (`LoyaltyOfferService.createOffer()`, etc.)
+2. Keep legacy as "admin service" separate from webhook processing
+3. Extract to new `services/loyalty-admin/` module
+
+#### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `services/webhook-handlers/order-handler.js` | Add feature flag for modern service |
+| `services/webhook-handlers/loyalty-handler.js` | Add feature flag for modern service |
+| `.env.example` | Add `USE_NEW_LOYALTY_SERVICE=false` |
+| `config/constants.js` | Add feature flag constant |
+
+#### Success Criteria
+
+- [ ] Feature flag `USE_NEW_LOYALTY_SERVICE` added
+- [ ] Modern service processes orders when flag is `true`
+- [ ] Legacy service still works when flag is `false`
+- [ ] No regression in loyalty tracking (compare results)
+- [ ] Tracing shows full order processing pipeline
+- [ ] All existing tests pass
 
 ---
 
@@ -600,6 +732,8 @@ These items are COMPLETE and should not regress:
 - ✅ Token encryption: AES-256-GCM
 - ✅ Password hashing: bcrypt with 12 rounds
 - ✅ Multi-tenant isolation: merchant_id on all queries
+- ✅ Modern loyalty service built (`services/loyalty/`) with 2,931 lines of tests
+- ✅ P0-1, P0-2, P0-3 security fixes applied
 
 ---
 
@@ -627,4 +761,4 @@ Before merging any PR:
 | A++ | 4/4 ✅ | 5/5 ✅ | 6/6 ✅ | Optional |
 | A+ | 4/4 ✅ | 5/5 ✅ | 4/6 ✅ | - |
 | A | 4/4 ✅ | 3/5 ✅ | 2/6 ✅ | - |
-| B+ (Current) | 0/4 | 0/5 | 0/6 | - |
+| B+ (Current) | 3/4 🟡 | 1.5/5 🟡 | 0/6 | - |
