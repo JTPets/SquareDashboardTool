@@ -548,17 +548,17 @@
 
     <div class="controls">
       <label for="location-select">Location:</label>
-      <select id="location-select" onchange="getSuggestions()">
+      <select id="location-select" data-change="getSuggestions">
         <option value="">All Locations</option>
       </select>
 
       <label for="vendor-select">Vendor:</label>
-      <select id="vendor-select" onchange="getSuggestions()">
+      <select id="vendor-select" data-change="getSuggestions">
         <option value="">Loading vendors...</option>
       </select>
 
       <label for="supply-days">Supply Days:</label>
-      <input type="number" id="supply-days" value="" min="1" max="365" style="width: 100px;" onchange="getSuggestions()" onblur="getSuggestions()">
+      <input type="number" id="supply-days" value="" min="1" max="365" style="width: 100px;" data-change="getSuggestions" data-blur="getSuggestions">
 
       <label for="sort-by">Sort By:</label>
       <select id="sort-by">
@@ -573,58 +573,58 @@
         <thead>
           <tr>
             <th class="text-center">
-              <input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)">
+              <input type="checkbox" id="select-all" data-change="toggleSelectAllFromCheckbox">
             </th>
-            <th onclick="sortTable('priority')" class="sortable">
+            <th data-action="sortTable" data-action-param="priority" class="sortable">
               Priority <span class="sort-indicator" id="sort-priority"></span>
             </th>
             <th>Image</th>
-            <th onclick="sortTable('item_name')" class="sortable">
+            <th data-action="sortTable" data-action-param="item_name" class="sortable">
               Product <span class="sort-indicator" id="sort-item_name"></span>
             </th>
-            <th onclick="sortTable('sku')" class="sortable">
+            <th data-action="sortTable" data-action-param="sku" class="sortable">
               SKU <span class="sort-indicator" id="sort-sku"></span>
             </th>
-            <th onclick="sortTable('current_stock')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="current_stock" class="sortable text-right">
               Stock <span class="sort-indicator" id="sort-current_stock"></span>
             </th>
-            <th onclick="sortTable('stock_alert_min')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="stock_alert_min" class="sortable text-right">
               Min <span class="sort-indicator" id="sort-stock_alert_min"></span>
             </th>
             <th class="text-right" title="Stock Maximum (editable)">
               Max
             </th>
-            <th onclick="sortTable('days_until_stockout')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="days_until_stockout" class="sortable text-right">
               Days Left <span class="sort-indicator" id="sort-days_until_stockout"></span>
             </th>
-            <th onclick="sortTable('days_until_expiry')" class="sortable text-right" title="Expiration date - highlighted if within 120 days">
+            <th data-action="sortTable" data-action-param="days_until_expiry" class="sortable text-right" title="Expiration date - highlighted if within 120 days">
               Expiry <span class="sort-indicator" id="sort-days_until_expiry"></span>
             </th>
-            <th onclick="sortTable('weekly_avg_91d')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="weekly_avg_91d" class="sortable text-right">
               Velocity<br><small>(91d/182d/365d)</small> <span class="sort-indicator" id="sort-weekly_avg_91d"></span>
             </th>
-            <th onclick="sortTable('final_suggested_qty')" class="sortable text-right" title="Cases to order (units ÷ case pack)">
+            <th data-action="sortTable" data-action-param="final_suggested_qty" class="sortable text-right" title="Cases to order (units ÷ case pack)">
               Cases<br><small>to Order</small> <span class="sort-indicator" id="sort-final_suggested_qty"></span>
             </th>
-            <th onclick="sortTable('case_pack_quantity')" class="sortable text-right" title="Case Pack Quantity (editable)">
+            <th data-action="sortTable" data-action-param="case_pack_quantity" class="sortable text-right" title="Case Pack Quantity (editable)">
               Case Pack <span class="sort-indicator" id="sort-case_pack_quantity"></span>
             </th>
-            <th onclick="sortTable('unit_cost_cents')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="unit_cost_cents" class="sortable text-right">
               Cost <span class="sort-indicator" id="sort-unit_cost_cents"></span>
             </th>
-            <th onclick="sortTable('retail_price_cents')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="retail_price_cents" class="sortable text-right">
               Retail <span class="sort-indicator" id="sort-retail_price_cents"></span>
             </th>
-            <th onclick="sortTable('gross_margin_percent')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="gross_margin_percent" class="sortable text-right">
               Margin <span class="sort-indicator" id="sort-gross_margin_percent"></span>
             </th>
-            <th onclick="sortTable('order_cost')" class="sortable text-right">
+            <th data-action="sortTable" data-action-param="order_cost" class="sortable text-right">
               Total <span class="sort-indicator" id="sort-order_cost"></span>
             </th>
-            <th onclick="sortTable('vendor_name')" class="sortable">
+            <th data-action="sortTable" data-action-param="vendor_name" class="sortable">
               Vendor <span class="sort-indicator" id="sort-vendor_name"></span>
             </th>
-            <th onclick="sortTable('vendor_code')" class="sortable">
+            <th data-action="sortTable" data-action-param="vendor_code" class="sortable">
               Vendor Code <span class="sort-indicator" id="sort-vendor_code"></span>
             </th>
           </tr>
@@ -642,11 +642,14 @@
         <span id="selected-count">0</span> items selected |
         Total: <strong id="total-cost">$0.00</strong>
       </div>
-      <button id="create-po-btn" onclick="createPurchaseOrder()" disabled>
+      <button id="create-po-btn" data-action="createPurchaseOrder" disabled>
         Create Purchase Order
       </button>
     </div>
   </div>
+
+  <!-- Event delegation for CSP compliance -->
+  <script src="/js/event-delegation.js"></script>
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
@@ -900,7 +903,7 @@
         // Get image URL
         const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
         const imageHtml = imageUrl
-          ? `<img src="${imageUrl}" class="product-image" alt="Product" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          ? `<img src="${imageUrl}" class="product-image" alt="Product" data-error-action="hideImageShowPlaceholder">
              <div class="no-image" style="display:none;">📦</div>`
           : `<div class="no-image">📦</div>`;
 
@@ -991,7 +994,8 @@
             <td class="text-center">
               <input type="checkbox"
                      ${isSelected ? 'checked' : ''}
-                     onchange="toggleItem('${item.variation_id}', this.checked)">
+                     data-change="toggleItemFromCheckbox"
+                     data-variation-id="${item.variation_id}">
             </td>
             <td>
               <span class="priority-badge ${priorityClass}">${item.priority}</span>
@@ -1008,21 +1012,27 @@
               ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
               ${expiryInfoHtml}
             </td>
-            <td class="sku clickable" onclick="copyToClipboard('${escapeJsString(item.sku || '')}', 'SKU')" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
+            <td class="sku clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(item.sku || '')}" data-copy-label="SKU" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
             <td class="text-right">
               ${item.current_stock}
               ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
             </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"
-                   onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_min', ${item.stock_alert_min || 'null'})"
+                   data-action="enterEditMode"
+                   data-variation-id="${escapeJsString(item.variation_id)}"
+                   data-field="stock_alert_min"
+                   data-value="${item.stock_alert_min || ''}"
                    title="Click to edit - syncs to Square">
                 ${item.stock_alert_min ? item.stock_alert_min : '-'}
               </div>
             </td>
             <td class="text-right editable-cell">
               <div class="editable-display ${item.stock_alert_max ? 'has-value' : ''}"
-                   onclick="enterEditMode(this, '${escapeJsString(item.variation_id)}', 'stock_alert_max', ${item.stock_alert_max || 'null'})">
+                   data-action="enterEditMode"
+                   data-variation-id="${escapeJsString(item.variation_id)}"
+                   data-field="stock_alert_max"
+                   data-value="${item.stock_alert_max || ''}">
                 ${item.stock_alert_max ? item.stock_alert_max : '<span class="infinity-symbol">∞</span>'}
               </div>
             </td>
@@ -1038,9 +1048,9 @@
                      data-field="order_qty"
                      data-variation-id="${item.variation_id}"
                      data-suggested="${casesToOrder}"
-                     onchange="updateOrderQty(this)"
-                     onblur="updateOrderQty(this)"
-                     onkeydown="if(event.key==='Enter') this.blur()">
+                     data-change="updateOrderQty"
+                     data-blur="updateOrderQty"
+                     data-keydown="blurOnEnter">
               <br><small style="color: #6b7280;" id="units-${item.variation_id}">(${actualUnits} units)</small>
               ${cappedByMax ? '<br><small style="color: #f59e0b;">⚠️ Capped at max</small>' : ''}
               ${item.pending_po_quantity > 0 ? `<br><small style="color: #3b82f6;" title="${item.pending_po_quantity} units pending in unreceived POs">📦 ${item.pending_po_quantity} on order</small>` : ''}
@@ -1053,8 +1063,8 @@
                      min="1"
                      data-field="case_pack_quantity"
                      data-variation-id="${item.variation_id}"
-                     onblur="saveField(this)"
-                     onkeydown="if(event.key==='Enter') this.blur()">
+                     data-blur="saveField"
+                     data-keydown="blurOnEnter">
             </td>
             <td class="text-right editable-cell">
               <input type="number"
@@ -1067,15 +1077,15 @@
                      data-variation-id="${item.variation_id}"
                      data-vendor-id="${item.current_vendor_id || ''}"
                      data-original-value="${item.unit_cost_cents || 0}"
-                     onblur="saveCost(this)"
-                     onkeydown="if(event.key==='Enter') this.blur()"
+                     data-blur="saveCost"
+                     data-keydown="blurOnEnter"
                      style="width: 70px;">
             </td>
             <td class="text-right">${item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-'}</td>
             <td class="text-right ${item.gross_margin_percent !== null ? (item.gross_margin_percent >= 40 ? 'velocity-fast' : item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical') : ''}">${item.gross_margin_percent !== null ? item.gross_margin_percent.toFixed(1) + '%' : '-'}</td>
             <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
             <td>${escapeHtml(item.vendor_name)}</td>
-            <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" onclick="copyToClipboard('${escapeJsString(item.vendor_code || '')}', 'Vendor Code')" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
+            <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
           </tr>
         `;
       }).join('');
@@ -1089,6 +1099,54 @@
       renderTable();
       updateFooter();
     }
+
+    // --- Event delegation helper functions ---
+
+    // Toggle select all from checkbox (for data-change handler)
+    function toggleSelectAllFromCheckbox(element) {
+      toggleSelectAll(element.checked);
+    }
+
+    // Toggle item from checkbox (for data-change handler)
+    function toggleItemFromCheckbox(element) {
+      const variationId = element.dataset.variationId;
+      toggleItem(variationId, element.checked);
+    }
+
+    // Copy to clipboard (for data-action handler)
+    function copyToClipboard(value, element, event) {
+      const label = element.dataset.copyLabel || 'Text';
+      navigator.clipboard.writeText(value).then(() => {
+        showToast(`${label} copied!`);
+      }).catch(() => {
+        showToast(`Failed to copy ${label}`, 'error');
+      });
+    }
+
+    // Enter edit mode (for data-action handler)
+    function enterEditMode(element, event, param) {
+      const variationId = element.dataset.variationId;
+      const field = element.dataset.field;
+      const value = element.dataset.value || null;
+      enterEditModeImpl(element, variationId, field, value);
+    }
+
+    // Blur on Enter key (for data-keydown handler)
+    function blurOnEnter(element, event) {
+      if (event.key === 'Enter') {
+        element.blur();
+      }
+    }
+
+    // Handle image error - hide image and show placeholder
+    document.addEventListener('error', function(event) {
+      if (event.target.tagName === 'IMG' && event.target.dataset.errorAction === 'hideImageShowPlaceholder') {
+        event.target.style.display = 'none';
+        if (event.target.nextElementSibling) {
+          event.target.nextElementSibling.style.display = 'flex';
+        }
+      }
+    }, true);
 
     function toggleItem(variationId, checked) {
       // Check if this is an expiring item being selected
@@ -1603,29 +1661,30 @@
       updateFooter();
     }
 
-    // Enter edit mode for stock maximum field
-    function enterEditMode(displayElement, variationId, field, currentValue) {
+    // Enter edit mode for stock maximum field (implementation)
+    function enterEditModeImpl(displayElement, variationId, field, currentValue) {
       // Create input element
       const input = document.createElement('input');
       input.type = 'number';
       input.className = 'editable-input';
-      input.value = currentValue === null ? '' : currentValue;
+      input.value = currentValue === null || currentValue === '' ? '' : currentValue;
       input.placeholder = '∞';
       input.min = '0';
       input.dataset.variationId = variationId;
       input.dataset.field = field;
 
-      // Save on blur or Enter key
-      input.onblur = function() {
+      // Save on blur
+      input.addEventListener('blur', function() {
         exitEditMode(this, true);
-      };
-      input.onkeydown = function(e) {
+      });
+      // Handle Enter/Escape keys
+      input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
           this.blur();
         } else if (e.key === 'Escape') {
           exitEditMode(this, false);
         }
-      };
+      });
 
       // Replace display with input
       const cell = displayElement.parentElement;
