@@ -17,16 +17,17 @@ function configureHelmet() {
     const forceHttps = process.env.FORCE_HTTPS === 'true';
 
     return helmet({
-        // Content Security Policy - permissive but still provides protection
-        // Allows inline scripts/styles for compatibility but blocks external malicious sources
+        // Content Security Policy
+        // NOTE: 'unsafe-inline' is still required due to inline event handlers (onclick, etc.)
+        // in 30 HTML files (~400 handlers). Migration to external JS is tracked in P0-4.
+        // 'unsafe-eval' was removed 2026-01-26 after confirming no eval()/new Function() usage.
         // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
                 scriptSrc: [
                     "'self'",
-                    "'unsafe-inline'",
-                    "'unsafe-eval'",
+                    "'unsafe-inline'",  // TODO P0-4: Remove after migrating inline scripts
                     // Cloudflare scripts (Rocket Loader, Analytics, Challenge pages)
                     "https://*.cloudflare.com",
                     "https://*.cloudflareinsights.com",
