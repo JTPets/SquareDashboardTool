@@ -625,3 +625,496 @@ const sensitiveOperationRateLimit = 5 requests / 15 min
 ```
 Request → requireAuth → loadMerchantContext → requireMerchant → validators.* → Route Handler
 ```
+
+---
+
+## Technical Debt & Optimization TODO
+
+**Last Review**: 2026-01-26
+**Overall Grade**: B- (Solid foundation, significant room for improvement)
+
+### Priority Legend
+- **P0**: Critical - Fix immediately (performance/reliability impact)
+- **P1**: High - Fix soon (maintainability/debugging impact)
+- **P2**: Medium - Plan for next sprint (code quality)
+- **P3**: Low - Address when touching related code
+
+---
+
+### P0: Critical Performance Issues
+
+#### 1. N+1 Query Problem in Catalog Bulk Updates
+**File**: `routes/catalog.js` lines 651-680
+**Problem**: Loop executes 3 queries per item (SELECT + UPDATE + Square API call)
+**Impact**: 100 items = 300+ queries instead of 3 batch operations
+
+```javascript
+// CURRENT (BAD) - routes/catalog.js
+for (const update of updates) {
+    const variationResult = await db.query(
+        'SELECT id FROM variations WHERE sku = $1 AND merchant_id = $2',
+        [update.sku, merchantId]
+    );
+    await db.query(`UPDATE variations SET ...`);
+    await squareApi.updateCustomAttributeValues(...);
+}
+
+// FIXED - Batch pattern
+const skus = updates.map(u => u.sku);
+const variations = await db.query(
+    'SELECT id, sku FROM variations WHERE sku = ANY($1) AND merchant_id = $2',
+    [skus, merchantId]
+);
+const skuToId = new Map(variations.rows.map(v => [v.sku, v.id]));
+// Then batch UPDATE with UNNEST or multi-value approach
+```
+
+**Remediation**:
+1. Batch lookup all SKUs with `ANY($1)` array parameter
+2. Build update batch using `UNNEST` or multi-row VALUES
+3. Batch Square API calls where possible (check SDK batch endpoints)
+
+#### 2. N+1 Query in Purchase Order Creation
+**File**: `routes/purchase-orders.js` lines 100-118
+**Problem**: Individual INSERTs in a loop for line items
+**Impact**: Creating PO with 50 items = 50 INSERT statements
+
+**Remediation**:
+```javascript
+// Use multi-row INSERT
+const values = items.map((item, i) =>
+    `($${i*4+1}, $${i*4+2}, $${i*4+3}, $${i*4+4})`
+).join(',');
+const params = items.flatMap(item => [poId, item.variationId, item.quantity, merchantId]);
+await db.query(`INSERT INTO purchase_order_items (...) VALUES ${values}`, params);
+```
+
+#### 3. Correlated Subqueries in Purchase Orders List
+**File**: `routes/purchase-orders.js` line 143
+**Problem**: Subquery `(SELECT COUNT(*) ...)` runs per row
+
+```sql
+-- CURRENT (BAD)
+SELECT po.*,
+    (SELECT COUNT(*) FROM purchase_order_items WHERE purchase_order_id = po.id) as item_count
+FROM purchase_orders po
+
+-- FIXED
+SELECT po.*, COUNT(poi.id) as item_count
+FROM purchase_orders po
+LEFT JOIN purchase_order_items poi ON poi.purchase_order_id = po.id
+WHERE po.merchant_id = $1
+GROUP BY po.id
+```
+
+#### 4. Missing Composite Indexes for Multi-Tenant Queries
+**Problem**: Indexes don't have `merchant_id` as leading column
+**Impact**: Full table scans on large tables
+
+**Remediation** - Create migration `026_optimize_indexes.sql`:
+```sql
+-- Drop single-column indexes that should be composite
+DROP INDEX IF EXISTS idx_variations_sku;
+DROP INDEX IF EXISTS idx_items_square_id;
+
+-- Create optimized composite indexes (merchant_id first)
+CREATE INDEX CONCURRENTLY idx_variations_merchant_sku ON variations(merchant_id, sku);
+CREATE INDEX CONCURRENTLY idx_variations_merchant_item ON variations(merchant_id, item_id);
+CREATE INDEX CONCURRENTLY idx_items_merchant_square ON items(merchant_id, square_id);
+CREATE INDEX CONCURRENTLY idx_inventory_merchant_variation ON inventory_counts(merchant_id, variation_id);
+CREATE INDEX CONCURRENTLY idx_sales_velocity_merchant_var ON sales_velocity(merchant_id, variation_id);
+
+-- Covering indexes for common queries
+CREATE INDEX CONCURRENTLY idx_variations_merchant_sku_covering
+    ON variations(merchant_id, sku) INCLUDE (id, name, item_id);
+```
+
+---
+
+### P1: High Priority - Code Quality & Debugging
+
+#### 5. Extract Webhook Logic from server.js (God File)
+**File**: `server.js` (3,057 lines)
+**Problem**: Webhook processing is 1,400+ lines embedded in server.js
+**Impact**: Untestable, high cognitive load, merge conflicts
+
+**Target Structure**:
+```
+server.js (< 300 lines - just setup and route registration)
+├── routes/webhooks/
+│   └── square.js              # Webhook route handler
+├── services/
+│   ├── webhook-processor.js   # Event routing logic
+│   ├── sync-queue.js          # In-progress/pending sync management
+│   └── webhook-handlers/
+│       ├── catalog-handler.js
+│       ├── inventory-handler.js
+│       ├── order-handler.js
+│       ├── subscription-handler.js
+│       └── oauth-handler.js
+└── jobs/
+    ├── cron-scheduler.js      # Cron job definitions
+    └── backup-job.js          # Database backup logic
+```
+
+**Extraction Steps**:
+1. Create `services/webhook-processor.js` with event routing
+2. Extract each event type handler to separate file
+3. Move sync queue Maps to `services/sync-queue.js`
+4. Move cron jobs to `jobs/` directory
+5. Update server.js to import and wire up
+
+#### 6. Adopt asyncHandler Across All Routes
+**File**: `middleware/async-handler.js` (exists but unused)
+**Problem**: ~200 try/catch blocks duplicated across routes (~2000 lines)
+
+**Remediation**:
+```javascript
+// CURRENT (every route)
+router.get('/endpoint', async (req, res) => {
+    try {
+        const result = await someOperation();
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error('Error', { error: error.message, stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// TARGET (clean)
+const asyncHandler = require('../middleware/async-handler');
+
+router.get('/endpoint', asyncHandler(async (req, res) => {
+    const result = await someOperation();
+    res.json({ success: true, data: result });
+}));
+```
+
+**Files to update** (in order of importance):
+- [ ] `routes/catalog.js` (1,608 lines)
+- [ ] `routes/loyalty.js` (1,873 lines)
+- [ ] `routes/delivery.js`
+- [ ] `routes/purchase-orders.js`
+- [ ] `routes/analytics.js`
+- [ ] `routes/cycle-counts.js`
+- [ ] `routes/expiry-discounts.js`
+- [ ] `routes/sync.js`
+- [ ] `routes/vendors.js`
+- [ ] `routes/gmc.js`
+- [ ] All remaining routes
+
+#### 7. Add Stack Traces to All Error Logs
+**File**: `utils/square-api.js` (20+ occurrences)
+**Problem**: Losing debugging information
+
+```javascript
+// CURRENT (bad)
+logger.error('Failed to sync category', { id, error: error.message });
+
+// FIXED (good)
+logger.error('Failed to sync category', { id, error: error.message, stack: error.stack });
+```
+
+**Search pattern**: `grep -n "error: error.message" utils/` and add `stack: error.stack`
+
+#### 8. Remove Runtime Schema Detection
+**File**: `routes/catalog.js` lines 709-718
+**Problem**: Querying information_schema on every request
+
+```javascript
+// CURRENT (bad) - checking if column exists at runtime
+let hasReviewedColumn = false;
+try {
+    const colCheck = await db.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'variation_expiration' AND column_name = 'reviewed_at'
+    `);
+    hasReviewedColumn = colCheck.rows.length > 0;
+} catch (e) { }
+```
+
+**Remediation**:
+1. Verify migration adding `reviewed_at` column has been run
+2. Remove the runtime check entirely
+3. Assume column exists (migrations are the source of truth)
+
+---
+
+### P1: Testing Debt
+
+#### 9. Add Integration Tests for Critical Paths
+**Current Coverage**: 39% (mocked tests only)
+**Problem**: Tests mock the database, so they don't verify SQL correctness
+
+**Priority test files to create**:
+```
+__tests__/integration/
+├── catalog.integration.test.js    # Bulk operations, search, filtering
+├── loyalty.integration.test.js    # Point accrual, redemption, refunds
+├── purchase-orders.integration.test.js
+├── webhook-processing.integration.test.js
+└── multi-tenant-isolation.integration.test.js
+```
+
+**Integration test pattern**:
+```javascript
+// __tests__/integration/setup.js
+const db = require('../../utils/database');
+
+beforeAll(async () => {
+    // Use test database
+    process.env.DB_NAME = 'square_dashboard_test';
+});
+
+beforeEach(async () => {
+    // Clean tables and seed test data
+    await db.query('TRUNCATE merchants, items, variations CASCADE');
+    await db.query(`INSERT INTO merchants (id, name) VALUES (1, 'Test Merchant')`);
+});
+
+afterAll(async () => {
+    await db.pool.end();
+});
+```
+
+#### 10. Add Validator Tests
+**Files**: 19 validator files in `middleware/validators/` with 0 tests
+**Priority validators to test**:
+- [ ] `middleware/validators/catalog.js`
+- [ ] `middleware/validators/loyalty.js`
+- [ ] `middleware/validators/delivery.js`
+
+---
+
+### P2: Medium Priority - Data Integrity
+
+#### 11. Add Transactions to Multi-Step Operations
+**Problem**: Only 2 transactions in entire codebase
+**Impact**: Partial failures leave inconsistent data
+
+**Operations needing transactions**:
+
+```javascript
+// Purchase order creation (routes/purchase-orders.js)
+const client = await db.getClient();
+try {
+    await client.query('BEGIN');
+    const po = await client.query('INSERT INTO purchase_orders...');
+    for (const item of items) {
+        await client.query('INSERT INTO purchase_order_items...');
+    }
+    await client.query('COMMIT');
+    return po.rows[0];
+} catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+} finally {
+    client.release();
+}
+```
+
+**Files needing transaction wrappers**:
+- [ ] `routes/purchase-orders.js` - PO creation with line items
+- [ ] `routes/catalog.js` - Bulk catalog updates
+- [ ] `routes/loyalty.js` - Reward redemption
+- [ ] `routes/cycle-counts.js` - Count session completion
+- [ ] `utils/square-api.js` - Sync operations that update multiple tables
+
+#### 12. Standardize API Response Format
+**Problem**: Inconsistent response structures
+
+```javascript
+// Most routes (correct)
+res.json({ success: true, data: { ... } });
+
+// Some routes (inconsistent)
+res.json({ status: 'success', updated_count: 5 });  // catalog.js line 686
+res.json({ message: 'Updated successfully' });       // various
+```
+
+**Remediation**: Audit all routes, standardize to:
+```javascript
+// Success
+res.json({ success: true, data: { ... } });
+res.json({ success: true, data: { updated_count: 5 } });
+
+// Error
+res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
+```
+
+#### 13. Persist Sync Queue State
+**File**: `server.js` (sync queue Maps)
+**Problem**: In-memory Maps lost on restart
+
+```javascript
+// CURRENT - lost on restart
+const catalogSyncInProgress = new Map();
+const catalogSyncPending = new Map();
+```
+
+**Options**:
+1. **Simple**: Use database table `sync_queue_state`
+2. **Better**: Use Redis for distributed state
+3. **Best**: Use proper job queue (Bull/BullMQ)
+
+---
+
+### P2: Code Quality
+
+#### 14. Centralize Configuration Constants
+**Problem**: Magic numbers scattered throughout codebase
+
+**Create** `config/constants.js`:
+```javascript
+module.exports = {
+    RETRY: {
+        MAX_ATTEMPTS: 3,
+        BASE_DELAY_MS: 1000,
+        MAX_DELAY_MS: 30000,
+    },
+    CACHE: {
+        INVOICES_SCOPE_TTL_MS: 60 * 60 * 1000,  // 1 hour
+        CUSTOMER_CACHE_TTL_MS: 5 * 60 * 1000,   // 5 minutes
+    },
+    SESSION: {
+        DEFAULT_DURATION_HOURS: 24,
+    },
+    PAGINATION: {
+        DEFAULT_LIMIT: 100,
+        MAX_LIMIT: 1000,
+    },
+    SYNC: {
+        SALES_VELOCITY_DAYS: 91,
+        CATALOG_BATCH_SIZE: 100,
+    },
+};
+```
+
+#### 15. Replace console.log with Logger
+**Problem**: 213 console.log occurrences (many in frontend HTML, some in backend)
+
+**Backend files to fix**:
+- [ ] `server.js` - 2 occurrences
+- [ ] `utils/database.js` - 2 occurrences
+- [ ] `scripts/init-admin.js` - 30 occurrences (acceptable for CLI script)
+
+```bash
+# Find backend console.log usage
+grep -rn "console.log" --include="*.js" --exclude-dir="node_modules" --exclude-dir="public" .
+```
+
+---
+
+### P3: Low Priority - Nice to Have
+
+#### 16. Add Database Connection Pool Monitoring
+**File**: `utils/database.js`
+
+```javascript
+// Add pool metrics
+const pool = new Pool(config);
+
+pool.on('connect', () => {
+    logger.debug('New client connected to pool', {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+    });
+});
+
+pool.on('error', (err) => {
+    logger.error('Unexpected pool error', { error: err.message, stack: err.stack });
+});
+
+// Export metrics for monitoring
+function getPoolStats() {
+    return {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+    };
+}
+```
+
+#### 17. Add API Versioning
+**Problem**: No versioning strategy for breaking changes
+
+**Remediation**:
+```javascript
+// server.js
+app.use('/api/v1/catalog', catalogRoutes);
+app.use('/api/v1/loyalty', loyaltyRoutes);
+
+// Keep unversioned for backwards compatibility (deprecate later)
+app.use('/api/catalog', catalogRoutes);
+```
+
+#### 18. Add OpenAPI/Swagger Documentation
+**Problem**: No API documentation for client integration
+
+**Options**:
+1. Add `swagger-jsdoc` + `swagger-ui-express`
+2. Generate from route definitions
+3. Manual OpenAPI YAML file
+
+#### 19. Consider Background Job Queue
+**Problem**: Long-running syncs block event loop
+**Current**: Sync operations run inline in request/webhook handlers
+
+**Recommendation**: Implement Bull/BullMQ for:
+- Catalog sync jobs
+- Inventory sync jobs
+- Report generation
+- Email sending
+
+---
+
+### Security Improvements (Minor)
+
+#### 20. Use spawn Instead of exec for pg_dump
+**File**: `server.js` line 571
+**Risk**: LOW (password visible in process list)
+
+```javascript
+// CURRENT
+const pgDumpCmd = `PGPASSWORD="${dbPassword}" pg_dump -h ${dbHost} ...`;
+const { stdout } = await execAsync(pgDumpCmd);
+
+// BETTER
+const { spawn } = require('child_process');
+const child = spawn('pg_dump', ['-h', dbHost, '-p', dbPort, ...], {
+    env: { ...process.env, PGPASSWORD: dbPassword }
+});
+```
+
+---
+
+### Tracking Progress
+
+When completing items, update this section:
+
+```
+| Date       | Item | Notes |
+|------------|------|-------|
+| 2026-01-26 | Created TODO | Initial code review |
+| YYYY-MM-DD | #X   | Description of fix |
+```
+
+---
+
+### Quick Wins Checklist (< 1 hour each)
+
+- [ ] Add `stack: error.stack` to all error logs in `utils/square-api.js`
+- [ ] Remove runtime schema detection in `routes/catalog.js:709-718`
+- [ ] Replace `console.log` in `server.js` and `utils/database.js`
+- [ ] Add pool monitoring to `utils/database.js`
+- [ ] Create `config/constants.js` and migrate 5 most-used magic numbers
+
+### Before Each PR Checklist
+
+- [ ] No new N+1 queries introduced
+- [ ] asyncHandler used (no manual try/catch)
+- [ ] Error logs include stack traces
+- [ ] Multi-step operations use transactions
+- [ ] Tests added for new functionality
+- [ ] Response format is consistent
