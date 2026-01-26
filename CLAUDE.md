@@ -235,7 +235,7 @@ logger.error('Failed', { error: err.message, stack: err.stack });
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 🟡 3.5/4 | P0-4 (CSP) partial - event-delegation.js created, 29 HTML files remaining |
-| P1 Architecture | 🟡 3.5/5 | P1-1 in progress, P1-2 service created, P1-3 nearly complete (1 file left), P1-4, P1-5 done |
+| P1 Architecture | 🟡 4/5 | P1-1 in progress, P1-2 catalog routes wired (78% reduction), P1-3 nearly complete (1 file left), P1-4, P1-5 done |
 | P2 Testing | ✅ 6/6 | All complete (P2-2, P2-5 finished 2026-01-26) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
@@ -474,11 +474,11 @@ Options:
 ### P1-2: Fat Routes Need Service Extraction 🟡 IN PROGRESS
 **Problem**: Business logic in route handlers instead of services
 
-| Route File | Lines | Service Created | Status |
-|------------|-------|-----------------|--------|
-| `routes/loyalty.js` | 1,645 | `services/loyalty/` | ✅ Service exists (P1-1) |
-| `routes/catalog.js` | 1,493 | `services/catalog/` | ✅ Service created 2026-01-26 |
-| `routes/delivery.js` | 1,211 | `services/delivery/` | ✅ Service exists |
+| Route File | Lines | Service Created | Routes Wired | Status |
+|------------|-------|-----------------|--------------|--------|
+| `routes/catalog.js` | ~~1,493~~ → **327** | `services/catalog/` | ✅ **78% reduction** | ✅ COMPLETE |
+| `routes/loyalty.js` | 1,645 | `services/loyalty/` | ❌ Pending | 🟡 Service exists (P1-1) |
+| `routes/delivery.js` | 1,211 | `services/delivery/` | ✅ Already using service | ✅ COMPLETE |
 
 **Progress (2026-01-26)**:
 - ✅ Created `services/catalog/` with 4 service modules:
@@ -486,26 +486,29 @@ Options:
   - `variation-service.js` - Variations, costs, bulk updates
   - `inventory-service.js` - Inventory, low stock, expirations
   - `audit-service.js` - Catalog audit, location fixes
-- ❌ Routes not yet updated to use new services (backward compatible)
+- ✅ **Wired routes/catalog.js to use catalog service** (1,493 → 327 lines, 78% reduction)
+  - All 17 endpoints now call catalogService methods
+  - Zero direct db.query() calls in routes
+  - Response format preserved for backward compatibility
 
-**Example - Target Pattern**:
+**Pattern Applied**:
 ```javascript
-// routes/catalog.js (thin)
+// routes/catalog.js (thin - 327 lines)
 router.get('/items', asyncHandler(async (req, res) => {
-    const result = await catalogService.getItems(req.merchantContext.id, req.query);
-    res.json({ success: true, data: result });
+    const merchantId = req.merchantContext.id;
+    const { name, category } = req.query;
+    const result = await catalogService.getItems(merchantId, { name, category });
+    res.json(result);
 }));
 
 // services/catalog/item-service.js (business logic)
 async function getItems(merchantId, filters) {
-    // All business logic here
+    // All business logic here including db queries
 }
 ```
 
 **Remaining Work**:
-- Update routes to call catalog service methods
-- Update routes to call delivery service methods
-- Thin down routes/loyalty.js to call services/loyalty/
+- Wire routes/loyalty.js to call services/loyalty/ (admin features need extraction first)
 
 **Why**: Routes should be thin controllers. Business logic in routes can't be unit tested without HTTP mocking.
 
