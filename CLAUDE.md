@@ -503,8 +503,10 @@ class ItemService {
 - ✅ Created `services/expiry/` with discount-service.js (moved from utils/)
 - ✅ Created `services/inventory/` with cycle-count-service.js (moved from utils/)
 - ✅ Created `services/gmc/` with feed-service.js and merchant-service.js (moved from utils/)
+- ✅ Created `services/vendor/` with catalog-service.js (moved from utils/)
+- ✅ Created `services/reports/` with loyalty-reports.js (moved from utils/)
 - ✅ Re-export stubs in utils/ maintain backward compatibility
-- ❌ Remaining: loyalty-service.js (5,475 lines), square-api.js (3,505 lines), vendor-catalog.js (1,331 lines)
+- ❌ Remaining: loyalty-service.js (5,475 lines), square-api.js (3,505 lines)
 
 **Current Structure**:
 ```
@@ -519,13 +521,19 @@ services/                # Business logic services
 ├── expiry/              # ✅ Expiry discount automation
 │   ├── index.js
 │   └── discount-service.js
-├── inventory/           # ✅ NEW - Cycle count batch generation
+├── inventory/           # ✅ Cycle count batch generation
 │   ├── index.js
 │   └── cycle-count-service.js
-├── gmc/                 # ✅ NEW - Google Merchant Center
+├── gmc/                 # ✅ Google Merchant Center
 │   ├── index.js
 │   ├── feed-service.js      # TSV feed generation
 │   └── merchant-service.js  # GMC API sync
+├── vendor/              # ✅ NEW - Vendor catalog import
+│   ├── index.js
+│   └── catalog-service.js   # CSV/XLSX import, price comparison
+├── reports/             # ✅ NEW - Report generation
+│   ├── index.js
+│   └── loyalty-reports.js   # Vendor receipts, audit exports
 ├── webhook-handlers/    # ✅ Already organized
 └── webhook-processor.js # ✅ Already here
 
@@ -535,6 +543,8 @@ utils/                   # Re-export stubs for backward compatibility
 ├── cycle-count-utils.js # → services/inventory/
 ├── gmc-feed.js          # → services/gmc/feed-service.js
 ├── merchant-center-api.js # → services/gmc/merchant-service.js
+├── vendor-catalog.js    # → services/vendor/
+├── loyalty-reports.js   # → services/reports/
 ├── database.js          # Re-exports getMerchantSettings from services/merchant/
 └── ... (remaining true utilities)
 ```
@@ -543,15 +553,15 @@ utils/                   # Re-export stubs for backward compatibility
 ```
 utils/                   # Files still needing extraction
 ├── loyalty-service.js   # ❌ Large service (5,475 lines - migrate to services/loyalty-admin/)
-├── square-api.js        # ❌ Large service (3,505 lines - migrate to services/square/)
-├── vendor-catalog.js    # ❌ Domain logic (1,331 lines - migrate to services/vendor/)
-└── loyalty-reports.js   # ❌ Reports service (969 lines - migrate to services/reports/)
+└── square-api.js        # ❌ Large service (3,505 lines - migrate to services/square/)
 ```
 
 **Completed Extractions (this session)**:
 - ✅ `cycle-count-utils.js` → `services/inventory/cycle-count-service.js` (349 lines)
 - ✅ `gmc-feed.js` → `services/gmc/feed-service.js` (589 lines)
 - ✅ `merchant-center-api.js` → `services/gmc/merchant-service.js` (1,100 lines)
+- ✅ `vendor-catalog.js` → `services/vendor/catalog-service.js` (1,331 lines)
+- ✅ `loyalty-reports.js` → `services/reports/loyalty-reports.js` (969 lines)
 
 ---
 
