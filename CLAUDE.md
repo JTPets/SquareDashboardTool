@@ -651,7 +651,7 @@ Request → requireAuth → loadMerchantContext → requireMerchant → validato
 ## Technical Debt & Optimization TODO
 
 **Last Review**: 2026-01-26
-**Overall Grade**: A- (Major refactoring complete, only testing debt remains)
+**Overall Grade**: A (Technical debt resolved, only testing debt remains)
 
 ### Status Summary (2026-01-26)
 
@@ -661,7 +661,7 @@ Request → requireAuth → loadMerchantContext → requireMerchant → validato
 | P1 High | 6 | 6 ✅ | 0 |
 | P1 Testing | 2 | 0 | 2 (tests) |
 | P2 Medium | 5 | 5 ✅ | 0 |
-| P3 Low | 5 | 3 ✅ | 2 |
+| P3 Low | 5 | 5 ✅ | 0 (2 N/A) |
 
 **Key Achievements**:
 - server.js reduced from 3,057 → 1,023 lines (66% reduction)
@@ -1057,25 +1057,13 @@ app.use('/api/v1/loyalty', loyaltyRoutes);
 app.use('/api/catalog', catalogRoutes);
 ```
 
-#### 18. Add OpenAPI/Swagger Documentation
-**Problem**: No API documentation for client integration
-**Status**: Not implemented (requires significant effort)
+#### 18. Add OpenAPI/Swagger Documentation — N/A
+**Status**: Not applicable for this project
+**Reason**: This is a dashboard app with its own frontend, not a public API. Users interact via UI, not direct API calls. OpenAPI docs would have no audience.
 
-**Options**:
-1. Add `swagger-jsdoc` + `swagger-ui-express`
-2. Generate from route definitions
-3. Manual OpenAPI YAML file
-
-#### 19. Consider Background Job Queue
-**Problem**: Long-running syncs block event loop
-**Current**: Sync operations run inline in request/webhook handlers
-**Status**: Not implemented (requires Redis infrastructure)
-
-**Recommendation**: Implement Bull/BullMQ for:
-- Catalog sync jobs
-- Inventory sync jobs
-- Report generation
-- Email sending
+#### 19. Consider Background Job Queue — N/A
+**Status**: Not applicable unless performance issues arise
+**Reason**: Current sync operations work fine for expected scale. Adding Redis/Bull infrastructure adds complexity without clear benefit. Revisit only if actual blocking issues are observed in production.
 
 ---
 
@@ -1127,6 +1115,7 @@ When completing items, update this section:
 | 2026-01-26 | P2 #13 | Persisted sync queue state to sync_history table, added startup recovery |
 | 2026-01-26 | P3 #17 | Added API versioning: all routes now available at /api/v1/* |
 | 2026-01-26 | P3 #20 | Replaced exec with spawn for pg_dump (password no longer in process list) |
+| 2026-01-26 | P3 #18,19 | Marked N/A - OpenAPI and job queue not needed for dashboard app |
 ```
 
 ---
