@@ -31,9 +31,9 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_variations_merchant_sku_covering
 -- ITEMS TABLE
 -- ============================================================================
 
--- Composite index for Square ID lookups (common in sync operations)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_items_merchant_square
-    ON items(merchant_id, square_id);
+-- Note: items.id IS the Square ID (TEXT primary key), so we index (merchant_id, id)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_items_merchant_id
+    ON items(merchant_id, id);
 
 -- Composite index for category filtering
 DROP INDEX IF EXISTS idx_items_category;
@@ -47,11 +47,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_items_merchant_category
 -- Drop existing index that doesn't include merchant_id
 DROP INDEX IF EXISTS idx_inventory_variation_location;
 
--- Composite index for inventory lookups
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_inventory_merchant_variation
-    ON inventory_counts(merchant_id, variation_id);
+-- Composite index for inventory lookups (uses catalog_object_id, not variation_id)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_inventory_merchant_catalog_obj
+    ON inventory_counts(merchant_id, catalog_object_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_inventory_merchant_variation_location
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_inventory_merchant_catalog_location
     ON inventory_counts(merchant_id, catalog_object_id, location_id);
 
 -- ============================================================================
@@ -102,9 +102,9 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_var_expiration_merchant_date
 -- VENDORS TABLE
 -- ============================================================================
 
--- Composite index for vendor lookups by Square ID
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_vendors_merchant_square
-    ON vendors(merchant_id, square_vendor_id);
+-- Note: vendors.id IS the Square vendor ID (TEXT primary key)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_vendors_merchant_id
+    ON vendors(merchant_id, id);
 
 -- ============================================================================
 -- COUNT_HISTORY TABLE
@@ -118,9 +118,9 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_count_history_merchant_catalog
 -- CATEGORIES TABLE
 -- ============================================================================
 
--- Composite index for category lookups
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_categories_merchant_square
-    ON categories(merchant_id, square_id);
+-- Note: categories.id IS the Square category ID (TEXT primary key)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_categories_merchant_id
+    ON categories(merchant_id, id);
 
 -- ============================================================================
 -- WEBHOOK_EVENTS TABLE (for idempotency checks)
