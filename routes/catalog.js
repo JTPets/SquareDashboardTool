@@ -901,7 +901,7 @@ router.post('/expirations/review', requireAuth, requireMerchant, validators.revi
     const validIdsArray = Array.from(validIds);
     await db.query(`
         INSERT INTO variation_expiration (variation_id, reviewed_at, reviewed_by, updated_at, merchant_id)
-        SELECT unnest($1::integer[]), NOW(), $2, NOW(), $3
+        SELECT unnest($1::text[]), NOW(), $2, NOW(), $3
         ON CONFLICT (variation_id, merchant_id)
         DO UPDATE SET
             reviewed_at = NOW(),
