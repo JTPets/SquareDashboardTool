@@ -20,6 +20,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const logger = require('../utils/logger');
 const { requireAdmin } = require('../middleware/auth');
+const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/logs');
 
 /**
@@ -27,116 +28,97 @@ const validators = require('../middleware/validators/logs');
  * View recent logs
  * Requires admin role
  */
-router.get('/logs', requireAdmin, validators.list, async (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 100;
-        const logsDir = path.join(__dirname, '..', 'output', 'logs');
+router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res) => {
+    const limit = parseInt(req.query.limit) || 100;
+    const logsDir = path.join(__dirname, '..', 'output', 'logs');
 
-        // Get today's log file
-        const today = new Date().toISOString().split('T')[0];
-        const logFile = path.join(logsDir, `app-${today}.log`);
+    // Get today's log file
+    const today = new Date().toISOString().split('T')[0];
+    const logFile = path.join(logsDir, `app-${today}.log`);
 
-        const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
-        if (!content.trim()) {
-            return res.json({ logs: [], count: 0, message: 'No logs for today yet' });
-        }
-
-        // limit=0 means all logs, otherwise take last N lines
-        const allLines = content.trim().split('\n');
-        const lines = limit === 0 ? allLines : allLines.slice(-limit);
-        const logs = lines.map(line => {
-            try {
-                return JSON.parse(line);
-            } catch {
-                return { raw: line, level: 'unknown' };
-            }
-        });
-
-        res.json({ logs, count: logs.length, total: allLines.length });
-
-    } catch (error) {
-        logger.error('Failed to read logs', { error: error.message, stack: error.stack });
-        res.json({ logs: [], count: 0, error: error.message });
+    const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
+    if (!content.trim()) {
+        return res.json({ logs: [], count: 0, message: 'No logs for today yet' });
     }
-});
+
+    // limit=0 means all logs, otherwise take last N lines
+    const allLines = content.trim().split('\n');
+    const lines = limit === 0 ? allLines : allLines.slice(-limit);
+    const logs = lines.map(line => {
+        try {
+            return JSON.parse(line);
+        } catch {
+            return { raw: line, level: 'unknown' };
+        }
+    });
+
+    res.json({ logs, count: logs.length, total: allLines.length });
+}));
 
 /**
  * GET /api/logs/errors
  * View errors only
  */
-router.get('/logs/errors', requireAdmin, validators.errors, async (req, res) => {
-    try {
-        const logsDir = path.join(__dirname, '..', 'output', 'logs');
-        const today = new Date().toISOString().split('T')[0];
-        const errorFile = path.join(logsDir, `error-${today}.log`);
+router.get('/logs/errors', requireAdmin, validators.errors, asyncHandler(async (req, res) => {
+    const logsDir = path.join(__dirname, '..', 'output', 'logs');
+    const today = new Date().toISOString().split('T')[0];
+    const errorFile = path.join(logsDir, `error-${today}.log`);
 
+    try {
         const content = await fs.readFile(errorFile, 'utf-8');
         const lines = content.trim().split('\n');
         const errors = lines.map(line => JSON.parse(line));
-
         res.json({ errors, count: errors.length });
-
-    } catch (error) {
+    } catch {
         res.json({ errors: [], count: 0 }); // No errors is good!
     }
-});
+}));
 
 /**
  * GET /api/logs/download
  * Download log file
  */
-router.get('/logs/download', requireAdmin, validators.download, async (req, res) => {
-    try {
-        const logsDir = path.join(__dirname, '..', 'output', 'logs');
-        const today = new Date().toISOString().split('T')[0];
-        const logFile = path.join(logsDir, `app-${today}.log`);
+router.get('/logs/download', requireAdmin, validators.download, asyncHandler(async (req, res) => {
+    const logsDir = path.join(__dirname, '..', 'output', 'logs');
+    const today = new Date().toISOString().split('T')[0];
+    const logFile = path.join(logsDir, `app-${today}.log`);
 
-        res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
-
-    } catch (error) {
-        logger.error('Log file download failed', { error: error.message, stack: error.stack });
-        res.status(404).json({ error: 'Log file not found' });
-    }
-});
+    res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
+}));
 
 /**
  * GET /api/logs/stats
  * Log statistics
  */
-router.get('/logs/stats', requireAdmin, validators.stats, async (req, res) => {
-    try {
-        const logsDir = path.join(__dirname, '..', 'output', 'logs');
-        const today = new Date().toISOString().split('T')[0];
-        const logFile = path.join(logsDir, `app-${today}.log`);
-        const errorFile = path.join(logsDir, `error-${today}.log`);
+router.get('/logs/stats', requireAdmin, validators.stats, asyncHandler(async (req, res) => {
+    const logsDir = path.join(__dirname, '..', 'output', 'logs');
+    const today = new Date().toISOString().split('T')[0];
+    const logFile = path.join(logsDir, `app-${today}.log`);
+    const errorFile = path.join(logsDir, `error-${today}.log`);
 
-        const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '');
-        const errorContent = await fs.readFile(errorFile, 'utf-8').catch(() => '');
+    const logContent = await fs.readFile(logFile, 'utf-8').catch(() => '');
+    const errorContent = await fs.readFile(errorFile, 'utf-8').catch(() => '');
 
-        const logLines = logContent.trim().split('\n').filter(Boolean);
-        const errorLines = errorContent.trim().split('\n').filter(Boolean);
+    const logLines = logContent.trim().split('\n').filter(Boolean);
+    const errorLines = errorContent.trim().split('\n').filter(Boolean);
 
-        const logs = logLines.map(line => {
-            try { return JSON.parse(line); } catch { return null; }
-        }).filter(Boolean);
-        const errors = errorLines.map(line => {
-            try { return JSON.parse(line); } catch { return null; }
-        }).filter(Boolean);
+    const logs = logLines.map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+    const errors = errorLines.map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
 
-        const warnCount = logs.filter(l => l.level === 'warn').length;
-        const infoCount = logs.filter(l => l.level === 'info').length;
+    const warnCount = logs.filter(l => l.level === 'warn').length;
+    const infoCount = logs.filter(l => l.level === 'info').length;
 
-        res.json({
-            total: logs.length,
-            errors: errors.length,
-            warnings: warnCount,
-            info: infoCount,
-            today: today
-        });
-
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to get stats' });
-    }
-});
+    res.json({
+        total: logs.length,
+        errors: errors.length,
+        warnings: warnCount,
+        info: infoCount,
+        today: today
+    });
+}));
 
 module.exports = router;
