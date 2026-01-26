@@ -3,20 +3,19 @@
  *
  * Shared utilities for resolving image URLs from Square catalog images.
  * Used by expiry-discounts, items, and other routes that display product images.
+ *
+ * Images are synced from Square's API and stored in the images table with their
+ * Square CDN URLs. This module resolves image IDs to their URLs.
  */
 
 const db = require('./database');
 const logger = require('./logger');
 
-// AWS S3 Configuration (fallback for images not in database)
-const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'items-images-production';
-const AWS_S3_REGION = process.env.AWS_S3_REGION || 'us-west-2';
-
 /**
  * Resolve image IDs to URLs in batch
  *
  * Efficiently resolves multiple image IDs to their URLs in a single query.
- * Falls back to S3 URL format for images not found in database.
+ * Returns null for images not found in database.
  *
  * This is much more efficient than calling resolveImageUrls for each item
  * @param {Array} items - Array of objects with 'images' and optional 'item_images' fields
@@ -66,33 +65,18 @@ async function batchResolveImageUrls(items) {
         logger.error('Error in batch image URL resolution', { error: error.message, stack: error.stack });
     }
 
-    // Build result map for each item
+    // Build result map for each item, filtering out images not found in database
     const resultMap = new Map();
     itemImageMapping.forEach(({ index, imageIds }) => {
-        const urls = imageIds.map(id => {
-            if (urlMap[id]) {
-                return urlMap[id];
-            }
-            return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${id}/original.jpeg`;
-        });
+        const urls = imageIds
+            .map(id => urlMap[id] || null)
+            .filter(url => url !== null);
         resultMap.set(index, urls);
     });
 
     return resultMap;
 }
 
-/**
- * Get S3 URL for an image ID
- * @param {string} imageId - The image ID
- * @returns {string} The S3 URL
- */
-function getS3ImageUrl(imageId) {
-    return `https://${AWS_S3_BUCKET}.s3.${AWS_S3_REGION}.amazonaws.com/files/${imageId}/original.jpeg`;
-}
-
 module.exports = {
-    batchResolveImageUrls,
-    getS3ImageUrl,
-    AWS_S3_BUCKET,
-    AWS_S3_REGION
+    batchResolveImageUrls
 };
