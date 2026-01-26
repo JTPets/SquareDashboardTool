@@ -1023,9 +1023,9 @@ module.exports = {
 **Problem**: 213 console.log occurrences (many in frontend HTML, some in backend)
 
 **Backend files to fix**:
-- [ ] `server.js` - 2 occurrences
-- [ ] `utils/database.js` - 2 occurrences
-- [ ] `scripts/init-admin.js` - 30 occurrences (acceptable for CLI script)
+- [x] `server.js` - 2 occurrences (verified: already using logger)
+- [x] `utils/database.js` - 2 occurrences (verified: already using logger)
+- [x] `scripts/init-admin.js` - 30 occurrences (acceptable for CLI script)
 
 ```bash
 # Find backend console.log usage
@@ -1140,6 +1140,7 @@ When completing items, update this section:
 | 2026-01-26 | P1 #6 | asyncHandler adoption: driver-api.js (8), google-oauth.js (3/4), square-oauth.js (2/4) |
 | 2026-01-26 | P1 #6 | asyncHandler adoption: cycle-counts.js (9), webhooks.js (8) - ~150 routes total, ~1000 lines removed |
 | 2026-01-26 | P1 #6 | asyncHandler adoption COMPLETE: expiry-discounts.js (13), sync.js (6), vendor-catalog.js (13), square-attributes.js (10), subscriptions.js (11), auth.js (10), gmc.js (33) - ALL 20 route files done |
+| 2026-01-26 | P2 #15 | Verified: server.js and database.js already use logger (no console.log found) |
 ```
 
 ---
