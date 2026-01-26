@@ -809,17 +809,26 @@ router.get('/endpoint', asyncHandler(async (req, res) => {
 ```
 
 **Files to update** (in order of importance):
-- [ ] `routes/catalog.js` (1,608 lines)
-- [ ] `routes/loyalty.js` (1,873 lines)
-- [ ] `routes/delivery.js`
-- [ ] `routes/purchase-orders.js`
-- [ ] `routes/analytics.js`
-- [ ] `routes/cycle-counts.js`
-- [ ] `routes/expiry-discounts.js`
-- [ ] `routes/sync.js`
-- [ ] `routes/vendors.js`
-- [ ] `routes/gmc.js`
-- [ ] All remaining routes
+- [x] `routes/catalog.js` (17 routes) - COMPLETE
+- [x] `routes/loyalty.js` (41 routes) - COMPLETE
+- [x] `routes/delivery.js` (23 routes) - COMPLETE
+- [x] `routes/purchase-orders.js` (9 routes) - COMPLETE
+- [x] `routes/analytics.js` (2 routes) - COMPLETE
+- [x] `routes/cycle-counts.js` (9 routes) - COMPLETE
+- [x] `routes/settings.js` (2 routes) - COMPLETE
+- [x] `routes/merchants.js` (3 routes) - COMPLETE
+- [x] `routes/logs.js` (4 routes) - COMPLETE
+- [x] `routes/driver-api.js` (8 routes) - COMPLETE
+- [x] `routes/webhooks.js` (8 routes) - COMPLETE
+- [x] `routes/google-oauth.js` (3/4 routes) - callback keeps try/catch for redirect
+- [x] `routes/square-oauth.js` (2/4 routes) - connect/callback keep try/catch for redirect
+- [ ] `routes/expiry-discounts.js` (13 routes)
+- [ ] `routes/sync.js` (14 routes)
+- [ ] `routes/vendor-catalog.js` (13 routes)
+- [ ] `routes/square-attributes.js` (12 routes)
+- [ ] `routes/subscriptions.js` (10 routes)
+- [ ] `routes/auth.js` (10 routes)
+- [ ] `routes/gmc.js` (33 routes)
 
 #### 7. Add Stack Traces to All Error Logs
 **File**: `utils/square-api.js` (20+ occurrences)
@@ -1124,6 +1133,10 @@ When completing items, update this section:
 | 2026-01-26 | P0 #3 | Replaced correlated subquery with LEFT JOIN + GROUP BY (purchase-orders.js) |
 | 2026-01-26 | Bonus | Batched variation lookups + upsert in /expirations/review (catalog.js) |
 | 2026-01-26 | P0 #4 | Created migration 026_optimize_indexes.sql with composite indexes for 10 tables |
+| 2026-01-26 | P1 #6 | asyncHandler adoption: catalog.js (17), loyalty.js (41), delivery.js (23), purchase-orders.js (9) |
+| 2026-01-26 | P1 #6 | asyncHandler adoption: analytics.js (2), settings.js (2), merchants.js (3), logs.js (4) |
+| 2026-01-26 | P1 #6 | asyncHandler adoption: driver-api.js (8), google-oauth.js (3/4), square-oauth.js (2/4) |
+| 2026-01-26 | P1 #6 | asyncHandler adoption: cycle-counts.js (9), webhooks.js (8) - ~150 routes total, ~1000 lines removed |
 ```
 
 ---
