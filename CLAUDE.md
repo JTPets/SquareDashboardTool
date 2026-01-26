@@ -645,10 +645,11 @@ Request → requireAuth → loadMerchantContext → requireMerchant → validato
 
 ### P0: Critical Performance Issues
 
-#### 1. N+1 Query Problem in Catalog Bulk Updates
-**File**: `routes/catalog.js` lines 651-680
+#### 1. N+1 Query Problem in Catalog Bulk Updates ✅ FIXED
+**File**: `routes/catalog.js` lines 603-696
 **Problem**: Loop executes 3 queries per item (SELECT + UPDATE + Square API call)
 **Impact**: 100 items = 300+ queries instead of 3 batch operations
+**Status**: Fixed - Batch SKU lookup with `ANY($1)`, individual UPDATEs still required due to dynamic columns
 
 ```javascript
 // CURRENT (BAD) - routes/catalog.js
@@ -676,10 +677,11 @@ const skuToId = new Map(variations.rows.map(v => [v.sku, v.id]));
 2. Build update batch using `UNNEST` or multi-row VALUES
 3. Batch Square API calls where possible (check SDK batch endpoints)
 
-#### 2. N+1 Query in Purchase Order Creation
+#### 2. N+1 Query in Purchase Order Creation ✅ FIXED
 **File**: `routes/purchase-orders.js` lines 100-118
 **Problem**: Individual INSERTs in a loop for line items
 **Impact**: Creating PO with 50 items = 50 INSERT statements
+**Status**: Fixed - Multi-row INSERT with dynamic VALUES clause
 
 **Remediation**:
 ```javascript
@@ -691,9 +693,10 @@ const params = items.flatMap(item => [poId, item.variationId, item.quantity, mer
 await db.query(`INSERT INTO purchase_order_items (...) VALUES ${values}`, params);
 ```
 
-#### 3. Correlated Subqueries in Purchase Orders List
+#### 3. Correlated Subqueries in Purchase Orders List ✅ FIXED
 **File**: `routes/purchase-orders.js` line 143
 **Problem**: Subquery `(SELECT COUNT(*) ...)` runs per row
+**Status**: Fixed - LEFT JOIN + GROUP BY pattern
 
 ```sql
 -- CURRENT (BAD)
@@ -1100,9 +1103,13 @@ When completing items, update this section:
 |------------|------|-------|
 | 2026-01-26 | Created TODO | Initial code review |
 | 2026-01-26 | #7   | Added stack traces to 6 error logs in square-api.js |
-| 2026-01-26 | #8   | Removed runtime schema detection in catalog.js |
+| 2026-01-26 | #8   | Removed runtime schema detection in catalog.js (ACTUALLY fixed at lines 938-948) |
 | 2026-01-26 | #16  | Added pool monitoring with getPoolStats() to database.js |
 | 2026-01-26 | #14  | Created config/constants.js with centralized magic numbers |
+| 2026-01-26 | P0 #1 | Batched SKU lookups in bulk-update-extended endpoint (catalog.js) |
+| 2026-01-26 | P0 #2 | Batched PO item inserts with multi-row INSERT (purchase-orders.js) |
+| 2026-01-26 | P0 #3 | Replaced correlated subquery with LEFT JOIN + GROUP BY (purchase-orders.js) |
+| 2026-01-26 | Bonus | Batched variation lookups + upsert in /expirations/review (catalog.js) |
 ```
 
 ---
@@ -1110,7 +1117,7 @@ When completing items, update this section:
 ### Quick Wins Checklist (< 1 hour each)
 
 - [x] Add `stack: error.stack` to all error logs in `utils/square-api.js`
-- [x] Remove runtime schema detection in `routes/catalog.js:709-718`
+- [x] Remove runtime schema detection in `routes/catalog.js:938-948` (was incorrectly listed as 709-718)
 - [x] Replace `console.log` in `server.js` and `utils/database.js` (verified: already using logger)
 - [x] Add pool monitoring to `utils/database.js`
 - [x] Create `config/constants.js` and migrate 5 most-used magic numbers
