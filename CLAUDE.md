@@ -1190,18 +1190,19 @@ Extract in order of complexity (simplest first):
 - [x] **3.1** Create `services/webhook-processor.js` - Main entry point
 - [x] **3.2** Create `routes/webhooks/square.js` - Thin route layer
 
-#### Phase 4: Extract Cron Jobs (Low-Medium Risk) ⬜
-- [ ] **4.1** `jobs/backup-job.js` - lines 532-673
-- [ ] **4.2** `jobs/cycle-count-job.js` - lines 2443-2478
-- [ ] **4.3** `jobs/webhook-retry-job.js` - lines 2485-2576
-- [ ] **4.4** `jobs/sync-job.js` - lines 2599-2728
-- [ ] **4.5** `jobs/expiry-discount-job.js` - lines 2752-2845
-- [ ] **4.6** `jobs/cron-scheduler.js` - Central initialization
-- [ ] **4.7** `jobs/index.js` - Exports
+#### Phase 4: Extract Cron Jobs (Low-Medium Risk) ✅ COMPLETE
+- [x] **4.1** `jobs/backup-job.js` - runAutomatedBackup function
+- [x] **4.2** `jobs/cycle-count-job.js` - daily batch generation
+- [x] **4.3** `jobs/webhook-retry-job.js` - retry processor and cleanup
+- [x] **4.4** `jobs/sync-job.js` - smart sync and GMC sync
+- [x] **4.5** `jobs/expiry-discount-job.js` - expiry discount automation
+- [x] **4.6** `jobs/cron-scheduler.js` - central initialization
+- [x] **4.7** `jobs/index.js` - exports
+- [x] **4.8** Updated server.js to use jobs module
 
 #### Phase 5: Final Integration (High Risk) ⬜
-- [ ] **5.1** Update server.js to use new modules
-- [ ] **5.2** Remove extracted code from server.js
+- [ ] **5.1** Update server.js to use webhook-processor module
+- [ ] **5.2** Remove inline webhook processing code from server.js
 - [ ] **5.3** Verify all tests pass
 - [ ] **5.4** Manual testing of each webhook type
 
@@ -1285,3 +1286,4 @@ class WebhookProcessor {
 | 2026-01-26 | 1 | 1.1-1.2 | Created sync-queue.js and webhook-handlers/index.js |
 | 2026-01-26 | 2 | 2.1-2.6 | Extracted all 6 handler files (~1000 lines total) |
 | 2026-01-26 | 3 | 3.1-3.2 | Created webhook-processor.js and routes/webhooks/square.js |
+| 2026-01-26 | 4 | 4.1-4.8 | Extracted cron jobs to jobs/ directory (~600 lines), updated server.js |
