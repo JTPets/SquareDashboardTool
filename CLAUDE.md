@@ -222,19 +222,7 @@ If an element doesn't respond:
 
 See `/public/js/event-delegation.js` for implementation.
 
-#### Audit Script for Undefined Exports
-Run before deploying frontend changes:
-```bash
-# Check all HTML files for exports of undefined functions
-for file in public/*.html; do
-  grep "window\.[a-zA-Z]* = [a-zA-Z]*;" "$file" | while read line; do
-    func=$(echo "$line" | sed -n 's/.*window\.\([a-zA-Z_]*\) = \1;.*/\1/p')
-    if [ -n "$func" ] && ! grep -q "function $func" "$file"; then
-      echo "ERROR: $(basename $file) - '$func' exported but not defined"
-    fi
-  done
-done
-```
+**Audit:** Run the undefined exports audit script before deploying - see PR Checklist section.
 
 ### JavaScript Execution Rules (App-Agnostic)
 
