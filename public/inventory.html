@@ -1020,6 +1020,10 @@
       return div.innerHTML;
     }
 
+    // Expose functions to global scope for event delegation
+    window.loadData = loadData;
+    window.sortTable = sortTable;
+
     // Load data on page load
     loadData();
   </script>

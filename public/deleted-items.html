@@ -466,6 +466,10 @@
         }
       }
     }, true);
+
+    // Expose functions to global scope for event delegation
+    window.loadDeletedItems = loadDeletedItems;
+    window.filterItems = filterItems;
   </script>
 </body>
 </html>

@@ -1028,6 +1028,18 @@
 
     // Refresh every 30 seconds
     setInterval(loadOrders, 30000);
+
+    // Expose functions to global scope for event delegation
+    window.showAddOrderModal = showAddOrderModal;
+    window.finishRoute = finishRoute;
+    window.generateRoute = generateRoute;
+    window.geocodePending = geocodePending;
+    window.syncFromSquare = syncFromSquare;
+    window.closeModal = closeModal;
+    window.editOrder = editOrder;
+    window.deleteOrder = deleteOrder;
+    window.submitAddOrder = submitAddOrder;
+    window.submitEditOrder = submitEditOrder;
   </script>
 </body>
 </html>

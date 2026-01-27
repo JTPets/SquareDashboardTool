@@ -2733,6 +2733,42 @@ Wellness"></textarea>
       loadSyncStatus();
       loadLocalInventoryFeedUrl();
     });
+
+    // Expose functions to global scope for event delegation
+    window.switchTab = switchTab;
+    window.toggleApiSettings = toggleApiSettings;
+    window.saveGmcApiSettings = saveGmcApiSettings;
+    window.testGmcConnection = testGmcConnection;
+    window.toggleFeedSettings = toggleFeedSettings;
+    window.saveFeedSettings = saveFeedSettings;
+    window.syncProductsToGmc = syncProductsToGmc;
+    window.openBrandManager = openBrandManager;
+    window.openCategoryManager = openCategoryManager;
+    window.closeBrandManager = closeBrandManager;
+    window.detectBrands = detectBrands;
+    window.applyBrands = applyBrands;
+    window.closeCategoryManager = closeCategoryManager;
+    window.setCategoryFilter = setCategoryFilter;
+    window.importGoogleTaxonomy = importGoogleTaxonomy;
+    window.removeCategoryMapping = removeCategoryMapping;
+    window.assignTaxonomy = assignTaxonomy;
+    window.downloadTsv = downloadTsv;
+    window.exportCsv = exportCsv;
+    window.prevPage = prevPage;
+    window.nextPage = nextPage;
+    window.copyLocalFeedUrl = copyLocalFeedUrl;
+    window.downloadLocalInventoryTsv = downloadLocalInventoryTsv;
+    window.prevLocalInventoryPage = prevLocalInventoryPage;
+    window.nextLocalInventoryPage = nextLocalInventoryPage;
+    window.loadSyncHistory = loadSyncHistory;
+    window.saveLocationSettingFromButton = saveLocationSettingFromButton;
+    window.selectCategory = selectCategory;
+    window.selectTaxonomy = selectTaxonomy;
+    window.toggleAllBrandsFromCheckbox = toggleAllBrandsFromCheckbox;
+    window.loadLocalInventoryPreview = loadLocalInventoryPreview;
+    window.updateSelectedCount = updateSelectedCount;
+    window.filterCategories = filterCategories;
+    window.filterTaxonomy = filterTaxonomy;
   </script>
 </body>
 </html>

@@ -2174,6 +2174,26 @@
       loadVendors();
       loadFieldTypes();
     });
+
+    // Expose functions to global scope for event delegation
+    window.triggerFileInput = triggerFileInput;
+    window.resetImport = resetImport;
+    window.confirmImport = confirmImport;
+    window.lookupUPC = lookupUPC;
+    window.searchCatalog = searchCatalog;
+    window.viewPriceReport = viewPriceReport;
+    window.downloadPriceReportCSV = downloadPriceReportCSV;
+    window.pushSelectedPricesToSquare = pushSelectedPricesToSquare;
+    window.openBatchReport = openBatchReport;
+    window.unarchiveBatch = unarchiveBatch;
+    window.archiveBatch = archiveBatch;
+    window.deleteBatch = deleteBatch;
+    window.printReport = printReport;
+    window.lookupUPCOnEnter = lookupUPCOnEnter;
+    window.searchCatalogOnEnter = searchCatalogOnEnter;
+    window.loadBatchesFromCheckbox = loadBatchesFromCheckbox;
+    window.toggleSelectAllPricesFromCheckbox = toggleSelectAllPricesFromCheckbox;
+    window.updatePushButtonCount = updatePushButtonCount;
   </script>
 </body>
 </html>

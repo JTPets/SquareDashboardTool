@@ -428,6 +428,9 @@
 
     // Load settings on page load
     loadSettings();
+
+    // Expose functions to global scope for event delegation
+    window.loadSettings = loadSettings;
   </script>
 </body>
 </html>

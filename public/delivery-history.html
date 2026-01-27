@@ -581,6 +581,12 @@
         closePodModal();
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.loadHistory = loadHistory;
+    window.setQuickRange = setQuickRange;
+    window.closePodModal = closePodModal;
+    window.closePodModalOverlay = closePodModalOverlay;
   </script>
 </body>
 </html>

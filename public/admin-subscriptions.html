@@ -684,6 +684,10 @@
       div.textContent = text;
       return div.innerHTML;
     }
+
+    // Expose functions to global scope for event delegation
+    window.loadStats = loadStats;
+    window.setupPlans = setupPlans;
   </script>
 </body>
 </html>

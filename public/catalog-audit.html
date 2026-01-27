@@ -967,6 +967,14 @@
 
     // Load data on page load
     loadData();
+
+    // Expose functions to global scope for event delegation
+    window.loadData = loadData;
+    window.exportCSV = exportCSV;
+    window.fixLocationMismatches = fixLocationMismatches;
+    window.sortTable = sortTable;
+    window.filterByIssue = filterByIssue;
+    window.filterData = filterData;
   </script>
 </body>
 </html>

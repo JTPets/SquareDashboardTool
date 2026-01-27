@@ -1323,6 +1323,20 @@
 
     // Load on page load
     document.addEventListener('DOMContentLoaded', loadPurchaseOrders);
+
+    // Expose functions to global scope for event delegation
+    window.closeModal = closeModal;
+    window.closeConfirmModal = closeConfirmModal;
+    window.confirmAction = confirmAction;
+    window.viewPO = viewPO;
+    window.deletePO = deletePO;
+    window.enterEditMode = enterEditMode;
+    window.cancelEdit = cancelEdit;
+    window.saveChanges = saveChanges;
+    window.showSubmitConfirmation = showSubmitConfirmation;
+    window.dismissToast = dismissToast;
+    window.removeItem = removeItem;
+    window.updateItemQuantity = updateItemQuantity;
   </script>
 </body>
 </html>

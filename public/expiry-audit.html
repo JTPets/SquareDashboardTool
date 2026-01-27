@@ -1675,6 +1675,17 @@
         loadItems();
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.navigateTo = navigateTo;
+    window.loadItems = loadItems;
+    window.filterByTier = filterByTier;
+    window.showConfirmModal = showConfirmModal;
+    window.showUpdateModal = showUpdateModal;
+    window.closeConfirmModal = closeConfirmModal;
+    window.closeUpdateModal = closeUpdateModal;
+    window.confirmItem = confirmItem;
+    window.updateDate = updateDate;
   </script>
 </body>
 </html>

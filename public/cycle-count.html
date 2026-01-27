@@ -1017,6 +1017,16 @@ SKU-003"></textarea>
         }
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.showSendNowModal = showSendNowModal;
+    window.generateBatch = generateBatch;
+    window.loadPendingItems = loadPendingItems;
+    window.closeSendNowModal = closeSendNowModal;
+    window.submitSendNow = submitSendNow;
+    window.closeCountModal = closeCountModal;
+    window.submitCount = submitCount;
+    window.showCountModal = showCountModal;
   </script>
 </body>
 </html>
