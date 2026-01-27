@@ -537,6 +537,11 @@
     // The event-delegation.js module automatically finds these global functions
     // when data-action or data-change attributes are used in the HTML.
     // This allows for gradual migration without wrapping all handlers in PageActions.register().
+
+    // Expose functions to global scope for event delegation
+    window.refreshLogs = refreshLogs;
+    window.filterLogs = filterLogs;
+    window.testEmail = testEmail;
   </script>
 </body>
 </html>

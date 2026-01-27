@@ -376,6 +376,14 @@
     window.addEventListener('DOMContentLoaded', () => {
       setLast30Days();
     });
+
+    // Expose functions to global scope for event delegation
+    window.setToday = setToday;
+    window.setLast7Days = setLast7Days;
+    window.setLast30Days = setLast30Days;
+    window.loadHistory = loadHistory;
+    window.clearFilters = clearFilters;
+    window.filterHistory = filterHistory;
   </script>
 </body>
 </html>

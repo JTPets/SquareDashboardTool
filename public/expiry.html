@@ -741,6 +741,18 @@
       loadCategories();
       loadItems();
     });
+
+    // Expose functions to global scope for event delegation
+    window.loadItems = loadItems;
+    window.markAllAsReviewed = markAllAsReviewed;
+    window.syncFromSquare = syncFromSquare;
+    window.changePage = changePage;
+    window.confirmDateChange = confirmDateChange;
+    window.cancelDateChange = cancelDateChange;
+    window.markAsReviewed = markAsReviewed;
+    window.showDateConfirmation = showDateConfirmation;
+    window.updateNeverExpires = updateNeverExpires;
+    window.changeItemsPerPage = changeItemsPerPage;
   </script>
 </body>
 </html>

@@ -1182,6 +1182,18 @@
       div.textContent = str;
       return div.innerHTML;
     }
+
+    // Expose functions to global scope for event delegation
+    window.switchTab = switchTab;
+    window.filterByTier = filterByTier;
+    window.runEvaluation = runEvaluation;
+    window.runFullAutomation = runFullAutomation;
+    window.runFullAutomationDryRun = runFullAutomationDryRun;
+    window.initSquareDiscounts = initSquareDiscounts;
+    window.saveTierConfig = saveTierConfig;
+    window.saveSettings = saveSettings;
+    window.validateDiscounts = validateDiscounts;
+    window.validateDiscountsFix = validateDiscountsFix;
   </script>
 </body>
 </html>

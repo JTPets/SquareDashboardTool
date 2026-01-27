@@ -2520,6 +2520,36 @@
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r');
     }
+
+    // Expose functions to global scope for event delegation
+    window.switchTabFromClick = switchTabFromClick;
+    window.showCreateOfferModal = showCreateOfferModal;
+    window.searchCustomer = searchCustomer;
+    window.downloadReport = downloadReport;
+    window.saveSettings = saveSettings;
+    window.syncRewardsToPOS = syncRewardsToPOS;
+    window.processExpired = processExpired;
+    window.validateDiscounts = validateDiscounts;
+    window.closeModal = closeModal;
+    window.saveOffer = saveOffer;
+    window.showVariationsModal = showVariationsModal;
+    window.editOffer = editOffer;
+    window.deleteOfferFromButton = deleteOfferFromButton;
+    window.toggleVariationCard = toggleVariationCard;
+    window.toggleVariationCardStop = toggleVariationCardStop;
+    window.saveVariations = saveVariations;
+    window.showCustomerLoyalty = showCustomerLoyalty;
+    window.viewOrderAuditHistoryFromButton = viewOrderAuditHistoryFromButton;
+    window.showRedeemModalFromButton = showRedeemModalFromButton;
+    window.viewCustomerHistory = viewCustomerHistory;
+    window.submitRedemption = submitRedemption;
+    window.addSelectedOrdersToLoyalty = addSelectedOrdersToLoyalty;
+    window.viewVendorReceipt = viewVendorReceipt;
+    window.loadOffers = loadOffers;
+    window.loadRewards = loadRewards;
+    window.loadRedemptions = loadRedemptions;
+    window.toggleAllAuditOrdersFromCheckbox = toggleAllAuditOrdersFromCheckbox;
+    window.toggleAuditOrderFromCheckbox = toggleAuditOrderFromCheckbox;
   </script>
 </body>
 </html>

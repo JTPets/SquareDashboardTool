@@ -1272,6 +1272,16 @@
         }, 300000);
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.logout = logout;
+    window.navigate = navigate;
+    window.showApiInfo = showApiInfo;
+    window.toggleApiList = toggleApiList;
+    window.showHealthModal = showHealthModal;
+    window.hideHealthModal = hideHealthModal;
+    window.connectSquare = connectSquare;
+    window.runSmartSync = runSmartSync;
   </script>
 </body>
 </html>

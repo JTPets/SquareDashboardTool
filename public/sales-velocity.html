@@ -373,6 +373,9 @@
 
     // Load data on page load with default period
     loadData();
+
+    // Expose functions to global scope for event delegation
+    window.loadData = loadData;
   </script>
 </body>
 </html>

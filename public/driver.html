@@ -1098,6 +1098,17 @@
       toast.className = 'toast visible ' + type;
       setTimeout(() => { toast.classList.remove('visible'); }, 3000);
     }
+
+    // Expose functions to global scope for event delegation
+    window.toggleOrderItems = toggleOrderItems;
+    window.openMaps = openMaps;
+    window.completeStop = completeStop;
+    window.skipStop = skipStop;
+    window.openPodModal = openPodModal;
+    window.closePodModal = closePodModal;
+    window.uploadPod = uploadPod;
+    window.finishRoute = finishRoute;
+    window.handlePodFileSelect = handlePodFileSelect;
   </script>
 </body>
 </html>

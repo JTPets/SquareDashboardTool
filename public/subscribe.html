@@ -1132,6 +1132,14 @@
     document.addEventListener('DOMContentLoaded', () => {
       // Don't auto-select, let user choose
     });
+
+    // Expose functions to global scope for event delegation
+    window.selectPlan = selectPlan;
+    window.applyPromoCode = applyPromoCode;
+    window.openTermsModal = openTermsModal;
+    window.closeTermsModal = closeTermsModal;
+    window.acceptTerms = acceptTerms;
+    window.handleSubscribe = handleSubscribe;
   </script>
 </body>
 </html>

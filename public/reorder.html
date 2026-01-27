@@ -1900,6 +1900,15 @@
         renderTable();
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.sortTable = sortTable;
+    window.createPurchaseOrder = createPurchaseOrder;
+    window.copyToClipboard = copyToClipboard;
+    window.enterEditMode = enterEditMode;
+    window.blurOnEnter = blurOnEnter;
+    window.updateOrderQty = updateOrderQty;
+    window.handleInlineEdit = handleInlineEdit;
   </script>
 
   <!-- Toast notification -->

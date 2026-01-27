@@ -1424,6 +1424,25 @@
       loadCurrentUser();
       loadMerchantSettings();
     });
+
+    // Expose functions to global scope for event delegation
+    window.testSquareConnection = testSquareConnection;
+    window.testDatabaseConnection = testDatabaseConnection;
+    window.testEmailConnection = testEmailConnection;
+    window.connectGoogle = connectGoogle;
+    window.disconnectGoogle = disconnectGoogle;
+    window.resetMerchantSettingsToDefaults = resetMerchantSettingsToDefaults;
+    window.saveMerchantSettings = saveMerchantSettings;
+    window.showChangePasswordModal = showChangePasswordModal;
+    window.hideChangePasswordModal = hideChangePasswordModal;
+    window.changePassword = changePassword;
+    window.showCreateUserModal = showCreateUserModal;
+    window.hideCreateUserModal = hideCreateUserModal;
+    window.createUser = createUser;
+    window.unlockUser = unlockUser;
+    window.resetUserPassword = resetUserPassword;
+    window.toggleUserActive = toggleUserActive;
+    window.logoutUser = logoutUser;
   </script>
 </body>
 </html>

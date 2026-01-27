@@ -521,6 +521,9 @@
     function navigateToLogin() {
       window.location.href = '/login.html';
     }
+
+    // Expose functions to global scope for event delegation
+    window.navigateToLogin = navigateToLogin;
   </script>
 </body>
 </html>

@@ -801,6 +801,14 @@
     document.getElementById('disconnect-modal').addEventListener('click', function(e) {
       if (e.target === this) closeDisconnectModal();
     });
+
+    // Expose functions to global scope for event delegation
+    window.connectSquare = connectSquare;
+    window.switchMerchant = switchMerchant;
+    window.showDisconnectModal = showDisconnectModal;
+    window.closeDisconnectModal = closeDisconnectModal;
+    window.confirmDisconnect = confirmDisconnect;
+    window.copyReferralLink = copyReferralLink;
   </script>
 </body>
 </html>

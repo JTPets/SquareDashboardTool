@@ -1469,6 +1469,26 @@
         });
       }
     });
+
+    // Expose functions to global scope for event delegation
+    window.openShareModal = openShareModal;
+    window.openInMaps = openInMaps;
+    window.toggleOrderItems = toggleOrderItems;
+    window.editCustomerNote = editCustomerNote;
+    window.openPodModal = openPodModal;
+    window.completeStop = completeStop;
+    window.skipStop = skipStop;
+    window.closePodModal = closePodModal;
+    window.resetPodModal = resetPodModal;
+    window.uploadPod = uploadPod;
+    window.closeNoteModal = closeNoteModal;
+    window.saveCustomerNote = saveCustomerNote;
+    window.closeShareModal = closeShareModal;
+    window.generateShareLink = generateShareLink;
+    window.copyShareUrl = copyShareUrl;
+    window.regenerateShareLink = regenerateShareLink;
+    window.revokeShareLink = revokeShareLink;
+    window.handlePodSelect = handlePodSelect;
   </script>
 </body>
 </html>
