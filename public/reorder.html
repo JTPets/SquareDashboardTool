@@ -1468,11 +1468,9 @@
 
     // Save editable field to database
     async function saveField(input) {
-      console.log('saveField called:', { input, type: typeof input, dataset: input?.dataset });
       const variationId = input.dataset.variationId;
       const field = input.dataset.field;
       const value = input.value.trim();
-      console.log('saveField params:', { variationId, field, value });
 
       // Don't save if value is empty or unchanged
       const item = allSuggestions.find(s => s.variation_id === variationId);
