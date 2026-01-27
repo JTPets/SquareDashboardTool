@@ -90,33 +90,38 @@ if (webhookOrder?.state === 'COMPLETED') {
 
 **Critical Finding**: `order.created` and `order.updated` webhooks contain the FULL order object. We should NOT be making additional API calls.
 
-### Pre-Implementation Validation Checklist
+### Simplified Validation: Daily 2-Day Sync
 
-Before switching from daily syncs to weekly reconciliation:
+Instead of complex shadow mode validation, use a **daily 2-day sync** that serves as both safety net AND validation:
 
-#### Phase 1: Shadow Mode Validation (2 weeks minimum)
-- [ ] Deploy order cache table
-- [ ] Enable webhook caching (write to cache, but don't read from it yet)
-- [ ] Continue running normal API syncs
-- [ ] Compare: Do cache counts match API fetch counts?
-- [ ] Log any orders that appear in API sync but not in cache (webhook misses)
-- [ ] Log any orders that appear in cache but not in API sync (shouldn't happen)
+```
+Daily Reconciliation Sync (runs at 3 AM):
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Fetch orders from Square where closed_at >= NOW() - 2 days  │
+│    (~40 orders = 1 API call)                                    │
+│                                                                 │
+│ 2. For each order from API:                                     │
+│    ├─ EXISTS in cache? → Skip (webhook worked ✓)               │
+│    └─ NOT in cache? → Insert (webhook missed, backfill now)    │
+│                                                                 │
+│ 3. Log metrics:                                                 │
+│    { total: 40, cached: 38, missed: 2, miss_rate: 5% }         │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-#### Phase 2: Read Validation (1 week)
-- [ ] Enable cache reads for sales velocity calculation
-- [ ] Run BOTH cache-based and API-based calculations
-- [ ] Compare results - must be identical
-- [ ] Alert if any discrepancy > 0.1%
+**Why this is better than shadow mode:**
+- **Simpler**: No parallel API/cache calculations needed
+- **Self-healing**: Automatically catches webhook failures
+- **Built-in validation**: Miss rate = webhook reliability metric
+- **Low cost**: 1-2 API calls/day vs 37+ for 91-day sync
 
-#### Phase 3: Gradual Cutover (1 week)
-- [ ] Reduce API sync frequency: 3h → 6h → 12h → 24h
-- [ ] Monitor for any sales velocity accuracy issues
-- [ ] Monitor webhook error rates
-
-#### Phase 4: Weekly Reconciliation (ongoing)
-- [ ] Enable weekly reconciliation job
-- [ ] Set up alerting if discrepancy > 1%
-- [ ] Auto-backfill if discrepancy > 5%
+**Confidence progression:**
+| Daily Miss Rate | Action |
+|-----------------|--------|
+| > 5% | Investigate webhook issues |
+| 1-5% | Acceptable, daily sync catches gaps |
+| < 1% for 2+ weeks | Consider extending to weekly reconciliation |
+| 0% for 4+ weeks | Webhooks proven reliable |
 
 ---
 
@@ -1128,9 +1133,10 @@ The cache is additive - old code paths remain functional, just unused when cache
 | Question | Decision | Rationale |
 |----------|----------|-----------|
 | Store `raw_order`? | ✅ YES - Always | Multiple code paths need full order data |
-| Reconciliation frequency? | ✅ Weekly | But requires extensive validation first (see Phase 1-4) |
+| Reconciliation frequency? | ✅ Daily (2-day window) | Acts as safety net AND validation; extend to weekly once miss_rate proven low |
 | Backfill strategy? | ✅ Overnight, sequential | 2-4 AM, one merchant at a time |
 | Historical data? | ✅ 366 days | Matches sales velocity reporting needs |
+| Validation approach? | ✅ Daily 2-day sync | Simpler than shadow mode; miss_rate = webhook reliability metric |
 
 ## Remaining Questions
 
@@ -1139,38 +1145,41 @@ The cache is additive - old code paths remain functional, just unused when cache
    - Revisit when P3 scalability work begins
 
 2. **Webhook failure handling**: What happens if Square webhook delivery fails?
-   - Current answer: Daily incremental sync catches missed orders
-   - Weekly reconciliation catches anything the daily sync misses
+   - Answer: Daily 2-day sync automatically catches and backfills missed orders
+   - Miss rate metric alerts us if webhook reliability degrades
 
 ---
 
-## Implementation Timeline
+## Implementation Timeline (Simplified)
 
-### Week 1-2: Foundation
+### Prerequisites (Fix Before Starting)
+These issues waste API calls independent of caching and should be fixed first:
+
+- [ ] **P0-FIX-1**: Remove redundant `_fetchFullOrder()` in order webhook handler
+- [ ] **P0-FIX-2**: Remove full 91-day sync on every COMPLETED order webhook
+
+### Week 1: Foundation
 - [ ] Create migration `029_order_cache.sql`
 - [ ] Create `services/order-cache/` module
-- [ ] Run initial backfill (overnight)
-- [ ] Enable webhook caching in shadow mode
+- [ ] Update webhook handlers to cache orders
+- [ ] Run initial 366-day backfill (overnight)
 
-### Week 3-4: Validation (Shadow Mode)
-- [ ] Compare webhook cache vs API sync counts daily
-- [ ] Log and investigate any discrepancies
-- [ ] Fix any webhook coverage gaps found
-- [ ] Document webhook reliability metrics
+### Week 2: Go Live + Daily Reconciliation
+- [ ] Enable daily 2-day reconciliation sync (3 AM)
+- [ ] Switch sales velocity to use cache
+- [ ] Monitor miss_rate metric daily
+- [ ] Alert if miss_rate > 5%
 
-### Week 5: Read Validation
-- [ ] Enable cache reads alongside API reads
-- [ ] Compare sales velocity calculations: cache vs API
-- [ ] Must achieve 100% match before proceeding
+### Week 3+: Monitor & Optimize
+- [ ] Track miss_rate trends
+- [ ] If miss_rate < 1% for 2+ weeks, consider weekly reconciliation
+- [ ] Tune reconciliation window if needed (2 days → 3 days)
 
-### Week 6: Gradual Cutover
-- [ ] Reduce sync frequency: 3h → 6h
-- [ ] Monitor for issues (1-2 days)
-- [ ] Reduce further: 6h → 12h → 24h
+**Total timeline: ~2-3 weeks** (vs 7 weeks with shadow mode approach)
 
-### Week 7+: Weekly Reconciliation
-- [ ] Enable weekly reconciliation job
-- [ ] Remove unnecessary API syncs
-- [ ] Monitor long-term
-
-**Total timeline: ~7 weeks minimum** (conservative, to ensure reliability)
+### Success Criteria
+| Metric | Target | Action if Failed |
+|--------|--------|------------------|
+| Daily miss_rate | < 5% | Investigate webhook issues |
+| Sales velocity accuracy | 100% match | Check cache query logic |
+| API calls/day | < 10 | Check for uncached code paths |

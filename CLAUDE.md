@@ -456,6 +456,7 @@ The following vulnerabilities were discovered and resolved:
 | P0 Security | ✅ 7/7 | All P0 items complete (P0-5,6,7 fixed 2026-01-26) |
 | P1 Architecture | ✅ 9/9 | P1-1 in progress; P1-2,3,4,5 complete; P1-6,7,8,9 fixed 2026-01-26 |
 | P2 Testing | ✅ 6/6 | Tests comprehensive (P2-4 implementation gap closed by P0-6) |
+| **API Optimization** | 🔴 0/2 prereqs | P0-API-1, P0-API-2 must be fixed before caching implementation |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 ---
@@ -1127,6 +1128,67 @@ Note: Login rate limiting tested in `security.test.js`
 - ✅ Logging rate limit violations
 - ✅ CORS configuration
 - ✅ Helmet security headers (CSP, clickjacking, HSTS)
+
+---
+
+## API Optimization: Order Caching Strategy
+
+**Status**: PLANNING
+**Priority**: HIGH (Cost/Performance)
+**Full Strategy**: See `docs/API_CACHING_STRATEGY.md`
+
+### Problem Statement
+
+Current order API usage is extremely wasteful:
+- Sales velocity syncs fetch ALL orders for 91/182/365 days every sync
+- Every COMPLETED order webhook triggers a full 91-day re-sync (37+ API calls!)
+- Webhook handler fetches full order even though webhook already contains it
+- **Estimated waste**: ~3,400 API calls/week that could be ~10/day
+
+### Prerequisites (Fix BEFORE Caching Implementation)
+
+These issues waste API calls independent of caching and must be fixed first:
+
+#### P0-API-1: Remove Redundant Order Fetch in Webhook Handler 🔴 CRITICAL
+**File**: `services/webhook-handlers/order-handler.js:144`
+**Problem**: Every `order.created` webhook triggers `_fetchFullOrder()` even though webhook payload already contains complete order data.
+**Impact**: ~20 unnecessary API calls/day (1 per order)
+**Fix**: Use webhook order data directly. Only fetch if specific fields are missing.
+
+#### P0-API-2: Remove Full 91-Day Sync on Every COMPLETED Order 🔴 CRITICAL
+**File**: `services/webhook-handlers/order-handler.js:136`
+**Problem**: When an order is COMPLETED, code calls `syncSalesVelocity(91, merchantId)` which fetches ALL 91 days of orders (37+ API calls).
+**Impact**: Store with 20 orders/day = 20 × 37 = **740 unnecessary API calls/day**
+**Fix**: Update sales velocity incrementally from the single completed order, not full re-sync.
+
+### Order Caching Implementation (After Prerequisites)
+
+| Phase | Description | Duration |
+|-------|-------------|----------|
+| **Week 1** | Create `order_cache` table, update webhooks to cache orders, run 366-day backfill | 1 week |
+| **Week 2** | Enable daily 2-day reconciliation sync, switch sales velocity to use cache | 1 week |
+| **Week 3+** | Monitor miss_rate, optimize as needed | Ongoing |
+
+### Expected Results
+
+| Metric | Before | After |
+|--------|--------|-------|
+| API calls/week | ~3,400 | ~10-50 |
+| 365-day velocity calc | 30-60 sec | 2-5 sec |
+| Smart sync duration | 2-5 min | 10-30 sec |
+
+### Daily 2-Day Reconciliation (Validation Strategy)
+
+Instead of complex shadow mode, a simple daily sync catches webhook misses AND validates reliability:
+
+```
+Daily at 3 AM:
+1. Fetch orders from Square where closed_at >= NOW() - 2 days (1 API call)
+2. For each order: if NOT in cache, insert it (webhook missed)
+3. Log: { total: 40, cached: 38, missed: 2, miss_rate: 5% }
+```
+
+Miss rate metric tells us webhook reliability. If < 1% for 2+ weeks, webhooks are proven reliable.
 
 ---
 
