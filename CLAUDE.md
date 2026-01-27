@@ -456,8 +456,11 @@ The following vulnerabilities were discovered and resolved:
 | P0 Security | ✅ 7/7 | All P0 items complete (P0-5,6,7 fixed 2026-01-26) |
 | P1 Architecture | ✅ 9/9 | P1-1 in progress; P1-2,3,4,5 complete; P1-6,7,8,9 fixed 2026-01-26 |
 | P2 Testing | ✅ 6/6 | Tests comprehensive (P2-4 implementation gap closed by P0-6) |
-| **API Optimization** | 🔴 0/2 prereqs | P0-API-1, P0-API-2 must be fixed before caching implementation |
+| **API Optimization** | 🔴 0/4 | P0-API-1,2,3,4 causing rate limit lockouts (~1,060 wasted calls/day) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
+
+**⚠️ URGENT**: API optimization items are causing **service interruptions** from Square rate limiting.
+See `docs/API_OPTIMIZATION_PLAN.md` for complete implementation details.
 
 ---
 
@@ -1131,64 +1134,218 @@ Note: Login rate limiting tested in `security.test.js`
 
 ---
 
-## API Optimization: Order Caching Strategy
+## API Optimization: Comprehensive Plan
 
-**Status**: PLANNING
-**Priority**: HIGH (Cost/Performance)
-**Full Strategy**: See `docs/API_CACHING_STRATEGY.md`
+**Status**: PLANNING (Detailed plan created 2026-01-27)
+**Priority**: 🔴 CRITICAL - Rate limiting causing service interruptions
+**Full Implementation Plan**: See `docs/API_OPTIMIZATION_PLAN.md`
 
-### Problem Statement
+### Executive Summary
 
-Current order API usage is extremely wasteful:
-- Sales velocity syncs fetch ALL orders for 91/182/365 days every sync
-- Every COMPLETED order webhook triggers a full 91-day re-sync (37+ API calls!)
-- Webhook handler fetches full order even though webhook already contains it
-- **Estimated waste**: ~3,400 API calls/week that could be ~10/day
+Current API usage is causing **rate limit lockouts** and wasting bandwidth:
 
-### Prerequisites (Fix BEFORE Caching Implementation)
+| Issue | API Calls Wasted/Day | Status |
+|-------|---------------------|--------|
+| P0-API-1: Redundant order fetch | ~20 | 🔴 Not fixed |
+| P0-API-2: Full 91-day sync per order | ~740 | 🔴 Not fixed |
+| P0-API-3: Fulfillment also triggers 91-day sync | ~100 | 🔴 Not fixed |
+| P0-API-4: Committed inventory per webhook | ~200 | 🔴 Not fixed |
+| **TOTAL WASTE** | **~1,060/day** | |
 
-These issues waste API calls independent of caching and must be fixed first:
+**Expected improvement after fixes**: 90-95% reduction (~50-100 calls/day)
 
-#### P0-API-1: Remove Redundant Order Fetch in Webhook Handler 🔴 CRITICAL
-**File**: `services/webhook-handlers/order-handler.js:144`
-**Problem**: Every `order.created` webhook triggers `_fetchFullOrder()` even though webhook payload already contains complete order data.
-**Impact**: ~20 unnecessary API calls/day (1 per order)
-**Fix**: Use webhook order data directly. Only fetch if specific fields are missing.
+---
 
-#### P0-API-2: Remove Full 91-Day Sync on Every COMPLETED Order 🔴 CRITICAL
-**File**: `services/webhook-handlers/order-handler.js:136`
-**Problem**: When an order is COMPLETED, code calls `syncSalesVelocity(91, merchantId)` which fetches ALL 91 days of orders (37+ API calls).
-**Impact**: Store with 20 orders/day = 20 × 37 = **740 unnecessary API calls/day**
-**Fix**: Update sales velocity incrementally from the single completed order, not full re-sync.
+### P0-API-1: Remove Redundant Order Fetch 🔴 CRITICAL
 
-### Order Caching Implementation (After Prerequisites)
+**File**: `services/webhook-handlers/order-handler.js:141-145`
 
-| Phase | Description | Duration |
-|-------|-------------|----------|
-| **Week 1** | Create `order_cache` table, update webhooks to cache orders, run 366-day backfill | 1 week |
-| **Week 2** | Enable daily 2-day reconciliation sync, switch sales velocity to use cache | 1 week |
-| **Week 3+** | Monitor miss_rate, optimize as needed | Ongoing |
+**Current (Wasteful)**:
+```javascript
+let order = webhookOrder;  // Already has ALL data
+if (webhookOrder?.id) {
+    order = await this._fetchFullOrder(...);  // Fetches AGAIN!
+}
+```
 
-### Expected Results
+**Problem**: Square webhook payloads contain **complete order data** including:
+- `line_items[]` with `catalog_object_id`, `quantity`, `total_money`
+- `fulfillments[]` with `type`, `state`, delivery details
+- `customer_id`, `location_id`, `closed_at`
 
-| Metric | Before | After |
-|--------|--------|-------|
-| API calls/week | ~3,400 | ~10-50 |
-| 365-day velocity calc | 30-60 sec | 2-5 sec |
-| Smart sync duration | 2-5 min | 10-30 sec |
+The API fetch is 100% redundant under normal circumstances.
 
-### Daily 2-Day Reconciliation (Validation Strategy)
+**Fix**: Validate webhook data completeness, only fetch as rare fallback:
+```javascript
+const validation = validateWebhookOrder(webhookOrder);
+if (!validation.valid) {
+    // Only fetch if missing required fields (should never happen)
+    order = await this._fetchFullOrderFallback(...);
+} else {
+    // Use webhook data directly - no API call needed
+    order = webhookOrder;
+}
+```
 
-Instead of complex shadow mode, a simple daily sync catches webhook misses AND validates reliability:
+**Impact**: ~20 API calls/day saved, ~100-200ms latency reduction per webhook
+
+---
+
+### P0-API-2: Incremental Velocity Update 🔴 CRITICAL
+
+**File**: `services/webhook-handlers/order-handler.js:134-139`
+
+**Current (Extremely Wasteful)**:
+```javascript
+if (webhookOrder?.state === 'COMPLETED') {
+    await squareApi.syncSalesVelocity(91, merchantId);  // Fetches ALL 91 days!
+}
+```
+
+**Problem**: Every completed order triggers:
+- `POST /v2/orders/search` with 91-day filter
+- Pagination through ~1,800 orders (20/day × 91 days)
+- ~37 API calls per order completion
+- Store with 20 orders/day = **740 API calls/day** for this alone!
+
+**Fix**: Update velocity incrementally from the single order:
+```javascript
+if (webhookOrder?.state === 'COMPLETED') {
+    // Update only the variations in THIS order
+    await squareApi.updateSalesVelocityFromOrder(order, merchantId);
+    // 0 API calls - just database updates!
+}
+```
+
+**New Function** (`services/square/api.js`):
+```javascript
+async function updateSalesVelocityFromOrder(order, merchantId) {
+    // Extract line items from the webhook order
+    // Calculate which periods this order affects (91d, 182d, 365d)
+    // Atomic increment existing velocity records
+    // No Square API calls needed!
+}
+```
+
+**Safety Net**: Daily 2-day reconciliation job catches any drift.
+
+**Impact**: ~740 API calls/day saved, webhook processing 10-20x faster
+
+---
+
+### P0-API-3: Fulfillment Handler Also Triggers Full Sync 🔴
+
+**File**: `services/webhook-handlers/order-handler.js:400-405`
+
+```javascript
+if (fulfillment?.state === 'COMPLETED') {
+    await squareApi.syncSalesVelocity(91, merchantId);  // ANOTHER full sync!
+}
+```
+
+**Problem**: Same order may trigger velocity sync from both `order.updated` AND `order.fulfillment.updated` webhooks.
+
+**Fix**:
+1. Use incremental update (same as P0-API-2)
+2. Add deduplication via SyncCoordinator service
+
+---
+
+### P0-API-4: Committed Inventory Sync Per Webhook 🟡
+
+**File**: `services/webhook-handlers/order-handler.js:126`
+
+```javascript
+// Called on EVERY order webhook
+const committedResult = await squareApi.syncCommittedInventory(merchantId);
+```
+
+**Problem**:
+- Fetches ALL open invoices (paginated)
+- For each invoice: fetches invoice detail + order
+- 50 open invoices = 101 API calls
+- Triggered ~20 times/day from order webhooks alone
+
+**Fix**: Debounce + filter by relevant state transitions:
+```javascript
+// Only sync when order state affects committed inventory
+const RELEVANT_STATES = ['OPEN', 'DRAFT'];
+if (RELEVANT_STATES.includes(webhookOrder?.state)) {
+    await debouncedSyncCommittedInventory(merchantId);  // 1 min debounce
+}
+```
+
+---
+
+### Additional Inefficiencies Identified
+
+| Issue | File | Impact | Fix |
+|-------|------|--------|-----|
+| Payment webhook fetches order | `order-handler.js:593` | ~15 calls/day | Use cached order |
+| Smart sync queries DB 10+ times | `routes/sync.js:144+` | ~168 queries/day | Batch lookup |
+| Refund handler uses raw fetch | `order-handler.js:700` | Inconsistent | Use SDK |
+| No sync coordination | Multiple handlers | Race conditions | SyncCoordinator |
+
+---
+
+### Implementation Phases
+
+| Phase | Duration | Tasks | API Calls Saved |
+|-------|----------|-------|-----------------|
+| **1: Quick Wins** | Week 1 | P0-API-1 + Debouncing | ~170/day |
+| **2: Major Fix** | Week 2 | P0-API-2 + Reconciliation | ~840/day |
+| **3: Infrastructure** | Week 3-4 | Order cache + SyncCoordinator | ~50/day |
+| **4: Cache Usage** | Week 5-6 | Velocity from cache | Remaining |
+
+---
+
+### Order Cache Strategy (After Prerequisites)
+
+**Table**: `order_cache`
+```sql
+CREATE TABLE order_cache (
+    square_order_id TEXT NOT NULL,
+    merchant_id INTEGER REFERENCES merchants(id),
+    state TEXT NOT NULL,
+    closed_at TIMESTAMPTZ,
+    line_items JSONB NOT NULL,
+    UNIQUE(square_order_id, merchant_id)
+);
+```
+
+**Population**:
+1. Webhook: Cache every order from webhooks
+2. Initial: One-time 366-day backfill for new merchants
+3. Reconciliation: Daily 2-day fetch to catch misses
+
+**Usage**:
+- Sales velocity: Query cache instead of Square API
+- Committed inventory: Lookup cached orders by ID
+- Loyalty: Use cached order data
+
+---
+
+### Daily Reconciliation (Safety Net)
 
 ```
-Daily at 3 AM:
+Cron: 3 AM daily
 1. Fetch orders from Square where closed_at >= NOW() - 2 days (1 API call)
-2. For each order: if NOT in cache, insert it (webhook missed)
-3. Log: { total: 40, cached: 38, missed: 2, miss_rate: 5% }
+2. For each order: update velocity incrementally
+3. Log: { orders: 40, updated: 38, missed: 2, miss_rate: 5% }
 ```
 
-Miss rate metric tells us webhook reliability. If < 1% for 2+ weeks, webhooks are proven reliable.
+Miss rate < 1% for 2+ weeks = webhooks proven reliable.
+
+---
+
+### Success Metrics
+
+| Metric | Current | Target | Measurement |
+|--------|---------|--------|-------------|
+| API calls/day | ~1,060 | <100 | Log `makeSquareRequest` |
+| Rate limit incidents/week | 2-5 | 0 | Monitor 429 responses |
+| Webhook processing time | 2-5s | <500ms | Log duration |
+| Velocity accuracy | Baseline | ±1% | Compare with full sync |
 
 ---
 
