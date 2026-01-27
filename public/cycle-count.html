@@ -822,7 +822,7 @@ SKU-003"></textarea>
         } else if (syncResult) {
           const variance = syncResult.variance !== 0 ? ` (${syncResult.variance > 0 ? '+' : ''}${syncResult.variance})` : '';
           showToast(`Synced to Square! ${syncResult.previous_quantity} → ${syncResult.new_quantity}${variance}`, 'success');
-        } else if (result.is_complete) {
+        } else if (result.data?.is_complete) {
           showToast('✅ Item counted! 100% COMPLETE - Report being sent!', 'success');
         } else {
           showToast(`Count verified! ${remaining} items remaining`, 'success');

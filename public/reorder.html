@@ -1361,7 +1361,8 @@
         }
 
         const result = await response.json();
-        alert(`Purchase Order ${result.purchase_order.po_number} created successfully!\nTotal: $${(result.purchase_order.total_cents / 100).toFixed(2)}`);
+        const po = result.data?.purchase_order || result.purchase_order;
+        alert(`Purchase Order ${po.po_number} created successfully!\nTotal: $${(po.total_cents / 100).toFixed(2)}`);
 
         // Reset selections and edited quantities
         selectedItems.clear();
