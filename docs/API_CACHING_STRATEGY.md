@@ -6,6 +6,120 @@
 
 ---
 
+## Design Decisions (Confirmed)
+
+| Decision | Value | Rationale |
+|----------|-------|-----------|
+| Store `raw_order` | **YES - Always** | Order details are pulled in multiple areas; keep full data |
+| Retention period | **366 days** | Matches sales velocity's 365-day reporting + 1 day buffer |
+| Weekly reconciliation | **YES, but requires validation** | Must prove webhook coverage is 100% before relying on it |
+| Backfill timing | **Overnight (2-4 AM)** | Avoid peak business hours |
+| Multi-tenant design | **Sequential per-merchant** | Process one merchant at a time during backfill; sustainable for scale |
+
+---
+
+## CRITICAL: Pre-Implementation Audit
+
+### Why This Audit Matters
+
+**Going from daily API syncs to weekly reconciliation is DANGEROUS if webhooks don't cover 100% of order access patterns.** Before implementing, we must:
+
+1. **Identify ALL Square Order API calls** in the codebase
+2. **Map which calls can be served from cache**
+3. **Verify webhook coverage** for real-time updates
+4. **Test exhaustively** before disabling API syncs
+
+### Complete Audit: Square Order API Calls
+
+| Location | API Call | Purpose | Can Cache Replace? | Webhook Covers? |
+|----------|----------|---------|-------------------|-----------------|
+| `services/square/api.js:1180` | `POST /v2/orders/search` | Sales velocity (single period) | ✅ YES | ✅ order.created/updated |
+| `services/square/api.js:1426` | `POST /v2/orders/search` | Sales velocity (all periods) | ✅ YES | ✅ order.created/updated |
+| `services/square/api.js:2004` | `GET /v2/orders/{id}` | Invoice line items lookup | ✅ YES | ⚠️ invoice.* webhook has order_id |
+| `services/webhook-handlers/order-handler.js:167` | `squareClient.orders.get()` | Fetch full order on webhook | ❌ REDUNDANT | ✅ Webhook already has data! |
+| `services/webhook-handlers/order-handler.js:701` | `GET /v2/orders/{id}` | Refund processing | ✅ YES | ⚠️ refund.* webhook has order_id |
+| `services/webhook-handlers/loyalty-handler.js:187` | `GET /v2/orders/{id}` | Loyalty catchup | ✅ YES | ✅ order.created/updated |
+| `services/loyalty-admin/loyalty-service.js:4913` | `POST /v2/orders/search` | Loyalty catchup backfill | ✅ YES | ✅ order.created/updated |
+| `services/loyalty-admin/loyalty-service.js:5091` | `GET /v2/orders/{id}` | Get specific order | ✅ YES | ✅ order.created/updated |
+| `services/loyalty-admin/loyalty-service.js:5294` | `POST /v2/orders/search` | Backfill search | ✅ YES | ✅ order.created/updated |
+| `services/loyalty/square-client.js:440` | `POST /orders/search` | Modern loyalty service | ✅ YES | ✅ order.created/updated |
+| `services/loyalty/square-client.js:459` | `GET /orders/{id}` | Modern loyalty service | ✅ YES | ✅ order.created/updated |
+| `routes/loyalty.js:1047` | `GET /v2/orders/{id}` | Admin loyalty debug | ✅ YES | ✅ order.created/updated |
+| `routes/loyalty.js:1211` | `POST /v2/orders/search` | Admin loyalty testing | ✅ YES | ✅ order.created/updated |
+| `routes/delivery.js:672` | `squareClient.orders.search()` | Customer order count | ✅ YES | ✅ order.created/updated |
+| `routes/delivery.js:1101` | `squareClient.orders.search()` | Sync Square deliveries | ✅ YES | ✅ fulfillment.updated |
+
+### Identified Issues to Fix
+
+#### Issue 1: REDUNDANT API CALL in Webhook Handler (HIGH PRIORITY)
+**File**: `services/webhook-handlers/order-handler.js:144`
+```javascript
+// CURRENT: Fetches full order even though webhook has all data
+order = await this._fetchFullOrder(webhookOrder.id, merchantId, webhookOrder);
+```
+**Problem**: Every `order.created` webhook triggers an unnecessary `GET /orders/{id}` call.
+**Fix**: Use webhook order data directly. Only fetch if specific fields are missing.
+
+#### Issue 2: FULL 91-DAY SYNC on Every COMPLETED Order (CRITICAL)
+**File**: `services/webhook-handlers/order-handler.js:136`
+```javascript
+// CURRENT: Fetches ALL 91 days of orders on EVERY completed order
+if (webhookOrder?.state === 'COMPLETED') {
+    await squareApi.syncSalesVelocity(91, merchantId);  // 37+ API calls!
+}
+```
+**Problem**: A store with 20 orders/day triggers 20 × 37 = 740 extra API calls/day just for this.
+**Fix**: Update sales velocity incrementally from the single order, not full re-sync.
+
+#### Issue 3: Multiple Code Paths Fetch Same Orders
+- Loyalty service has 3 separate order fetch patterns
+- Delivery has 2 separate patterns
+- All could share a single cache
+
+### Webhook Coverage Analysis
+
+| Event Type | What It Contains | What's Missing | Cache Can Fill Gap? |
+|------------|------------------|----------------|---------------------|
+| `order.created` | Full order object | Nothing - complete | N/A |
+| `order.updated` | Full order object | Nothing - complete | N/A |
+| `order.fulfillment.updated` | Fulfillment details | Full order may not be included | ✅ YES - lookup from cache |
+| `payment.created` | Payment object | Order ID only, not full order | ✅ YES - lookup from cache |
+| `payment.updated` | Payment object | Order ID only, not full order | ✅ YES - lookup from cache |
+| `refund.created` | Refund object | Order ID only, not full order | ✅ YES - lookup from cache |
+| `refund.updated` | Refund object | Order ID only, not full order | ✅ YES - lookup from cache |
+
+**Critical Finding**: `order.created` and `order.updated` webhooks contain the FULL order object. We should NOT be making additional API calls.
+
+### Pre-Implementation Validation Checklist
+
+Before switching from daily syncs to weekly reconciliation:
+
+#### Phase 1: Shadow Mode Validation (2 weeks minimum)
+- [ ] Deploy order cache table
+- [ ] Enable webhook caching (write to cache, but don't read from it yet)
+- [ ] Continue running normal API syncs
+- [ ] Compare: Do cache counts match API fetch counts?
+- [ ] Log any orders that appear in API sync but not in cache (webhook misses)
+- [ ] Log any orders that appear in cache but not in API sync (shouldn't happen)
+
+#### Phase 2: Read Validation (1 week)
+- [ ] Enable cache reads for sales velocity calculation
+- [ ] Run BOTH cache-based and API-based calculations
+- [ ] Compare results - must be identical
+- [ ] Alert if any discrepancy > 0.1%
+
+#### Phase 3: Gradual Cutover (1 week)
+- [ ] Reduce API sync frequency: 3h → 6h → 12h → 24h
+- [ ] Monitor for any sales velocity accuracy issues
+- [ ] Monitor webhook error rates
+
+#### Phase 4: Weekly Reconciliation (ongoing)
+- [ ] Enable weekly reconciliation job
+- [ ] Set up alerting if discrepancy > 1%
+- [ ] Auto-backfill if discrepancy > 5%
+
+---
+
 ## Executive Summary
 
 ### The Problem
@@ -67,7 +181,7 @@ After initial backfill, daily syncs only fetch orders from the last 3-24 hours.
 │        │                      │                                              │
 │        │                      ▼                                              │
 │        │              order_cache table                                      │
-│        │              (append-only, 400 days TTL)                            │
+│        │              (append-only, 366 days TTL)                            │
 │        │                      │                                              │
 │        │                      ▼                                              │
 │  Smart Sync ──────────► Query local order_cache ──► Update velocity         │
@@ -153,7 +267,7 @@ CREATE TABLE order_sync_cursor (
 );
 
 -- Comment for documentation
-COMMENT ON TABLE order_cache IS 'Local cache of Square orders for reducing API calls. Orders older than 400 days can be purged.';
+COMMENT ON TABLE order_cache IS 'Local cache of Square orders for reducing API calls. Orders older than 366 days are purged.';
 COMMENT ON COLUMN order_cache.source IS 'How this order was obtained: api (sync), webhook (real-time), backfill (reconciliation)';
 ```
 
@@ -179,14 +293,14 @@ COMMENT ON COLUMN order_cache.source IS 'How this order was obtained: api (sync)
 | Metric | Value | Notes |
 |--------|-------|-------|
 | Orders/day | 20 | Conservative estimate |
-| Orders/year | 7,300 | Per merchant |
+| Orders/366 days | 7,320 | Per merchant |
 | Avg line items/order | 3 | |
-| Row size (no raw_order) | ~500 bytes | |
-| Row size (with raw_order) | ~2KB | |
-| Annual storage/merchant | 3.5-14 MB | Depends on raw_order |
-| 10 merchants × 2 years | 70-280 MB | Very manageable |
+| Row size (with raw_order) | ~2KB | Full order JSON stored |
+| Annual storage/merchant | ~14 MB | With full raw_order |
+| 10 merchants × 1 year | ~140 MB | Very manageable |
+| 50 merchants × 1 year | ~700 MB | Still manageable |
 
-**Recommendation**: Store `raw_order` for first 90 days, then set to NULL to save space.
+**Decision**: Store `raw_order` always. Multiple code paths need full order details, and storage cost is minimal.
 
 ---
 
@@ -707,31 +821,75 @@ COMMIT;
 
 ### 5.3 Backfill Script
 
+**Design**: Sequential per-merchant processing. This means we complete one merchant's backfill before starting the next. This approach:
+- Prevents overwhelming Square API rate limits
+- Is sustainable for multi-tenant use at any scale
+- Makes debugging easier (one merchant at a time)
+- Allows graceful restart if interrupted
+
 ```javascript
 // scripts/backfill-order-cache.js
 // Run once after migration to populate initial cache
+// Schedule: Overnight (2-4 AM) to avoid peak business hours
 
 async function backfillAllMerchants() {
+    const startTime = new Date();
+    logger.info('Starting order cache backfill', { startTime });
+
     const merchants = await db.query(
-        'SELECT id FROM merchants WHERE active = true'
+        'SELECT id, name FROM merchants WHERE active = true ORDER BY id'
     );
 
+    let successCount = 0;
+    let failCount = 0;
+
+    // Process ONE merchant at a time (sequential, not parallel)
+    // This is sustainable for any number of tenants
     for (const merchant of merchants.rows) {
-        console.log(`Backfilling merchant ${merchant.id}...`);
+        logger.info(`Backfilling merchant ${merchant.id} (${merchant.name})...`);
 
         try {
-            // Fetch 400 days to cover 365-day period plus buffer
-            const result = await fullBackfill(merchant.id, 400);
+            // Fetch 366 days to match retention period
+            const result = await fullBackfill(merchant.id, 366);
 
-            console.log(`  Merchant ${merchant.id}: ${result.ordersProcessed} orders, ${result.apiCalls} API calls`);
+            logger.info(`Merchant ${merchant.id} complete`, {
+                ordersProcessed: result.ordersProcessed,
+                apiCalls: result.apiCalls,
+                durationMs: result.durationMs
+            });
 
-            // Rate limit: wait 2 seconds between merchants
-            await sleep(2000);
+            successCount++;
+
+            // Wait 5 seconds between merchants to be polite to Square API
+            // This is NOT about rate limits (Square allows 30/sec)
+            // This is about sustained, predictable load
+            await sleep(5000);
+
         } catch (error) {
-            console.error(`  Merchant ${merchant.id} failed:`, error.message);
+            logger.error(`Merchant ${merchant.id} backfill failed`, {
+                error: error.message,
+                stack: error.stack
+            });
+            failCount++;
+
+            // Continue with next merchant - don't let one failure stop all
         }
     }
+
+    const duration = Date.now() - startTime.getTime();
+    logger.info('Order cache backfill complete', {
+        totalMerchants: merchants.rows.length,
+        successCount,
+        failCount,
+        durationMinutes: (duration / 60000).toFixed(1)
+    });
 }
+
+// Estimate: 20 orders/day × 366 days = 7,320 orders per merchant
+// At 50 orders/page = ~147 API calls per merchant
+// At 5 second delay between merchants:
+//   10 merchants = ~30 minutes total
+//   50 merchants = ~2.5 hours total
 ```
 
 ### 5.4 Feature Flag Integration
@@ -834,8 +992,8 @@ GROUP BY oc.merchant_id, sv.expected_orders;
 
 | Data | Retention | Rationale |
 |------|-----------|-----------|
-| `order_cache` rows | 400 days | Covers 365-day period + buffer |
-| `raw_order` column | 90 days | Full data for recent orders, NULL for older |
+| `order_cache` rows | **366 days** | Matches sales velocity 365-day period + 1 day buffer |
+| `raw_order` column | **366 days** | Keep full data - multiple code paths need it |
 | `sales_velocity` | Indefinite | Small, valuable aggregates |
 | `order_sync_cursor` | Indefinite | Single row per merchant |
 
@@ -845,7 +1003,7 @@ GROUP BY oc.merchant_id, sv.expected_orders;
 // jobs/order-cache-cleanup.js
 
 async function cleanupOrderCache() {
-    const retentionDays = 400;
+    const retentionDays = 366;  // 365-day reporting + 1 day buffer
 
     // Delete orders older than retention period
     const deleted = await db.query(`
@@ -859,21 +1017,11 @@ async function cleanupOrderCache() {
         retentionDays
     });
 
-    // Clear raw_order for orders older than 90 days
-    const cleared = await db.query(`
-        UPDATE order_cache
-        SET raw_order = NULL
-        WHERE closed_at < NOW() - INTERVAL '90 days'
-          AND raw_order IS NOT NULL
-        RETURNING id
-    `);
-
-    logger.info('Raw order data cleared', {
-        clearedRows: cleared.rowCount
-    });
+    // Note: We keep raw_order for full retention period
+    // Storage is minimal (~14 MB/merchant/year) and multiple code paths need full order data
 }
 
-// Schedule: Run daily at 3 AM
+// Schedule: Run daily at 3 AM (off-peak hours)
 cron.schedule('0 3 * * *', cleanupOrderCache);
 ```
 
@@ -975,10 +1123,54 @@ The cache is additive - old code paths remain functional, just unused when cache
 
 ---
 
-## Questions for Review
+## Questions - RESOLVED
 
-1. **Storage**: Should we store `raw_order` at all, or just extracted fields?
-2. **Reconciliation frequency**: Weekly is proposed - should it be daily?
-3. **Backfill strategy**: Run during off-hours? Throttle per merchant?
-4. **Multi-instance**: With P3 scalability, should order_cache sync across Redis?
-5. **Historical data**: Should we backfill beyond 400 days for historical analysis?
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Store `raw_order`? | ✅ YES - Always | Multiple code paths need full order data |
+| Reconciliation frequency? | ✅ Weekly | But requires extensive validation first (see Phase 1-4) |
+| Backfill strategy? | ✅ Overnight, sequential | 2-4 AM, one merchant at a time |
+| Historical data? | ✅ 366 days | Matches sales velocity reporting needs |
+
+## Remaining Questions
+
+1. **Multi-instance (future)**: When scaling to multiple server instances, should order_cache sync across Redis?
+   - Current answer: Not needed for single-instance Raspberry Pi deployment
+   - Revisit when P3 scalability work begins
+
+2. **Webhook failure handling**: What happens if Square webhook delivery fails?
+   - Current answer: Daily incremental sync catches missed orders
+   - Weekly reconciliation catches anything the daily sync misses
+
+---
+
+## Implementation Timeline
+
+### Week 1-2: Foundation
+- [ ] Create migration `029_order_cache.sql`
+- [ ] Create `services/order-cache/` module
+- [ ] Run initial backfill (overnight)
+- [ ] Enable webhook caching in shadow mode
+
+### Week 3-4: Validation (Shadow Mode)
+- [ ] Compare webhook cache vs API sync counts daily
+- [ ] Log and investigate any discrepancies
+- [ ] Fix any webhook coverage gaps found
+- [ ] Document webhook reliability metrics
+
+### Week 5: Read Validation
+- [ ] Enable cache reads alongside API reads
+- [ ] Compare sales velocity calculations: cache vs API
+- [ ] Must achieve 100% match before proceeding
+
+### Week 6: Gradual Cutover
+- [ ] Reduce sync frequency: 3h → 6h
+- [ ] Monitor for issues (1-2 days)
+- [ ] Reduce further: 6h → 12h → 24h
+
+### Week 7+: Weekly Reconciliation
+- [ ] Enable weekly reconciliation job
+- [ ] Remove unnecessary API syncs
+- [ ] Monitor long-term
+
+**Total timeline: ~7 weeks minimum** (conservative, to ensure reliability)
