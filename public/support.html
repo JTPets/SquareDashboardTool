@@ -341,9 +341,7 @@
 
   <!-- Error Helper for user-friendly messages -->
   <script src="/js/error-helper.js"></script>
-
-  <script data-cfasync="false">
-    document.getElementById('year').textContent = new Date().getFullYear();
-  </script>
+  <!-- Page-specific JavaScript (externalized for CSP compliance) -->
+  <script src="/js/support.js"></script>
 </body>
 </html>
