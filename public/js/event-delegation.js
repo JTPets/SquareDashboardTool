@@ -120,9 +120,10 @@
             }
         } else if (typeof window[actionName] === 'function') {
             // Fallback: check for global function (for gradual migration)
+            // IMPORTANT: Use same parameter order as registered handlers: (element, event, param)
             const param = element.dataset.actionParam;
             try {
-                return window[actionName](param, element, event);
+                return window[actionName](element, event, param);
             } catch (error) {
                 console.error(`PageActions: Error executing global "${actionName}":`, error);
             }
