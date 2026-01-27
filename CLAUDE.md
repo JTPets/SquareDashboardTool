@@ -33,8 +33,11 @@ jobs/            → Background jobs and cron tasks
 
 ### Response Format
 ```javascript
-// Success
+// Success (wrapped format - used by some endpoints)
 res.json({ success: true, data: { ... } });
+
+// Success (direct format - used by most endpoints)
+res.json({ count: 5, items: [...] });
 
 // Error
 res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
@@ -42,6 +45,8 @@ res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
 // Helper available: utils/response-helper.js
 const { sendSuccess, sendError, ErrorCodes } = require('../utils/response-helper');
 ```
+
+**⚠️ IMPORTANT:** Response formats are inconsistent across routes. Some use `{success, data: {...}}`, others return data directly. **Always check the actual route response** before writing frontend code. See "API Response Data Wrapper Mismatch" in JavaScript Execution Rules.
 
 ### Multi-Tenant Pattern
 ```javascript
@@ -299,6 +304,34 @@ For critical applications, wrap exports defensively:
   }
 });
 ```
+
+#### 6. API Response Data Wrapper Mismatch
+**Common silent bug:** Backend returns `{ success: true, data: {...} }` but frontend accesses properties directly.
+
+```javascript
+// Backend returns:
+res.json({ success: true, data: { previous_quantity: 5, new_quantity: 8 } });
+
+// ❌ WRONG - Shows "undefined → undefined" in UI
+const result = await response.json();
+showToast(`Updated: ${result.previous_quantity} → ${result.new_quantity}`);
+
+// ✅ CORRECT - Extract data object first
+const result = await response.json();
+showToast(`Updated: ${result.data.previous_quantity} → ${result.data.new_quantity}`);
+
+// ✅ ALSO CORRECT - Use optional chaining with fallback for compatibility
+const result = await response.json();
+const data = result.data || result;  // Handle both formats
+showToast(`Updated: ${data.previous_quantity} → ${data.new_quantity}`);
+```
+
+**Debugging:** If UI shows "undefined" where values should be, check:
+1. Network tab → Response body structure
+2. Compare backend `res.json({...})` with frontend property access
+3. Look for `data:` wrapper in response
+
+**Prevention:** When adding new API endpoints, verify frontend accesses match the exact response structure.
 
 ## Webhook Event Flow
 
