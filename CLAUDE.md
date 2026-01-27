@@ -501,7 +501,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 9/29 files externalized (~31%)
+#### Phase 2 Progress: 11/29 files externalized (~38%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -514,16 +514,12 @@ Fixed 3 locations exposing internal error details to clients:
 | ✅ | logs.html → logs.js | 163 | B |
 | ✅ | deleted-items.html → deleted-items.js | 178 | B |
 | ✅ | cycle-count-history.html → cycle-count-history.js | 191 | B |
+| ✅ | delivery-history.html → delivery-history.js | 211 | A |
+| ✅ | merchants.html → merchants.js | 266 | A |
 
-**Total externalized**: ~1,047 lines of JavaScript
+**Total externalized**: ~1,524 lines of JavaScript
 
-#### Phase 2 Remaining Work: 20 files by complexity tier
-
-**Tier A - Simple (2 files, ~350 lines)**
-| File | JS Lines | Notes |
-|------|----------|-------|
-| delivery-history.html | ~170 | Date filters, table rendering |
-| merchants.html | ~180 | Admin merchant management |
+#### Phase 2 Remaining Work: 18 files by complexity tier
 
 **Tier B - Medium (9 files, ~3,200 lines)**
 | File | JS Lines | Notes |
@@ -577,7 +573,7 @@ function debounce(fn, delay) { ... }
 
 #### Recommended Execution Order
 
-1. **Batch 2** (Tier A): delivery-history, merchants (~350 lines)
+1. ~~**Batch 2** (Tier A): delivery-history, merchants~~ ✅ COMPLETE (2026-01-27)
 2. **Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry (~950 lines)
 3. **Batch 4** (Tier B part 2): driver, delivery, catalog-audit (~1,200 lines)
 4. **Batch 5** (Tier B part 3): cycle-count, inventory, expiry-discounts (~1,270 lines)
