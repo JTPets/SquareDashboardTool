@@ -33,8 +33,11 @@ jobs/            → Background jobs and cron tasks
 
 ### Response Format
 ```javascript
-// Success
+// Success (wrapped format - used by some endpoints)
 res.json({ success: true, data: { ... } });
+
+// Success (direct format - used by most endpoints)
+res.json({ count: 5, items: [...] });
 
 // Error
 res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
@@ -42,6 +45,8 @@ res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
 // Helper available: utils/response-helper.js
 const { sendSuccess, sendError, ErrorCodes } = require('../utils/response-helper');
 ```
+
+**⚠️ IMPORTANT:** Response formats are inconsistent across routes. Some use `{success, data: {...}}`, others return data directly. **Always check the actual route response** before writing frontend code. See "API Response Data Wrapper Mismatch" in JavaScript Execution Rules.
 
 ### Multi-Tenant Pattern
 ```javascript
@@ -216,6 +221,105 @@ If an element doesn't respond:
 3. If undefined, either the function doesn't exist OR an earlier export crashed the script
 
 See `/public/js/event-delegation.js` for implementation.
+
+**Audit:** Run the undefined exports audit script before deploying - see PR Checklist section.
+
+### JavaScript Execution Rules (App-Agnostic)
+
+These rules apply to any web application with inline scripts:
+
+#### 1. Script Errors Are Fatal to Everything Below
+```javascript
+// ❌ If line 10 throws an error, lines 11+ NEVER execute
+doSomething();           // Line 10: ReferenceError if undefined
+window.a = a;            // Line 11: Never runs
+window.b = b;            // Line 12: Never runs
+initializeApp();         // Line 13: Never runs - app appears broken
+```
+**Rule:** Errors don't just skip the bad line - they terminate the entire script block. Always check browser console for red errors first.
+
+#### 2. Reference Before Definition = Crash
+```javascript
+// ❌ WRONG - Using before defining crashes immediately
+window.myFunc = myFunc;  // ReferenceError: myFunc is not defined
+function myFunc() {}     // Too late!
+
+// ✅ CORRECT - Define before using
+function myFunc() {}
+window.myFunc = myFunc;  // Works
+```
+
+#### 3. Silent vs Loud Failures
+| Pattern | Failure Mode | How to Debug |
+|---------|--------------|--------------|
+| Missing function export | Silent - UI doesn't respond | `typeof window.func` |
+| ReferenceError in exports | Silent - all exports after it fail | Browser console (red) |
+| CSP-blocked inline handler | Silent - no error shown | Check CSP headers |
+| API call failure | May be silent if no error UI | Network tab |
+| Typo in data attribute | Silent - handler never called | Inspect element |
+
+#### 4. Export Ordering Pattern
+Always structure inline scripts in this order:
+```javascript
+<script>
+  // 1. Constants and state
+  const state = {};
+
+  // 2. All function definitions
+  function handleClick() { }
+  function saveData() { }
+  async function loadData() { }
+
+  // 3. Event listeners and initialization
+  document.addEventListener('DOMContentLoaded', init);
+
+  // 4. Window exports LAST (after all functions defined)
+  window.handleClick = handleClick;
+  window.saveData = saveData;
+  window.loadData = loadData;
+</script>
+```
+
+#### 5. Defensive Export Pattern (Optional)
+For critical applications, wrap exports defensively:
+```javascript
+// Logs warning instead of crashing if function missing
+['handleClick', 'saveData', 'loadData'].forEach(name => {
+  if (typeof window[name] === 'undefined' && typeof eval(name) === 'function') {
+    window[name] = eval(name);
+  } else if (typeof eval(name) !== 'function') {
+    console.warn(`Export warning: ${name} is not defined`);
+  }
+});
+```
+
+#### 6. API Response Data Wrapper Mismatch
+**Common silent bug:** Backend returns `{ success: true, data: {...} }` but frontend accesses properties directly.
+
+```javascript
+// Backend returns:
+res.json({ success: true, data: { previous_quantity: 5, new_quantity: 8 } });
+
+// ❌ WRONG - Shows "undefined → undefined" in UI
+const result = await response.json();
+showToast(`Updated: ${result.previous_quantity} → ${result.new_quantity}`);
+
+// ✅ CORRECT - Extract data object first
+const result = await response.json();
+showToast(`Updated: ${result.data.previous_quantity} → ${result.data.new_quantity}`);
+
+// ✅ ALSO CORRECT - Use optional chaining with fallback for compatibility
+const result = await response.json();
+const data = result.data || result;  // Handle both formats
+showToast(`Updated: ${data.previous_quantity} → ${data.new_quantity}`);
+```
+
+**Debugging:** If UI shows "undefined" where values should be, check:
+1. Network tab → Response body structure
+2. Compare backend `res.json({...})` with frontend property access
+3. Look for `data:` wrapper in response
+
+**Prevention:** When adding new API endpoints, verify frontend accesses match the exact response structure.
 
 ## Webhook Event Flow
 
@@ -1108,6 +1212,23 @@ Before merging any PR:
 - [ ] Validators in `middleware/validators/`, not inline
 - [ ] Business logic in services, not routes
 - [ ] merchant_id filter on ALL database queries
+- [ ] Frontend API response handling matches backend structure (see Rule #6)
+
+**Audit commands for common issues:**
+```bash
+# Find routes returning {success, data: {...}} wrapper
+grep -rn "data: {" routes/*.js
+
+# Find undefined window exports (see Rule #2)
+for file in public/*.html; do
+  grep "window\.[a-zA-Z]* = [a-zA-Z]*;" "$file" | while read line; do
+    func=$(echo "$line" | sed -n 's/.*window\.\([a-zA-Z_]*\) = \1;.*/\1/p')
+    if [ -n "$func" ] && ! grep -q "function $func" "$file"; then
+      echo "ERROR: $(basename $file) - '$func' exported but not defined"
+    fi
+  done
+done
+```
 
 ---
 
