@@ -34,6 +34,37 @@ const { LoyaltyWebhookService } = require('../loyalty');
 const SQUARE_API_VERSION = '2025-01-16';
 
 /**
+ * Metrics for tracking webhook order data usage vs API fallback
+ * Helps measure effectiveness of P0-API-1 optimization
+ */
+const webhookOrderStats = {
+    directUse: 0,
+    apiFallback: 0,
+    lastReset: Date.now()
+};
+
+/**
+ * Validate webhook order has required fields for processing
+ * Square webhook payloads contain complete order data, so this should always pass.
+ * API fetch is only needed if validation fails (which should be extremely rare).
+ *
+ * @param {Object} order - Order from webhook payload
+ * @returns {Object} { valid: boolean, missingRequired: string[], hasLineItems: boolean, hasFulfillments: boolean }
+ */
+function validateWebhookOrder(order) {
+    const requiredFields = ['id', 'state', 'location_id'];
+
+    const missingRequired = requiredFields.filter(f => !order?.[f]);
+
+    return {
+        valid: missingRequired.length === 0,
+        missingRequired,
+        hasLineItems: Array.isArray(order?.line_items) && order.line_items.length > 0,
+        hasFulfillments: Array.isArray(order?.fulfillments) && order.fulfillments.length > 0
+    };
+}
+
+/**
  * Process order for loyalty using either modern or legacy service
  * Feature flag: USE_NEW_LOYALTY_SERVICE
  *
@@ -138,10 +169,41 @@ class OrderHandler {
             logger.info('Sales velocity sync completed via order.updated (COMPLETED state)');
         }
 
-        // Fetch full order from Square API for delivery/loyalty processing
+        // P0-API-1 OPTIMIZATION: Use webhook order data directly instead of re-fetching
+        // Square webhook payloads contain complete order data including line_items and fulfillments.
+        // Only fetch from API as a fallback if webhook data is incomplete (should never happen).
         let order = webhookOrder;
-        if (webhookOrder?.id) {
-            order = await this._fetchFullOrder(webhookOrder.id, merchantId, webhookOrder);
+        const validation = validateWebhookOrder(webhookOrder);
+
+        if (!validation.valid) {
+            // Webhook data incomplete - fetch from API (should be extremely rare)
+            webhookOrderStats.apiFallback++;
+            logger.warn('Webhook order missing required fields - fetching from API', {
+                orderId: webhookOrder?.id,
+                missingRequired: validation.missingRequired,
+                merchantId
+            });
+            order = await this._fetchFullOrderFallback(webhookOrder?.id, merchantId, webhookOrder);
+        } else {
+            // Use webhook data directly - no API call needed
+            webhookOrderStats.directUse++;
+            logger.debug('Using webhook order data directly (API fetch skipped)', {
+                orderId: order.id,
+                hasLineItems: validation.hasLineItems,
+                hasFulfillments: validation.hasFulfillments
+            });
+        }
+
+        // Log stats periodically (every 100 orders)
+        const totalProcessed = webhookOrderStats.directUse + webhookOrderStats.apiFallback;
+        if (totalProcessed > 0 && totalProcessed % 100 === 0) {
+            const fallbackRate = ((webhookOrderStats.apiFallback / totalProcessed) * 100).toFixed(2);
+            logger.info('P0-API-1 Optimization stats', {
+                directUse: webhookOrderStats.directUse,
+                apiFallback: webhookOrderStats.apiFallback,
+                fallbackRate: `${fallbackRate}%`,
+                apiCallsSaved: webhookOrderStats.directUse
+            });
         }
 
         // Process delivery routing
@@ -158,15 +220,30 @@ class OrderHandler {
     }
 
     /**
-     * Fetch full order from Square API
+     * Fetch full order from Square API (FALLBACK ONLY)
+     *
+     * This should only be called when webhook data is incomplete,
+     * which should never happen under normal circumstances.
+     * Part of P0-API-1 optimization to eliminate redundant API calls.
+     *
      * @private
+     * @param {string} orderId - Square order ID
+     * @param {number} merchantId - Internal merchant ID
+     * @param {Object} fallbackOrder - Webhook order to use if fetch fails
+     * @returns {Promise<Object>} Order object
      */
-    async _fetchFullOrder(orderId, merchantId, fallbackOrder) {
+    async _fetchFullOrderFallback(orderId, merchantId, fallbackOrder) {
+        logger.warn('Fetching order from API - this should be rare (P0-API-1)', {
+            orderId,
+            merchantId,
+            trigger: 'incomplete_webhook_data'
+        });
+
         try {
             const squareClient = await getSquareClientForMerchant(merchantId);
             const orderResponse = await squareClient.orders.get({ orderId });
             if (orderResponse.order) {
-                logger.info('Fetched full order from Square API for delivery check', {
+                logger.info('API fallback: fetched order successfully', {
                     orderId: orderResponse.order.id,
                     fulfillmentCount: orderResponse.order.fulfillments?.length || 0,
                     fulfillmentTypes: orderResponse.order.fulfillments?.map(f => f.type) || []
@@ -174,7 +251,7 @@ class OrderHandler {
                 return orderResponse.order;
             }
         } catch (fetchError) {
-            logger.warn('Failed to fetch full order from Square, using webhook data', {
+            logger.error('API fallback failed - using webhook data', {
                 orderId,
                 error: fetchError.message
             });
