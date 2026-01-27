@@ -1812,9 +1812,12 @@
     function recreateDisplay(cell, variationId, field, value) {
       const displayDiv = document.createElement('div');
       displayDiv.className = `editable-display ${value ? 'has-value' : ''}`;
-      displayDiv.onclick = function() {
-        enterEditMode(this, variationId, field, value);
-      };
+      // Use data attributes for event delegation (CSP compliant)
+      displayDiv.dataset.action = 'enterEditMode';
+      displayDiv.dataset.variationId = variationId;
+      displayDiv.dataset.field = field;
+      displayDiv.dataset.value = value === null ? '' : value;
+      displayDiv.title = 'Click to edit - syncs to Square';
 
       if (value) {
         displayDiv.textContent = value;
