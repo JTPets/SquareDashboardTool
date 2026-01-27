@@ -121,38 +121,68 @@ const result = await db.query(
 
 ### Event Delegation Pattern (CSP Compliance)
 
-All HTML files use event delegation for CSP compliance. **When adding interactive elements:**
+All HTML files use event delegation for CSP compliance. **This is critical - failures are SILENT (no console errors, elements just don't respond).**
 
-1. Use `data-action` instead of `onclick`:
+#### Supported Event Attributes
+| Attribute | Replaces | Example |
+|-----------|----------|---------|
+| `data-action` | `onclick` | `<button data-action="save">` |
+| `data-change` | `onchange` | `<select data-change="filter">` |
+| `data-blur` | `onblur` | `<input data-blur="saveField">` |
+| `data-input` | `oninput` | `<input data-input="search">` |
+| `data-keydown` | `onkeydown` | `<input data-keydown="handleKey">` |
+| `data-keyup` | `onkeyup` | `<input data-keyup="handleKeyup">` |
+| `data-submit` | `onsubmit` | `<form data-submit="handleForm">` |
+| `data-focus` | `onfocus` | `<input data-focus="handleFocus">` |
+
+#### Required Pattern
 ```html
-<!-- CORRECT -->
+<!-- In HTML: Use data attributes, NOT inline handlers -->
 <button data-action="saveItem" data-action-param="123">Save</button>
-
-<!-- WRONG - violates CSP -->
-<button onclick="saveItem(123)">Save</button>
+<input data-blur="validateField" data-change="updatePreview">
+<select data-change="filterResults">
 ```
 
-2. **CRITICAL: Export functions to window scope** at the end of inline scripts:
 ```javascript
-function saveItem(param) { /* ... */ }
-function deleteItem(param) { /* ... */ }
+// In script: Define functions
+function saveItem(element, event, param) { /* ... */ }
+function validateField(element, event) { /* ... */ }
+function filterResults(element, event) { /* ... */ }
 
-// REQUIRED: Expose functions for event delegation
+// CRITICAL: Export ALL handler functions to window at end of script
 window.saveItem = saveItem;
-window.deleteItem = deleteItem;
+window.validateField = validateField;
+window.filterResults = filterResults;
 </script>
 ```
 
-3. For other events, use corresponding data attributes:
-   - `data-change` for onChange
-   - `data-submit` for onSubmit
-   - `data-blur` for onBlur
-   - `data-keydown` for onKeyDown
-   - `data-input` for onInput
+#### Dynamically Created Elements
+When creating elements in JavaScript, use data attributes - NEVER use `.onclick`:
+```javascript
+// WRONG - CSP blocks this, fails silently
+const btn = document.createElement('button');
+btn.onclick = function() { doSomething(); };  // ❌ BLOCKED BY CSP
 
-**Common mistake**: Adding `data-action="functionName"` without the `window.functionName = functionName;` export causes silent failures - buttons appear to do nothing.
+// CORRECT - Works with event delegation
+const btn = document.createElement('button');
+btn.dataset.action = 'doSomething';           // ✅ CSP compliant
+btn.dataset.actionParam = '123';              // Optional param
+```
 
-See `/public/js/event-delegation.js` for implementation details.
+#### Pre-Commit Checklist
+Before committing changes to HTML files:
+- [ ] All interactive elements use `data-*` attributes (no `onclick`, `onchange`, etc.)
+- [ ] All functions referenced in `data-*` attributes are exported to `window`
+- [ ] Dynamically created elements use `dataset.*` not `.onclick`/`.onchange`
+- [ ] Test that ALL buttons/inputs actually respond to clicks/changes
+
+#### Debugging Silent Failures
+If an element doesn't respond:
+1. Open browser console
+2. Check: `typeof window.functionName` - should be `"function"`, not `"undefined"`
+3. If undefined, add `window.functionName = functionName;` to script
+
+See `/public/js/event-delegation.js` for implementation.
 
 ## Webhook Event Flow
 
