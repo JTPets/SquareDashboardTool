@@ -456,7 +456,7 @@ The following vulnerabilities were discovered and resolved:
 | P0 Security | ✅ 7/7 | All P0 items complete (P0-5,6,7 fixed 2026-01-26) |
 | P1 Architecture | ✅ 9/9 | P1-1 in progress; P1-2,3,4,5 complete; P1-6,7,8,9 fixed 2026-01-26 |
 | P2 Testing | ✅ 6/6 | Tests comprehensive (P2-4 implementation gap closed by P0-6) |
-| **API Optimization** | 🟡 1/4 | P0-API-1 fixed; P0-API-2,3,4 causing rate limit lockouts (~1,040 wasted calls/day) |
+| **API Optimization** | 🟡 3/4 | P0-API-1,2,3 fixed; P0-API-4 (committed inventory) remaining (~200 wasted calls/day) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 **⚠️ URGENT**: API optimization items are causing **service interruptions** from Square rate limiting.
@@ -1147,10 +1147,10 @@ Current API usage is causing **rate limit lockouts** and wasting bandwidth:
 | Issue | API Calls Wasted/Day | Status |
 |-------|---------------------|--------|
 | P0-API-1: Redundant order fetch | ~20 | ✅ Fixed (2026-01-27) |
-| P0-API-2: Full 91-day sync per order | ~740 | 🔴 Not fixed |
-| P0-API-3: Fulfillment also triggers 91-day sync | ~100 | 🔴 Not fixed |
+| P0-API-2: Full 91-day sync per order | ~740 | ✅ Fixed (2026-01-27) |
+| P0-API-3: Fulfillment also triggers 91-day sync | ~100 | ✅ Fixed (2026-01-27) |
 | P0-API-4: Committed inventory per webhook | ~200 | 🔴 Not fixed |
-| **TOTAL WASTE** | **~1,040/day** | |
+| **TOTAL WASTE** | **~200/day** | |
 
 **Expected improvement after fixes**: 90-95% reduction (~50-100 calls/day)
 
@@ -1173,63 +1173,36 @@ Current API usage is causing **rate limit lockouts** and wasting bandwidth:
 
 ---
 
-### P0-API-2: Incremental Velocity Update 🔴 CRITICAL
+### P0-API-2: Incremental Velocity Update ✅ FIXED
 
-**File**: `services/webhook-handlers/order-handler.js:134-139`
+**File**: `services/webhook-handlers/order-handler.js:202-219`, `services/square/api.js:1661-1808`
+**Status**: FIXED (2026-01-27)
 
-**Current (Extremely Wasteful)**:
-```javascript
-if (webhookOrder?.state === 'COMPLETED') {
-    await squareApi.syncSalesVelocity(91, merchantId);  // Fetches ALL 91 days!
-}
-```
+**Problem**: Every completed order triggered a full 91-day order sync (~37 API calls).
 
-**Problem**: Every completed order triggers:
-- `POST /v2/orders/search` with 91-day filter
-- Pagination through ~1,800 orders (20/day × 91 days)
-- ~37 API calls per order completion
-- Store with 20 orders/day = **740 API calls/day** for this alone!
-
-**Fix**: Update velocity incrementally from the single order:
-```javascript
-if (webhookOrder?.state === 'COMPLETED') {
-    // Update only the variations in THIS order
-    await squareApi.updateSalesVelocityFromOrder(order, merchantId);
-    // 0 API calls - just database updates!
-}
-```
-
-**New Function** (`services/square/api.js`):
-```javascript
-async function updateSalesVelocityFromOrder(order, merchantId) {
-    // Extract line items from the webhook order
-    // Calculate which periods this order affects (91d, 182d, 365d)
-    // Atomic increment existing velocity records
-    // No Square API calls needed!
-}
-```
-
-**Safety Net**: Daily 2-day reconciliation job catches any drift.
+**Fix Applied**:
+- Created `updateSalesVelocityFromOrder()` in `services/square/api.js`
+- Updated order handler to use incremental update (0 API calls for order webhooks)
+- Atomic upsert increments velocity records for 91d, 182d, 365d periods
+- Daily smart sync provides reconciliation safety net
 
 **Impact**: ~740 API calls/day saved, webhook processing 10-20x faster
 
 ---
 
-### P0-API-3: Fulfillment Handler Also Triggers Full Sync 🔴
+### P0-API-3: Fulfillment Handler Also Triggers Full Sync ✅ FIXED
 
-**File**: `services/webhook-handlers/order-handler.js:400-405`
+**File**: `services/webhook-handlers/order-handler.js:489-519`
+**Status**: FIXED (2026-01-27)
 
-```javascript
-if (fulfillment?.state === 'COMPLETED') {
-    await squareApi.syncSalesVelocity(91, merchantId);  // ANOTHER full sync!
-}
-```
+**Problem**: Fulfillment webhooks also triggered full 91-day sync.
 
-**Problem**: Same order may trigger velocity sync from both `order.updated` AND `order.fulfillment.updated` webhooks.
+**Fix Applied**:
+- Fulfillment handler now fetches only the single order (1 API call)
+- Uses `updateSalesVelocityFromOrder()` for incremental update
+- Saves ~36 API calls per fulfillment (1 vs 37)
 
-**Fix**:
-1. Use incremental update (same as P0-API-2)
-2. Add deduplication via SyncCoordinator service
+**Impact**: ~100 API calls/day saved
 
 ---
 

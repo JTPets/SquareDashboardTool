@@ -1641,6 +1641,173 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
 }
 
 /**
+ * P0-API-2: Update sales velocity incrementally from a single completed order.
+ * This avoids re-fetching all 91 days of historical orders on every order completion.
+ *
+ * ZERO API calls - just database operations!
+ *
+ * The function:
+ * 1. Validates the order is COMPLETED and has line items
+ * 2. Checks which variations exist in our database
+ * 3. For each applicable period (91d, 182d, 365d), updates velocity incrementally
+ * 4. Uses atomic increment to add quantities/revenue to existing records
+ *
+ * Note: Daily reconciliation job corrects any drift from window sliding.
+ *
+ * @param {Object} order - The completed order object (from webhook)
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<Object>} Update result { updated, skipped, periods, reason? }
+ */
+async function updateSalesVelocityFromOrder(order, merchantId) {
+    // Validate inputs
+    if (!order) {
+        return { updated: 0, skipped: 0, reason: 'No order provided' };
+    }
+
+    if (order.state !== 'COMPLETED') {
+        return { updated: 0, skipped: 0, reason: 'Order not completed' };
+    }
+
+    if (!order.line_items || order.line_items.length === 0) {
+        return { updated: 0, skipped: 0, reason: 'No line items' };
+    }
+
+    if (!merchantId) {
+        return { updated: 0, skipped: 0, reason: 'No merchantId' };
+    }
+
+    const closedAt = order.closed_at ? new Date(order.closed_at) : new Date();
+    const locationId = order.location_id;
+
+    if (!locationId) {
+        return { updated: 0, skipped: 0, reason: 'No location_id' };
+    }
+
+    // Calculate order age in days
+    const orderAgeDays = Math.floor((Date.now() - closedAt.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Standard velocity periods
+    const ALL_PERIODS = [91, 182, 365];
+
+    // Only update periods that include this order's date
+    const applicablePeriods = ALL_PERIODS.filter(p => orderAgeDays <= p);
+
+    if (applicablePeriods.length === 0) {
+        logger.debug('Order too old for all velocity periods', {
+            orderId: order.id,
+            orderAgeDays,
+            closedAt
+        });
+        return { updated: 0, skipped: 0, reason: 'Order too old for all periods' };
+    }
+
+    logger.info('Updating sales velocity incrementally from order (P0-API-2)', {
+        orderId: order.id,
+        lineItemCount: order.line_items.length,
+        locationId,
+        closedAt: closedAt.toISOString(),
+        orderAgeDays,
+        applicablePeriods,
+        merchantId
+    });
+
+    // Get unique variation IDs from line items
+    const variationIds = [...new Set(order.line_items
+        .filter(li => li.catalog_object_id)
+        .map(li => li.catalog_object_id))];
+
+    if (variationIds.length === 0) {
+        return { updated: 0, skipped: 0, reason: 'No catalog variations in order' };
+    }
+
+    // Validate which variations exist in our database (prevents FK violations)
+    const placeholders = variationIds.map((_, i) => `$${i + 1}`).join(',');
+    const existingResult = await db.query(
+        `SELECT id FROM variations WHERE id IN (${placeholders}) AND merchant_id = $${variationIds.length + 1}`,
+        [...variationIds, merchantId]
+    );
+    const existingIds = new Set(existingResult.rows.map(r => r.id));
+
+    let updated = 0;
+    let skipped = 0;
+
+    // Process each line item
+    for (const lineItem of order.line_items) {
+        const variationId = lineItem.catalog_object_id;
+
+        // Skip if variation doesn't exist in our catalog
+        if (!variationId || !existingIds.has(variationId)) {
+            skipped++;
+            continue;
+        }
+
+        const quantity = parseFloat(lineItem.quantity) || 0;
+        const revenue = parseInt(lineItem.total_money?.amount) || 0;
+
+        if (quantity <= 0) {
+            skipped++;
+            continue;
+        }
+
+        // Update each applicable period
+        for (const periodDays of applicablePeriods) {
+            const periodStart = new Date();
+            periodStart.setDate(periodStart.getDate() - periodDays);
+
+            try {
+                // Atomic upsert: increment existing record or create new one
+                // The averages are recalculated based on the new totals
+                await db.query(`
+                    INSERT INTO sales_velocity (
+                        variation_id, location_id, period_days,
+                        total_quantity_sold, total_revenue_cents,
+                        period_start_date, period_end_date,
+                        daily_avg_quantity, daily_avg_revenue_cents,
+                        weekly_avg_quantity, monthly_avg_quantity,
+                        merchant_id, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, NOW(),
+                            $4::decimal / $3, $5::decimal / $3,
+                            $4::decimal / ($3::decimal / 7),
+                            $4::decimal / ($3::decimal / 30),
+                            $7, NOW())
+                    ON CONFLICT (variation_id, location_id, period_days, merchant_id)
+                    DO UPDATE SET
+                        total_quantity_sold = sales_velocity.total_quantity_sold + $4,
+                        total_revenue_cents = sales_velocity.total_revenue_cents + $5,
+                        daily_avg_quantity = (sales_velocity.total_quantity_sold + $4) / $3,
+                        daily_avg_revenue_cents = (sales_velocity.total_revenue_cents + $5) / $3,
+                        weekly_avg_quantity = (sales_velocity.total_quantity_sold + $4) / ($3::decimal / 7),
+                        monthly_avg_quantity = (sales_velocity.total_quantity_sold + $4) / ($3::decimal / 30),
+                        period_end_date = NOW(),
+                        updated_at = NOW()
+                `, [variationId, locationId, periodDays, quantity, revenue, periodStart, merchantId]);
+
+                updated++;
+            } catch (dbError) {
+                logger.warn('Failed to update velocity for variation', {
+                    variationId,
+                    periodDays,
+                    orderId: order.id,
+                    error: dbError.message
+                });
+                skipped++;
+            }
+        }
+    }
+
+    logger.info('Incremental sales velocity update complete (P0-API-2)', {
+        orderId: order.id,
+        updated,
+        skipped,
+        periods: applicablePeriods,
+        apiCalls: 0  // This is the point - ZERO API calls!
+    });
+
+    return { updated, skipped, periods: applicablePeriods };
+}
+
+/**
  * Get current inventory count from Square for a specific variation and location
  * @param {string} catalogObjectId - The variation ID
  * @param {string} locationId - The location ID
@@ -3490,6 +3657,7 @@ module.exports = {
     syncCommittedInventory,
     syncSalesVelocity,
     syncSalesVelocityAllPeriods,
+    updateSalesVelocityFromOrder,
     fullSync,
     getSquareInventoryCount,
     setSquareInventoryCount,

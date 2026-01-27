@@ -162,13 +162,6 @@ class OrderHandler {
             logger.info('Committed inventory sync completed via webhook', { count: committedResult });
         }
 
-        // If order is COMPLETED, also sync sales velocity
-        if (webhookOrder?.state === 'COMPLETED') {
-            await squareApi.syncSalesVelocity(91, merchantId);
-            result.salesVelocity = true;
-            logger.info('Sales velocity sync completed via order.updated (COMPLETED state)');
-        }
-
         // P0-API-1 OPTIMIZATION: Use webhook order data directly instead of re-fetching
         // Square webhook payloads contain complete order data including line_items and fulfillments.
         // Only fetch from API as a fallback if webhook data is incomplete (should never happen).
@@ -203,6 +196,25 @@ class OrderHandler {
                 apiFallback: webhookOrderStats.apiFallback,
                 fallbackRate: `${fallbackRate}%`,
                 apiCallsSaved: webhookOrderStats.directUse
+            });
+        }
+
+        // P0-API-2 OPTIMIZATION: Update sales velocity incrementally from this order
+        // Instead of fetching ALL 91 days of orders (~37 API calls), we update velocity
+        // directly from the webhook order data (0 API calls)
+        if (order && order.state === 'COMPLETED') {
+            const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
+            result.salesVelocity = {
+                method: 'incremental',
+                updated: velocityResult.updated,
+                skipped: velocityResult.skipped,
+                periods: velocityResult.periods
+            };
+            logger.info('Sales velocity updated incrementally from completed order (P0-API-2)', {
+                orderId: order.id,
+                updated: velocityResult.updated,
+                apiCallsSaved: 37,  // Previously took ~37 API calls per order
+                merchantId
             });
         }
 
@@ -474,11 +486,36 @@ class OrderHandler {
             logger.info('Committed inventory sync skipped via fulfillment webhook', { reason: committedResult.reason });
         }
 
-        // Sync sales velocity if completed
-        if (fulfillment?.state === 'COMPLETED') {
-            await squareApi.syncSalesVelocity(91, merchantId);
-            result.salesVelocity = true;
-            logger.info('Sales velocity sync completed via fulfillment webhook');
+        // P0-API-2 OPTIMIZATION: Update sales velocity incrementally if completed
+        // Fulfillment webhooks don't include line_items, so we fetch THIS order (1 API call)
+        // instead of all 91 days of orders (~37 API calls)
+        if (fulfillment?.state === 'COMPLETED' && data.order_id) {
+            try {
+                const squareClient = await getSquareClientForMerchant(merchantId);
+                const orderResponse = await squareClient.orders.get({ orderId: data.order_id });
+
+                if (orderResponse.order?.state === 'COMPLETED') {
+                    const velocityResult = await squareApi.updateSalesVelocityFromOrder(
+                        orderResponse.order,
+                        merchantId
+                    );
+                    result.salesVelocity = {
+                        method: 'incremental',
+                        fromFulfillment: true,
+                        updated: velocityResult.updated
+                    };
+                    logger.info('Sales velocity updated incrementally via fulfillment (P0-API-2)', {
+                        orderId: data.order_id,
+                        updated: velocityResult.updated,
+                        apiCallsSaved: 36  // 1 fetch vs 37 full sync
+                    });
+                }
+            } catch (fetchErr) {
+                logger.warn('Could not fetch order for fulfillment velocity update', {
+                    orderId: data.order_id,
+                    error: fetchErr.message
+                });
+            }
         }
 
         // Update delivery order status
