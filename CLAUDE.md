@@ -456,7 +456,7 @@ The following vulnerabilities were discovered and resolved:
 | P0 Security | ✅ 7/7 | All P0 items complete (P0-5,6,7 fixed 2026-01-26) |
 | P1 Architecture | ✅ 9/9 | P1-1 in progress; P1-2,3,4,5 complete; P1-6,7,8,9 fixed 2026-01-26 |
 | P2 Testing | ✅ 6/6 | Tests comprehensive (P2-4 implementation gap closed by P0-6) |
-| **API Optimization** | 🔴 0/4 | P0-API-1,2,3,4 causing rate limit lockouts (~1,060 wasted calls/day) |
+| **API Optimization** | 🟡 1/4 | P0-API-1 fixed; P0-API-2,3,4 causing rate limit lockouts (~1,040 wasted calls/day) |
 | P3 Scalability | 🟡 Optional | Multi-instance deployment prep |
 
 **⚠️ URGENT**: API optimization items are causing **service interruptions** from Square rate limiting.
@@ -1146,46 +1146,28 @@ Current API usage is causing **rate limit lockouts** and wasting bandwidth:
 
 | Issue | API Calls Wasted/Day | Status |
 |-------|---------------------|--------|
-| P0-API-1: Redundant order fetch | ~20 | 🔴 Not fixed |
+| P0-API-1: Redundant order fetch | ~20 | ✅ Fixed (2026-01-27) |
 | P0-API-2: Full 91-day sync per order | ~740 | 🔴 Not fixed |
 | P0-API-3: Fulfillment also triggers 91-day sync | ~100 | 🔴 Not fixed |
 | P0-API-4: Committed inventory per webhook | ~200 | 🔴 Not fixed |
-| **TOTAL WASTE** | **~1,060/day** | |
+| **TOTAL WASTE** | **~1,040/day** | |
 
 **Expected improvement after fixes**: 90-95% reduction (~50-100 calls/day)
 
 ---
 
-### P0-API-1: Remove Redundant Order Fetch 🔴 CRITICAL
+### P0-API-1: Remove Redundant Order Fetch ✅ FIXED
 
-**File**: `services/webhook-handlers/order-handler.js:141-145`
+**File**: `services/webhook-handlers/order-handler.js:172-207`
+**Status**: FIXED (2026-01-27)
 
-**Current (Wasteful)**:
-```javascript
-let order = webhookOrder;  // Already has ALL data
-if (webhookOrder?.id) {
-    order = await this._fetchFullOrder(...);  // Fetches AGAIN!
-}
-```
+**Problem**: Every order webhook re-fetched the order from Square API despite the webhook payload containing complete order data.
 
-**Problem**: Square webhook payloads contain **complete order data** including:
-- `line_items[]` with `catalog_object_id`, `quantity`, `total_money`
-- `fulfillments[]` with `type`, `state`, delivery details
-- `customer_id`, `location_id`, `closed_at`
-
-The API fetch is 100% redundant under normal circumstances.
-
-**Fix**: Validate webhook data completeness, only fetch as rare fallback:
-```javascript
-const validation = validateWebhookOrder(webhookOrder);
-if (!validation.valid) {
-    // Only fetch if missing required fields (should never happen)
-    order = await this._fetchFullOrderFallback(...);
-} else {
-    // Use webhook data directly - no API call needed
-    order = webhookOrder;
-}
-```
+**Fix Applied**:
+- Added `validateWebhookOrder()` to check webhook data completeness
+- Only fetch from API as fallback if validation fails (should be extremely rare)
+- Renamed `_fetchFullOrder` to `_fetchFullOrderFallback` with warning logs
+- Added metrics tracking (directUse vs apiFallback) logged every 100 orders
 
 **Impact**: ~20 API calls/day saved, ~100-200ms latency reduction per webhook
 
