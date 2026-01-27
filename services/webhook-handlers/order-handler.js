@@ -255,13 +255,21 @@ class OrderHandler {
             return result;
         }
 
-        const webhookOrder = data.order;
+        // Square webhook structure: data = event.data.object
+        // For order events: data.order contains the full order, OR data itself is the order
+        // Handle both cases for compatibility
+        const webhookOrder = data.order || data;
+
+        // Extract order ID - could be in data.order.id, data.id, or nested locations
+        const orderId = webhookOrder?.id || data?.id || data?.order_id;
+
         logger.info('Order event detected via webhook', {
-            orderId: webhookOrder?.id,
+            orderId,
             state: webhookOrder?.state,
             eventType: event.type,
             merchantId,
-            hasFulfillments: webhookOrder?.fulfillments?.length > 0
+            hasFulfillments: webhookOrder?.fulfillments?.length > 0,
+            dataKeys: Object.keys(data || {})  // Debug: show what keys are in data
         });
 
         // P0-API-4 OPTIMIZATION: Debounce committed inventory sync
@@ -288,11 +296,28 @@ class OrderHandler {
             // Webhook data incomplete - fetch from API (should be extremely rare)
             webhookOrderStats.apiFallback++;
             logger.warn('Webhook order missing required fields - fetching from API', {
-                orderId: webhookOrder?.id,
+                orderId,
                 missingRequired: validation.missingRequired,
-                merchantId
+                merchantId,
+                dataStructure: {
+                    hasDataOrder: !!data?.order,
+                    hasDataId: !!data?.id,
+                    topLevelKeys: Object.keys(data || {})
+                }
             });
-            order = await this._fetchFullOrderFallback(webhookOrder?.id, merchantId, webhookOrder);
+
+            // Only attempt API fallback if we have an order ID
+            if (orderId) {
+                order = await this._fetchFullOrderFallback(orderId, merchantId, webhookOrder);
+            } else {
+                logger.error('Cannot fetch order - no order ID available in webhook data', {
+                    merchantId,
+                    eventType: event.type,
+                    dataKeys: Object.keys(data || {})
+                });
+                result.error = 'No order ID in webhook';
+                return result;
+            }
         } else {
             // Use webhook data directly - no API call needed
             webhookOrderStats.directUse++;
