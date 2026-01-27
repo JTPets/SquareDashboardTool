@@ -217,6 +217,89 @@ If an element doesn't respond:
 
 See `/public/js/event-delegation.js` for implementation.
 
+#### Audit Script for Undefined Exports
+Run before deploying frontend changes:
+```bash
+# Check all HTML files for exports of undefined functions
+for file in public/*.html; do
+  grep "window\.[a-zA-Z]* = [a-zA-Z]*;" "$file" | while read line; do
+    func=$(echo "$line" | sed -n 's/.*window\.\([a-zA-Z_]*\) = \1;.*/\1/p')
+    if [ -n "$func" ] && ! grep -q "function $func" "$file"; then
+      echo "ERROR: $(basename $file) - '$func' exported but not defined"
+    fi
+  done
+done
+```
+
+### JavaScript Execution Rules (App-Agnostic)
+
+These rules apply to any web application with inline scripts:
+
+#### 1. Script Errors Are Fatal to Everything Below
+```javascript
+// ❌ If line 10 throws an error, lines 11+ NEVER execute
+doSomething();           // Line 10: ReferenceError if undefined
+window.a = a;            // Line 11: Never runs
+window.b = b;            // Line 12: Never runs
+initializeApp();         // Line 13: Never runs - app appears broken
+```
+**Rule:** Errors don't just skip the bad line - they terminate the entire script block. Always check browser console for red errors first.
+
+#### 2. Reference Before Definition = Crash
+```javascript
+// ❌ WRONG - Using before defining crashes immediately
+window.myFunc = myFunc;  // ReferenceError: myFunc is not defined
+function myFunc() {}     // Too late!
+
+// ✅ CORRECT - Define before using
+function myFunc() {}
+window.myFunc = myFunc;  // Works
+```
+
+#### 3. Silent vs Loud Failures
+| Pattern | Failure Mode | How to Debug |
+|---------|--------------|--------------|
+| Missing function export | Silent - UI doesn't respond | `typeof window.func` |
+| ReferenceError in exports | Silent - all exports after it fail | Browser console (red) |
+| CSP-blocked inline handler | Silent - no error shown | Check CSP headers |
+| API call failure | May be silent if no error UI | Network tab |
+| Typo in data attribute | Silent - handler never called | Inspect element |
+
+#### 4. Export Ordering Pattern
+Always structure inline scripts in this order:
+```javascript
+<script>
+  // 1. Constants and state
+  const state = {};
+
+  // 2. All function definitions
+  function handleClick() { }
+  function saveData() { }
+  async function loadData() { }
+
+  // 3. Event listeners and initialization
+  document.addEventListener('DOMContentLoaded', init);
+
+  // 4. Window exports LAST (after all functions defined)
+  window.handleClick = handleClick;
+  window.saveData = saveData;
+  window.loadData = loadData;
+</script>
+```
+
+#### 5. Defensive Export Pattern (Optional)
+For critical applications, wrap exports defensively:
+```javascript
+// Logs warning instead of crashing if function missing
+['handleClick', 'saveData', 'loadData'].forEach(name => {
+  if (typeof window[name] === 'undefined' && typeof eval(name) === 'function') {
+    window[name] = eval(name);
+  } else if (typeof eval(name) !== 'function') {
+    console.warn(`Export warning: ${name} is not defined`);
+  }
+});
+```
+
 ## Webhook Event Flow
 
 Webhook processor: `services/webhook-processor.js`
