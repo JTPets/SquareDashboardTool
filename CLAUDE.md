@@ -119,6 +119,41 @@ const result = await db.query(
 );
 ```
 
+### Event Delegation Pattern (CSP Compliance)
+
+All HTML files use event delegation for CSP compliance. **When adding interactive elements:**
+
+1. Use `data-action` instead of `onclick`:
+```html
+<!-- CORRECT -->
+<button data-action="saveItem" data-action-param="123">Save</button>
+
+<!-- WRONG - violates CSP -->
+<button onclick="saveItem(123)">Save</button>
+```
+
+2. **CRITICAL: Export functions to window scope** at the end of inline scripts:
+```javascript
+function saveItem(param) { /* ... */ }
+function deleteItem(param) { /* ... */ }
+
+// REQUIRED: Expose functions for event delegation
+window.saveItem = saveItem;
+window.deleteItem = deleteItem;
+</script>
+```
+
+3. For other events, use corresponding data attributes:
+   - `data-change` for onChange
+   - `data-submit` for onSubmit
+   - `data-blur` for onBlur
+   - `data-keydown` for onKeyDown
+   - `data-input` for onInput
+
+**Common mistake**: Adding `data-action="functionName"` without the `window.functionName = functionName;` export causes silent failures - buttons appear to do nothing.
+
+See `/public/js/event-delegation.js` for implementation details.
+
 ## Webhook Event Flow
 
 Webhook processor: `services/webhook-processor.js`
