@@ -501,7 +501,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 11/29 files externalized (~38%)
+#### Phase 2 Progress: 14/29 files externalized (~48%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -516,18 +516,18 @@ Fixed 3 locations exposing internal error details to clients:
 | ✅ | cycle-count-history.html → cycle-count-history.js | 191 | B |
 | ✅ | delivery-history.html → delivery-history.js | 211 | A |
 | ✅ | merchants.html → merchants.js | 266 | A |
+| ✅ | admin-subscriptions.html → admin-subscriptions.js | 337 | B |
+| ✅ | dashboard.html → dashboard.js | 393 | B |
+| ✅ | expiry.html → expiry.js | 443 | B |
 
-**Total externalized**: ~1,524 lines of JavaScript
+**Total externalized**: ~2,697 lines of JavaScript
 
-#### Phase 2 Remaining Work: 18 files by complexity tier
+#### Phase 2 Remaining Work: 15 files by complexity tier
 
-**Tier B - Medium (9 files, ~3,200 lines)**
+**Tier B - Medium (6 files, ~2,250 lines)**
 | File | JS Lines | Notes |
 |------|----------|-------|
 | subscribe.html | ~280 | ⚠️ Square Payments SDK integration |
-| admin-subscriptions.html | ~200 | Subscription management |
-| dashboard.html | ~450 | Multiple API calls, charts |
-| expiry.html | ~300 | Expiry tracking, batch operations |
 | inventory.html | ~400 | Stock management, filtering |
 | catalog-audit.html | ~350 | Location fixes, bulk updates |
 | expiry-audit.html | ~350 | Audit history, exports |
@@ -574,13 +574,13 @@ function debounce(fn, delay) { ... }
 #### Recommended Execution Order
 
 1. ~~**Batch 2** (Tier A): delivery-history, merchants~~ ✅ COMPLETE (2026-01-27)
-2. **Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry (~950 lines)
-3. **Batch 4** (Tier B part 2): driver, delivery, catalog-audit (~1,200 lines)
-4. **Batch 5** (Tier B part 3): cycle-count, inventory, expiry-discounts (~1,270 lines)
-5. **Batch 6** (Tier C): expiry-audit, subscribe, purchase-orders (~1,530 lines)
-6. **Batch 7** (Tier C/D): settings, delivery-route (~1,550 lines)
-7. **Batch 8** (Tier D): reorder, vendor-catalog (~2,600 lines)
-8. **Batch 9** (Tier D): gmc-feed, loyalty (~3,900 lines)
+2. ~~**Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry~~ ✅ COMPLETE (2026-01-27)
+3. **Batch 4** (Tier B part 2): inventory, catalog-audit, expiry-audit (~1,100 lines)
+4. **Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe (~1,150 lines)
+5. **Batch 6** (Tier C part 1): driver, delivery (~850 lines)
+6. **Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,600 lines)
+7. **Batch 8** (Tier C/D): settings, reorder (~2,050 lines)
+8. **Batch 9** (Tier D): vendor-catalog, gmc-feed, loyalty (~5,300 lines)
 
 #### Risks and Mitigations
 
