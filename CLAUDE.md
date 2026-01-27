@@ -495,43 +495,108 @@ Fixed 3 locations exposing internal error details to clients:
 
 ### P0-4: CSP Allows Unsafe Inline 🟡 PARTIAL
 **File**: `middleware/security.js:23-35`
-**Status**: PARTIALLY FIXED (2026-01-26)
+**Status**: PARTIALLY FIXED (2026-01-27)
 
 **Phase 1 COMPLETE**: All inline EVENT HANDLERS (`onclick`, `onchange`, etc.) migrated to event delegation pattern using `data-action` attributes.
 
-**Phase 2 PENDING**: Inline `<script>` blocks still exist in HTML files. The `'unsafe-inline'` directive remains in `scriptSrc` until these are externalized to separate .js files.
+**Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-**Remaining Work**: Externalize inline scripts from ~30 HTML files to `/public/js/` directory. Each page's inline script should become an external file (e.g., `login.html` inline script → `/public/js/login.js`).
+#### Phase 2 Progress: 9/29 files externalized (~31%)
 
-**Completed Migration (27 HTML files, ~335 handlers)**:
-- ✅ `logs.html` (pattern example)
-- ✅ `settings.html` (19 handlers)
-- ✅ `catalog-audit.html` (17 handlers)
-- ✅ `expiry-audit.html` (17 handlers)
-- ✅ `delivery-route.html` (23 handlers)
-- ✅ `purchase-orders.html` (1 handler)
-- ✅ `sales-velocity.html` (1 handler)
-- ✅ `deleted-items.html` (5 handlers)
-- ✅ `admin-subscriptions.html` (2 handlers)
-- ✅ `cycle-count-history.html` (6 handlers)
-- ✅ `driver.html` (10 handlers)
-- ✅ `index.html` (1 handler)
-- ✅ `delivery-settings.html` (1 handler)
-- ✅ `subscribe.html` (9 handlers)
-- ✅ `merchants.html` (7 handlers)
-- ✅ `expiry.html` (15 handlers)
-- ✅ `delivery-history.html` (10 handlers)
-- ✅ `delivery.html` (15 handlers)
-- ✅ `cycle-count.html` (15 handlers)
-- ✅ `expiry-discounts.html` (18 handlers)
-- ✅ `inventory.html` (23 handlers)
-- ✅ `dashboard.html` (25 handlers)
-- ✅ `vendor-catalog.html` (28 handlers)
-- ✅ `reorder.html` (37 handlers)
-- ✅ `gmc-feed.html` (39 handlers)
-- ✅ `loyalty.html` (55 handlers)
+| Status | File | JS Lines | Complexity |
+|--------|------|----------|------------|
+| ✅ | support.html → support.js | 1 | A |
+| ✅ | index.html → index.js | 21 | A |
+| ✅ | login.html → login.js | 155 | B |
+| ✅ | set-password.html → set-password.js | 103 | B |
+| ✅ | sales-velocity.html → sales-velocity.js | 108 | A |
+| ✅ | delivery-settings.html → delivery-settings.js | 127 | A |
+| ✅ | logs.html → logs.js | 163 | B |
+| ✅ | deleted-items.html → deleted-items.js | 178 | B |
+| ✅ | cycle-count-history.html → cycle-count-history.js | 191 | B |
 
-**Event Delegation Pattern** (from `/public/js/event-delegation.js`):
+**Total externalized**: ~1,047 lines of JavaScript
+
+#### Phase 2 Remaining Work: 20 files by complexity tier
+
+**Tier A - Simple (2 files, ~350 lines)**
+| File | JS Lines | Notes |
+|------|----------|-------|
+| delivery-history.html | ~170 | Date filters, table rendering |
+| merchants.html | ~180 | Admin merchant management |
+
+**Tier B - Medium (9 files, ~3,200 lines)**
+| File | JS Lines | Notes |
+|------|----------|-------|
+| subscribe.html | ~280 | ⚠️ Square Payments SDK integration |
+| admin-subscriptions.html | ~200 | Subscription management |
+| dashboard.html | ~450 | Multiple API calls, charts |
+| expiry.html | ~300 | Expiry tracking, batch operations |
+| inventory.html | ~400 | Stock management, filtering |
+| catalog-audit.html | ~350 | Location fixes, bulk updates |
+| expiry-audit.html | ~350 | Audit history, exports |
+| cycle-count.html | ~420 | Batch counting, barcode scanner |
+| expiry-discounts.html | ~450 | Discount automation |
+
+**Tier C - Complex (5 files, ~3,300 lines)**
+| File | JS Lines | Notes |
+|------|----------|-------|
+| driver.html | ~350 | ⚠️ Geolocation API |
+| delivery.html | ~500 | ⚠️ Geolocation API, complex state |
+| delivery-route.html | ~700 | ⚠️ Leaflet maps, route optimization |
+| purchase-orders.html | ~900 | Multi-step PO workflow |
+| settings.html | ~850 | 10+ settings tabs, many forms |
+
+**Tier D - Critical/Complex (4 files, ~6,500 lines)**
+| File | JS Lines | Notes |
+|------|----------|-------|
+| reorder.html | ~1,200 | Multi-vendor ordering, complex state |
+| vendor-catalog.html | ~1,400 | CSV/XLSX import, price comparison |
+| gmc-feed.html | ~1,700 | Google Merchant Center integration |
+| loyalty.html | ~2,200 | Full loyalty program management |
+
+#### Special Dependencies to Preserve
+
+| Dependency | Files | Handling |
+|------------|-------|----------|
+| Square Payments SDK | subscribe.html | Keep SDK script tag in HTML, externalize only app logic |
+| Leaflet Maps | delivery-route.html | Keep Leaflet CDN in HTML, externalize map logic |
+| Geolocation API | driver.html, delivery.html | Works normally in external scripts |
+| Barcode Scanner | cycle-count.html | Standard event handling |
+
+#### Shared Utilities (Extract to `/public/js/shared/`)
+
+```javascript
+// /public/js/shared/utils.js - Common functions across pages
+function escapeHtml(text) { ... }
+function formatCurrency(amount, currency = 'CAD') { ... }
+function formatDate(date, options) { ... }
+function showToast(message, type) { ... }
+function debounce(fn, delay) { ... }
+```
+
+#### Recommended Execution Order
+
+1. **Batch 2** (Tier A): delivery-history, merchants (~350 lines)
+2. **Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry (~950 lines)
+3. **Batch 4** (Tier B part 2): driver, delivery, catalog-audit (~1,200 lines)
+4. **Batch 5** (Tier B part 3): cycle-count, inventory, expiry-discounts (~1,270 lines)
+5. **Batch 6** (Tier C): expiry-audit, subscribe, purchase-orders (~1,530 lines)
+6. **Batch 7** (Tier C/D): settings, delivery-route (~1,550 lines)
+7. **Batch 8** (Tier D): reorder, vendor-catalog (~2,600 lines)
+8. **Batch 9** (Tier D): gmc-feed, loyalty (~3,900 lines)
+
+#### Risks and Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Window export order issues | Follow established pattern: definitions first, exports last |
+| Missing function exports | Run audit script before commit (see PR Checklist) |
+| SDK initialization timing | Keep SDK script tags in HTML, defer app script |
+| Geolocation permission timing | Initialize after DOMContentLoaded |
+| Large file merge conflicts | Work on one file at a time, commit frequently |
+
+#### Event Delegation Pattern (from `/public/js/event-delegation.js`):
 ```html
 <!-- BEFORE (requires unsafe-inline): -->
 <button onclick="refreshLogs()">Refresh</button>
@@ -542,6 +607,10 @@ Fixed 3 locations exposing internal error details to clients:
 <select data-change="filterLogs">
 ```
 Global functions are automatically discovered by the event delegation module.
+
+#### Phase 1 Completed Migration (27 HTML files, ~335 handlers):
+- ✅ All HTML files have event handlers using `data-*` attributes
+- ✅ No inline `onclick`, `onchange`, etc. handlers remain
 
 ---
 
