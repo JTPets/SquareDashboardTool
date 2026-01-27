@@ -1648,6 +1648,11 @@ Wellness"></textarea>
       updateSelectedCount();
     }
 
+    // Wrapper for event delegation (data-change handler)
+    function toggleAllBrandsFromCheckbox(element, event, param) {
+      toggleAllBrands(element.checked);
+    }
+
     function updateSelectedCount() {
       const selected = document.querySelectorAll('.brand-checkbox:checked').length;
       document.getElementById('selected-count').textContent = selected;

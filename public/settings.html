@@ -853,6 +853,13 @@
       }
     }
 
+    // Test database connection (for button click)
+    async function testDatabaseConnection() {
+      const status = document.getElementById('database-status');
+      status.textContent = 'Testing...';
+      await checkDatabaseStatus();
+    }
+
     // Google status
     async function checkGoogleStatus() {
       const card = document.getElementById('google-connection');
