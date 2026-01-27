@@ -1224,6 +1224,23 @@ Before merging any PR:
 - [ ] Validators in `middleware/validators/`, not inline
 - [ ] Business logic in services, not routes
 - [ ] merchant_id filter on ALL database queries
+- [ ] Frontend API response handling matches backend structure (see Rule #6)
+
+**Audit commands for common issues:**
+```bash
+# Find routes returning {success, data: {...}} wrapper
+grep -rn "data: {" routes/*.js
+
+# Find undefined window exports (see Rule #2)
+for file in public/*.html; do
+  grep "window\.[a-zA-Z]* = [a-zA-Z]*;" "$file" | while read line; do
+    func=$(echo "$line" | sed -n 's/.*window\.\([a-zA-Z_]*\) = \1;.*/\1/p')
+    if [ -n "$func" ] && ! grep -q "function $func" "$file"; then
+      echo "ERROR: $(basename $file) - '$func' exported but not defined"
+    fi
+  done
+done
+```
 
 ---
 
