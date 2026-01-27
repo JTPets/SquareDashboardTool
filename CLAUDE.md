@@ -144,8 +144,13 @@ All HTML files use event delegation for CSP compliance. **This is critical - fai
 ```
 
 ```javascript
-// In script: Define functions
-function saveItem(element, event, param) { /* ... */ }
+// In script: Define functions with CORRECT parameter order
+// CRITICAL: Parameter order is ALWAYS (element, event, param)
+function saveItem(element, event, param) {
+  // element = the DOM element that triggered the event
+  // event = the DOM event object
+  // param = value from data-action-param attribute
+}
 function validateField(element, event) { /* ... */ }
 function filterResults(element, event) { /* ... */ }
 
@@ -155,6 +160,17 @@ window.validateField = validateField;
 window.filterResults = filterResults;
 </script>
 ```
+
+#### CRITICAL: Handler Function Signature
+**All event delegation handlers MUST use this parameter order:**
+```javascript
+function handlerName(element, event, param) { ... }
+```
+- `element` - The DOM element that triggered the event
+- `event` - The DOM event object (click, change, blur, etc.)
+- `param` - The value from `data-action-param` attribute (optional)
+
+**Common mistake:** Writing `function handler(param, element, event)` - this is WRONG and will cause silent failures because element will be undefined when accessing `element.dataset.*`.
 
 #### Dynamically Created Elements
 When creating elements in JavaScript, use data attributes - NEVER use `.onclick`:
@@ -173,6 +189,7 @@ btn.dataset.actionParam = '123';              // Optional param
 Before committing changes to HTML files:
 - [ ] All interactive elements use `data-*` attributes (no `onclick`, `onchange`, etc.)
 - [ ] All functions referenced in `data-*` attributes are exported to `window`
+- [ ] Handler functions use correct parameter order: `(element, event, param)`
 - [ ] Dynamically created elements use `dataset.*` not `.onclick`/`.onchange`
 - [ ] Test that ALL buttons/inputs actually respond to clicks/changes
 

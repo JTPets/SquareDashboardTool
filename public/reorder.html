@@ -1114,13 +1114,39 @@
     }
 
     // Copy to clipboard (for data-action handler)
-    function copyToClipboard(value, element, event) {
+    // Parameter order: (element, event, param) to match PageActions convention
+    function copyToClipboard(element, event, param) {
+      const value = param || '';
       const label = element.dataset.copyLabel || 'Text';
-      navigator.clipboard.writeText(value).then(() => {
-        showToast(`${label} copied!`);
-      }).catch(() => {
-        showToast(`Failed to copy ${label}`, 'error');
-      });
+      if (!value || value === '-') return;
+
+      // Try modern clipboard API first, with fallback
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(() => {
+          showToast(`${label} copied: ${value}`, 'success');
+        }).catch(() => {
+          fallbackCopy(value, label);
+        });
+      } else {
+        fallbackCopy(value, label);
+      }
+    }
+
+    // Fallback copy method for older browsers
+    function fallbackCopy(text, label) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        showToast(`${label} copied: ${text}`, 'success');
+      } catch (err) {
+        showToast('Failed to copy', 'error');
+      }
+      document.body.removeChild(textarea);
     }
 
     // Enter edit mode (for data-action handler)
@@ -1360,13 +1386,12 @@
     let currentSortField = null;
     let sortDirections = {}; // Track direction for each field
 
-    function sortTable(field, forceDirection = null) {
-      // Toggle sort direction or use forced direction
-      if (forceDirection !== null) {
-        sortDirections[field] = forceDirection;
-      } else {
-        sortDirections[field] = !sortDirections[field];
-      }
+    // Parameter order: (element, event, param) to match PageActions convention
+    // param is the field name from data-action-param
+    function sortTable(element, event, param) {
+      const field = param;
+      // Toggle sort direction
+      sortDirections[field] = !sortDirections[field];
       const ascending = sortDirections[field];
 
       // Update current sort field
@@ -1845,36 +1870,6 @@
         .replace(/\r/g, '\\r');
     }
 
-    function copyToClipboard(text, label) {
-      if (!text || text === '-') return;
-
-      // Try modern clipboard API first, with fallback
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-          showToast(`${label} copied: ${text}`, 'success');
-        }).catch(() => {
-          fallbackCopy(text, label);
-        });
-      } else {
-        fallbackCopy(text, label);
-      }
-    }
-
-    function fallbackCopy(text, label) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      try {
-        document.execCommand('copy');
-        showToast(`${label} copied: ${text}`, 'success');
-      } catch (err) {
-        showToast('Failed to copy', 'error');
-      }
-      document.body.removeChild(textarea);
-    }
 
     function showToast(message, type = '') {
       const toast = document.getElementById('toast');
