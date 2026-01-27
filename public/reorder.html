@@ -1468,9 +1468,11 @@
 
     // Save editable field to database
     async function saveField(input) {
+      console.log('saveField called:', { input, type: typeof input, dataset: input?.dataset });
       const variationId = input.dataset.variationId;
       const field = input.dataset.field;
       const value = input.value.trim();
+      console.log('saveField params:', { variationId, field, value });
 
       // Don't save if value is empty or unchanged
       const item = allSuggestions.find(s => s.variation_id === variationId);
@@ -1525,6 +1527,14 @@
         input.classList.add('saved');
         setTimeout(() => input.classList.remove('saved'), 2000);
 
+        // Show toast notification
+        const fieldLabels = {
+          case_pack_quantity: 'Case pack',
+          stock_alert_max: 'Max stock'
+        };
+        const label = fieldLabels[field] || field;
+        showToast(`${label} updated to ${newValue}`, 'success');
+
       } catch (error) {
         console.error('Failed to save field:', error);
         input.classList.remove('saving');
@@ -1533,7 +1543,7 @@
 
         // Revert to original value
         input.value = currentValue || '';
-        alert(`Failed to save ${field}: ${error.message}`);
+        showToast(`Failed to save ${field}: ${error.message}`, 'error');
       } finally {
         input.disabled = false;
       }
