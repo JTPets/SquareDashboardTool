@@ -44,27 +44,6 @@ const webhookOrderStats = {
 };
 
 /**
- * Validate webhook order has required fields for processing
- * Square webhook payloads contain complete order data, so this should always pass.
- * API fetch is only needed if validation fails (which should be extremely rare).
- *
- * @param {Object} order - Order from webhook payload
- * @returns {Object} { valid: boolean, missingRequired: string[], hasLineItems: boolean, hasFulfillments: boolean }
- */
-function validateWebhookOrder(order) {
-    const requiredFields = ['id', 'state', 'location_id'];
-
-    const missingRequired = requiredFields.filter(f => !order?.[f]);
-
-    return {
-        valid: missingRequired.length === 0,
-        missingRequired,
-        hasLineItems: Array.isArray(order?.line_items) && order.line_items.length > 0,
-        hasFulfillments: Array.isArray(order?.fulfillments) && order.fulfillments.length > 0
-    };
-}
-
-/**
  * P0-API-4: Debounced committed inventory sync
  *
  * Instead of syncing on every webhook, we wait for a quiet period.
@@ -255,9 +234,15 @@ class OrderHandler {
             return result;
         }
 
-        const webhookOrder = data.order;
+        // Square webhook structure: data = event.data.object
+        // For order events, data.order should contain the order, but handle both structures
+        const webhookOrder = data.order || data;
+
+        // Extract order ID from multiple possible locations for robustness
+        const orderId = webhookOrder?.id || data?.id || data?.order_id;
+
         logger.info('Order event detected via webhook', {
-            orderId: webhookOrder?.id,
+            orderId,
             state: webhookOrder?.state,
             eventType: event.type,
             merchantId,
@@ -278,46 +263,56 @@ class OrderHandler {
             });
         }
 
-        // P0-API-1 OPTIMIZATION: Use webhook order data directly instead of re-fetching
-        // Square webhook payloads contain complete order data including line_items and fulfillments.
-        // Only fetch from API as a fallback if webhook data is incomplete (should never happen).
-        let order = webhookOrder;
-        const validation = validateWebhookOrder(webhookOrder);
+        // Check if webhook has complete order data (with line_items for velocity calculation)
+        const hasCompleteData = webhookOrder?.id && webhookOrder?.state &&
+                                Array.isArray(webhookOrder?.line_items) && webhookOrder.line_items.length > 0;
 
-        if (!validation.valid) {
-            // Webhook data incomplete - fetch from API (should be extremely rare)
-            webhookOrderStats.apiFallback++;
-            logger.warn('Webhook order missing required fields - fetching from API', {
-                orderId: webhookOrder?.id,
-                missingRequired: validation.missingRequired,
-                merchantId
-            });
-            order = await this._fetchFullOrderFallback(webhookOrder?.id, merchantId, webhookOrder);
-        } else {
-            // Use webhook data directly - no API call needed
+        // Get the full order - either from webhook (if complete) or from API
+        let order;
+        if (hasCompleteData) {
+            // Webhook has complete data - use directly (P0-API-1 optimization)
+            order = webhookOrder;
             webhookOrderStats.directUse++;
-            logger.debug('Using webhook order data directly (API fetch skipped)', {
+            logger.debug('Using complete webhook order data', {
                 orderId: order.id,
-                hasLineItems: validation.hasLineItems,
-                hasFulfillments: validation.hasFulfillments
+                lineItemCount: order.line_items.length,
+                hasFulfillments: !!order.fulfillments?.length
             });
+        } else if (orderId) {
+            // Webhook only has notification - fetch full order from API (expected behavior)
+            webhookOrderStats.apiFallback++;
+            order = await this._fetchFullOrder(orderId, merchantId);
+            logger.debug('Fetched full order from API', {
+                orderId,
+                success: !!order,
+                hadWebhookData: !!webhookOrder?.id
+            });
+        } else {
+            // No order ID available - cannot process
+            logger.warn('Order webhook missing order ID - skipping', {
+                merchantId,
+                eventType: event.type,
+                dataKeys: Object.keys(data || {})
+            });
+            result.skipped = true;
+            result.reason = 'No order ID in webhook';
+            return result;
         }
 
         // Log stats periodically (every 100 orders)
         const totalProcessed = webhookOrderStats.directUse + webhookOrderStats.apiFallback;
         if (totalProcessed > 0 && totalProcessed % 100 === 0) {
-            const fallbackRate = ((webhookOrderStats.apiFallback / totalProcessed) * 100).toFixed(2);
-            logger.info('P0-API-1 Optimization stats', {
+            const directRate = ((webhookOrderStats.directUse / totalProcessed) * 100).toFixed(1);
+            logger.info('Order webhook stats', {
                 directUse: webhookOrderStats.directUse,
-                apiFallback: webhookOrderStats.apiFallback,
-                fallbackRate: `${fallbackRate}%`,
-                apiCallsSaved: webhookOrderStats.directUse
+                apiFetch: webhookOrderStats.apiFallback,
+                directRate: `${directRate}%`
             });
         }
 
         // P0-API-2 OPTIMIZATION: Update sales velocity incrementally from this order
         // Instead of fetching ALL 91 days of orders (~37 API calls), we update velocity
-        // directly from the webhook order data (0 API calls)
+        // directly from the order data (0 additional API calls)
         if (order && order.state === 'COMPLETED') {
             const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
             result.salesVelocity = {
@@ -329,7 +324,6 @@ class OrderHandler {
             logger.info('Sales velocity updated incrementally from completed order (P0-API-2)', {
                 orderId: order.id,
                 updated: velocityResult.updated,
-                apiCallsSaved: 37,  // Previously took ~37 API calls per order
                 merchantId
             });
         }
@@ -348,43 +342,33 @@ class OrderHandler {
     }
 
     /**
-     * Fetch full order from Square API (FALLBACK ONLY)
+     * Fetch full order from Square API
      *
-     * This should only be called when webhook data is incomplete,
-     * which should never happen under normal circumstances.
-     * Part of P0-API-1 optimization to eliminate redundant API calls.
+     * Called when webhook doesn't contain complete order data (which is normal
+     * for notification-style webhooks vs expanded webhooks).
      *
      * @private
      * @param {string} orderId - Square order ID
      * @param {number} merchantId - Internal merchant ID
-     * @param {Object} fallbackOrder - Webhook order to use if fetch fails
-     * @returns {Promise<Object>} Order object
+     * @returns {Promise<Object|null>} Order object or null if fetch fails
      */
-    async _fetchFullOrderFallback(orderId, merchantId, fallbackOrder) {
-        logger.warn('Fetching order from API - this should be rare (P0-API-1)', {
-            orderId,
-            merchantId,
-            trigger: 'incomplete_webhook_data'
-        });
-
+    async _fetchFullOrder(orderId, merchantId) {
         try {
             const squareClient = await getSquareClientForMerchant(merchantId);
             const orderResponse = await squareClient.orders.get({ orderId });
             if (orderResponse.order) {
-                logger.info('API fallback: fetched order successfully', {
-                    orderId: orderResponse.order.id,
-                    fulfillmentCount: orderResponse.order.fulfillments?.length || 0,
-                    fulfillmentTypes: orderResponse.order.fulfillments?.map(f => f.type) || []
-                });
                 return orderResponse.order;
             }
+            logger.warn('Order fetch returned no order', { orderId, merchantId });
+            return null;
         } catch (fetchError) {
-            logger.error('API fallback failed - using webhook data', {
+            logger.error('Failed to fetch order from Square API', {
                 orderId,
+                merchantId,
                 error: fetchError.message
             });
+            return null;
         }
-        return fallbackOrder;
     }
 
     /**

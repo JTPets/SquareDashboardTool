@@ -501,7 +501,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 14/29 files externalized (~48%)
+#### Phase 2 Progress: 17/29 files externalized (~59%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -519,18 +519,18 @@ Fixed 3 locations exposing internal error details to clients:
 | ✅ | admin-subscriptions.html → admin-subscriptions.js | 337 | B |
 | ✅ | dashboard.html → dashboard.js | 393 | B |
 | ✅ | expiry.html → expiry.js | 443 | B |
+| ✅ | inventory.html → inventory.js | 400 | B |
+| ✅ | catalog-audit.html → catalog-audit.js | 350 | B |
+| ✅ | expiry-audit.html → expiry-audit.js | 830 | B |
 
-**Total externalized**: ~2,697 lines of JavaScript
+**Total externalized**: ~4,277 lines of JavaScript
 
-#### Phase 2 Remaining Work: 15 files by complexity tier
+#### Phase 2 Remaining Work: 12 files by complexity tier
 
-**Tier B - Medium (6 files, ~2,250 lines)**
+**Tier B - Medium (3 files, ~1,150 lines)**
 | File | JS Lines | Notes |
 |------|----------|-------|
 | subscribe.html | ~280 | ⚠️ Square Payments SDK integration |
-| inventory.html | ~400 | Stock management, filtering |
-| catalog-audit.html | ~350 | Location fixes, bulk updates |
-| expiry-audit.html | ~350 | Audit history, exports |
 | cycle-count.html | ~420 | Batch counting, barcode scanner |
 | expiry-discounts.html | ~450 | Discount automation |
 
@@ -575,7 +575,7 @@ function debounce(fn, delay) { ... }
 
 1. ~~**Batch 2** (Tier A): delivery-history, merchants~~ ✅ COMPLETE (2026-01-27)
 2. ~~**Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry~~ ✅ COMPLETE (2026-01-27)
-3. **Batch 4** (Tier B part 2): inventory, catalog-audit, expiry-audit (~1,100 lines)
+3. ~~**Batch 4** (Tier B part 2): inventory, catalog-audit, expiry-audit~~ ✅ COMPLETE (2026-01-27)
 4. **Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe (~1,150 lines)
 5. **Batch 6** (Tier C part 1): driver, delivery (~850 lines)
 6. **Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,600 lines)
