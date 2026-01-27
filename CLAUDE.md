@@ -189,15 +189,31 @@ btn.dataset.actionParam = '123';              // Optional param
 Before committing changes to HTML files:
 - [ ] All interactive elements use `data-*` attributes (no `onclick`, `onchange`, etc.)
 - [ ] All functions referenced in `data-*` attributes are exported to `window`
+- [ ] **All functions exported to `window` actually exist** (see warning below)
 - [ ] Handler functions use correct parameter order: `(element, event, param)`
 - [ ] Dynamically created elements use `dataset.*` not `.onclick`/`.onchange`
 - [ ] Test that ALL buttons/inputs actually respond to clicks/changes
 
+#### CRITICAL: Window Export Errors Crash Everything
+```javascript
+// ❌ DANGEROUS - If functionName doesn't exist, this crashes the ENTIRE script
+window.functionName = functionName;  // ReferenceError stops execution here!
+window.saveField = saveField;        // This line NEVER RUNS
+window.enterEditMode = enterEditMode; // This line NEVER RUNS
+// Nothing works, but page loads and looks normal!
+
+// ✅ SAFE - Verify function exists, or just don't export non-existent functions
+if (typeof functionName === 'function') {
+  window.functionName = functionName;
+}
+```
+**Rule:** Never export a function to `window` unless you've verified the function is defined in the same script. A single bad export breaks ALL functionality silently.
+
 #### Debugging Silent Failures
 If an element doesn't respond:
-1. Open browser console
+1. Open browser console - **look for ReferenceError or other red errors first**
 2. Check: `typeof window.functionName` - should be `"function"`, not `"undefined"`
-3. If undefined, add `window.functionName = functionName;` to script
+3. If undefined, either the function doesn't exist OR an earlier export crashed the script
 
 See `/public/js/event-delegation.js` for implementation.
 
