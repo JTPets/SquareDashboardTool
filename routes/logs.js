@@ -39,7 +39,8 @@ function getTodayLocal() {
  * Requires admin role
  */
 router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res) => {
-    const limit = parseInt(req.query.limit) || 100;
+    const limitParam = parseInt(req.query.limit);
+    const limit = isNaN(limitParam) ? 100 : limitParam;
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
 
     // Get today's log file
