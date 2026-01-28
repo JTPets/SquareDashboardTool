@@ -14,10 +14,10 @@ async function loadStats() {
     const response = await fetch('/api/logs/stats');
     const data = await response.json();
 
-    document.getElementById('stat-total').textContent = data.total.toLocaleString();
-    document.getElementById('stat-errors').textContent = data.error.toLocaleString();
-    document.getElementById('stat-warnings').textContent = data.warn.toLocaleString();
-    document.getElementById('stat-info').textContent = data.info.toLocaleString();
+    document.getElementById('stat-total').textContent = (data.total || 0).toLocaleString();
+    document.getElementById('stat-errors').textContent = (data.errors || 0).toLocaleString();
+    document.getElementById('stat-warnings').textContent = (data.warnings || 0).toLocaleString();
+    document.getElementById('stat-info').textContent = (data.info || 0).toLocaleString();
   } catch (error) {
     console.error('Failed to load stats:', error);
   }
