@@ -234,12 +234,15 @@ class OrderHandler {
             return result;
         }
 
-        // Square webhook structure: data = event.data.object
-        // For order events, data.order should contain the order, but handle both structures
-        const webhookOrder = data.order || data;
+        // Square webhook structure varies by event type:
+        // - order.created: data.order_created contains the order
+        // - order.updated: data.order_updated contains the order
+        // - Some webhooks may use data.order or include order directly in data
+        const webhookOrder = data.order_created || data.order_updated || data.order || data;
 
         // Extract order ID from multiple possible locations for robustness
-        const orderId = webhookOrder?.id || data?.id || data?.order_id;
+        const orderId = webhookOrder?.id || data?.id || data?.order_id ||
+                        data?.order_created?.id || data?.order_updated?.id;
 
         logger.info('Order event detected via webhook', {
             orderId,
