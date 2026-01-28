@@ -25,7 +25,12 @@ const validators = require('../middleware/validators/logs');
 
 // Get today's date in America/Toronto timezone (YYYY-MM-DD format)
 function getTodayLocal() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+    const options = { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' };
+    const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(new Date());
+    const year = parts.find(p => p.type === 'year').value;
+    const month = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    return `${year}-${month}-${day}`;
 }
 
 /**
