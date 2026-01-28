@@ -1406,6 +1406,57 @@ syncQueue.process(async (job) => {
 
 ---
 
+## Backlog / Future Investigation
+
+Items identified but not urgent. Return to these when time permits.
+
+### BACKLOG-1: Frontend Polling Causing App-Level Rate Limits
+**Identified**: 2026-01-28
+**Priority**: Medium (not breaking, but inefficient)
+**Status**: Documented, not fixed
+
+**Problem**: `delivery.html` makes 4 parallel API calls every 30 seconds via `setInterval`. This can exceed the 100 req/15min rate limit with a single user, worse with multiple tabs/users.
+
+**Files**:
+- `public/delivery.html:575-579` - 4 parallel fetch calls in `loadOrders()`
+- `public/delivery.html:1030` - `setInterval(loadOrders, 30000)`
+- `public/delivery-route.html:1446` - `setInterval(loadRoute, 60000)` + visibility/focus handlers
+
+**Symptoms**:
+- "Rate limit exceeded" warnings in logs
+- Multiple "API request" + "GTIN enrichment" logs in rapid succession
+
+**Recommended Fixes** (in order of effort):
+1. **Quick**: Increase `RATE_LIMIT_MAX_REQUESTS` env var to 200+
+2. **Better**: Reduce polling to 60-120 seconds, pause when tab hidden
+3. **Best**: Consolidate 4 calls into single `/api/delivery/dashboard` endpoint
+
+**Note**: GTIN enrichment itself is fine (DB-only, no Square API calls).
+
+---
+
+### BACKLOG-2: Delivery Routing System - Webhook Updates Not Working
+**Identified**: 2026-01-28
+**Priority**: Medium-High (needs investigation)
+**Status**: Not investigated yet
+
+**Problem**: Delivery routing system not updating correctly from Square webhooks. The whole routing system may need architectural review.
+
+**Areas to investigate**:
+- How order webhooks update delivery orders
+- Whether webhook-to-delivery-order sync is working
+- Route state management and updates
+- Potential race conditions between webhook processing and UI polling
+
+**Files likely involved**:
+- `services/webhook-handlers/order-handler.js` - Order webhook processing
+- `services/delivery/delivery-service.js` - Delivery order management
+- `routes/delivery.js` - Delivery API endpoints
+
+**Owner notes**: "I don't like the way the routing system works currently" - needs holistic review when time permits.
+
+---
+
 ## Previous Achievements (2026-01-26)
 
 These items are COMPLETE and should not regress:
