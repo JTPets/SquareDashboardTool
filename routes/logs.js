@@ -23,6 +23,11 @@ const { requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/logs');
 
+// Get today's date in America/Toronto timezone (YYYY-MM-DD format)
+function getTodayLocal() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+}
+
 /**
  * GET /api/logs
  * View recent logs
@@ -33,7 +38,7 @@ router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res)
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
 
     // Get today's log file
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const logFile = path.join(logsDir, `app-${today}.log`);
 
     const content = await fs.readFile(logFile, 'utf-8').catch(() => '');
@@ -61,7 +66,7 @@ router.get('/logs', requireAdmin, validators.list, asyncHandler(async (req, res)
  */
 router.get('/logs/errors', requireAdmin, validators.errors, asyncHandler(async (req, res) => {
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const errorFile = path.join(logsDir, `error-${today}.log`);
 
     try {
@@ -80,7 +85,7 @@ router.get('/logs/errors', requireAdmin, validators.errors, asyncHandler(async (
  */
 router.get('/logs/download', requireAdmin, validators.download, asyncHandler(async (req, res) => {
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const logFile = path.join(logsDir, `app-${today}.log`);
 
     res.download(logFile, `square-dashboard-addon-logs-${today}.log`);
@@ -92,7 +97,7 @@ router.get('/logs/download', requireAdmin, validators.download, asyncHandler(asy
  */
 router.get('/logs/stats', requireAdmin, validators.stats, asyncHandler(async (req, res) => {
     const logsDir = path.join(__dirname, '..', 'output', 'logs');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const logFile = path.join(logsDir, `app-${today}.log`);
     const errorFile = path.join(logsDir, `error-${today}.log`);
 
