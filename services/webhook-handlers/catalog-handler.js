@@ -92,14 +92,15 @@ class CatalogHandler {
      * @returns {Promise<Object>} Result with sync details
      */
     async handleCustomerUpdated(context) {
-        const { data, merchantId } = context;
+        const { data, merchantId, entityId } = context;
         const result = { handled: true };
 
         if (!data.customer || !merchantId) {
             return result;
         }
 
-        const customerId = data.customer.id;
+        // Use entityId (canonical) with fallback to nested object
+        const customerId = entityId || data.customer.id;
         const customerNote = data.customer.note || null;
 
         // Update customer_note on all delivery orders for this customer
@@ -172,7 +173,7 @@ class CatalogHandler {
      * @private
      */
     async _handleVendorChange(context) {
-        const { data, merchantId, event } = context;
+        const { data, merchantId, event, entityId } = context;
         const result = { handled: true };
 
         if (process.env.WEBHOOK_CATALOG_SYNC === 'false') {
@@ -192,8 +193,11 @@ class CatalogHandler {
             return result;
         }
 
+        // Use entityId (canonical) with fallback to nested object
+        const vendorId = entityId || vendor.id;
+
         logger.info('Vendor change detected via webhook', {
-            vendorId: vendor.id,
+            vendorId,
             vendorName: vendor.name,
             status: vendor.status,
             eventType: event.type,
@@ -215,7 +219,7 @@ class CatalogHandler {
                 merchant_id = EXCLUDED.merchant_id,
                 updated_at = CURRENT_TIMESTAMP
         `, [
-            vendor.id,
+            vendorId,
             vendor.name,
             vendor.status,
             vendor.contacts?.[0]?.name || null,
@@ -225,13 +229,13 @@ class CatalogHandler {
         ]);
 
         result.vendor = {
-            id: vendor.id,
+            id: vendorId,
             name: vendor.name,
             status: vendor.status
         };
 
         logger.info('Vendor synced via webhook', {
-            vendorId: vendor.id,
+            vendorId,
             vendorName: vendor.name
         });
 
@@ -265,7 +269,7 @@ class CatalogHandler {
      * @private
      */
     async _handleLocationChange(context) {
-        const { data, merchantId, event } = context;
+        const { data, merchantId, event, entityId } = context;
         const result = { handled: true };
 
         if (process.env.WEBHOOK_CATALOG_SYNC === 'false') {
@@ -285,8 +289,11 @@ class CatalogHandler {
             return result;
         }
 
+        // Use entityId (canonical) with fallback to nested object
+        const locationId = entityId || location.id;
+
         logger.info('Location change detected via webhook', {
-            locationId: location.id,
+            locationId,
             locationName: location.name,
             status: location.status,
             eventType: event.type,
@@ -306,9 +313,9 @@ class CatalogHandler {
                 merchant_id = EXCLUDED.merchant_id,
                 updated_at = CURRENT_TIMESTAMP
         `, [
-            location.id,
+            locationId,
             location.name,
-            location.id,
+            locationId,
             location.status === 'ACTIVE',
             location.address ? JSON.stringify(location.address) : null,
             location.timezone,
@@ -316,13 +323,13 @@ class CatalogHandler {
         ]);
 
         result.location = {
-            id: location.id,
+            id: locationId,
             name: location.name,
             status: location.status
         };
 
         logger.info('Location synced via webhook', {
-            locationId: location.id,
+            locationId,
             locationName: location.name
         });
 

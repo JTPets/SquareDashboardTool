@@ -176,11 +176,11 @@ describe('WebhookProcessor', () => {
     });
 
     describe('buildContext', () => {
-        it('should build context with all fields', () => {
+        it('should build context with all fields including entityId', () => {
             const event = {
                 type: 'catalog.version.updated',
                 merchant_id: 'square-123',
-                data: { object: { id: 'item-1' } }
+                data: { id: 'entity-123', type: 'catalog', object: { id: 'item-1' } }
             };
 
             const context = webhookProcessor.buildContext(event, 42, 789, 1234567890);
@@ -188,6 +188,8 @@ describe('WebhookProcessor', () => {
             expect(context).toEqual({
                 event,
                 data: { id: 'item-1' },
+                entityId: 'entity-123',
+                entityType: 'catalog',
                 merchantId: 42,
                 squareMerchantId: 'square-123',
                 webhookEventId: 789,
@@ -205,6 +207,82 @@ describe('WebhookProcessor', () => {
             const context = webhookProcessor.buildContext(event, null, null, 0);
 
             expect(context.data).toEqual({});
+            expect(context.entityId).toBeNull();
+            expect(context.entityType).toBeNull();
+        });
+
+        // Regression test: Square places entity ID at event.data.id, not inside event.data.object
+        // This was causing "Order webhook missing order ID - skipping" warnings
+        it('should extract entityId from event.data.id for order webhooks', () => {
+            // This is the actual Square webhook structure for order.created
+            const event = {
+                type: 'order.created',
+                merchant_id: 'square-123',
+                event_id: 'evt-456',
+                data: {
+                    type: 'order',
+                    id: 'ORDER_ID_12345',  // <-- Canonical entity ID is HERE
+                    object: {
+                        order_created: {
+                            // Square often sends minimal data here
+                            created_at: '2026-01-29T12:00:00Z',
+                            state: 'OPEN'
+                            // Note: no 'id' field inside order_created
+                        }
+                    }
+                }
+            };
+
+            const context = webhookProcessor.buildContext(event, 1, 100, Date.now());
+
+            // entityId should be extracted from event.data.id
+            expect(context.entityId).toBe('ORDER_ID_12345');
+            expect(context.entityType).toBe('order');
+            // data should be event.data.object (the wrapper)
+            expect(context.data).toEqual({ order_created: { created_at: '2026-01-29T12:00:00Z', state: 'OPEN' } });
+        });
+
+        it('should extract entityId for payment webhooks', () => {
+            const event = {
+                type: 'payment.created',
+                merchant_id: 'square-123',
+                data: {
+                    type: 'payment',
+                    id: 'PAYMENT_ID_789',
+                    object: {
+                        payment: {
+                            order_id: 'ORDER_123',
+                            status: 'COMPLETED'
+                        }
+                    }
+                }
+            };
+
+            const context = webhookProcessor.buildContext(event, 1, 100, Date.now());
+
+            expect(context.entityId).toBe('PAYMENT_ID_789');
+            expect(context.entityType).toBe('payment');
+        });
+
+        it('should extract entityId for customer webhooks', () => {
+            const event = {
+                type: 'customer.updated',
+                merchant_id: 'square-123',
+                data: {
+                    type: 'customer',
+                    id: 'CUSTOMER_ID_ABC',
+                    object: {
+                        customer: {
+                            email_address: 'test@example.com'
+                        }
+                    }
+                }
+            };
+
+            const context = webhookProcessor.buildContext(event, 1, 100, Date.now());
+
+            expect(context.entityId).toBe('CUSTOMER_ID_ABC');
+            expect(context.entityType).toBe('customer');
         });
     });
 
