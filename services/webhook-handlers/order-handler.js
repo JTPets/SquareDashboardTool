@@ -238,10 +238,15 @@ class OrderHandler {
         // - order.created: data.order_created contains the order
         // - order.updated: data.order_updated contains the order
         // - Some webhooks may use data.order or include order directly in data
+        //
+        // IMPORTANT: Square places the order ID at event.data.id (NOT event.data.object.id)
+        // The webhook processor passes event.data.object as context.data, so we must
+        // also check event.data.id directly for the canonical order ID location.
         const webhookOrder = data.order_created || data.order_updated || data.order || data;
 
         // Extract order ID from multiple possible locations for robustness
-        const orderId = webhookOrder?.id || data?.id || data?.order_id ||
+        // Priority: webhook wrapper ID > event.data.id (canonical) > fallback locations
+        const orderId = webhookOrder?.id || event.data?.id || data?.id || data?.order_id ||
                         data?.order_created?.id || data?.order_updated?.id;
 
         logger.info('Order event detected via webhook', {
