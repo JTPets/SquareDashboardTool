@@ -108,6 +108,8 @@ class WebhookProcessor {
         return {
             event,
             data: event.data?.object || {},
+            entityId: event.data?.id || null,  // Canonical entity ID (order ID, customer ID, etc.)
+            entityType: event.data?.type || null,  // Entity type (order, customer, etc.)
             merchantId,
             squareMerchantId: event.merchant_id,
             webhookEventId,

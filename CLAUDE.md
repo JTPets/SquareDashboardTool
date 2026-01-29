@@ -368,15 +368,15 @@ Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_
 - `context.data` = `{ order_created: {...} }` (the wrapper object)
 - The entity ID at `event.data.id` is NOT in `context.data`
 
-**When writing webhook handlers**, always check `event.data?.id` for the canonical entity ID:
+**When writing webhook handlers**, always use `context.entityId` for the canonical entity ID:
 
 ```javascript
-// CORRECT - Check event.data.id for canonical ID
-const { data, merchantId, event } = context;
-const entityId = data.some_wrapper?.id || event.data?.id || data?.id;
+// CORRECT - Use context.entityId (extracted by webhook-processor from event.data.id)
+const { data, merchantId, event, entityId } = context;
+const orderId = entityId || data.some_wrapper?.id || data?.id;
 
 // WRONG - Only checking context.data locations (may miss the ID)
-const entityId = data.some_wrapper?.id || data?.id;  // ← Misses event.data.id
+const orderId = data.some_wrapper?.id || data?.id;  // ← Misses event.data.id
 ```
 
 This applies to all webhook types: orders, payments, customers, inventory, etc.
