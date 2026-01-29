@@ -8,12 +8,17 @@
  * Context object structure:
  * {
  *   event,            // Raw Square webhook event
- *   data,             // event.data?.object || {}
+ *   data,             // event.data?.object || {} (wrapper contents)
+ *   entityId,         // event.data?.id - Canonical entity ID (order ID, customer ID, etc.)
+ *   entityType,       // event.data?.type - Entity type (order, customer, etc.)
  *   merchantId,       // Internal merchant ID (resolved)
  *   squareMerchantId, // Square's merchant ID
  *   webhookEventId,   // ID from webhook_events table
  *   startTime         // For duration tracking
  * }
+ *
+ * IMPORTANT: Square places entity IDs at event.data.id, NOT inside event.data.object.
+ * Always use context.entityId for the canonical ID rather than searching in context.data.
  *
  * @module services/webhook-handlers
  */
