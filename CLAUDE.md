@@ -58,6 +58,27 @@ database/        → schema.sql + migrations/
 jobs/            → Background jobs and cron tasks
 ```
 
+### Code Rules
+
+| Rule | Limit |
+|------|-------|
+| Function length | ≤ 100 lines |
+| File length | ≤ 300 lines (split if larger) |
+| Service scope | Single responsibility |
+| Route logic | Validation + call service only |
+| New files | Tests + docs reference required |
+| Complexity | Explainable in one sentence |
+
+**Violations require justification.** If any rule must be broken:
+1. Add a comment at the top of the file/function explaining WHY
+2. Log it in the Approved Violations table below
+3. Create a backlog item to refactor if temporary
+
+#### Approved Violations
+| Date | File | Rule Broken | Reason | Backlog Item |
+|------|------|-------------|--------|--------------|
+| *none yet* | | | | |
+
 ---
 
 ## Common Patterns
