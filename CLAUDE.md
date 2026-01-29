@@ -342,6 +342,45 @@ POST /api/webhooks/square
 
 Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_SYNC`
 
+### Square Webhook Payload Structure
+
+**Critical**: Square's webhook structure places entity IDs at `event.data.id`, NOT inside `event.data.object`.
+
+```json
+{
+  "type": "order.created",
+  "merchant_id": "MERCHANT_ID",
+  "event_id": "EVENT_ID",
+  "data": {
+    "type": "order",
+    "id": "ORDER_ID",          // ← ENTITY ID IS HERE (event.data.id)
+    "object": {
+      "order_created": {       // ← Wrapper with entity details (often minimal)
+        "created_at": "...",
+        "state": "OPEN"
+      }
+    }
+  }
+}
+```
+
+**Common Pitfall**: The webhook processor passes `event.data.object` as `context.data` to handlers. This means:
+- `context.data` = `{ order_created: {...} }` (the wrapper object)
+- The entity ID at `event.data.id` is NOT in `context.data`
+
+**When writing webhook handlers**, always check `event.data?.id` for the canonical entity ID:
+
+```javascript
+// CORRECT - Check event.data.id for canonical ID
+const { data, merchantId, event } = context;
+const entityId = data.some_wrapper?.id || event.data?.id || data?.id;
+
+// WRONG - Only checking context.data locations (may miss the ID)
+const entityId = data.some_wrapper?.id || data?.id;  // ← Misses event.data.id
+```
+
+This applies to all webhook types: orders, payments, customers, inventory, etc.
+
 ## Square API
 
 ```javascript
