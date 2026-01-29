@@ -58,6 +58,25 @@ database/        → schema.sql + migrations/
 jobs/            → Background jobs and cron tasks
 ```
 
+### New Code Rules
+
+- Max 100 lines per function
+- Max 300 lines per file (split if larger)
+- One responsibility per service
+- No business logic in routes
+- Every new file needs: tests + docs reference
+- If you can't explain it in one sentence, it's too complex
+
+**Violations require justification.** If any rule must be broken:
+1. Add a comment at the top of the file/function explaining WHY
+2. Log it in this section with date and rationale
+3. Create a backlog item to refactor if it's temporary
+
+#### Approved Violations
+| Date | File | Rule Broken | Reason | Backlog Item |
+|------|------|-------------|--------|--------------|
+| *none yet* | | | | |
+
 ---
 
 ## Common Patterns
