@@ -75,9 +75,14 @@ jobs/            → Background jobs and cron tasks
 3. Create a backlog item to refactor if temporary
 
 #### Approved Violations
-| Date | File | Rule Broken | Reason | Backlog Item |
-|------|------|-------------|--------|--------------|
-| *none yet* | | | | |
+| Date | File | Rule Broken | Reason |
+|------|------|-------------|--------|
+| 2026-01-29 | utils/database.js | 2,093 line function | SQL schema definition, not logic |
+| 2026-01-29 | services/loyalty-admin/loyalty-service.js | 5,475 lines | Legacy service pending deprecation (P1-1) |
+| 2026-01-29 | server.js | 1,006 lines | Express entry point, already reduced 66% |
+| 2026-01-29 | All LOW severity files | >300 lines | Stable code, refactor-on-touch policy |
+
+**Policy**: Files are refactored when modified, not proactively. Touch it = fix it.
 
 ---
 
