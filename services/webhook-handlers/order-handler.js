@@ -490,6 +490,17 @@ class OrderHandler {
      */
     async _processLoyalty(order, merchantId, result) {
         try {
+            // Dedup check - prevent duplicate loyalty processing
+            const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
+            if (alreadyProcessed) {
+                logger.debug('Loyalty skip - order already processed', {
+                    action: 'LOYALTY_SKIP_DUPLICATE',
+                    orderId: order.id,
+                    merchantId
+                });
+                return;
+            }
+
             const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source: 'WEBHOOK' });
             if (loyaltyResult.processed) {
                 result.loyalty = {
@@ -818,6 +829,18 @@ class OrderHandler {
             }
 
             const order = orderResponse.order;
+
+            // Dedup check - prevent duplicate loyalty processing
+            const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
+            if (alreadyProcessed) {
+                logger.debug('Loyalty skip - order already processed via payment webhook', {
+                    action: 'LOYALTY_SKIP_DUPLICATE',
+                    orderId: order.id,
+                    merchantId,
+                    source
+                });
+                return;
+            }
 
             // Process for loyalty
             const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source });

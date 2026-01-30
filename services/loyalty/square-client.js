@@ -94,13 +94,14 @@ class LoyaltySquareClient {
   }
 
   /**
-   * Make a request to the Square API
+   * Make a request to the Square API with retry logic for rate limiting
    * @param {string} method - HTTP method
    * @param {string} endpoint - API endpoint (without base URL)
    * @param {Object} [body] - Request body for POST/PUT
    * @param {Object} [options] - Additional options
    * @param {number} [options.timeout] - Custom timeout
    * @param {string} [options.context] - Context for logging
+   * @param {number} [options.maxRetries] - Max retry attempts for rate limiting (default: 3)
    * @returns {Promise<Object>} Parsed JSON response
    */
   async request(method, endpoint, body = null, options = {}) {
@@ -108,7 +109,7 @@ class LoyaltySquareClient {
       throw new SquareApiError('Client not initialized', 401, endpoint);
     }
 
-    const { timeout = DEFAULT_TIMEOUT, context = '' } = options;
+    const { timeout = DEFAULT_TIMEOUT, context = '', maxRetries = 3 } = options;
     const url = `${SQUARE_API_BASE}${endpoint}`;
 
     const fetchOptions = {
@@ -125,78 +126,121 @@ class LoyaltySquareClient {
     }
 
     const startTime = Date.now();
-    let response;
-    let responseData;
+    let lastError;
 
-    try {
-      response = await fetchWithTimeout(url, fetchOptions, timeout);
-      const duration = Date.now() - startTime;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetchWithTimeout(url, fetchOptions, timeout);
+        const duration = Date.now() - startTime;
 
-      loyaltyLogger.squareApi({
-        endpoint,
-        method,
-        status: response.status,
-        duration,
-        success: response.ok,
-        merchantId: this.merchantId,
-        context,
-      });
+        loyaltyLogger.squareApi({
+          endpoint,
+          method,
+          status: response.status,
+          duration,
+          success: response.ok,
+          merchantId: this.merchantId,
+          context,
+          attempt,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorDetails;
-        try {
-          errorDetails = JSON.parse(errorText);
-        } catch {
-          errorDetails = { message: errorText };
+        // Handle rate limiting with retry
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get('retry-after') || '5', 10);
+          loyaltyLogger.warn({
+            action: 'RATE_LIMITED',
+            category: 'LOYALTY:RETRY',
+            endpoint,
+            method,
+            retryAfter,
+            attempt,
+            maxRetries,
+            merchantId: this.merchantId,
+            context,
+          });
+
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, retryAfter * 1000));
+            continue;
+          }
+
+          // Max retries exhausted for rate limiting
+          throw new SquareApiError(
+            `Rate limited after ${maxRetries} attempts`,
+            429,
+            endpoint,
+            { retryAfter, attempts: attempt }
+          );
         }
 
-        throw new SquareApiError(
-          `Square API error: ${response.status}`,
-          response.status,
-          endpoint,
-          errorDetails
-        );
-      }
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorDetails;
+          try {
+            errorDetails = JSON.parse(errorText);
+          } catch {
+            errorDetails = { message: errorText };
+          }
 
-      responseData = await response.json();
-      return responseData;
+          throw new SquareApiError(
+            `Square API error: ${response.status}`,
+            response.status,
+            endpoint,
+            errorDetails
+          );
+        }
 
-    } catch (error) {
-      const duration = Date.now() - startTime;
+        const responseData = await response.json();
+        return responseData;
 
-      if (error instanceof SquareApiError) {
+      } catch (error) {
+        lastError = error;
+        const duration = Date.now() - startTime;
+
+        if (error instanceof SquareApiError) {
+          // Don't retry non-rate-limit errors
+          if (error.status !== 429) {
+            loyaltyLogger.error({
+              action: 'SQUARE_API_ERROR',
+              endpoint,
+              method,
+              status: error.status,
+              duration,
+              error: error.message,
+              details: error.details,
+              merchantId: this.merchantId,
+              context,
+              attempt,
+            });
+            throw error;
+          }
+          // Rate limit error already handled above, this is after max retries
+          throw error;
+        }
+
+        // Network or other transient error - log and throw
         loyaltyLogger.error({
           action: 'SQUARE_API_ERROR',
           endpoint,
           method,
-          status: error.status,
           duration,
           error: error.message,
-          details: error.details,
           merchantId: this.merchantId,
           context,
+          attempt,
         });
-        throw error;
+
+        throw new SquareApiError(
+          error.message,
+          0,
+          endpoint,
+          { originalError: error.message }
+        );
       }
-
-      loyaltyLogger.error({
-        action: 'SQUARE_API_ERROR',
-        endpoint,
-        method,
-        duration,
-        error: error.message,
-        merchantId: this.merchantId,
-        context,
-      });
-
-      throw new SquareApiError(
-        error.message,
-        0,
-        endpoint,
-        { originalError: error.message }
-      );
     }
+
+    // Should not reach here, but safety net
+    throw lastError || new SquareApiError('Request failed', 0, endpoint);
   }
 
   /**
