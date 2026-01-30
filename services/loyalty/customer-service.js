@@ -323,6 +323,9 @@ class LoyaltyCustomerService {
               success: true,
             };
           }
+
+          // Throttle API calls to avoid rate limits
+          await new Promise(r => setTimeout(r, 100));
         }
       }
 

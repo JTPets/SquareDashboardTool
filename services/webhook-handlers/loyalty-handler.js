@@ -20,9 +20,7 @@ const { FEATURE_FLAGS } = require('../../config/constants');
 
 // Modern loyalty service (feature-flagged)
 const { LoyaltyWebhookService } = require('../loyalty');
-
-// Square API version for direct API calls
-const SQUARE_API_VERSION = '2025-01-16';
+const { LoyaltySquareClient } = require('../loyalty/square-client');
 
 /**
  * Process order for loyalty using either modern or legacy service
@@ -154,52 +152,51 @@ class LoyaltyHandler {
             merchantId
         });
 
-        const accessToken = await loyaltyService.getSquareAccessToken(merchantId);
-        if (!accessToken) {
+        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        let squareClient;
+        try {
+            squareClient = new LoyaltySquareClient(merchantId);
+            await squareClient.initialize();
+        } catch (initError) {
+            logger.error('Failed to initialize Square client for loyalty webhook', {
+                error: initError.message,
+                merchantId
+            });
             return;
         }
 
         // Fetch the loyalty account to get customer_id
-        const accountResponse = await fetch(
-            `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                }
-            }
-        );
-
-        if (!accountResponse.ok) {
+        let loyaltyAccount;
+        try {
+            loyaltyAccount = await squareClient.getLoyaltyAccount(loyaltyAccountId);
+        } catch (accountError) {
+            logger.error('Failed to fetch loyalty account', {
+                action: 'LOYALTY_ACCOUNT_FETCH_FAILED',
+                loyaltyAccountId,
+                error: accountError.message,
+                merchantId
+            });
             return;
         }
 
-        const accountData = await accountResponse.json();
-        const customerId = accountData.loyalty_account?.customer_id;
-
+        const customerId = loyaltyAccount?.customer_id;
         if (!customerId) {
             return;
         }
 
         // Fetch the order
-        const orderResponse = await fetch(
-            `https://connect.squareup.com/v2/orders/${orderId}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                }
-            }
-        );
-
-        if (!orderResponse.ok) {
+        let order;
+        try {
+            order = await squareClient.getOrder(orderId);
+        } catch (orderError) {
+            logger.error('Failed to fetch order for loyalty processing', {
+                action: 'ORDER_FETCH_FAILED',
+                orderId,
+                error: orderError.message,
+                merchantId
+            });
             return;
         }
-
-        const orderData = await orderResponse.json();
-        const order = orderData.order;
 
         if (!order || order.state !== 'COMPLETED') {
             return;
@@ -243,29 +240,33 @@ class LoyaltyHandler {
             eventType
         });
 
-        const accessToken = await loyaltyService.getSquareAccessToken(merchantId);
-        if (!accessToken) {
+        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        let squareClient;
+        try {
+            squareClient = new LoyaltySquareClient(merchantId);
+            await squareClient.initialize();
+        } catch (initError) {
+            logger.error('Failed to initialize Square client for reverse lookup', {
+                error: initError.message,
+                merchantId
+            });
             return;
         }
 
-        const accountResponse = await fetch(
-            `https://connect.squareup.com/v2/loyalty/accounts/${loyaltyAccountId}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': SQUARE_API_VERSION
-                }
-            }
-        );
-
-        if (!accountResponse.ok) {
+        let loyaltyAccount;
+        try {
+            loyaltyAccount = await squareClient.getLoyaltyAccount(loyaltyAccountId);
+        } catch (accountError) {
+            logger.error('Failed to fetch loyalty account for reverse lookup', {
+                action: 'LOYALTY_ACCOUNT_FETCH_FAILED',
+                loyaltyAccountId,
+                error: accountError.message,
+                merchantId
+            });
             return;
         }
 
-        const accountData = await accountResponse.json();
-        const customerId = accountData.loyalty_account?.customer_id;
-
+        const customerId = loyaltyAccount?.customer_id;
         if (!customerId) {
             return;
         }
