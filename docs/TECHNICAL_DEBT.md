@@ -879,6 +879,79 @@ See [EVENT_DELEGATION.md - API Response Data Wrapper Mismatch](./EVENT_DELEGATIO
 
 ---
 
+### BACKLOG-4: Customer Birthday Sync for Targeted Marketing
+**Identified**: 2026-01-30
+**Priority**: Medium (feature enhancement)
+**Status**: Investigation complete, ready to implement
+**Target**: TBD
+
+**Use Case**: Add customers with birthdays to Square Customer Groups for targeted marketing (e.g., birthday month promotions).
+
+#### Current State (Investigation Summary)
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| `loyalty_customers` table | ✅ Exists | `database/schema.sql` |
+| `birthday` column | ❌ Missing | Needs migration |
+| `customer.updated` webhook | ✅ Exists | `services/webhook-handlers/catalog-handler.js:88-147` |
+| `cacheCustomerDetails()` | ✅ Exists | `services/loyalty-admin/loyalty-service.js:265-299` |
+| Customer group CRUD | ✅ Exists | `services/loyalty-admin/loyalty-service.js:3488-3761` |
+| Bulk customer sync cron | ❌ Not needed | Only capture on change |
+
+**Square Customer Object** (birthday field):
+```javascript
+{
+  id: "CUSTOMER_ID",
+  given_name: "John",
+  family_name: "Doe",
+  birthday: "1990-05-15",  // YYYY-MM-DD format
+  // ... other fields
+}
+```
+
+#### Implementation Plan
+
+**1. Migration** (`database/migrations/0XX_add_customer_birthday.sql`):
+```sql
+ALTER TABLE loyalty_customers ADD COLUMN birthday DATE;
+CREATE INDEX idx_loyalty_customers_birthday
+  ON loyalty_customers(merchant_id, birthday);
+```
+
+**2. Extend `cacheCustomerDetails()`** (`services/loyalty-admin/loyalty-service.js:265-299`):
+- Add `birthday` to INSERT columns and ON CONFLICT UPDATE
+- Extract from Square customer object
+
+**3. Modify `customer.updated` handler** (`services/webhook-handlers/catalog-handler.js:88-147`):
+- Fetch full customer record from Square API
+- Call `cacheCustomerDetails()` to persist birthday
+- Only triggers when customer is updated in Square (no bulk sync needed)
+
+**4. Birthday group management** (future):
+- Use existing `addCustomerToGroup()` / `removeCustomerFromGroup()`
+- Create cron job to check birthdays and manage group membership
+
+#### Files to Modify
+
+| File | Change |
+|------|--------|
+| `database/migrations/0XX_add_customer_birthday.sql` | New file - add column + index |
+| `services/loyalty-admin/loyalty-service.js` | Update `cacheCustomerDetails()` |
+| `services/webhook-handlers/catalog-handler.js` | Fetch customer, cache birthday |
+
+#### Existing Code to Leverage
+
+| Function | Location | Purpose |
+|----------|----------|---------|
+| `cacheCustomerDetails()` | `loyalty-service.js:265-299` | Upsert customer to cache |
+| `getCustomerDetails()` | `loyalty-service.js:454-526` | Fetch from Square API |
+| `createCustomerGroup()` | `loyalty-service.js:3488-3567` | Create Square group |
+| `addCustomerToGroup()` | `loyalty-service.js:3578-3633` | Add customer to group |
+| `removeCustomerFromGroup()` | `loyalty-service.js:3645-3700` | Remove from group |
+| `handleCustomerUpdated()` | `catalog-handler.js:88-147` | Webhook handler |
+
+---
+
 ## Previous Achievements
 
 These items are COMPLETE and should not regress:
