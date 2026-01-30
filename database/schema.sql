@@ -159,6 +159,19 @@ CREATE TABLE vendors (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Helper function for vendor name normalization (case-insensitive, trimmed)
+CREATE OR REPLACE FUNCTION vendor_name_normalized(name TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    RETURN LOWER(TRIM(name));
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Unique constraint on vendor name per merchant (prevents duplicates)
+CREATE UNIQUE INDEX idx_vendors_merchant_name_unique
+ON vendors (merchant_id, vendor_name_normalized(name))
+WHERE merchant_id IS NOT NULL;
+
 -- 4. Product categories from Square
 CREATE TABLE categories (
     id TEXT PRIMARY KEY,

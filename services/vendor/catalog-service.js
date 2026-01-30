@@ -432,6 +432,7 @@ function validateAndTransform(rows, headers, defaultVendorName = null) {
 
 /**
  * Look up or create vendor by name
+ * Uses INSERT ... ON CONFLICT to prevent race conditions creating duplicates.
  * @param {string} vendorName - Vendor name
  * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant isolation
  * @returns {Promise<string|null>} Vendor ID or null
@@ -441,26 +442,30 @@ async function findOrCreateVendor(vendorName, merchantId) {
         throw new Error('merchantId is required for findOrCreateVendor');
     }
 
-    // First try to find existing vendor (case-insensitive, within merchant)
-    const existing = await db.query(
-        'SELECT id FROM vendors WHERE LOWER(name) = LOWER($1) AND merchant_id = $2 LIMIT 1',
-        [vendorName, merchantId]
-    );
-
-    if (existing.rows.length > 0) {
-        return existing.rows[0].id;
-    }
-
-    // Create new vendor with generated ID
     const vendorId = `VENDOR-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    await db.query(
+
+    // Use INSERT ... ON CONFLICT to atomically find or create vendor
+    // The unique index idx_vendors_merchant_name_unique ensures no duplicates
+    const result = await db.query(
         `INSERT INTO vendors (id, name, merchant_id, status, created_at, updated_at)
-         VALUES ($1, $2, $3, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         VALUES ($1, $2, $3, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT (merchant_id, vendor_name_normalized(name))
+         WHERE merchant_id IS NOT NULL
+         DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+         RETURNING id, (xmax = 0) AS inserted`,
         [vendorId, vendorName, merchantId]
     );
 
-    logger.info('Created new vendor from import', { vendorId, vendorName, merchantId });
-    return vendorId;
+    const wasInserted = result.rows[0].inserted;
+    if (wasInserted) {
+        logger.info('Created new vendor from import', {
+            vendorId: result.rows[0].id,
+            vendorName,
+            merchantId
+        });
+    }
+
+    return result.rows[0].id;
 }
 
 /**
