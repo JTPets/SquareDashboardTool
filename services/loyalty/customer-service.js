@@ -514,6 +514,76 @@ class LoyaltyCustomerService {
       return null;
     }
   }
+
+  /**
+   * Cache customer details to loyalty_customers table
+   * Ensures phone number is available in rewards reporting
+   * @param {string} customerId - Square customer ID
+   * @returns {Promise<Object|null>} Customer details or null if not found
+   */
+  async cacheCustomerDetails(customerId) {
+    try {
+      // First check if already cached with phone number
+      const cached = await db.query(`
+        SELECT phone_number FROM loyalty_customers
+        WHERE merchant_id = $1 AND square_customer_id = $2
+      `, [this.merchantId, customerId]);
+
+      if (cached.rows.length > 0 && cached.rows[0].phone_number) {
+        // Already cached with phone, no need to fetch again
+        return { id: customerId, phone: cached.rows[0].phone_number, cached: true };
+      }
+
+      // Fetch from Square API
+      const customer = await this.getCustomerDetails(customerId);
+      if (!customer) {
+        return null;
+      }
+
+      // Cache to database
+      await db.query(`
+        INSERT INTO loyalty_customers (
+          merchant_id, square_customer_id, given_name, family_name,
+          display_name, phone_number, email_address, company_name,
+          last_updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
+          given_name = COALESCE(EXCLUDED.given_name, loyalty_customers.given_name),
+          family_name = COALESCE(EXCLUDED.family_name, loyalty_customers.family_name),
+          display_name = COALESCE(EXCLUDED.display_name, loyalty_customers.display_name),
+          phone_number = COALESCE(EXCLUDED.phone_number, loyalty_customers.phone_number),
+          email_address = COALESCE(EXCLUDED.email_address, loyalty_customers.email_address),
+          company_name = COALESCE(EXCLUDED.company_name, loyalty_customers.company_name),
+          last_updated_at = NOW()
+      `, [
+        this.merchantId,
+        customer.id,
+        customer.givenName,
+        customer.familyName,
+        customer.displayName,
+        customer.phone,
+        customer.email,
+        customer.companyName,
+      ]);
+
+      loyaltyLogger.info({
+        action: 'CUSTOMER_CACHED',
+        customerId,
+        hasPhone: !!customer.phone,
+        merchantId: this.merchantId,
+      });
+
+      return customer;
+    } catch (error) {
+      loyaltyLogger.error({
+        action: 'CACHE_CUSTOMER_ERROR',
+        customerId,
+        error: error.message,
+        merchantId: this.merchantId,
+      });
+      return null;
+    }
+  }
 }
 
 module.exports = { LoyaltyCustomerService };
