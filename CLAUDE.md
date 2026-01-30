@@ -233,7 +233,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Active Work
 
-- **P0-4 CSP Phase 2**: Externalizing inline scripts (17/29 files done, ~59%)
+- **P0-4 CSP Phase 2**: Externalizing inline scripts (22/29 files done, ~76%)
 - **P1-1 Loyalty Migration**: Running in production (rate limiting fix applied 2026-01-30)
 
 ### Backlog (Target: TBD)
