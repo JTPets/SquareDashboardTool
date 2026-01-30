@@ -242,6 +242,7 @@ PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB
 - BACKLOG-1: Frontend polling rate limits
 - BACKLOG-2: Delivery routing webhook sync
 - BACKLOG-3: Response format standardization
+- BACKLOG-4: Customer birthday sync (see [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog-4-customer-birthday-sync-for-targeted-marketing))
 
 ---
 
