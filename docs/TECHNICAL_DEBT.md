@@ -84,7 +84,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 17/29 files externalized (~59%)
+#### Phase 2 Progress: 20/29 files externalized (~69%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -105,17 +105,13 @@ Fixed 3 locations exposing internal error details to clients:
 | Done | inventory.html → inventory.js | 400 | B |
 | Done | catalog-audit.html → catalog-audit.js | 350 | B |
 | Done | expiry-audit.html → expiry-audit.js | 830 | B |
+| Done | cycle-count.html → cycle-count.js | 420 | B |
+| Done | expiry-discounts.html → expiry-discounts.js | 450 | B |
+| Done | subscribe.html → subscribe.js | 280 | B |
 
-**Total externalized**: ~4,277 lines of JavaScript
+**Total externalized**: ~5,427 lines of JavaScript
 
-#### Phase 2 Remaining Work: 12 files by complexity tier
-
-**Tier B - Medium (3 files, ~1,150 lines)**
-| File | JS Lines | Notes |
-|------|----------|-------|
-| subscribe.html | ~280 | Square Payments SDK integration |
-| cycle-count.html | ~420 | Batch counting, barcode scanner |
-| expiry-discounts.html | ~450 | Discount automation |
+#### Phase 2 Remaining Work: 9 files by complexity tier
 
 **Tier C - Complex (5 files, ~3,300 lines)**
 | File | JS Lines | Notes |
@@ -159,7 +155,7 @@ function debounce(fn, delay) { ... }
 1. ~~**Batch 2** (Tier A): delivery-history, merchants~~ COMPLETE (2026-01-27)
 2. ~~**Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry~~ COMPLETE (2026-01-27)
 3. ~~**Batch 4** (Tier B part 2): inventory, catalog-audit, expiry-audit~~ COMPLETE (2026-01-27)
-4. **Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe (~1,150 lines)
+4. ~~**Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe~~ COMPLETE (2026-01-30)
 5. **Batch 6** (Tier C part 1): driver, delivery (~850 lines)
 6. **Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,600 lines)
 7. **Batch 8** (Tier C/D): settings, reorder (~2,050 lines)
