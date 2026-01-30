@@ -16,6 +16,9 @@ const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
 
+// Customer lookup for fallback when fulfillment recipient data is missing
+const { LoyaltyCustomerService } = require('../loyalty');
+
 // POD storage directory (relative to app root)
 const POD_STORAGE_DIR = process.env.POD_STORAGE_DIR || 'storage/pod';
 
@@ -1334,6 +1337,45 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // Extract customer ID from Square order (camelCase for SDK v43+)
     const squareCustomerId = squareOrder.customerId || squareOrder.customer_id || null;
 
+    // FALLBACK: If customer name/phone missing but we have customer ID, look up from Square API
+    // This fixes "Unknown Customer" when webhook data has incomplete fulfillment recipient
+    if ((customerName === 'Unknown Customer' || !phone) && squareCustomerId) {
+        try {
+            const customerService = new LoyaltyCustomerService(merchantId);
+            await customerService.initialize();
+            const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
+
+            if (customerDetails) {
+                if (customerName === 'Unknown Customer' && customerDetails.displayName) {
+                    customerName = customerDetails.displayName;
+                    logger.info('Resolved customer name via Square API lookup', {
+                        merchantId,
+                        squareOrderId: squareOrder.id,
+                        squareCustomerId,
+                        customerName
+                    });
+                }
+                if (!phone && customerDetails.phone) {
+                    phone = customerDetails.phone;
+                    logger.info('Resolved customer phone via Square API lookup', {
+                        merchantId,
+                        squareOrderId: squareOrder.id,
+                        squareCustomerId,
+                        hasPhone: true
+                    });
+                }
+            }
+        } catch (lookupError) {
+            // Don't fail order ingestion if customer lookup fails
+            logger.warn('Customer lookup failed during delivery ingestion', {
+                merchantId,
+                squareOrderId: squareOrder.id,
+                squareCustomerId,
+                error: lookupError.message
+            });
+        }
+    }
+
     // Extract relevant order data for driver reference (line items, totals, etc.)
     const lineItems = await enrichLineItemsWithGtin(merchantId, squareOrder.lineItems || squareOrder.line_items || []);
     const squareOrderData = {
@@ -1718,6 +1760,83 @@ async function getActiveRouteToken(merchantId, routeId) {
     return result.rows[0] || null;
 }
 
+/**
+ * Backfill customer data for orders with "Unknown Customer"
+ * Looks up customer details from Square API using square_customer_id
+ * @param {number} merchantId - The merchant ID
+ * @returns {Promise<Object>} Results summary
+ */
+async function backfillUnknownCustomers(merchantId) {
+    // Find orders with "Unknown Customer" that have a square_customer_id
+    const ordersToFix = await db.query(`
+        SELECT id, square_customer_id, customer_name, phone
+        FROM delivery_orders
+        WHERE merchant_id = $1
+          AND customer_name = 'Unknown Customer'
+          AND square_customer_id IS NOT NULL
+          AND status NOT IN ('completed', 'cancelled')
+        ORDER BY created_at DESC
+        LIMIT 100
+    `, [merchantId]);
+
+    if (ordersToFix.rows.length === 0) {
+        return { updated: 0, failed: 0, message: 'No orders with Unknown Customer found' };
+    }
+
+    logger.info('Starting customer backfill for delivery orders', {
+        merchantId,
+        ordersToFix: ordersToFix.rows.length
+    });
+
+    let updated = 0;
+    let failed = 0;
+
+    // Initialize customer service once
+    const customerService = new LoyaltyCustomerService(merchantId);
+    await customerService.initialize();
+
+    for (const order of ordersToFix.rows) {
+        try {
+            const customerDetails = await customerService.getCustomerDetails(order.square_customer_id);
+
+            if (customerDetails) {
+                const updates = {};
+                if (customerDetails.displayName) {
+                    updates.customerName = customerDetails.displayName;
+                }
+                if (!order.phone && customerDetails.phone) {
+                    updates.phone = customerDetails.phone;
+                }
+
+                if (Object.keys(updates).length > 0) {
+                    await updateOrder(merchantId, order.id, updates);
+                    updated++;
+                    logger.info('Backfilled customer data for delivery order', {
+                        merchantId,
+                        orderId: order.id,
+                        squareCustomerId: order.square_customer_id,
+                        updates: Object.keys(updates)
+                    });
+                }
+            }
+        } catch (error) {
+            failed++;
+            logger.warn('Failed to backfill customer for order', {
+                merchantId,
+                orderId: order.id,
+                error: error.message
+            });
+        }
+    }
+
+    return {
+        updated,
+        failed,
+        total: ordersToFix.rows.length,
+        message: `Updated ${updated} orders, ${failed} failed`
+    };
+}
+
 module.exports = {
     // Orders
     getOrders,
@@ -1756,6 +1875,7 @@ module.exports = {
     // Square integration
     ingestSquareOrder,
     handleSquareOrderUpdate,
+    backfillUnknownCustomers,
 
     // Route sharing tokens
     generateRouteToken,
