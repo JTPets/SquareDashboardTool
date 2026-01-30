@@ -566,7 +566,7 @@ class LoyaltyCustomerService {
         customer.companyName,
       ]);
 
-      loyaltyLogger.info({
+      loyaltyLogger.customer({
         action: 'CUSTOMER_CACHED',
         customerId,
         hasPhone: !!customer.phone,
