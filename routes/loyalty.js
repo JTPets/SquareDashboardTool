@@ -1380,6 +1380,68 @@ router.post('/catchup', requireAuth, requireMerchant, requireWriteAccess, valida
 }));
 
 /**
+ * POST /api/loyalty/refresh-customers
+ * Refresh customer details for rewards with missing phone numbers
+ * Fetches customer data from Square and updates the cache
+ */
+router.post('/refresh-customers', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+
+    // Find all unique customer IDs with rewards but no phone in cache
+    const missingResult = await db.query(`
+        SELECT DISTINCT r.square_customer_id
+        FROM loyalty_rewards r
+        LEFT JOIN loyalty_customers lc
+            ON r.square_customer_id = lc.square_customer_id
+            AND r.merchant_id = lc.merchant_id
+        WHERE r.merchant_id = $1
+          AND (lc.phone_number IS NULL OR lc.square_customer_id IS NULL)
+    `, [merchantId]);
+
+    const customerIds = missingResult.rows.map(r => r.square_customer_id);
+
+    if (customerIds.length === 0) {
+        return res.json({ success: true, message: 'No customers with missing phone data', refreshed: 0 });
+    }
+
+    logger.info('Refreshing customer data for rewards', { merchantId, count: customerIds.length });
+
+    let refreshed = 0;
+    let failed = 0;
+    const errors = [];
+
+    // Fetch each customer from Square and cache (with throttling)
+    for (const customerId of customerIds) {
+        try {
+            const customer = await loyaltyService.getCustomerDetails(customerId, merchantId);
+            if (customer) {
+                refreshed++;
+                logger.debug('Refreshed customer', { customerId, phone: customer.phone ? 'yes' : 'no' });
+            } else {
+                failed++;
+                errors.push({ customerId, error: 'Customer not found in Square' });
+            }
+        } catch (err) {
+            failed++;
+            errors.push({ customerId, error: err.message });
+        }
+
+        // Throttle to avoid rate limiting (100ms between requests)
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    logger.info('Customer refresh complete', { merchantId, refreshed, failed });
+
+    res.json({
+        success: true,
+        total: customerIds.length,
+        refreshed,
+        failed,
+        errors: errors.length > 0 ? errors : undefined
+    });
+}));
+
+/**
  * POST /api/loyalty/manual-entry
  * Manually record a loyalty purchase for orders where customer wasn't attached
  */

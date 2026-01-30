@@ -2964,14 +2964,22 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
         hasReceiptUrl: !!receiptUrl
     });
 
-    // Cache/update customer details for future lookups (don't wait, fire and forget)
-    getCustomerDetails(squareCustomerId, merchantId).then(customer => {
+    // Cache customer details BEFORE processing purchases
+    // This ensures phone number is available in rewards reporting
+    try {
+        const customer = await getCustomerDetails(squareCustomerId, merchantId);
         if (customer) {
-            updateCustomerStats(squareCustomerId, merchantId, { incrementOrders: true });
+            // Update stats asynchronously - don't block on this
+            updateCustomerStats(squareCustomerId, merchantId, { incrementOrders: true })
+                .catch(err => logger.debug('Failed to update customer stats', { error: err.message }));
         }
-    }).catch(err => {
-        logger.debug('Failed to cache customer during order processing', { error: err.message });
-    });
+    } catch (err) {
+        // Log but don't fail order processing if customer caching fails
+        logger.warn('Failed to cache customer during order processing', {
+            error: err.message,
+            customerId: squareCustomerId
+        });
+    }
 
     const results = {
         processed: true,
