@@ -590,6 +590,29 @@ class OrderHandler {
                 updates.squareCustomerId = squareCustomerId;
             }
 
+            // Also refresh order data (line items, totals) since DRAFT orders have incomplete data
+            if (fullOrder.lineItems || fullOrder.line_items) {
+                const lineItems = fullOrder.lineItems || fullOrder.line_items || [];
+                updates.squareOrderData = {
+                    lineItems: lineItems.map(item => ({
+                        name: item.name,
+                        quantity: item.quantity,
+                        variationName: item.variationName || item.variation_name,
+                        modifiers: item.modifiers || [],
+                        note: item.note
+                    })),
+                    totalMoney: fullOrder.totalMoney || fullOrder.total_money,
+                    createdAt: fullOrder.createdAt || fullOrder.created_at,
+                    state: fullOrder.state
+                };
+                logger.info('Refreshing order data (line items, total)', {
+                    merchantId,
+                    squareOrderId: order.id,
+                    lineItemCount: lineItems.length,
+                    totalAmount: updates.squareOrderData.totalMoney?.amount
+                });
+            }
+
             await deliveryApi.updateOrder(merchantId, existingOrder.id, updates);
 
             logger.info('Delivery order customer refreshed', {
