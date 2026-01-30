@@ -207,6 +207,27 @@
     .status-delivered { background: #d1fae5; color: #065f46; }
     .status-completed { background: #e5e7eb; color: #374151; }
 
+    /* Badge for orders with incomplete customer data */
+    .badge-pending {
+      font-size: 14px;
+      cursor: help;
+    }
+    .badge-draft {
+      background: #fef3c7;
+      color: #92400e;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .order-card.needs-refresh {
+      border-left: 4px solid #8b5cf6;
+    }
+    .order-card.needs-refresh.needs-geocode {
+      border-left: 4px solid #f59e0b;
+      border-right: 4px solid #8b5cf6;
+    }
+
     /* Empty State */
     .empty-state {
       text-align: center;
@@ -646,14 +667,15 @@
       }
 
       container.innerHTML = orderList.map(order => `
-        <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''}">
+        <div class="order-card ${!order.geocoded_at ? 'needs-geocode' : ''} ${order.needs_customer_refresh ? 'needs-refresh' : ''}">
           <div class="order-info">
-            <h3>${escapeHtml(order.customer_name)}</h3>
+            <h3>${escapeHtml(order.customer_name)}${order.needs_customer_refresh || order.customer_name === 'Unknown Customer' ? ' <span class="badge-pending" title="Customer data pending - will update when order is confirmed">⏳</span>' : ''}</h3>
             <div class="order-address">${escapeHtml(order.address)}</div>
             <div class="order-meta">
               ${order.phone ? `<span>Phone: ${escapeHtml(order.phone)}</span>` : ''}
               <span class="status-badge status-${order.status}">${order.status}</span>
               ${order.square_order_id ? '<span>Square Order</span>' : '<span>Manual</span>'}
+              ${order.square_order_state === 'DRAFT' ? '<span class="badge-draft" title="Order is still in DRAFT state">Draft</span>' : ''}
               ${!order.geocoded_at ? '<span style="color: #f59e0b;">Needs Geocoding</span>' : ''}
               ${order.route_position ? `<span>Stop #${order.route_position}</span>` : ''}
             </div>

@@ -401,6 +401,11 @@ class OrderHandler {
             return;
         }
 
+        // Check if existing order needs customer refresh (DRAFT → OPEN/COMPLETED transition)
+        if (['OPEN', 'COMPLETED'].includes(order.state)) {
+            await this._refreshDeliveryOrderCustomerIfNeeded(order, deliveryFulfillment, merchantId, result);
+        }
+
         // Auto-ingest OPEN orders
         if (order.state !== 'COMPLETED' && order.state !== 'CANCELED') {
             await this._ingestDeliveryOrder(order, merchantId, result);
@@ -480,6 +485,108 @@ class OrderHandler {
             logger.error('Failed to handle order completion for delivery', {
                 error: completeError.message,
                 orderId
+            });
+        }
+    }
+
+    /**
+     * Refresh customer data for orders that were ingested with incomplete data
+     * Triggered when order state changes from DRAFT to OPEN/COMPLETED
+     * @private
+     */
+    async _refreshDeliveryOrderCustomerIfNeeded(order, deliveryFulfillment, merchantId, result) {
+        try {
+            // Check if we have this order and it needs refresh
+            const existingOrder = await deliveryApi.getOrderBySquareId(merchantId, order.id);
+            if (!existingOrder || !existingOrder.needs_customer_refresh) {
+                return;
+            }
+
+            logger.info('Refreshing customer data for delivery order', {
+                merchantId,
+                squareOrderId: order.id,
+                deliveryOrderId: existingOrder.id,
+                previousName: existingOrder.customer_name,
+                newState: order.state
+            });
+
+            // Extract customer data from fulfillment recipient
+            const deliveryDetails = deliveryFulfillment.deliveryDetails || deliveryFulfillment.delivery_details;
+            const shipmentDetails = deliveryFulfillment.shipmentDetails || deliveryFulfillment.shipment_details;
+            const details = deliveryDetails || shipmentDetails;
+
+            let customerName = null;
+            let phone = null;
+
+            if (details?.recipient) {
+                customerName = details.recipient.displayName || details.recipient.display_name;
+                phone = details.recipient.phoneNumber || details.recipient.phone_number;
+            }
+
+            // Fallback: lookup customer via customer ID if still missing
+            const squareCustomerId = order.customerId || order.customer_id;
+            if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
+                try {
+                    const { LoyaltyCustomerService } = require('../loyalty');
+                    const customerService = new LoyaltyCustomerService(merchantId);
+                    await customerService.initialize();
+                    const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
+
+                    if (customerDetails) {
+                        if (!customerName && customerDetails.displayName) {
+                            customerName = customerDetails.displayName;
+                        }
+                        if (!phone && customerDetails.phone) {
+                            phone = customerDetails.phone;
+                        }
+                    }
+                } catch (lookupError) {
+                    logger.warn('Customer lookup failed during refresh', {
+                        merchantId,
+                        squareCustomerId,
+                        error: lookupError.message
+                    });
+                }
+            }
+
+            // Build updates
+            const updates = {
+                squareOrderState: order.state,
+                needsCustomerRefresh: false  // Clear the flag
+            };
+
+            if (customerName && customerName !== 'Unknown Customer' && customerName !== existingOrder.customer_name) {
+                updates.customerName = customerName;
+            }
+            if (phone && !existingOrder.phone) {
+                updates.phone = phone;
+            }
+            if (squareCustomerId && !existingOrder.square_customer_id) {
+                updates.squareCustomerId = squareCustomerId;
+            }
+
+            await deliveryApi.updateOrder(merchantId, existingOrder.id, updates);
+
+            logger.info('Delivery order customer refreshed', {
+                action: 'DELIVERY_CUSTOMER_REFRESHED',
+                merchantId,
+                deliveryOrderId: existingOrder.id,
+                squareOrderId: order.id,
+                previousName: existingOrder.customer_name,
+                newName: updates.customerName || existingOrder.customer_name,
+                hasPhone: !!(updates.phone || existingOrder.phone)
+            });
+
+            result.deliveryCustomerRefresh = {
+                orderId: existingOrder.id,
+                previousName: existingOrder.customer_name,
+                newName: updates.customerName || existingOrder.customer_name
+            };
+        } catch (refreshError) {
+            logger.error('Failed to refresh delivery order customer', {
+                error: refreshError.message,
+                squareOrderId: order.id,
+                merchantId
             });
         }
     }
