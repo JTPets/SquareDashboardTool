@@ -1071,6 +1071,8 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
     route_position INTEGER,      -- sequence in generated route
     route_date DATE,
     square_synced_at TIMESTAMPTZ,  -- when synced to Square as completed
+    square_order_state VARCHAR(50),  -- Square order state (DRAFT, OPEN, COMPLETED, CANCELED)
+    needs_customer_refresh BOOLEAN DEFAULT FALSE,  -- TRUE when ingested with incomplete customer data
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -1092,6 +1094,11 @@ CREATE INDEX IF NOT EXISTS idx_delivery_orders_square_order
 CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_geocoding
     ON delivery_orders(merchant_id, geocoded_at)
     WHERE geocoded_at IS NULL;
+
+-- Index for orders needing customer refresh (DRAFT orders with incomplete data)
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_refresh
+    ON delivery_orders(merchant_id, needs_customer_refresh)
+    WHERE needs_customer_refresh = TRUE;
 
 COMMENT ON TABLE delivery_orders IS 'Delivery order queue with status tracking and route assignment';
 COMMENT ON COLUMN delivery_orders.status IS 'pending=ready for route, active=on current route, skipped=driver skipped, delivered=POD captured, completed=synced to Square';

@@ -342,21 +342,25 @@ async function createOrder(merchantId, orderData) {
         notes = null,
         customerNote = null,
         status = 'pending',
-        squareOrderData = null
+        squareOrderData = null,
+        squareOrderState = null,
+        needsCustomerRefresh = false
     } = orderData;
 
     const result = await db.query(
         `INSERT INTO delivery_orders (
             merchant_id, square_order_id, square_customer_id, customer_name, address,
             address_lat, address_lng, phone, notes, customer_note, status,
-            geocoded_at, square_order_data
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            geocoded_at, square_order_data, square_order_state, needs_customer_refresh
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING *`,
         [
             merchantId, squareOrderId, squareCustomerId, customerName, address,
             addressLat, addressLng, phone, notes, customerNote, status,
             addressLat && addressLng ? new Date() : null,
-            squareOrderData ? safeJsonStringify(squareOrderData) : null
+            squareOrderData ? safeJsonStringify(squareOrderData) : null,
+            squareOrderState,
+            needsCustomerRefresh
         ]
     );
 
@@ -382,7 +386,7 @@ async function updateOrder(merchantId, orderId, updates) {
         'customer_name', 'address', 'address_lat', 'address_lng',
         'geocoded_at', 'phone', 'notes', 'customer_note', 'status', 'route_id',
         'route_position', 'route_date', 'square_synced_at', 'square_customer_id',
-        'square_order_data'
+        'square_order_data', 'square_order_state', 'needs_customer_refresh'
     ];
 
     const setClauses = [];
@@ -1385,6 +1389,28 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         state: squareOrder.state
     };
 
+    // Track Square order state for refresh logic
+    const squareOrderState = squareOrder.state;
+
+    // Flag orders that need customer refresh when state changes
+    // DRAFT orders often have incomplete fulfillment data that gets populated when OPEN
+    const needsCustomerRefresh = (
+        squareOrderState === 'DRAFT' ||
+        customerName === 'Unknown Customer' ||
+        (!phone && !squareCustomerId)
+    );
+
+    if (needsCustomerRefresh) {
+        logger.info('Delivery order needs customer refresh', {
+            merchantId,
+            squareOrderId: squareOrder.id,
+            squareOrderState,
+            customerName,
+            hasPhone: !!phone,
+            hasCustomerId: !!squareCustomerId
+        });
+    }
+
     // Create delivery order
     const order = await createOrder(merchantId, {
         squareOrderId: squareOrder.id,
@@ -1394,7 +1420,9 @@ async function ingestSquareOrder(merchantId, squareOrder) {
         phone,
         notes: squareOrder.note || null,  // Order-specific notes
         status: initialStatus,
-        squareOrderData
+        squareOrderData,
+        squareOrderState,
+        needsCustomerRefresh
     });
 
     // Geocode the address immediately so it's ready for routing
