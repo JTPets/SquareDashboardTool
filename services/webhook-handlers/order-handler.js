@@ -380,6 +380,12 @@ class OrderHandler {
      * @private
      */
     async _processDeliveryRouting(order, merchantId, result) {
+        // IMPORTANT: Check for customer refresh FIRST, before any early returns
+        // Webhooks often have no fulfillments even when the order exists in our system
+        if (['OPEN', 'COMPLETED'].includes(order.state)) {
+            await this._refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result);
+        }
+
         if (!order.fulfillments || order.fulfillments.length === 0) {
             logger.debug('Order has no fulfillments for delivery routing', {
                 orderId: order.id,
@@ -399,11 +405,6 @@ class OrderHandler {
                 fulfillments: fulfillmentTypes
             });
             return;
-        }
-
-        // Check if existing order needs customer refresh (DRAFT → OPEN/COMPLETED transition)
-        if (['OPEN', 'COMPLETED'].includes(order.state)) {
-            await this._refreshDeliveryOrderCustomerIfNeeded(order, deliveryFulfillment, merchantId, result);
         }
 
         // Auto-ingest OPEN orders
@@ -494,7 +495,7 @@ class OrderHandler {
      * Triggered when order state changes from DRAFT to OPEN/COMPLETED
      * @private
      */
-    async _refreshDeliveryOrderCustomerIfNeeded(order, deliveryFulfillment, merchantId, result) {
+    async _refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result) {
         try {
             // Check if we have this order and it needs refresh
             const existingOrder = await deliveryApi.getOrderBySquareId(merchantId, order.id);
@@ -510,21 +511,45 @@ class OrderHandler {
                 newState: order.state
             });
 
-            // Extract customer data from fulfillment recipient
-            const deliveryDetails = deliveryFulfillment.deliveryDetails || deliveryFulfillment.delivery_details;
-            const shipmentDetails = deliveryFulfillment.shipmentDetails || deliveryFulfillment.shipment_details;
-            const details = deliveryDetails || shipmentDetails;
+            // Fetch full order from Square API since webhook often lacks fulfillment details
+            let fullOrder = order;
+            if (!order.fulfillments || order.fulfillments.length === 0) {
+                logger.info('Fetching full order from Square API for customer refresh', {
+                    squareOrderId: order.id,
+                    merchantId
+                });
+                fullOrder = await this._fetchFullOrder(order.id, merchantId);
+                if (!fullOrder) {
+                    logger.warn('Could not fetch full order for customer refresh', {
+                        squareOrderId: order.id,
+                        merchantId
+                    });
+                    return;
+                }
+            }
+
+            // Find delivery fulfillment
+            const deliveryFulfillment = fullOrder.fulfillments?.find(f =>
+                f.type === 'DELIVERY' || f.type === 'SHIPMENT'
+            );
 
             let customerName = null;
             let phone = null;
 
-            if (details?.recipient) {
-                customerName = details.recipient.displayName || details.recipient.display_name;
-                phone = details.recipient.phoneNumber || details.recipient.phone_number;
+            // Extract customer data from fulfillment recipient
+            if (deliveryFulfillment) {
+                const deliveryDetails = deliveryFulfillment.deliveryDetails || deliveryFulfillment.delivery_details;
+                const shipmentDetails = deliveryFulfillment.shipmentDetails || deliveryFulfillment.shipment_details;
+                const details = deliveryDetails || shipmentDetails;
+
+                if (details?.recipient) {
+                    customerName = details.recipient.displayName || details.recipient.display_name;
+                    phone = details.recipient.phoneNumber || details.recipient.phone_number;
+                }
             }
 
             // Fallback: lookup customer via customer ID if still missing
-            const squareCustomerId = order.customerId || order.customer_id;
+            const squareCustomerId = fullOrder.customerId || fullOrder.customer_id;
             if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
                 try {
                     const { LoyaltyCustomerService } = require('../loyalty');
