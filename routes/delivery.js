@@ -1208,4 +1208,22 @@ router.post('/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, vali
     });
 }));
 
+/**
+ * POST /api/delivery/backfill-customers
+ * Backfill customer data for orders with "Unknown Customer"
+ * Looks up customer details from Square API using square_customer_id
+ */
+router.post('/backfill-customers', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+
+    logger.info('Starting customer backfill for delivery orders', { merchantId });
+
+    const result = await deliveryApi.backfillUnknownCustomers(merchantId);
+
+    res.json({
+        success: true,
+        ...result
+    });
+}));
+
 module.exports = router;
