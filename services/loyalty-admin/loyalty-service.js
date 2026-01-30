@@ -1460,7 +1460,7 @@ async function deleteOffer(offerId, merchantId, userId = null) {
         WHERE offer_id = $1 AND merchant_id = $2 AND status IN ('in_progress', 'earned')
     `, [offerId, merchantId]);
 
-    const activeCount = parseInt(activeRewardsCheck.rows[0].count);
+    const activeCount = parseInt(activeRewardsCheck.rows[0]?.count || 0);
 
     // Delete qualifying variations first (foreign key constraint)
     await db.query(`
@@ -1797,6 +1797,9 @@ async function processQualifyingPurchase(purchaseData) {
         ]);
 
         const purchaseEvent = eventResult.rows[0];
+        if (!purchaseEvent) {
+            throw new Error('Failed to insert purchase event - no row returned');
+        }
 
         await logAuditEvent({
             merchantId,
@@ -1893,7 +1896,8 @@ async function updateRewardProgress(client, data) {
               AND window_end_date >= CURRENT_DATE AND reward_id IS NULL
         `, [merchantId, offerId, squareCustomerId]);
 
-        const { start_date, end_date } = windowResult.rows[0];
+        const windowRow = windowResult.rows[0] || {};
+        const { start_date, end_date } = windowRow;
 
         const newRewardResult = await client.query(`
             INSERT INTO loyalty_rewards (
@@ -2441,7 +2445,7 @@ async function updateCustomerSummary(client, merchantId, squareCustomerId, offer
     `, [offerId]);
 
     const s = stats.rows[0];
-    const hasEarned = parseInt(earnedRewards.rows[0].count) > 0;
+    const hasEarned = parseInt(earnedRewards.rows[0]?.count || 0) > 0;
 
     // Get the earned reward ID if exists
     let earnedRewardId = null;
@@ -2482,8 +2486,8 @@ async function updateCustomerSummary(client, merchantId, squareCustomerId, offer
         s.window_start, s.window_end,
         hasEarned, earnedRewardId,
         parseInt(s.lifetime_purchases) || 0,
-        parseInt(totalEarned.rows[0].count) || 0,
-        parseInt(redeemedRewards.rows[0].count) || 0,
+        parseInt(totalEarned.rows[0]?.count || 0),
+        parseInt(redeemedRewards.rows[0]?.count || 0),
         s.last_purchase
     ]);
 }
