@@ -119,6 +119,17 @@ class LoyaltyWebhookService {
         method: customerResult.method,
       });
 
+      // Cache customer details (phone number, name) for rewards reporting
+      // This ensures phone is available when viewing reward progress
+      this.tracer.span('CUSTOMER_CACHE_START');
+      try {
+        await this.customerService.cacheCustomerDetails(customerId);
+        this.tracer.span('CUSTOMER_CACHED');
+      } catch (err) {
+        // Log but don't fail - caching is for reporting, not critical path
+        this.tracer.span('CUSTOMER_CACHE_FAILED', { error: err.message });
+      }
+
       // Step 2: Get active offers and their qualifying variations
       this.tracer.span('OFFERS_LOOKUP_START');
       const offers = await this.offerService.getActiveOffers();
