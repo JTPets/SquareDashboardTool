@@ -235,7 +235,7 @@ PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB
 ### Active Work
 
 - **P0-4 CSP Phase 2**: Externalizing inline scripts (17/29 files done, ~59%)
-- **P1-1 Loyalty Migration**: Feature flag added, awaiting production testing
+- **P1-1 Loyalty Migration**: Running in production (rate limiting fix applied 2026-01-30)
 
 ### Backlog (Target: TBD)
 

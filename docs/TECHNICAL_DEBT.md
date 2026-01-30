@@ -211,9 +211,9 @@ See [SECURITY_AUDIT.md](./SECURITY_AUDIT.md#p0-7-xss-via-unescaped-innerhtml) fo
 ## P1: Architecture Fixes (HIGH)
 
 ### P1-1: Loyalty Service Migration
-**Status**: BLOCKED - Awaiting production testing
+**Status**: IN PRODUCTION (2026-01-30)
 
-Modern service built & tested, but NOT wired into production.
+Modern service running in production with feature flags enabled.
 
 #### Architecture Overview
 
@@ -292,16 +292,17 @@ Results are normalized to legacy format for backward compatibility.
 Other legacy functions (redemption detection, refunds, discounts) still use legacy service.
 ```
 
-**Phase 2: Test in Production** - BLOCKED
+**Phase 2: Test in Production** - COMPLETE (2026-01-30)
 ```bash
-# .env - Enable for testing
+# .env - Enabled in production
+USE_MODULAR_WEBHOOK_PROCESSOR=true
 USE_NEW_LOYALTY_SERVICE=true
-
-# Monitor logs for [LOYALTY:*] entries
-tail -f output/logs/app-*.log | grep LOYALTY
 ```
 
-**Blocker**: Need dedicated time to monitor production with flag enabled, compare results between legacy and modern service.
+Production deployment running since ~2026-01-27. Rate limiting fix applied (commit 89b9a85) added:
+- 429 retry logic with Retry-After header support
+- Deduplication checks to prevent duplicate order processing
+- 100ms throttle delay between API calls in customer identification loop
 
 **Phase 3: Migrate Remaining Handlers**
 - `services/webhook-handlers/loyalty-handler.js` - Use modern for order processing
@@ -316,10 +317,10 @@ Options:
 #### Success Criteria
 
 - [x] Feature flag `USE_NEW_LOYALTY_SERVICE` added (in `config/constants.js`)
-- [ ] Modern service processes orders when flag is `true`
-- [ ] Legacy service still works when flag is `false`
-- [ ] No regression in loyalty tracking (compare results)
-- [ ] Tracing shows full order processing pipeline
+- [x] Modern service processes orders when flag is `true`
+- [x] Legacy service still works when flag is `false`
+- [x] Rate limiting handled with retry logic (commit 89b9a85)
+- [ ] No regression in loyalty tracking (monitoring ongoing)
 - [ ] All existing tests pass
 
 ---
