@@ -147,7 +147,7 @@ class LoyaltySquareClient {
         // Handle rate limiting with retry
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get('retry-after') || '5', 10);
-          loyaltyLogger.warn({
+          loyaltyLogger.squareApi({
             action: 'RATE_LIMITED',
             category: 'LOYALTY:RETRY',
             endpoint,
