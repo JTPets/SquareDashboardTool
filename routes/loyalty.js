@@ -48,6 +48,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const loyaltyService = require('../utils/loyalty-service');
 const loyaltyReports = require('../utils/loyalty-reports');
+const brandRedemptionReport = require('../services/reports/brand-redemption-report');
 const { encryptToken, decryptToken, isEncryptedToken } = require('../utils/token-encryption');
 const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
@@ -1661,6 +1662,7 @@ router.get('/reports', requireAuth, requireMerchant, asyncHandler(async (req, re
     res.json({
         message: 'Loyalty Reports API',
         endpoints: {
+            'GET /reports/brand-redemptions': 'Comprehensive brand redemption report - proof-of-purchase for brands (query: startDate, endDate, offerId, brandName, format=json|html|csv)',
             'GET /reports/vendor-receipt/:rewardId': 'Generate vendor receipt HTML for a redeemed reward',
             'GET /reports/redemption/:rewardId': 'Get full redemption details with contributing transactions',
             'GET /reports/redemptions/csv': 'Export redemptions as CSV (query: startDate, endDate, offerId, brandName)',
@@ -1692,6 +1694,59 @@ router.get('/reports/vendor-receipt/:rewardId', requireAuth, requireMerchant, va
         html: receipt.html,
         data: receipt.data,
         filename: receipt.filename
+    });
+}));
+
+/**
+ * GET /api/loyalty/reports/brand-redemptions
+ * Comprehensive brand redemption report - proof-of-purchase for brands
+ *
+ * Features:
+ * - Privacy-aware customer info (first name + last initial, masked phone/email)
+ * - Full order line items for each contributing purchase
+ * - Summary metrics (total spend, average order value, time span, visits)
+ *
+ * Query params:
+ * - startDate: Filter redemptions from this date (ISO 8601)
+ * - endDate: Filter redemptions to this date (ISO 8601)
+ * - offerId: Filter by specific offer UUID
+ * - brandName: Filter by brand name
+ * - format: Response format - 'json' (default), 'html', or 'csv'
+ */
+router.get('/reports/brand-redemptions', requireAuth, requireMerchant, validators.getBrandRedemptions, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { startDate, endDate, offerId, brandName, format = 'json' } = req.query;
+
+    const filterOptions = {
+        startDate,
+        endDate,
+        offerId,
+        brandName
+    };
+
+    if (format === 'html') {
+        const result = await brandRedemptionReport.generateBrandRedemptionHTML(merchantId, filterOptions);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `inline; filename="${result.filename}"`);
+        return res.send(result.html);
+    }
+
+    if (format === 'csv') {
+        const result = await brandRedemptionReport.generateBrandRedemptionCSV(merchantId, filterOptions);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        return res.send(result.csv);
+    }
+
+    // Default: JSON response
+    const report = await brandRedemptionReport.buildBrandRedemptionReport(merchantId, {
+        ...filterOptions,
+        includeFullOrders: true
+    });
+
+    res.json({
+        success: true,
+        report
     });
 }));
 
