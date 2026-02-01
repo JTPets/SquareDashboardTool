@@ -22,7 +22,7 @@
  * - Write operations require write access role
  * - Financial calculations handled by loyaltyService
  *
- * Endpoints: 41 total
+ * Endpoints: 42 total
  * - Offers: GET, POST, GET/:id, PATCH/:id, DELETE/:id
  * - Variations: POST/:id/variations, GET/:id/variations, DELETE/:offerId/variations/:variationId
  * - Assignments: GET /variations/assignments
@@ -39,7 +39,7 @@
  * - Expiration: POST /process-expired
  * - Discounts: GET /discounts/validate, POST /discounts/validate-and-fix
  * - Settings: GET, PUT
- * - Reports: GET /reports/vendor-receipt/:id, GET /reports/redemptions/csv, etc.
+ * - Reports: GET /reports, GET /reports/vendor-receipt/:rewardId, GET /reports/redemption/:rewardId, etc.
  */
 
 const express = require('express');
@@ -1652,6 +1652,24 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
 }));
 
 // ==================== REPORTS ====================
+
+/**
+ * GET /api/loyalty/reports
+ * List available report endpoints
+ */
+router.get('/reports', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    res.json({
+        message: 'Loyalty Reports API',
+        endpoints: {
+            'GET /reports/vendor-receipt/:rewardId': 'Generate vendor receipt HTML for a redeemed reward',
+            'GET /reports/redemption/:rewardId': 'Get full redemption details with contributing transactions',
+            'GET /reports/redemptions/csv': 'Export redemptions as CSV (query: startDate, endDate, offerId, brandName)',
+            'GET /reports/audit/csv': 'Export audit log as CSV (query: startDate, endDate, offerId, squareCustomerId)',
+            'GET /reports/summary/csv': 'Export summary by brand/offer as CSV (query: startDate, endDate)',
+            'GET /reports/customers/csv': 'Export customer activity as CSV (query: offerId, minPurchases)'
+        }
+    });
+}));
 
 /**
  * GET /api/loyalty/reports/vendor-receipt/:rewardId
