@@ -601,6 +601,35 @@ const getRedemptionDetails = [
 ];
 
 /**
+ * GET /api/loyalty/reports/brand-redemptions
+ * Get brand redemption report (filterable by date range, offer, brand)
+ */
+const getBrandRedemptions = [
+    query('startDate')
+        .optional()
+        .isISO8601()
+        .withMessage('startDate must be a valid date'),
+    query('endDate')
+        .optional()
+        .isISO8601()
+        .withMessage('endDate must be a valid date'),
+    query('offerId')
+        .optional()
+        .isUUID()
+        .withMessage('offerId must be a valid UUID'),
+    query('brandName')
+        .optional()
+        .trim()
+        .isLength({ max: 255 })
+        .withMessage('brandName cannot exceed 255 characters'),
+    query('format')
+        .optional()
+        .isIn(['json', 'html', 'csv'])
+        .withMessage('format must be json, html, or csv'),
+    handleValidationErrors
+];
+
+/**
  * GET /api/loyalty/audit-findings
  * List unresolved audit findings (orphaned rewards)
  */
@@ -660,6 +689,7 @@ module.exports = {
     exportSummaryCSV,
     exportCustomersCSV,
     getRedemptionDetails,
+    getBrandRedemptions,
     listAuditFindings,
     resolveAuditFinding
 };
