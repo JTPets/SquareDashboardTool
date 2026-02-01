@@ -159,7 +159,7 @@ POST /v2/catalog/batch-upsert
 
 **To disable:** Update pricing rule with past dates or delete it.
 
-> ⚠️ **PHASE 2 VALIDATION REQUIRED:** Before rollout, confirm that a pricing rule with `valid_from_date`/`valid_until_date` AND `customer_group_ids_any` correctly requires **BOTH** conditions (date match AND group membership) before applying the discount. If Square treats them as OR conditions (either date OR group), we must fall back to the enable/disable cron approach (create/delete the pricing rule on the 1st/2nd rather than using date constraints).
+> ⚠️ **PHASE 2 VALIDATION:** During Phase 2 setup, test with a throwaway pricing rule to confirm that `valid_from_date`/`valid_until_date` AND `customer_group_ids_any` correctly requires **BOTH** conditions (date match AND group membership) before applying the discount. If Square treats them as OR conditions (either date OR group), we fall back to the enable/disable cron approach (create/delete the pricing rule on the 1st/2nd rather than using date constraints). This is not a blocker for starting Phase 2 — it will be validated as part of the Square object setup.
 
 **Existing pattern** (`services/expiry/discount-service.js`):
 - `upsertPricingRule()` → lines 948-1107
@@ -391,11 +391,19 @@ logger.info('Seniors discount cron job scheduled', {
 
 `services/webhook-handlers/catalog-handler.js:94-147`
 
-> ⚠️ **BLOCKING VALIDATION (Phase 2/4):** Before building the webhook handler, confirm whether `customer.updated` webhooks include the **full customer object** with the `birthday` field in the payload, or just the entity ID requiring a re-fetch via `GET /v2/customers/{id}`. This determines whether we can extract birthday directly from the webhook payload or need an additional API call. **Do not build the handler until this is confirmed.**
+### Webhook Payload (VALIDATED)
+
+The `customer.updated` webhook does **NOT** include the birthday field in the payload — only the entity ID. The handler must re-fetch the customer via Square API to get the birthday.
+
+```javascript
+// customer.updated webhook → extract entity ID → re-fetch customer
+const customer = await squareClient.customers.get({ customerId: entityId });
+const birthday = customer.customer.birthday; // "YYYY-MM-DD" or undefined
+```
 
 ### Required Extension
 
-When `customer.updated` fires and includes a birthday field, check age and manage group membership.
+When `customer.updated` fires, re-fetch the customer and check for birthday. If present, calculate age and manage group membership.
 
 ```javascript
 // Extended handleCustomerUpdated in catalog-handler.js
@@ -404,11 +412,14 @@ async handleCustomerUpdated(context) {
     const { data, merchantId, entityId } = context;
     const result = { handled: true };
 
-    if (!data.customer || !merchantId) {
+    if (!merchantId) {
         return result;
     }
 
-    const customerId = entityId || data.customer.id;
+    const customerId = entityId || data?.customer?.id;
+    if (!customerId) {
+        return result;
+    }
 
     // Existing: Sync customer notes to delivery orders
     // ... (existing code) ...
@@ -417,16 +428,30 @@ async handleCustomerUpdated(context) {
     // ... (existing code) ...
 
     // NEW: Handle birthday/seniors eligibility
-    if (data.customer.birthday) {
-        const seniorsResult = await seniorsService.handleCustomerBirthdayUpdate({
-            merchantId,
-            squareCustomerId: customerId,
-            birthday: data.customer.birthday
-        });
+    // Must re-fetch customer to get birthday (not included in webhook payload)
+    try {
+        const squareClient = await getSquareClientForMerchant(merchantId);
+        const customerResponse = await squareClient.customers.get({ customerId });
+        const birthday = customerResponse.customer?.birthday;
 
-        if (seniorsResult.groupChanged) {
-            result.seniorsDiscount = seniorsResult;
+        if (birthday) {
+            const seniorsResult = await seniorsService.handleCustomerBirthdayUpdate({
+                merchantId,
+                squareCustomerId: customerId,
+                birthday  // "YYYY-MM-DD" format
+            });
+
+            if (seniorsResult.groupChanged) {
+                result.seniorsDiscount = seniorsResult;
+            }
         }
+    } catch (error) {
+        logger.warn('Failed to check seniors eligibility', {
+            customerId,
+            merchantId,
+            error: error.message
+        });
+        // Non-blocking: don't fail the webhook for seniors check
     }
 
     return result;
@@ -442,20 +467,27 @@ async handleCustomerUpdated(context) {
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 1. Extract birthday from webhook payload                         │
-│    data.customer.birthday = "1960-05-15"                        │
+│ 1. Extract customer ID from webhook payload                      │
+│    customerId = entityId || data.customer.id                    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. Cache birthday to loyalty_customers table                     │
+│ 2. Re-fetch customer from Square API (birthday not in webhook)  │
+│    customer = await squareClient.customers.get({ customerId })  │
+│    birthday = customer.customer.birthday  // "YYYY-MM-DD"       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Cache birthday to loyalty_customers table                     │
 │    UPDATE loyalty_customers SET birthday = $1                    │
 │    WHERE square_customer_id = $2 AND merchant_id = $3           │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 3. Calculate age                                                 │
+│ 4. Calculate age                                                 │
 │    age = calculateAge("1960-05-15") → 65                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -476,7 +508,7 @@ async handleCustomerUpdated(context) {
          │                    │
          ▼                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 4. Log to seniors_discount_audit_log                             │
+│ 5. Log to seniors_discount_audit_log                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -584,8 +616,8 @@ SENIORS_DISCOUNT: {
 - [x] Identify files to create/modify
 
 ### Phase 2: Data Layer
-- [ ] **VALIDATION:** Confirm pricing rule date behavior (AND vs OR with customer_group_ids_any)
-- [ ] **VALIDATION:** Confirm customer.updated webhook payload includes birthday field (or requires re-fetch)
+- [x] **VALIDATED:** customer.updated webhook requires re-fetch for birthday (confirmed)
+- [ ] **VALIDATE DURING SETUP:** Test pricing rule date+group behavior with throwaway rule
 - [ ] Create migration `032_seniors_day.sql`
 - [ ] Run migration on database
 - [ ] Create Square customer group (one-time per merchant)
