@@ -1654,14 +1654,14 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
 // ==================== REPORTS ====================
 
 /**
- * GET /api/loyalty/reports/vendor-receipt/:redemptionId
+ * GET /api/loyalty/reports/vendor-receipt/:rewardId
  * Generate vendor receipt for a specific redemption (HTML/PDF)
  */
-router.get('/reports/vendor-receipt/:redemptionId', requireAuth, requireMerchant, validators.getVendorReceipt, asyncHandler(async (req, res) => {
+router.get('/reports/vendor-receipt/:rewardId', requireAuth, requireMerchant, validators.getVendorReceipt, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { format = 'html' } = req.query;
 
-    const receipt = await loyaltyReports.generateVendorReceipt(req.params.redemptionId, merchantId);
+    const receipt = await loyaltyReports.generateVendorReceipt(req.params.rewardId, merchantId);
 
     if (format === 'html') {
         res.setHeader('Content-Type', 'text/html');
@@ -1754,12 +1754,12 @@ router.get('/reports/customers/csv', requireAuth, requireMerchant, validators.ex
 }));
 
 /**
- * GET /api/loyalty/reports/redemption/:redemptionId
+ * GET /api/loyalty/reports/redemption/:rewardId
  * Get full redemption details with all contributing transactions
  */
-router.get('/reports/redemption/:redemptionId', requireAuth, requireMerchant, validators.getRedemptionDetails, asyncHandler(async (req, res) => {
+router.get('/reports/redemption/:rewardId', requireAuth, requireMerchant, validators.getRedemptionDetails, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const details = await loyaltyReports.getRedemptionDetails(req.params.redemptionId, merchantId);
+    const details = await loyaltyReports.getRedemptionDetails(req.params.rewardId, merchantId);
 
     if (!details) {
         return res.status(404).json({ error: 'Redemption not found' });
