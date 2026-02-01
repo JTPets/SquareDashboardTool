@@ -221,11 +221,12 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 ## Current Status
 
 **Grade**: A+ (All P0 and P1 issues FIXED)
-**Last Review**: 2026-01-26
+**Last Review**: 2026-02-01
 
 | Priority | Status |
 |----------|--------|
 | P0 Security | 7/7 Complete |
+| P0-4 CSP Phase 2 | 29/29 Complete (100%) |
 | P1 Architecture | 9/9 Complete |
 | P2 Testing | 6/6 Complete |
 | API Optimization | 4/4 Complete |
@@ -233,15 +234,19 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Active Work
 
-- **P0-4 CSP Phase 2**: Externalizing inline scripts (24/29 files done, ~83%)
 - **P1-1 Loyalty Migration**: Running in production (rate limiting fix applied 2026-01-30)
 
 ### Backlog (Target: TBD)
 
-- BACKLOG-1: Frontend polling rate limits
-- BACKLOG-2: Delivery routing webhook sync
-- BACKLOG-3: Response format standardization
-- BACKLOG-4: Customer birthday sync (see [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog-4-customer-birthday-sync-for-targeted-marketing))
+| Priority | Item | Description |
+|----------|------|-------------|
+| Medium-High | BACKLOG-2 | Delivery routing webhook sync |
+| Medium | BACKLOG-4 | Customer birthday sync for marketing |
+| Medium | BACKLOG-1 | Frontend polling rate limits |
+| Low | BACKLOG-3 | Response format standardization |
+| Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
+
+See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) for details.
 
 ---
 

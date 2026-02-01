@@ -78,13 +78,13 @@ Fixed 3 locations exposing internal error details to clients:
 
 ### P0-4: CSP Allows Unsafe Inline
 **File**: `middleware/security.js:23-35`
-**Status**: PARTIALLY FIXED (2026-01-27)
+**Status**: FIXED (2026-02-01)
 
 **Phase 1 COMPLETE**: All inline EVENT HANDLERS (`onclick`, `onchange`, etc.) migrated to event delegation pattern using `data-action` attributes.
 
-**Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
+**Phase 2 COMPLETE**: All inline `<script>` blocks externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 24/29 files externalized (~83%)
+#### Phase 2 Final Status: 29/29 files externalized (100%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -112,45 +112,15 @@ Fixed 3 locations exposing internal error details to clients:
 | Done | delivery.html → delivery.js | 487 | C |
 | Done | delivery-route.html → delivery-route.js | 785 | C |
 | Done | purchase-orders.html → purchase-orders.js | 710 | C |
+| Done | settings.html → settings.js | ~850 | C |
+| Done | reorder.html → reorder.js | ~1,200 | D |
+| Done | vendor-catalog.html → vendor-catalog.js | ~1,400 | D |
+| Done | gmc-feed.html → gmc-feed.js | ~1,700 | D |
+| Done | loyalty.html → loyalty.js | ~2,200 | D |
 
-**Total externalized**: ~7,869 lines of JavaScript
+**Total externalized**: ~15,219 lines of JavaScript
 
-#### Phase 2 Remaining Work: 5 files by complexity tier
-
-**Tier C - Complex (1 file, ~850 lines)**
-| File | JS Lines | Notes |
-|------|----------|-------|
-| settings.html | ~850 | 10+ settings tabs, many forms |
-
-**Tier D - Critical/Complex (4 files, ~6,500 lines)**
-| File | JS Lines | Notes |
-|------|----------|-------|
-| reorder.html | ~1,200 | Multi-vendor ordering, complex state |
-| vendor-catalog.html | ~1,400 | CSV/XLSX import, price comparison |
-| gmc-feed.html | ~1,700 | Google Merchant Center integration |
-| loyalty.html | ~2,200 | Full loyalty program management |
-
-#### Special Dependencies to Preserve
-
-| Dependency | Files | Handling |
-|------------|-------|----------|
-| Square Payments SDK | subscribe.html | Keep SDK script tag in HTML, externalize only app logic |
-| Leaflet Maps | delivery-route.html | Keep Leaflet CDN in HTML, externalize map logic |
-| Geolocation API | driver.html, delivery.html | Works normally in external scripts |
-| Barcode Scanner | cycle-count.html | Standard event handling |
-
-#### Shared Utilities (Extract to `/public/js/shared/`)
-
-```javascript
-// /public/js/shared/utils.js - Common functions across pages
-function escapeHtml(text) { ... }
-function formatCurrency(amount, currency = 'CAD') { ... }
-function formatDate(date, options) { ... }
-function showToast(message, type) { ... }
-function debounce(fn, delay) { ... }
-```
-
-#### Recommended Execution Order
+#### Completion Timeline
 
 1. ~~**Batch 2** (Tier A): delivery-history, merchants~~ COMPLETE (2026-01-27)
 2. ~~**Batch 3** (Tier B part 1): admin-subscriptions, dashboard, expiry~~ COMPLETE (2026-01-27)
@@ -158,18 +128,8 @@ function debounce(fn, delay) { ... }
 4. ~~**Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe~~ COMPLETE (2026-01-30)
 5. ~~**Batch 6** (Tier C part 1): driver, delivery (~947 lines)~~ COMPLETE (2026-01-30)
 6. ~~**Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,495 lines)~~ COMPLETE (2026-01-30)
-7. **Batch 8** (Tier C/D): settings, reorder (~2,050 lines)
-8. **Batch 9** (Tier D): vendor-catalog, gmc-feed, loyalty (~5,300 lines)
-
-#### Risks and Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Window export order issues | Follow established pattern: definitions first, exports last |
-| Missing function exports | Run audit script before commit (see PR Checklist) |
-| SDK initialization timing | Keep SDK script tags in HTML, defer app script |
-| Geolocation permission timing | Initialize after DOMContentLoaded |
-| Large file merge conflicts | Work on one file at a time, commit frequently |
+7. ~~**Batch 8** (Tier C/D): settings, reorder (~2,050 lines)~~ COMPLETE (2026-02-01)
+8. ~~**Batch 9** (Tier D): vendor-catalog, gmc-feed, loyalty (~5,300 lines)~~ COMPLETE (2026-02-01)
 
 #### Phase 1 Completed Migration (27 HTML files, ~335 handlers):
 - All HTML files have event handlers using `data-*` attributes
