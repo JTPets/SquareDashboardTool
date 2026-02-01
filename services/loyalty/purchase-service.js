@@ -87,6 +87,7 @@ class LoyaltyPurchaseService {
     // Record purchase for each qualifying offer
     for (const offer of offersResult.rows) {
       const client = await db.getClient();
+      let released = false;  // BUG FIX: Track release state to prevent double release
 
       try {
         await client.query('BEGIN');
@@ -152,6 +153,7 @@ class LoyaltyPurchaseService {
         if (insertResult.rows.length === 0) {
           await client.query('COMMIT');
           client.release();
+          released = true;  // BUG FIX: Mark as released before continue
 
           this.tracer?.span('PURCHASE_DUPLICATE', { squareOrderId, variationId, offerId: offer.offer_id });
           loyaltyLogger.debug({
@@ -224,6 +226,8 @@ class LoyaltyPurchaseService {
 
       } catch (error) {
         await client.query('ROLLBACK');
+        client.release();
+        released = true;  // BUG FIX: Mark as released in catch block
         loyaltyLogger.error({
           action: 'PURCHASE_RECORD_ERROR',
           squareOrderId,
@@ -234,7 +238,10 @@ class LoyaltyPurchaseService {
         });
         throw error;
       } finally {
-        client.release();
+        // BUG FIX: Only release if not already released (prevents double release)
+        if (!released) {
+          client.release();
+        }
       }
     }
 
