@@ -206,8 +206,12 @@ async function getContributingPurchases(rewardId, merchantId) {
 async function fetchSquareOrderDetails(merchantId, orderId) {
     try {
         const squareClient = await getSquareClientForMerchant(merchantId);
-        const response = await squareClient.ordersApi.retrieveOrder(orderId);
-        return response.result.order;
+        const orderResponse = await squareClient.orders.get({ orderId });
+        if (orderResponse.order) {
+            return orderResponse.order;
+        }
+        logger.warn('Order fetch returned no order', { merchantId, orderId });
+        return null;
     } catch (error) {
         logger.warn('Failed to fetch Square order', { merchantId, orderId, error: error.message });
         return null;
