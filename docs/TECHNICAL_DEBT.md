@@ -84,7 +84,7 @@ Fixed 3 locations exposing internal error details to clients:
 
 **Phase 2 IN PROGRESS**: Inline `<script>` blocks being externalized to `/public/js/` directory.
 
-#### Phase 2 Progress: 22/29 files externalized (~76%)
+#### Phase 2 Progress: 24/29 files externalized (~83%)
 
 | Status | File | JS Lines | Complexity |
 |--------|------|----------|------------|
@@ -110,16 +110,16 @@ Fixed 3 locations exposing internal error details to clients:
 | Done | subscribe.html → subscribe.js | 280 | B |
 | Done | driver.html → driver.js | 460 | C |
 | Done | delivery.html → delivery.js | 487 | C |
+| Done | delivery-route.html → delivery-route.js | 785 | C |
+| Done | purchase-orders.html → purchase-orders.js | 710 | C |
 
-**Total externalized**: ~6,374 lines of JavaScript
+**Total externalized**: ~7,869 lines of JavaScript
 
-#### Phase 2 Remaining Work: 7 files by complexity tier
+#### Phase 2 Remaining Work: 5 files by complexity tier
 
-**Tier C - Complex (3 files, ~2,450 lines)**
+**Tier C - Complex (1 file, ~850 lines)**
 | File | JS Lines | Notes |
 |------|----------|-------|
-| delivery-route.html | ~700 | Leaflet maps, route optimization |
-| purchase-orders.html | ~900 | Multi-step PO workflow |
 | settings.html | ~850 | 10+ settings tabs, many forms |
 
 **Tier D - Critical/Complex (4 files, ~6,500 lines)**
@@ -157,7 +157,7 @@ function debounce(fn, delay) { ... }
 3. ~~**Batch 4** (Tier B part 2): inventory, catalog-audit, expiry-audit~~ COMPLETE (2026-01-27)
 4. ~~**Batch 5** (Tier B part 3): cycle-count, expiry-discounts, subscribe~~ COMPLETE (2026-01-30)
 5. ~~**Batch 6** (Tier C part 1): driver, delivery (~947 lines)~~ COMPLETE (2026-01-30)
-6. **Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,600 lines)
+6. ~~**Batch 7** (Tier C part 2): delivery-route, purchase-orders (~1,495 lines)~~ COMPLETE (2026-01-30)
 7. **Batch 8** (Tier C/D): settings, reorder (~2,050 lines)
 8. **Batch 9** (Tier D): vendor-catalog, gmc-feed, loyalty (~5,300 lines)
 
