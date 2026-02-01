@@ -116,7 +116,7 @@ class LoyaltyHandler {
 
         // Process based on whether we have an order_id
         if (orderId && loyaltyAccountId) {
-            await this._processLoyaltyEventWithOrder(orderId, loyaltyAccountId, merchantId, result);
+            await this._processLoyaltyEventWithOrder(orderId, loyaltyAccountId, merchantId, result, loyaltyEvent.type);
         } else if (loyaltyAccountId) {
             // No order_id in this event - do reverse lookup
             await this._processLoyaltyEventReverseLookup(loyaltyAccountId, loyaltyEvent.type, merchantId, result);
@@ -135,14 +135,35 @@ class LoyaltyHandler {
     /**
      * Process a loyalty event that has an order_id
      * @private
+     * @param {string} orderId - Square order ID
+     * @param {string} loyaltyAccountId - Square loyalty account ID
+     * @param {number} merchantId - Internal merchant ID
+     * @param {Object} result - Result object to populate
+     * @param {string} eventType - Type of loyalty event (e.g., 'ACCUMULATE_POINTS', 'REDEEM_REWARD')
      */
-    async _processLoyaltyEventWithOrder(orderId, loyaltyAccountId, merchantId, result) {
-        // Check if we've already processed this order for loyalty
+    async _processLoyaltyEventWithOrder(orderId, loyaltyAccountId, merchantId, result, eventType) {
+        // REDEEM_REWARD events should ALWAYS be processed for tracking
+        // even if we already recorded purchases for this order
+        if (eventType === 'REDEEM_REWARD') {
+            logger.info('Processing REDEEM_REWARD event', {
+                orderId,
+                loyaltyAccountId,
+                merchantId
+            });
+            await this._processRedemptionEvent(orderId, loyaltyAccountId, merchantId, result);
+            return;
+        }
+
+        // For ACCUMULATE_POINTS and other events, check if already processed
         const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(orderId, merchantId);
 
         if (alreadyProcessed) {
-            logger.info('Loyalty event skipped - order already processed', { orderId, merchantId });
-            result.loyaltyEventSkipped = { orderId, reason: 'already_processed' };
+            logger.info('Loyalty event skipped - order already processed', {
+                orderId,
+                merchantId,
+                eventType
+            });
+            result.loyaltyEventSkipped = { orderId, reason: 'already_processed', eventType };
             return;
         }
 
@@ -286,6 +307,81 @@ class LoyaltyHandler {
             result.loyaltyCatchup = {
                 customerId,
                 ordersNewlyTracked: catchupResult.ordersNewlyTracked
+            };
+        }
+    }
+
+    /**
+     * Process a REDEEM_REWARD event
+     * This handles reward redemption tracking separately from purchase accrual
+     * @private
+     */
+    async _processRedemptionEvent(orderId, loyaltyAccountId, merchantId, result) {
+        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        let squareClient;
+        try {
+            squareClient = new LoyaltySquareClient(merchantId);
+            await squareClient.initialize();
+        } catch (initError) {
+            logger.error('Failed to initialize Square client for redemption event', {
+                error: initError.message,
+                merchantId
+            });
+            return;
+        }
+
+        // Fetch the order to detect the redemption
+        let order;
+        try {
+            order = await squareClient.getOrder(orderId);
+        } catch (orderError) {
+            logger.error('Failed to fetch order for redemption processing', {
+                action: 'ORDER_FETCH_FAILED',
+                orderId,
+                error: orderError.message,
+                merchantId
+            });
+            return;
+        }
+
+        if (!order) {
+            logger.warn('Order not found for REDEEM_REWARD event', {
+                orderId,
+                loyaltyAccountId,
+                merchantId
+            });
+            return;
+        }
+
+        // Use the existing detectRewardRedemptionFromOrder to find and mark the reward as redeemed
+        const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+
+        if (redemptionResult.detected) {
+            result.loyaltyRedemption = {
+                orderId,
+                rewardId: redemptionResult.rewardId,
+                offerName: redemptionResult.offerName,
+                source: 'REDEEM_REWARD_WEBHOOK'
+            };
+            logger.info('Reward redemption processed via REDEEM_REWARD webhook', {
+                orderId,
+                rewardId: redemptionResult.rewardId,
+                offerName: redemptionResult.offerName,
+                merchantId
+            });
+        } else {
+            // Log that we received REDEEM_REWARD but couldn't find a matching reward
+            // This could happen if the reward was already processed or doesn't exist in our system
+            logger.warn('REDEEM_REWARD event received but no matching reward found', {
+                orderId,
+                loyaltyAccountId,
+                merchantId,
+                discountsInOrder: order.discounts?.length || 0
+            });
+            result.loyaltyRedemptionNotFound = {
+                orderId,
+                loyaltyAccountId,
+                reason: 'no_matching_reward'
             };
         }
     }
