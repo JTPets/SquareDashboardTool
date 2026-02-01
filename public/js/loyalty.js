@@ -698,7 +698,7 @@ async function showCustomerLoyalty(elementOrCustomerId, eventOrCustomerInfo = nu
               : isComplete
                 ? '<span style="color: #10b981; font-weight: 600;">Reward Available!</span>'
                 : `${offer.required_quantity - offer.current_quantity} more to earn reward`}
-            ${offer.window_end_date && !hasReward ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
+            ${offer.window_end_date && !hasReward ? ` • Window ends: ${formatDate(offer.window_end_date)}` : ''}
           </div>
           ${hasReward ? `
             <button class="btn-redeem-large" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(offer.earned_reward_id)}" data-offer-name="${escapeJsString(offer.offer_name)}" data-customer-id="${escapeJsString(actualCustomerId)}">
@@ -748,7 +748,7 @@ async function viewCustomerHistory(element, event, customerId) {
       historyHtml += '<table style="font-size: 12px;"><thead><tr><th>Date</th><th>Offer</th><th>Qty</th><th>Order ID</th></tr></thead><tbody>';
       historyHtml += data.purchases.map(p => `
         <tr${p.is_refund ? ' style="color: #dc2626;"' : ''}>
-          <td>${new Date(p.purchased_at).toLocaleDateString()}</td>
+          <td>${formatDate(p.purchased_at)}</td>
           <td>${escapeHtml(p.offer_name)}</td>
           <td>${p.quantity}</td>
           <td style="font-family: monospace; font-size: 10px;">${p.square_order_id?.slice(0,8) || '-'}...</td>
@@ -941,7 +941,7 @@ function renderAuditOrders(data) {
       </div>
     </div>
     <div style="margin-top: 10px; font-size: 11px; color: #6b7280; text-align: center;">
-      Period: ${new Date(data.dateRange.start).toLocaleDateString()} - ${new Date(data.dateRange.end).toLocaleDateString()}
+      Period: ${formatDate(data.dateRange.start)} - ${formatDate(data.dateRange.end)}
     </div>
     ${offerBreakdownHtml}
   `;
@@ -1041,7 +1041,7 @@ function renderAuditOrders(data) {
                    data-change="toggleAuditOrderFromCheckbox">
           ` : ''}
         </td>
-        <td>${new Date(order.closedAt).toLocaleDateString()}<br>
+        <td>${formatDate(order.closedAt)}<br>
             <small style="color: #6b7280;">${new Date(order.closedAt).toLocaleTimeString()}</small>
             ${custIdBadge ? `<br>${custIdBadge}` : ''}</td>
         <td style="max-width: 250px;">${qualifyingList}</td>
@@ -1188,9 +1188,9 @@ async function loadRewards() {
               <span>${reward.current_quantity}/${reward.required_quantity}</span>
             </div>
           </td>
-          <td>${reward.window_start_date ? new Date(reward.window_start_date).toLocaleDateString() : '-'} - ${reward.window_end_date ? new Date(reward.window_end_date).toLocaleDateString() : '-'}</td>
+          <td>${formatDate(reward.window_start_date)} - ${formatDate(reward.window_end_date)}</td>
           <td><span class="status-badge ${reward.status}">${reward.status}</span></td>
-          <td>${reward.earned_at ? new Date(reward.earned_at).toLocaleDateString() : '-'}</td>
+          <td>${formatDate(reward.earned_at)}</td>
           <td>
             ${reward.status === 'earned' ? `
               <button class="action-btn redeem" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(reward.id)}" data-offer-name="${escapeJsString(reward.offer_name)}" data-customer-id="${escapeJsString(reward.square_customer_id)}">Redeem</button>
@@ -1548,7 +1548,7 @@ async function validateDiscounts(fixIssues = false) {
             <span style="color: #6b7280; font-size: 12px;"> - ${escapeHtml(issue.issue.replace(/_/g, ' '))}</span>
             ${wasFixed ? '<span style="color: #10b981; font-size: 12px;"> (Fixed)</span>' : ''}
             ${fixError ? `<br><small style="color: #dc2626;">Fix failed: ${escapeHtml(fixError)}</small>` : ''}
-            <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${new Date(issue.earnedAt).toLocaleDateString()}</small>
+            <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${formatDate(issue.earnedAt)}</small>
           </li>
         `;
       });
@@ -1573,7 +1573,15 @@ function showModal(id) {
   document.getElementById(id).classList.add('show');
 }
 
-function closeModal(id) {
+function closeModal(elementOrId, event, modalId) {
+  // Handle both direct calls and event delegation
+  // Event delegation passes (element, event, param), direct calls pass (id)
+  let id;
+  if (elementOrId instanceof HTMLElement) {
+    id = modalId;
+  } else {
+    id = elementOrId;
+  }
   document.getElementById(id).classList.remove('show');
 }
 
@@ -1593,6 +1601,12 @@ function escapeJsString(str) {
     .replace(/'/g, "\\'")
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r');
+}
+
+// Format date consistently as MM/DD/YYYY (US format)
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString('en-US');
 }
 
 // Expose functions to global scope for event delegation
