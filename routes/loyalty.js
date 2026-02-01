@@ -712,18 +712,24 @@ router.get('/stats', requireAuth, requireMerchant, asyncHandler(async (req, res)
           AND earned_at >= NOW() - INTERVAL '30 days'
     `, [merchantId]);
 
+    // Query loyalty_rewards for redeemed count (consistent with per-offer stats)
+    // Note: Modern reward-service.js only updates loyalty_rewards, not loyalty_redemptions
     const recentRedeemed = await db.query(`
         SELECT COUNT(*) as count
-        FROM loyalty_redemptions
+        FROM loyalty_rewards
         WHERE merchant_id = $1
+          AND status = 'redeemed'
           AND redeemed_at >= NOW() - INTERVAL '30 days'
     `, [merchantId]);
 
-    // Get total redemption value
+    // Get total redemption value from loyalty_redemptions (when available)
+    // Falls back to 0 for rewards redeemed via modern service without value tracking
     const totalValue = await db.query(`
-        SELECT COALESCE(SUM(redeemed_value_cents), 0) as total_cents
-        FROM loyalty_redemptions
-        WHERE merchant_id = $1
+        SELECT COALESCE(SUM(rd.redeemed_value_cents), 0) as total_cents
+        FROM loyalty_rewards r
+        LEFT JOIN loyalty_redemptions rd ON rd.reward_id = r.id
+        WHERE r.merchant_id = $1
+          AND r.status = 'redeemed'
     `, [merchantId]);
 
     res.json({
