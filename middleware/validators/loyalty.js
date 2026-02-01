@@ -495,13 +495,13 @@ const updateSettings = [
 ];
 
 /**
- * GET /api/loyalty/reports/vendor-receipt/:redemptionId
+ * GET /api/loyalty/reports/vendor-receipt/:rewardId
  * Get vendor receipt
  */
 const getVendorReceipt = [
-    param('redemptionId')
+    param('rewardId')
         .isUUID()
-        .withMessage('redemptionId must be a valid UUID'),
+        .withMessage('rewardId must be a valid UUID'),
     query('format')
         .optional()
         .isIn(['html', 'json'])
@@ -590,13 +590,13 @@ const exportCustomersCSV = [
 ];
 
 /**
- * GET /api/loyalty/reports/redemption/:redemptionId
+ * GET /api/loyalty/reports/redemption/:rewardId
  * Get redemption details
  */
 const getRedemptionDetails = [
-    param('redemptionId')
+    param('rewardId')
         .isUUID()
-        .withMessage('redemptionId must be a valid UUID'),
+        .withMessage('rewardId must be a valid UUID'),
     handleValidationErrors
 ];
 

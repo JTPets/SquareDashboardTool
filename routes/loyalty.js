@@ -22,7 +22,7 @@
  * - Write operations require write access role
  * - Financial calculations handled by loyaltyService
  *
- * Endpoints: 41 total
+ * Endpoints: 42 total
  * - Offers: GET, POST, GET/:id, PATCH/:id, DELETE/:id
  * - Variations: POST/:id/variations, GET/:id/variations, DELETE/:offerId/variations/:variationId
  * - Assignments: GET /variations/assignments
@@ -39,7 +39,7 @@
  * - Expiration: POST /process-expired
  * - Discounts: GET /discounts/validate, POST /discounts/validate-and-fix
  * - Settings: GET, PUT
- * - Reports: GET /reports/vendor-receipt/:id, GET /reports/redemptions/csv, etc.
+ * - Reports: GET /reports, GET /reports/vendor-receipt/:rewardId, GET /reports/redemption/:rewardId, etc.
  */
 
 const express = require('express');
@@ -1654,14 +1654,32 @@ router.put('/settings', requireAuth, requireMerchant, requireWriteAccess, valida
 // ==================== REPORTS ====================
 
 /**
- * GET /api/loyalty/reports/vendor-receipt/:redemptionId
+ * GET /api/loyalty/reports
+ * List available report endpoints
+ */
+router.get('/reports', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    res.json({
+        message: 'Loyalty Reports API',
+        endpoints: {
+            'GET /reports/vendor-receipt/:rewardId': 'Generate vendor receipt HTML for a redeemed reward',
+            'GET /reports/redemption/:rewardId': 'Get full redemption details with contributing transactions',
+            'GET /reports/redemptions/csv': 'Export redemptions as CSV (query: startDate, endDate, offerId, brandName)',
+            'GET /reports/audit/csv': 'Export audit log as CSV (query: startDate, endDate, offerId, squareCustomerId)',
+            'GET /reports/summary/csv': 'Export summary by brand/offer as CSV (query: startDate, endDate)',
+            'GET /reports/customers/csv': 'Export customer activity as CSV (query: offerId, minPurchases)'
+        }
+    });
+}));
+
+/**
+ * GET /api/loyalty/reports/vendor-receipt/:rewardId
  * Generate vendor receipt for a specific redemption (HTML/PDF)
  */
-router.get('/reports/vendor-receipt/:redemptionId', requireAuth, requireMerchant, validators.getVendorReceipt, asyncHandler(async (req, res) => {
+router.get('/reports/vendor-receipt/:rewardId', requireAuth, requireMerchant, validators.getVendorReceipt, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { format = 'html' } = req.query;
 
-    const receipt = await loyaltyReports.generateVendorReceipt(req.params.redemptionId, merchantId);
+    const receipt = await loyaltyReports.generateVendorReceipt(req.params.rewardId, merchantId);
 
     if (format === 'html') {
         res.setHeader('Content-Type', 'text/html');
@@ -1754,12 +1772,12 @@ router.get('/reports/customers/csv', requireAuth, requireMerchant, validators.ex
 }));
 
 /**
- * GET /api/loyalty/reports/redemption/:redemptionId
+ * GET /api/loyalty/reports/redemption/:rewardId
  * Get full redemption details with all contributing transactions
  */
-router.get('/reports/redemption/:redemptionId', requireAuth, requireMerchant, validators.getRedemptionDetails, asyncHandler(async (req, res) => {
+router.get('/reports/redemption/:rewardId', requireAuth, requireMerchant, validators.getRedemptionDetails, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const details = await loyaltyReports.getRedemptionDetails(req.params.redemptionId, merchantId);
+    const details = await loyaltyReports.getRedemptionDetails(req.params.rewardId, merchantId);
 
     if (!details) {
         return res.status(404).json({ error: 'Redemption not found' });

@@ -214,12 +214,12 @@ async function getRedemptionsForExport(merchantId, options = {}) {
  * Generate a vendor receipt document (HTML format for PDF conversion)
  * Can be converted to PDF using a headless browser or PDF library
  *
- * @param {string} redemptionId - Redemption UUID
+ * @param {string} rewardId - Reward UUID (previously redemptionId)
  * @param {number} merchantId - Merchant ID
  * @returns {Promise<Object>} Receipt data with HTML content
  */
-async function generateVendorReceipt(redemptionId, merchantId) {
-    const data = await getRedemptionDetails(redemptionId, merchantId);
+async function generateVendorReceipt(rewardId, merchantId) {
+    const data = await getRedemptionDetails(rewardId, merchantId);
 
     if (!data) {
         throw new Error('Redemption not found');

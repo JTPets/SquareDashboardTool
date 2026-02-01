@@ -12,7 +12,7 @@
  * Usage:
  *   const { generateVendorReceipt, generateAuditCSV } = require('./services/reports');
  *
- *   const receipt = await generateVendorReceipt(redemptionId, merchantId);
+ *   const receipt = await generateVendorReceipt(rewardId, merchantId);
  *   const audit = await generateAuditCSV(merchantId, { startDate, endDate });
  */
 
