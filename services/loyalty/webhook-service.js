@@ -8,6 +8,7 @@
  * - Record purchases and track rewards
  */
 
+const db = require('../../utils/database');
 const { LoyaltyTracer } = require('./loyalty-tracer');
 const { LoyaltySquareClient } = require('./square-client');
 const { LoyaltyCustomerService } = require('./customer-service');
@@ -317,7 +318,8 @@ class LoyaltyWebhookService {
       const purchasesRecorded = lineItemResults.filter(r => r.recorded).length;
       const rewardsEarned = lineItemResults.filter(r => r.rewardEarned).length;
 
-      // Warn if order has line items but none qualified - this may indicate config issues
+      // Log when order has line items but none qualified - this is normal business flow
+      // (only ~45 of 2,700+ variations qualify), not an error condition
       if (qualifyingItems.length === 0 && lineItemResults.length > 0) {
         const skipReasons = {};
         lineItemResults.forEach(r => {
@@ -326,7 +328,7 @@ class LoyaltyWebhookService {
           }
         });
 
-        loyaltyLogger.error({
+        loyaltyLogger.warn({
           action: 'ORDER_ZERO_QUALIFYING_ITEMS',
           orderId: order.id,
           customerId,
@@ -338,6 +340,16 @@ class LoyaltyWebhookService {
           skipReasons,
           traceId,
           merchantId: this.merchantId,
+        });
+
+        // Record this order as processed with no qualifying items
+        // This prevents the catchup job from reprocessing it every hour
+        await this.recordProcessedOrder(order.id, customerId, {
+          resultType: 'non_qualifying',
+          qualifyingItems: 0,
+          totalLineItems: lineItemResults.length,
+          traceId,
+          source,
         });
       }
 
@@ -623,6 +635,86 @@ class LoyaltyWebhookService {
    */
   getTracer() {
     return this.tracer;
+  }
+
+  /**
+   * Record an order as processed in the loyalty_processed_orders table
+   * This is used to track orders that were evaluated but had no qualifying items,
+   * preventing the catchup job from reprocessing them every hour.
+   *
+   * @param {string} orderId - Square order ID
+   * @param {string|null} customerId - Square customer ID (may be null if customer not found)
+   * @param {Object} options - Recording options
+   * @param {string} options.resultType - Result type: 'qualifying', 'non_qualifying', 'no_customer', 'no_offers'
+   * @param {number} options.qualifyingItems - Number of qualifying items
+   * @param {number} options.totalLineItems - Total line items in order
+   * @param {string} [options.traceId] - Correlation trace ID
+   * @param {string} [options.source] - Source of processing (WEBHOOK, CATCHUP_JOB, etc.)
+   * @returns {Promise<boolean>} True if recorded, false if already exists
+   */
+  async recordProcessedOrder(orderId, customerId, options = {}) {
+    const {
+      resultType = 'non_qualifying',
+      qualifyingItems = 0,
+      totalLineItems = 0,
+      traceId = null,
+      source = 'WEBHOOK',
+    } = options;
+
+    try {
+      // Use ON CONFLICT to handle duplicate order processing gracefully
+      // This also benefits the rapid-fire webhook duplicate issue
+      const result = await db.query(`
+        INSERT INTO loyalty_processed_orders
+          (merchant_id, square_order_id, square_customer_id, result_type,
+           qualifying_items, total_line_items, trace_id, source, processed_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (merchant_id, square_order_id) DO NOTHING
+        RETURNING id
+      `, [
+        this.merchantId,
+        orderId,
+        customerId,
+        resultType,
+        qualifyingItems,
+        totalLineItems,
+        traceId,
+        source,
+      ]);
+
+      const wasInserted = result.rows.length > 0;
+
+      if (wasInserted) {
+        loyaltyLogger.debug({
+          action: 'ORDER_MARKED_PROCESSED',
+          orderId,
+          customerId,
+          resultType,
+          qualifyingItems,
+          totalLineItems,
+          merchantId: this.merchantId,
+        });
+      } else {
+        // Order was already recorded - this is the duplicate webhook case
+        loyaltyLogger.debug({
+          action: 'ORDER_ALREADY_PROCESSED',
+          orderId,
+          resultType,
+          merchantId: this.merchantId,
+        });
+      }
+
+      return wasInserted;
+    } catch (error) {
+      // Log but don't fail - this is a best-effort tracking mechanism
+      loyaltyLogger.error({
+        action: 'RECORD_PROCESSED_ORDER_ERROR',
+        orderId,
+        error: error.message,
+        merchantId: this.merchantId,
+      });
+      return false;
+    }
   }
 }
 

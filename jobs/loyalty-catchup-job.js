@@ -37,6 +37,10 @@ async function getMerchantsWithLoyalty() {
 /**
  * Get order IDs already processed for loyalty
  *
+ * Checks both loyalty_purchase_events (qualifying orders) and
+ * loyalty_processed_orders (all orders including non-qualifying).
+ * This prevents reprocessing of orders that had zero qualifying items.
+ *
  * @param {number} merchantId - Internal merchant ID
  * @param {Array<string>} orderIds - Order IDs to check
  * @returns {Promise<Set<string>>} Set of already-processed order IDs
@@ -44,11 +48,21 @@ async function getMerchantsWithLoyalty() {
 async function getProcessedOrderIds(merchantId, orderIds) {
     if (orderIds.length === 0) return new Set();
 
+    // Check both tables:
+    // 1. loyalty_purchase_events - orders with qualifying items that were recorded
+    // 2. loyalty_processed_orders - all processed orders including non-qualifying
     const result = await db.query(`
-        SELECT DISTINCT square_order_id
-        FROM loyalty_purchase_events
-        WHERE merchant_id = $1
-          AND square_order_id = ANY($2)
+        SELECT DISTINCT square_order_id FROM (
+            SELECT square_order_id
+            FROM loyalty_purchase_events
+            WHERE merchant_id = $1
+              AND square_order_id = ANY($2)
+            UNION
+            SELECT square_order_id
+            FROM loyalty_processed_orders
+            WHERE merchant_id = $1
+              AND square_order_id = ANY($2)
+        ) AS processed
     `, [merchantId, orderIds]);
 
     return new Set(result.rows.map(r => r.square_order_id));
