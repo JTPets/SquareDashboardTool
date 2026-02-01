@@ -610,42 +610,83 @@ router.get('/rewards', requireAuth, requireMerchant, validators.listRewards, asy
 /**
  * GET /api/loyalty/redemptions
  * Get redemption history with filtering
+ *
+ * Migrated from loyalty_redemptions to loyalty_rewards WHERE status = 'redeemed'
+ * Joins to loyalty_purchase_events for item info and calculated value
  */
 router.get('/redemptions', requireAuth, requireMerchant, validators.listRedemptions, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { offerId, customerId, startDate, endDate, limit, offset } = req.query;
 
+    // Query redeemed rewards with item details from purchase events
     let query = `
-        SELECT rd.*, o.offer_name, o.brand_name, o.size_group,
-               lc.phone_number as customer_phone, lc.display_name as customer_name
-        FROM loyalty_redemptions rd
-        JOIN loyalty_offers o ON rd.offer_id = o.id
-        LEFT JOIN loyalty_customers lc ON rd.square_customer_id = lc.square_customer_id AND rd.merchant_id = lc.merchant_id
-        WHERE rd.merchant_id = $1
+        SELECT
+            r.id,
+            r.merchant_id,
+            r.offer_id,
+            r.square_customer_id,
+            r.redeemed_at,
+            r.redemption_order_id as square_order_id,
+            o.offer_name,
+            o.brand_name,
+            o.size_group,
+            lc.phone_number as customer_phone,
+            lc.display_name as customer_name,
+            -- Get item details from first linked purchase event
+            pe_info.item_name as redeemed_item_name,
+            pe_info.variation_name as redeemed_variation_name,
+            pe_info.variation_id as redeemed_variation_id,
+            -- Calculate value from average of linked purchase events
+            pe_info.avg_price as redeemed_value_cents,
+            -- Get source from processed orders (WEBHOOK, CATCHUP_JOB, BACKFILL)
+            COALESCE(lpo.source, 'WEBHOOK') as redemption_type
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        LEFT JOIN loyalty_customers lc
+            ON r.square_customer_id = lc.square_customer_id
+            AND r.merchant_id = lc.merchant_id
+        LEFT JOIN LATERAL (
+            SELECT
+                lqv.item_name,
+                lqv.variation_name,
+                pe.variation_id,
+                AVG(pe.unit_price_cents) FILTER (WHERE pe.unit_price_cents > 0) as avg_price
+            FROM loyalty_purchase_events pe
+            LEFT JOIN loyalty_qualifying_variations lqv
+                ON pe.variation_id = lqv.variation_id AND pe.offer_id = lqv.offer_id
+            WHERE pe.reward_id = r.id
+            GROUP BY lqv.item_name, lqv.variation_name, pe.variation_id
+            LIMIT 1
+        ) pe_info ON true
+        LEFT JOIN loyalty_processed_orders lpo
+            ON r.redemption_order_id = lpo.square_order_id
+            AND r.merchant_id = lpo.merchant_id
+        WHERE r.merchant_id = $1
+          AND r.status = 'redeemed'
     `;
     const params = [merchantId];
 
     if (offerId) {
         params.push(offerId);
-        query += ` AND rd.offer_id = $${params.length}`;
+        query += ` AND r.offer_id = $${params.length}`;
     }
 
     if (customerId) {
         params.push(customerId);
-        query += ` AND rd.square_customer_id = $${params.length}`;
+        query += ` AND r.square_customer_id = $${params.length}`;
     }
 
     if (startDate) {
         params.push(startDate);
-        query += ` AND rd.redeemed_at >= $${params.length}`;
+        query += ` AND r.redeemed_at >= $${params.length}`;
     }
 
     if (endDate) {
         params.push(endDate);
-        query += ` AND rd.redeemed_at <= $${params.length}`;
+        query += ` AND r.redeemed_at <= $${params.length}`;
     }
 
-    query += ` ORDER BY rd.redeemed_at DESC`;
+    query += ` ORDER BY r.redeemed_at DESC`;
 
     params.push(parseInt(limit) || 100);
     query += ` LIMIT $${params.length}`;
