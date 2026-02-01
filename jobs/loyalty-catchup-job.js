@@ -155,7 +155,7 @@ async function processMerchantCatchup(merchant, hoursBack) {
         // Filter to only unprocessed orders with line items
         const unprocessedOrders = orders.filter(order =>
             !processedIds.has(order.id) &&
-            order.lineItems?.length > 0 || order.line_items?.length > 0
+            ((order.lineItems?.length > 0) || (order.line_items?.length > 0))
         );
 
         if (unprocessedOrders.length === 0) {

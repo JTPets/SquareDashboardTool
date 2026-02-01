@@ -116,30 +116,110 @@ class LoyaltyWebhookService {
       // Guard: Don't process orders without line items (race condition protection)
       // This can happen when webhook fires before Square populates order data
       if (!order.line_items || order.line_items.length === 0) {
-        this.tracer.span('ORDER_SKIP_NO_LINE_ITEMS', {
-          state: order.state,
-        });
+        // For COMPLETED orders with no line items, try re-fetching from Square API
+        // This closes the race condition gap immediately instead of waiting for catchup job
+        if (order.state === 'COMPLETED') {
+          this.tracer.span('ORDER_REFETCH_ATTEMPT', {
+            reason: 'completed_but_empty',
+          });
 
-        const trace = this.tracer.endTrace();
+          try {
+            const freshOrder = await this.squareClient.getOrder(order.id);
+            const freshLineItems = freshOrder?.line_items || freshOrder?.lineItems;
 
-        // Log at warn level - this indicates a race condition that needs catchup
-        loyaltyLogger.audit({
-          action: 'ORDER_PROCESSING_SKIP_EMPTY',
-          orderId: order.id,
-          state: order.state,
-          reason: 'no_line_items',
-          traceId,
-          trace,
-          merchantId: this.merchantId,
-        });
+            if (freshLineItems && freshLineItems.length > 0) {
+              // Got fresh data with line items - use it and continue processing
+              order = { ...order, line_items: freshLineItems };
+              this.tracer.span('ORDER_REFETCH_SUCCESS', {
+                lineItemCount: freshLineItems.length,
+              });
 
-        return {
-          processed: false,
-          reason: 'no_line_items',
-          orderId: order.id,
-          state: order.state,
-          trace,
-        };
+              loyaltyLogger.audit({
+                action: 'ORDER_REFETCH_SUCCESS',
+                orderId: order.id,
+                lineItemCount: freshLineItems.length,
+                traceId,
+                merchantId: this.merchantId,
+              });
+              // Continue processing with fresh data (don't return)
+            } else {
+              // Re-fetch still returned no line items - give up
+              this.tracer.span('ORDER_SKIP_NO_LINE_ITEMS_AFTER_REFETCH', {
+                state: order.state,
+              });
+
+              const trace = this.tracer.endTrace();
+
+              loyaltyLogger.audit({
+                action: 'ORDER_PROCESSING_SKIP_EMPTY_AFTER_REFETCH',
+                orderId: order.id,
+                state: order.state,
+                reason: 'no_line_items_after_refetch',
+                traceId,
+                trace,
+                merchantId: this.merchantId,
+              });
+
+              return {
+                processed: false,
+                reason: 'no_line_items_after_refetch',
+                orderId: order.id,
+                state: order.state,
+                trace,
+              };
+            }
+          } catch (refetchError) {
+            // Re-fetch failed - log and give up
+            this.tracer.span('ORDER_REFETCH_FAILED', {
+              error: refetchError.message,
+            });
+
+            const trace = this.tracer.endTrace();
+
+            loyaltyLogger.error({
+              action: 'ORDER_REFETCH_FAILED',
+              orderId: order.id,
+              error: refetchError.message,
+              traceId,
+              trace,
+              merchantId: this.merchantId,
+            });
+
+            return {
+              processed: false,
+              reason: 'refetch_failed',
+              orderId: order.id,
+              state: order.state,
+              error: refetchError.message,
+              trace,
+            };
+          }
+        } else {
+          // Non-COMPLETED order with no line items - skip without refetch
+          this.tracer.span('ORDER_SKIP_NO_LINE_ITEMS', {
+            state: order.state,
+          });
+
+          const trace = this.tracer.endTrace();
+
+          loyaltyLogger.audit({
+            action: 'ORDER_PROCESSING_SKIP_EMPTY',
+            orderId: order.id,
+            state: order.state,
+            reason: 'no_line_items',
+            traceId,
+            trace,
+            merchantId: this.merchantId,
+          });
+
+          return {
+            processed: false,
+            reason: 'no_line_items',
+            orderId: order.id,
+            state: order.state,
+            trace,
+          };
+        }
       }
 
       // Step 1: Identify customer
