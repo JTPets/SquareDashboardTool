@@ -17,6 +17,7 @@ const { runScheduledWebhookRetry, runScheduledWebhookCleanup } = require('./webh
 const { runScheduledSmartSync, runScheduledGmcSync } = require('./sync-job');
 const { runScheduledExpiryDiscount } = require('./expiry-discount-job');
 const { runScheduledLoyaltyCatchup } = require('./loyalty-catchup-job');
+const { runScheduledLoyaltyAudit } = require('./loyalty-audit-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -86,6 +87,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Loyalty catchup cron job scheduled', { schedule: loyaltyCatchupSchedule, timezone: 'America/Toronto' });
+
+    // 9. Loyalty audit job
+    // Runs daily at 2 AM to detect orphaned rewards (redeemed in Square but missing from DB)
+    // Detection only - logs findings to loyalty_audit_log for manual review
+    const loyaltyAuditSchedule = process.env.LOYALTY_AUDIT_CRON || '0 2 * * *';
+    cronTasks.push(cron.schedule(loyaltyAuditSchedule, runScheduledLoyaltyAudit, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Loyalty audit cron job scheduled', { schedule: loyaltyAuditSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

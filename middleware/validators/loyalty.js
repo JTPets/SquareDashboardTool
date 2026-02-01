@@ -600,6 +600,34 @@ const getRedemptionDetails = [
     handleValidationErrors
 ];
 
+/**
+ * GET /api/loyalty/audit-findings
+ * List unresolved audit findings (orphaned rewards)
+ */
+const listAuditFindings = [
+    query('resolved')
+        .optional()
+        .isIn(['true', 'false'])
+        .withMessage('resolved must be true or false'),
+    query('issueType')
+        .optional()
+        .isIn(['MISSING_REDEMPTION', 'PHANTOM_REWARD', 'DOUBLE_REDEMPTION'])
+        .withMessage('issueType must be MISSING_REDEMPTION, PHANTOM_REWARD, or DOUBLE_REDEMPTION'),
+    ...validatePagination,
+    handleValidationErrors
+];
+
+/**
+ * POST /api/loyalty/audit-findings/resolve/:id
+ * Mark an audit finding as resolved
+ */
+const resolveAuditFinding = [
+    param('id')
+        .isUUID()
+        .withMessage('id must be a valid UUID'),
+    handleValidationErrors
+];
+
 module.exports = {
     listOffers,
     createOffer,
@@ -631,5 +659,7 @@ module.exports = {
     exportAuditCSV,
     exportSummaryCSV,
     exportCustomersCSV,
-    getRedemptionDetails
+    getRedemptionDetails,
+    listAuditFindings,
+    resolveAuditFinding
 };
