@@ -16,6 +16,7 @@ const { runScheduledBatchGeneration, runStartupBatchCheck } = require('./cycle-c
 const { runScheduledWebhookRetry, runScheduledWebhookCleanup } = require('./webhook-retry-job');
 const { runScheduledSmartSync, runScheduledGmcSync } = require('./sync-job');
 const { runScheduledExpiryDiscount } = require('./expiry-discount-job');
+const { runScheduledLoyaltyCatchup } = require('./loyalty-catchup-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -76,6 +77,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'  // EST timezone
     }));
     logger.info('Expiry discount cron job scheduled', { schedule: expirySchedule, timezone: 'America/Toronto' });
+
+    // 8. Loyalty catchup job
+    // Runs hourly to catch orders missed by webhook race conditions
+    // Processes orders from the last 6 hours to ensure overlap
+    const loyaltyCatchupSchedule = process.env.LOYALTY_CATCHUP_CRON || '15 * * * *';
+    cronTasks.push(cron.schedule(loyaltyCatchupSchedule, runScheduledLoyaltyCatchup, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Loyalty catchup cron job scheduled', { schedule: loyaltyCatchupSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
