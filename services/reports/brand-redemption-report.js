@@ -289,26 +289,49 @@ async function buildBrandRedemptionReport(merchantId, options = {}) {
             // Get all line items from full order (not just qualifying ones)
             let allLineItems = [];
             if (fullOrder && fullOrder.lineItems) {
-                allLineItems = fullOrder.lineItems.map(item => ({
-                    name: item.name,
-                    variationName: item.variationName || null,
-                    quantity: parseInt(item.quantity) || 1,
-                    unitPriceCents: item.basePriceMoney?.amount
+                allLineItems = fullOrder.lineItems.map(item => {
+                    const basePriceCents = item.basePriceMoney?.amount
                         ? parseInt(item.basePriceMoney.amount)
-                        : null,
-                    totalCents: item.totalMoney?.amount
+                        : null;
+                    const totalCents = item.totalMoney?.amount
                         ? parseInt(item.totalMoney.amount)
-                        : null,
-                    catalogObjectId: item.catalogObjectId || null
-                }));
+                        : null;
+
+                    return {
+                        name: item.name,
+                        variationName: item.variationName || null,
+                        quantity: parseInt(item.quantity) || 1,
+                        unitPriceCents: basePriceCents,
+                        totalCents: totalCents,
+                        // Mark as free item if total is 0/null but base price exists
+                        isFreeItem: (totalCents === 0 || totalCents === null) && basePriceCents > 0,
+                        catalogObjectId: item.catalogObjectId || null
+                    };
+                });
             }
+
+            // Fallback: Get payment type from Square order tenders if not stored in DB
+            let paymentType = purchase.payment_type;
+            if (!paymentType && fullOrder?.tenders?.length > 0) {
+                // Use first tender's type (most orders have single payment method)
+                // Square tender types: CARD, CASH, WALLET, SQUARE_GIFT_CARD, etc.
+                paymentType = fullOrder.tenders[0].type;
+            }
+
+            // Fallback: Get receipt URL from Square order tenders if not stored in DB
+            // Note: Square orders don't have receipt_url directly on tenders,
+            // it requires fetching the Payment object. We avoid extra API calls
+            // but check if the order has any receipt info available.
+            let receiptUrl = purchase.receipt_url;
+            // Currently Square doesn't expose receipt_url on orders/tenders,
+            // only on the Payment object. Skip without extra API calls.
 
             return {
                 eventId: purchase.event_id,
                 orderId: purchase.square_order_id,
                 purchasedAt: purchase.purchased_at,
-                paymentType: purchase.payment_type,
-                receiptUrl: purchase.receipt_url,
+                paymentType: paymentType,
+                receiptUrl: receiptUrl,
                 isRefund: purchase.is_refund,
                 // Qualifying item that counted toward punch card
                 qualifyingItem: {
@@ -360,6 +383,10 @@ async function buildBrandRedemptionReport(merchantId, options = {}) {
                 timeSpanDays,
                 visitCount,
                 qualifyingPurchaseCount: purchases.filter(p => !p.is_refund).length,
+                // Total qualifying units (sum of quantities across all purchase events)
+                totalQualifyingUnits: purchases
+                    .filter(p => !p.is_refund)
+                    .reduce((sum, p) => sum + (p.quantity || 0), 0),
                 refundCount: purchases.filter(p => p.is_refund).length
             },
             merchantName: redemption.business_name
@@ -429,6 +456,24 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
         return `$${(cents / 100).toFixed(2)}`;
     };
 
+    // Format line item total, handling free items specially
+    const formatLineItemTotal = (item) => {
+        if (item.isFreeItem) {
+            return '$0.00 (free)';
+        }
+        if (item.totalCents === 0) {
+            return '$0.00 (free)';
+        }
+        if (item.totalCents === null || item.totalCents === undefined) {
+            // If no total but has base price, it's likely a free/discounted item
+            if (item.unitPriceCents > 0) {
+                return '$0.00 (free)';
+            }
+            return 'N/A';
+        }
+        return `$${(item.totalCents / 100).toFixed(2)}`;
+    };
+
     // Build redemption cards
     const redemptionCards = report.redemptions.map((r, index) => {
         // Build contributing purchases table
@@ -437,9 +482,9 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
             let lineItemsHtml = '';
             if (p.allLineItems && p.allLineItems.length > 0) {
                 const itemsList = p.allLineItems.map(item =>
-                    `<div class="line-item ${item.catalogObjectId === p.qualifyingItem.variationId ? 'qualifying' : ''}">
+                    `<div class="line-item ${item.catalogObjectId === p.qualifyingItem.variationId ? 'qualifying' : ''}${item.isFreeItem ? ' free-item' : ''}">
                         <span class="item-name">${item.name}${item.variationName ? ` - ${item.variationName}` : ''}</span>
-                        <span class="item-details">x${item.quantity} @ ${formatCents(item.unitPriceCents)} = ${formatCents(item.totalCents)}</span>
+                        <span class="item-details">x${item.quantity} @ ${formatCents(item.unitPriceCents)} = ${formatLineItemTotal(item)}</span>
                     </div>`
                 ).join('');
                 lineItemsHtml = `<div class="line-items-list">${itemsList}</div>`;
@@ -530,7 +575,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
                 </div>
 
                 <div class="purchases-section">
-                    <h3>Contributing Purchases (${r.summary.qualifyingPurchaseCount} orders that earned this reward)</h3>
+                    <h3>Contributing Purchases (${r.summary.visitCount} orders / ${r.summary.totalQualifyingUnits} qualifying units that earned this reward)</h3>
                     <table class="purchases-table">
                         <thead>
                             <tr>
@@ -792,6 +837,14 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
             background: #e3f2fd;
             border-left: 3px solid #1a5f7a;
         }
+        .line-item.free-item {
+            background: #e8f5e9;
+            border-left: 3px solid #4caf50;
+        }
+        .line-item.free-item .item-details {
+            color: #2e7d32;
+            font-weight: 500;
+        }
         .item-name {
             display: block;
             font-weight: 500;
@@ -969,19 +1022,27 @@ async function generateBrandRedemptionCSV(merchantId, options = {}) {
         'Total Customer Spend ($)',
         'Avg Order Value ($)',
         'Days to Redemption',
-        'Visit Count'
+        'Visit Count',
+        'Total Qualifying Units'
     ];
 
     const rows = [];
 
     for (const redemption of report.redemptions) {
         redemption.contributingPurchases.forEach((purchase, purchaseIndex) => {
-            // Format all line items as a single cell
+            // Format all line items as a single cell, marking free items
             let allItemsText = '';
             if (purchase.allLineItems && purchase.allLineItems.length > 0) {
-                allItemsText = purchase.allLineItems.map(item =>
-                    `${item.name}${item.variationName ? ' - ' + item.variationName : ''} x${item.quantity} @ $${((item.unitPriceCents || 0) / 100).toFixed(2)}`
-                ).join('; ');
+                allItemsText = purchase.allLineItems.map(item => {
+                    const priceText = `$${((item.unitPriceCents || 0) / 100).toFixed(2)}`;
+                    // Mark free items with (FREE) indicator
+                    const totalText = item.isFreeItem || item.totalCents === 0
+                        ? '$0.00 (FREE)'
+                        : (item.totalCents !== null && item.totalCents !== undefined)
+                            ? `$${(item.totalCents / 100).toFixed(2)}`
+                            : (item.unitPriceCents > 0 ? '$0.00 (FREE)' : 'N/A');
+                    return `${item.name}${item.variationName ? ' - ' + item.variationName : ''} x${item.quantity} @ ${priceText} = ${totalText}`;
+                }).join('; ');
             }
 
             rows.push([
@@ -1016,7 +1077,8 @@ async function generateBrandRedemptionCSV(merchantId, options = {}) {
                 purchaseIndex === 0 ? (redemption.summary.totalSpendCents / 100).toFixed(2) : '',
                 purchaseIndex === 0 ? (redemption.summary.averageOrderValueCents / 100).toFixed(2) : '',
                 purchaseIndex === 0 ? redemption.summary.timeSpanDays : '',
-                purchaseIndex === 0 ? redemption.summary.visitCount : ''
+                purchaseIndex === 0 ? redemption.summary.visitCount : '',
+                purchaseIndex === 0 ? redemption.summary.totalQualifyingUnits : ''
             ]);
         });
     }
