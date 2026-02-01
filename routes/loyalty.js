@@ -1715,4 +1715,97 @@ router.get('/reports/redemption/:redemptionId', requireAuth, requireMerchant, va
     res.json({ redemption: details });
 }));
 
+// ==================== AUDIT FINDINGS (Orphaned Rewards) ====================
+
+/**
+ * GET /api/loyalty/audit-findings
+ * List unresolved audit findings (orphaned rewards detected by loyalty-audit-job)
+ *
+ * Query params:
+ * - resolved: 'true' or 'false' (default: false)
+ * - issueType: MISSING_REDEMPTION, PHANTOM_REWARD, DOUBLE_REDEMPTION
+ * - limit: number (default: 50)
+ * - offset: number (default: 0)
+ */
+router.get('/audit-findings', requireAuth, requireMerchant, validators.listAuditFindings, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { resolved = 'false', issueType, limit = 50, offset = 0 } = req.query;
+
+    let query = `
+        SELECT id, square_customer_id, order_id, reward_id, issue_type,
+               details, resolved, resolved_at, created_at
+        FROM loyalty_audit_log
+        WHERE merchant_id = $1
+          AND resolved = $2
+    `;
+    const params = [merchantId, resolved === 'true'];
+
+    if (issueType) {
+        query += ` AND issue_type = $${params.length + 1}`;
+        params.push(issueType);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const result = await db.query(query, params);
+
+    // Get total count for pagination
+    let countQuery = `
+        SELECT COUNT(*) as total
+        FROM loyalty_audit_log
+        WHERE merchant_id = $1 AND resolved = $2
+    `;
+    const countParams = [merchantId, resolved === 'true'];
+    if (issueType) {
+        countQuery += ` AND issue_type = $3`;
+        countParams.push(issueType);
+    }
+    const countResult = await db.query(countQuery, countParams);
+
+    res.json({
+        findings: result.rows,
+        pagination: {
+            total: parseInt(countResult.rows[0].total),
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        }
+    });
+}));
+
+/**
+ * POST /api/loyalty/audit-findings/resolve/:id
+ * Mark an audit finding as resolved
+ */
+router.post('/audit-findings/resolve/:id', requireAuth, requireMerchant, requireWriteAccess, validators.resolveAuditFinding, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { id } = req.params;
+
+    const result = await db.query(`
+        UPDATE loyalty_audit_log
+        SET resolved = TRUE, resolved_at = NOW()
+        WHERE id = $1 AND merchant_id = $2
+        RETURNING id, resolved, resolved_at
+    `, [id, merchantId]);
+
+    if (result.rows.length === 0) {
+        return res.status(404).json({
+            success: false,
+            error: 'Audit finding not found',
+            code: 'NOT_FOUND'
+        });
+    }
+
+    logger.info('Resolved loyalty audit finding', {
+        findingId: id,
+        merchantId,
+        userId: req.session.user.id
+    });
+
+    res.json({
+        success: true,
+        finding: result.rows[0]
+    });
+}));
+
 module.exports = router;
