@@ -182,7 +182,7 @@ async function showCreateOfferModal() {
   showModal('offer-modal');
 }
 
-async function editOffer(offerId) {
+async function editOffer(element, event, offerId) {
   const offer = allOffers.find(o => o.id === offerId);
   if (!offer) return;
 
@@ -310,7 +310,7 @@ async function saveOffer() {
 }
 
 // Variations
-async function showVariationsModal(offerId) {
+async function showVariationsModal(element, event, offerId) {
   document.getElementById('variations-offer-id').value = offerId;
   currentOfferId = offerId;
   selectedVariations.clear();
@@ -429,18 +429,20 @@ function renderVariationList() {
   }).join('');
 }
 
-function toggleVariationCard(variationId) {
-  if (selectedVariations.has(variationId)) {
-    selectedVariations.delete(variationId);
+function toggleVariationCard(elementOrVariationId, event, variationId) {
+  // Handle both direct calls and event delegation
+  const varId = variationId !== undefined ? variationId : elementOrVariationId;
+  if (selectedVariations.has(varId)) {
+    selectedVariations.delete(varId);
   } else {
-    selectedVariations.add(variationId);
+    selectedVariations.add(varId);
   }
 
   // Update UI without full re-render
-  const card = document.querySelector(`#var-${variationId}`)?.closest('.variation-item');
-  const checkbox = document.getElementById(`var-${variationId}`);
+  const card = document.querySelector(`#var-${varId}`)?.closest('.variation-item');
+  const checkbox = document.getElementById(`var-${varId}`);
   if (card && checkbox) {
-    const isSelected = selectedVariations.has(variationId);
+    const isSelected = selectedVariations.has(varId);
     card.classList.toggle('selected', isSelected);
     checkbox.checked = isSelected;
   }
@@ -627,7 +629,19 @@ async function searchCustomer() {
   }
 }
 
-async function showCustomerLoyalty(customerId, customerInfo = null) {
+async function showCustomerLoyalty(elementOrCustomerId, eventOrCustomerInfo = null, customerId) {
+  // Handle both direct calls and event delegation
+  let actualCustomerId, actualCustomerInfo;
+  if (elementOrCustomerId instanceof HTMLElement) {
+    // Called via event delegation: (element, event, customerId)
+    actualCustomerId = customerId;
+    actualCustomerInfo = null;
+  } else {
+    // Called directly: (customerId, customerInfo?)
+    actualCustomerId = elementOrCustomerId;
+    actualCustomerInfo = eventOrCustomerInfo;
+  }
+
   const searchResults = document.getElementById('customer-search-results');
   const container = document.getElementById('customer-result-container');
 
@@ -635,11 +649,11 @@ async function showCustomerLoyalty(customerId, customerInfo = null) {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading loyalty status...</div>';
 
   try {
-    const response = await fetch(`/api/loyalty/customer/${customerId}`);
+    const response = await fetch(`/api/loyalty/customer/${actualCustomerId}`);
     const data = await response.json();
 
     // Use customer info from search or from API response
-    const customer = data.customer || customerInfo || { id: customerId };
+    const customer = data.customer || actualCustomerInfo || { id: actualCustomerId };
     const displayName = customer.displayName || customer.givenName || 'Unknown Customer';
     const offers = data.loyalty?.offers || data.offers || [];
 
@@ -654,7 +668,7 @@ async function showCustomerLoyalty(customerId, customerInfo = null) {
           </p>
           <p style="color: #6b7280; margin-top: 10px;">No loyalty activity found for this customer.</p>
           <div style="margin-top: 15px;">
-            <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(customerId)}" data-display-name="${escapeJsString(displayName)}">
+            <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(actualCustomerId)}" data-display-name="${escapeJsString(displayName)}">
               Check for Missed Loyalty Items (91 Days)
             </button>
           </div>
@@ -687,7 +701,7 @@ async function showCustomerLoyalty(customerId, customerInfo = null) {
             ${offer.window_end_date && !hasReward ? ` • Window ends: ${new Date(offer.window_end_date).toLocaleDateString()}` : ''}
           </div>
           ${hasReward ? `
-            <button class="btn-redeem-large" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(offer.earned_reward_id)}" data-offer-name="${escapeJsString(offer.offer_name)}" data-customer-id="${escapeJsString(customerId)}">
+            <button class="btn-redeem-large" data-action="showRedeemModalFromButton" data-reward-id="${escapeJsString(offer.earned_reward_id)}" data-offer-name="${escapeJsString(offer.offer_name)}" data-customer-id="${escapeJsString(actualCustomerId)}">
               Redeem Free Item Now
             </button>
           ` : ''}
@@ -707,8 +721,8 @@ async function showCustomerLoyalty(customerId, customerInfo = null) {
           ${offersHtml}
         </div>
         <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn-secondary" data-action="viewCustomerHistory" data-action-param="${escapeJsString(customerId)}">View Full History</button>
-          <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(customerId)}" data-display-name="${escapeJsString(displayName)}">
+          <button class="btn-secondary" data-action="viewCustomerHistory" data-action-param="${escapeJsString(actualCustomerId)}">View Full History</button>
+          <button class="btn-primary" data-action="viewOrderAuditHistoryFromButton" data-customer-id="${escapeJsString(actualCustomerId)}" data-display-name="${escapeJsString(displayName)}">
             View Missed Loyalty Items (91 Days)
           </button>
         </div>
@@ -721,7 +735,7 @@ async function showCustomerLoyalty(customerId, customerInfo = null) {
   }
 }
 
-async function viewCustomerHistory(customerId) {
+async function viewCustomerHistory(element, event, customerId) {
   try {
     const response = await fetch(`/api/loyalty/customer/${customerId}/history`);
     const data = await response.json();
@@ -1283,12 +1297,12 @@ async function loadRedemptions() {
   }
 }
 
-function viewVendorReceipt(redemptionId) {
-  window.open(`/api/loyalty/reports/vendor-receipt/${redemptionId}?format=html`, '_blank');
+function viewVendorReceipt(element, event, rewardId) {
+  window.open(`/api/loyalty/reports/vendor-receipt/${rewardId}?format=html`, '_blank');
 }
 
 // Reports
-function downloadReport(type) {
+function downloadReport(element, event, type) {
   let url = '/api/loyalty/reports/';
 
   switch (type) {
