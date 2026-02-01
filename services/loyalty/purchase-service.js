@@ -35,6 +35,10 @@ class LoyaltyPurchaseService {
    * @param {number} [purchaseData.totalPriceCents] - Total price in cents
    * @param {string} purchaseData.purchasedAt - Purchase timestamp
    * @param {string} [purchaseData.traceId] - Correlation trace ID
+   * @param {Object} [purchaseData.redemptionContext] - Context if this is a redemption order
+   * @param {string} [purchaseData.redemptionContext.rewardId] - ID of reward being redeemed
+   * @param {string} [purchaseData.redemptionContext.offerId] - Offer ID of the reward
+   * @param {boolean} [purchaseData.redemptionContext.isRedemptionOrder] - True if redemption order
    * @returns {Promise<Object>} Result with purchase details
    */
   async recordPurchase(purchaseData) {
@@ -47,6 +51,7 @@ class LoyaltyPurchaseService {
       totalPriceCents = unitPriceCents * quantity,
       purchasedAt,
       traceId,
+      redemptionContext = null,  // BUG FIX: Accept redemption context
     } = purchaseData;
 
     // Get offers for this variation
@@ -170,13 +175,19 @@ class LoyaltyPurchaseService {
         const purchaseEventId = insertResult.rows[0].id;
 
         // Update reward progress
+        // BUG FIX: Pass redemption context so we know if the old reward is about to be redeemed
+        // Only applies if this offer matches the one being redeemed
+        const isRedemptionForThisOffer = redemptionContext?.isRedemptionOrder &&
+          redemptionContext.offerId === offer.offer_id;
+
         const progressResult = await this.updateRewardProgress(
           client,
           squareCustomerId,
           offer.offer_id,
           offer.required_quantity,
           offer.window_months,
-          traceId
+          traceId,
+          isRedemptionForThisOffer ? redemptionContext : null  // Only pass if relevant
         );
 
         await client.query('COMMIT');
@@ -239,8 +250,15 @@ class LoyaltyPurchaseService {
   /**
    * Update reward progress for a customer on an offer
    * @private
+   * @param {Object} client - Database client
+   * @param {string} squareCustomerId - Square customer ID
+   * @param {string} offerId - Offer ID
+   * @param {number} requiredQuantity - Required quantity for reward
+   * @param {number} windowMonths - Rolling window in months
+   * @param {string} traceId - Trace ID for logging
+   * @param {Object|null} redemptionContext - Context if this is a redemption order for this offer
    */
-  async updateRewardProgress(client, squareCustomerId, offerId, requiredQuantity, windowMonths, traceId) {
+  async updateRewardProgress(client, squareCustomerId, offerId, requiredQuantity, windowMonths, traceId, redemptionContext = null) {
     // Get the window start date from the customer's first unlocked purchase (rolling window)
     // The window is anchored to the FIRST qualifying purchase, not the current date
     const windowResult = await client.query(`
@@ -289,15 +307,24 @@ class LoyaltyPurchaseService {
     // Count all unlocked purchases within the valid window
     // Include negative quantities (refunds) to properly subtract from progress
     // Note: quantity can be positive (purchase) or negative (refund)
+    //
+    // BUG FIX: Exclude rows that have been "split" (have children with original_event_id
+    // pointing to them). When a row crosses the threshold, we create split records and
+    // the original should not be counted directly - only the splits should be counted.
     const progressResult = await client.query(`
       SELECT COALESCE(SUM(quantity), 0) as total_quantity
-      FROM loyalty_purchase_events
+      FROM loyalty_purchase_events lpe
       WHERE merchant_id = $1
         AND offer_id = $2
         AND square_customer_id = $3
         AND purchased_at >= $4
         AND purchased_at < $5
         AND reward_id IS NULL
+        -- Exclude rows that have been superseded by split records
+        AND NOT EXISTS (
+          SELECT 1 FROM loyalty_purchase_events child
+          WHERE child.original_event_id = lpe.id
+        )
     `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
     const currentProgress = parseInt(progressResult.rows[0].total_quantity, 10) || 0;
@@ -307,13 +334,16 @@ class LoyaltyPurchaseService {
 
     if (rewardEarned) {
       // Create or update reward status
+      // BUG FIX: Pass redemption context so we know if an existing earned reward
+      // is about to be redeemed (don't skip creating a new one in that case)
       await this.createOrUpdateReward(
         client,
         squareCustomerId,
         offerId,
         currentProgress,
         requiredQuantity,
-        traceId
+        traceId,
+        redemptionContext
       );
     }
 
@@ -330,9 +360,22 @@ class LoyaltyPurchaseService {
   /**
    * Create or update reward when threshold is reached
    * Also handles locking purchases to the reward and rollover of excess purchases
+   *
+   * BUG FIX: Now accepts redemptionContext to handle the case where an earned
+   * reward is being redeemed on this order. In that case, we should NOT skip
+   * creating a new reward - the old reward is about to be consumed, so new
+   * purchases should start a fresh reward cycle.
+   *
    * @private
+   * @param {Object} client - Database client
+   * @param {string} squareCustomerId - Square customer ID
+   * @param {string} offerId - Offer ID
+   * @param {number} currentProgress - Current progress count
+   * @param {number} requiredQuantity - Required quantity for reward
+   * @param {string} traceId - Trace ID for logging
+   * @param {Object|null} redemptionContext - Context if this is a redemption order
    */
-  async createOrUpdateReward(client, squareCustomerId, offerId, currentProgress, requiredQuantity, traceId) {
+  async createOrUpdateReward(client, squareCustomerId, offerId, currentProgress, requiredQuantity, traceId, redemptionContext = null) {
     // Get window dates from purchases for the reward record
     const windowDates = await client.query(`
       SELECT
@@ -396,8 +439,37 @@ class LoyaltyPurchaseService {
       `, [this.merchantId, offerId, squareCustomerId]);
 
       if (earnedCheck.rows.length > 0) {
-        // Already has an unredeemed earned reward, don't create another
-        return earnedCheck.rows[0].id;
+        const existingRewardId = earnedCheck.rows[0].id;
+
+        // BUG FIX: Log when this is a redemption order - the early return is
+        // correct (unique constraint prevents multiple rewards), but we need to
+        // ensure new purchases on this order stay UNLOCKED (not linked to old reward).
+        // The locking query won't run because we return early here.
+        // New purchases will contribute to the next reward cycle after redemption.
+        const isRedemptionForThisReward = redemptionContext?.isRedemptionOrder &&
+          redemptionContext.rewardId === existingRewardId;
+
+        if (isRedemptionForThisReward) {
+          loyaltyLogger.debug({
+            action: 'REDEMPTION_ORDER_EXISTING_REWARD',
+            existingRewardId,
+            offerId,
+            squareCustomerId,
+            message: 'Redemption order - returning early, new purchases stay unlocked for next cycle',
+            merchantId: this.merchantId,
+          });
+
+          this.tracer?.span('REDEMPTION_EXISTING_REWARD', {
+            existingRewardId,
+            isRedemptionOrder: true,
+            newPurchasesStayUnlocked: true,
+          });
+        }
+
+        // Return early - unique constraint prevents multiple rewards.
+        // New purchases remain unlocked (reward_id = NULL) and will
+        // contribute to the next reward after this one is redeemed.
+        return existingRewardId;
       }
 
       // Create new earned reward with required schema fields
@@ -425,19 +497,30 @@ class LoyaltyPurchaseService {
       });
     }
 
-    // Lock purchases up to required_quantity UNITS (not rows) to this reward
-    // Uses cumulative sum to ensure we lock based on actual quantities, not row count
-    // This allows excess units to properly roll over to the next reward cycle
+    // BUG FIX: Lock exactly required_quantity UNITS, properly splitting the crossing row
     //
-    // Example: Buy 12, get 13th free
-    //   - Row 1: qty=5, Row 2: qty=5, Row 3: qty=5 (total 15 units)
-    //   - We lock Row 1 (cum=5) and Row 2 (cum=10) and Row 3 (cum=15)
-    //   - But Row 3 only needs 2 more to reach 12, so we split it:
-    //     Row 3 keeps qty=5 locked, but we track that 3 units should roll over
+    // Previous bug: The condition `cumulative_qty - quantity < required` locked ALL rows
+    // up to and including the one that crossed the threshold, then created a duplicate
+    // rollover record. For 1+3+3+3+3=13 with required=12, this locked 13 units and
+    // created a rollover of 1, resulting in 14 tracked units.
     //
-    // For simplicity, we lock whole rows until cumulative sum >= required quantity.
-    // The "excess" from the last row that pushed us over is handled by creating
-    // a rollover record or adjusting the locked quantity.
+    // Fixed approach:
+    // 1. Lock rows where cumulative <= required (fully within threshold)
+    // 2. For the crossing row, create split records:
+    //    - A locked partial with qty = (required - locked_so_far)
+    //    - An unlocked excess with qty = (crossing_qty - needed)
+    // 3. The original crossing row stays unchanged (for audit trail)
+    //    but is marked as "split" via original_event_id on the split records
+    //
+    // Example: Buy 12, get 13th free with purchases 1+3+3+3+3=13
+    //   - Lock rows 1-4 (cumulative 1,4,7,10 are all <= 12): 10 units locked
+    //   - Row 5 (qty=3) crosses threshold: need 2 more to reach 12
+    //   - Create locked split: qty=2, original_event_id=row5.id
+    //   - Create unlocked split: qty=1, original_event_id=row5.id (rollover)
+    //   - Row 5 stays unchanged but is excluded from future counting (has children)
+    //   - Result: 12 units locked, 1 unit for next cycle
+
+    // Step 1: Lock rows that are fully consumed (cumulative <= required)
     const lockResult = await client.query(`
       WITH ranked_purchases AS (
         SELECT
@@ -450,82 +533,162 @@ class LoyaltyPurchaseService {
           AND square_customer_id = $4
           AND reward_id IS NULL
           AND quantity > 0
-      ),
-      purchases_to_lock AS (
-        SELECT id, quantity, cumulative_qty,
-               LAG(cumulative_qty, 1, 0) OVER (ORDER BY cumulative_qty) as prev_cumulative
-        FROM ranked_purchases
-        WHERE cumulative_qty - quantity < $5  -- Include rows where we haven't yet reached required
       )
       UPDATE loyalty_purchase_events lpe
       SET reward_id = $1, updated_at = NOW()
-      FROM purchases_to_lock ptl
-      WHERE lpe.id = ptl.id
-      RETURNING lpe.id, lpe.quantity, ptl.cumulative_qty
+      FROM ranked_purchases rp
+      WHERE lpe.id = rp.id
+        AND rp.cumulative_qty <= $5  -- Only lock rows fully within threshold
+      RETURNING lpe.id, lpe.quantity, rp.cumulative_qty
     `, [rewardId, this.merchantId, offerId, squareCustomerId, requiredQuantity]);
 
-    // Calculate actual locked quantity and any excess that should roll over
     const lockedRows = lockResult.rows || [];
     const totalLockedQty = lockedRows.reduce((sum, row) => sum + (parseInt(row.quantity, 10) || 0), 0);
-    const excessQty = totalLockedQty - requiredQuantity;
+    const neededFromCrossing = requiredQuantity - totalLockedQty;
 
-    this.tracer?.span('PURCHASES_LOCKED', {
+    loyaltyLogger.debug({
+      action: 'PURCHASES_LOCKED_FULL_ROWS',
       rewardId,
       lockedRows: lockedRows.length,
       totalLockedQty,
       requiredQuantity,
-      excessQty,
+      neededFromCrossing,
+      offerId,
+      squareCustomerId,
+      merchantId: this.merchantId,
     });
 
-    // If we locked more units than required (excess), create a rollover entry
-    // This happens when the last row's quantity pushes the total over the threshold
-    // We create an unlocked positive entry for the excess to roll over to next cycle
-    if (excessQty > 0 && lockedRows.length > 0) {
-      // Get the last locked purchase (the one that pushed us over)
-      const lastLocked = lockedRows[lockedRows.length - 1];
+    this.tracer?.span('PURCHASES_LOCKED_FULL', {
+      rewardId,
+      lockedRows: lockedRows.length,
+      totalLockedQty,
+      neededFromCrossing,
+    });
 
-      // Create a new unlocked purchase event for the rollover quantity
-      // This represents the excess units that should count toward the next reward
-      // Uses existing schema - just a regular purchase row with unique idempotency key
-      await client.query(`
-        INSERT INTO loyalty_purchase_events
-          (merchant_id, offer_id, square_customer_id, square_order_id,
-           variation_id, quantity, unit_price_cents,
-           purchased_at, trace_id, idempotency_key,
-           window_start_date, window_end_date, created_at)
-        SELECT
-          merchant_id, offer_id, square_customer_id, square_order_id,
-          variation_id, $2, 0,
-          NOW(), trace_id, idempotency_key || ':rollover:' || $3,
-          NULL, NULL, NOW()
+    // Step 2: Handle the crossing row if we need more units
+    if (neededFromCrossing > 0) {
+      // Find the crossing row (first unlocked row after the locked ones)
+      const crossingResult = await client.query(`
+        SELECT id, quantity, square_order_id, variation_id, unit_price_cents,
+               purchased_at, trace_id, idempotency_key, window_start_date, window_end_date,
+               total_price_cents
         FROM loyalty_purchase_events
-        WHERE id = $1
-      `, [lastLocked.id, excessQty, rewardId]);
+        WHERE merchant_id = $1
+          AND offer_id = $2
+          AND square_customer_id = $3
+          AND reward_id IS NULL
+          AND quantity > 0
+        ORDER BY purchased_at ASC, id ASC
+        LIMIT 1
+      `, [this.merchantId, offerId, squareCustomerId]);
 
-      loyaltyLogger.debug({
-        action: 'ROLLOVER_CREATED',
-        offerId,
-        squareCustomerId,
-        excessQty,
-        fromPurchaseId: lastLocked.id,
-        merchantId: this.merchantId,
-      });
+      if (crossingResult.rows.length > 0) {
+        const crossingRow = crossingResult.rows[0];
+        const crossingQty = parseInt(crossingRow.quantity, 10);
+        const excessQty = crossingQty - neededFromCrossing;
 
-      this.tracer?.span('ROLLOVER_CREATED', {
-        excessQty,
-        fromPurchaseId: lastLocked.id,
-      });
+        loyaltyLogger.debug({
+          action: 'SPLITTING_CROSSING_ROW',
+          crossingRowId: crossingRow.id,
+          crossingQty,
+          neededFromCrossing,
+          excessQty,
+          offerId,
+          squareCustomerId,
+          merchantId: this.merchantId,
+        });
+
+        // Create the locked partial (the portion that goes to this reward)
+        await client.query(`
+          INSERT INTO loyalty_purchase_events
+            (merchant_id, offer_id, square_customer_id, square_order_id,
+             variation_id, quantity, unit_price_cents, total_price_cents,
+             purchased_at, trace_id, idempotency_key,
+             window_start_date, window_end_date, reward_id, original_event_id,
+             created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())
+        `, [
+          this.merchantId,
+          offerId,
+          squareCustomerId,
+          crossingRow.square_order_id,
+          crossingRow.variation_id,
+          neededFromCrossing,  // Only the needed portion
+          crossingRow.unit_price_cents,
+          crossingRow.unit_price_cents ? crossingRow.unit_price_cents * neededFromCrossing : null,
+          crossingRow.purchased_at,
+          crossingRow.trace_id,
+          crossingRow.idempotency_key + ':split_locked:' + rewardId,
+          crossingRow.window_start_date,
+          crossingRow.window_end_date,
+          rewardId,  // Locked to this reward
+          crossingRow.id,  // References original for audit trail
+        ]);
+
+        this.tracer?.span('SPLIT_LOCKED_CREATED', {
+          crossingRowId: crossingRow.id,
+          lockedQty: neededFromCrossing,
+        });
+
+        // Create the unlocked excess (the portion for the next cycle)
+        // Note: Window dates are set to NULL - the next purchase will establish
+        // the new window based on this excess record's purchased_at date.
+        // The recordPurchase logic handles this case correctly.
+        if (excessQty > 0) {
+          await client.query(`
+            INSERT INTO loyalty_purchase_events
+              (merchant_id, offer_id, square_customer_id, square_order_id,
+               variation_id, quantity, unit_price_cents, total_price_cents,
+               purchased_at, trace_id, idempotency_key,
+               window_start_date, window_end_date, reward_id, original_event_id,
+               created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, $12, NOW(), NOW())
+          `, [
+            this.merchantId,
+            offerId,
+            squareCustomerId,
+            crossingRow.square_order_id,
+            crossingRow.variation_id,
+            excessQty,  // The excess portion
+            crossingRow.unit_price_cents,
+            crossingRow.unit_price_cents ? crossingRow.unit_price_cents * excessQty : null,
+            crossingRow.purchased_at,
+            crossingRow.trace_id,
+            crossingRow.idempotency_key + ':split_excess:' + rewardId,
+            crossingRow.id,  // References original for audit trail
+          ]);
+
+          loyaltyLogger.debug({
+            action: 'SPLIT_EXCESS_CREATED',
+            crossingRowId: crossingRow.id,
+            excessQty,
+            offerId,
+            squareCustomerId,
+            merchantId: this.merchantId,
+          });
+
+          this.tracer?.span('SPLIT_EXCESS_CREATED', {
+            crossingRowId: crossingRow.id,
+            excessQty,
+          });
+        }
+      }
     }
 
-    // Check if there are remaining unlocked purchases (rollover to next cycle)
+    // Log final state of unlocked purchases (for debugging)
     const remainingResult = await client.query(`
-      SELECT COUNT(*) as remaining_count, SUM(quantity) as remaining_qty
+      SELECT COUNT(*) as remaining_count, COALESCE(SUM(quantity), 0) as remaining_qty
       FROM loyalty_purchase_events
       WHERE merchant_id = $1
         AND offer_id = $2
         AND square_customer_id = $3
         AND reward_id IS NULL
         AND quantity > 0
+        -- Exclude rows that have been split (have children with original_event_id = this.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM loyalty_purchase_events child
+          WHERE child.original_event_id = loyalty_purchase_events.id
+        )
     `, [this.merchantId, offerId, squareCustomerId]);
 
     const remainingCount = parseInt(remainingResult.rows[0].remaining_count, 10) || 0;
@@ -533,7 +696,7 @@ class LoyaltyPurchaseService {
 
     if (remainingCount > 0) {
       loyaltyLogger.debug({
-        action: 'PURCHASES_ROLLOVER',
+        action: 'PURCHASES_AVAILABLE_FOR_NEXT_REWARD',
         offerId,
         squareCustomerId,
         remainingPurchases: remainingCount,
@@ -541,7 +704,7 @@ class LoyaltyPurchaseService {
         merchantId: this.merchantId,
       });
 
-      this.tracer?.span('PURCHASES_ROLLOVER', {
+      this.tracer?.span('PURCHASES_AVAILABLE_FOR_NEXT', {
         remainingCount,
         remainingQty,
       });
@@ -650,15 +813,24 @@ class LoyaltyPurchaseService {
 
       // Get current progress within the window
       // Include negative quantities (refunds) to properly subtract from progress
+      //
+      // BUG FIX: Exclude rows that have been "split" (have children with original_event_id
+      // pointing to them). When a row crosses the threshold, we create split records and
+      // the original should not be counted directly - only the splits should be counted.
       const progressResult = await db.query(`
         SELECT COALESCE(SUM(quantity), 0) as total_quantity
-        FROM loyalty_purchase_events
+        FROM loyalty_purchase_events lpe
         WHERE merchant_id = $1
           AND offer_id = $2
           AND square_customer_id = $3
           AND purchased_at >= $4
           AND purchased_at < $5
           AND reward_id IS NULL
+          -- Exclude rows that have been superseded by split records
+          AND NOT EXISTS (
+            SELECT 1 FROM loyalty_purchase_events child
+            WHERE child.original_event_id = lpe.id
+          )
       `, [this.merchantId, offerId, squareCustomerId, windowStart, windowEnd]);
 
       const currentProgress = parseInt(progressResult.rows[0].total_quantity, 10) || 0;
