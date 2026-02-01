@@ -162,22 +162,27 @@ async function debouncedSyncCommittedInventory(merchantId) {
  * @param {number} merchantId - Internal merchant ID
  * @param {Object} [options] - Processing options
  * @param {string} [options.source] - Source of event (e.g., 'WEBHOOK', 'PAYMENT')
+ * @param {Object} [options.redemptionContext] - Redemption context if this is a redemption order
+ * @param {string} [options.redemptionContext.rewardId] - ID of reward being redeemed
+ * @param {string} [options.redemptionContext.offerId] - Offer ID of the reward
+ * @param {boolean} [options.redemptionContext.isRedemptionOrder] - True if this order has a redemption
  * @returns {Promise<Object>} Normalized result compatible with legacy format
  */
 async function processOrderForLoyalty(order, merchantId, options = {}) {
-    const { source = 'WEBHOOK' } = options;
+    const { source = 'WEBHOOK', redemptionContext = null } = options;
 
     if (FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE) {
         // Use modern service
         logger.debug('Using modern loyalty service for order processing', {
             orderId: order.id,
             merchantId,
-            source
+            source,
+            hasRedemptionContext: !!redemptionContext
         });
 
         const service = new LoyaltyWebhookService(merchantId);
         await service.initialize();
-        const result = await service.processOrder(order, { source });
+        const result = await service.processOrder(order, { source, redemptionContext });
 
         // Adapt modern result to legacy format for compatibility
         // Modern: { processed, customerId, lineItemResults, summary, trace }
@@ -640,7 +645,76 @@ class OrderHandler {
     }
 
     /**
+     * Pre-check if an order contains a reward redemption
+     *
+     * BUG FIX: This must run BEFORE processing purchases. Previously, purchases
+     * were recorded first, linking them to the old reward being redeemed. Now we
+     * detect redemption first so new purchases can start a fresh reward window.
+     *
+     * Matches order discounts against loyalty_rewards.square_discount_id or
+     * square_pricing_rule_id (NOT discount name strings - those are fragile).
+     *
+     * @private
+     * @param {Object} order - Square order object
+     * @param {number} merchantId - Internal merchant ID
+     * @returns {Promise<Object>} Redemption info or { isRedemptionOrder: false }
+     */
+    async _checkOrderForRedemption(order, merchantId) {
+        const discounts = order.discounts || [];
+        if (discounts.length === 0) {
+            return { isRedemptionOrder: false };
+        }
+
+        const db = require('../../utils/database');
+
+        for (const discount of discounts) {
+            const catalogObjectId = discount.catalog_object_id;
+            if (!catalogObjectId) continue;
+
+            // Check if this discount matches any of our earned rewards
+            // Match on square_discount_id OR square_pricing_rule_id (Square may use either)
+            const rewardResult = await db.query(`
+                SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name
+                FROM loyalty_rewards r
+                JOIN loyalty_offers o ON r.offer_id = o.id
+                WHERE r.merchant_id = $1
+                  AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
+                  AND r.status = 'earned'
+            `, [merchantId, catalogObjectId]);
+
+            if (rewardResult.rows.length > 0) {
+                const reward = rewardResult.rows[0];
+
+                logger.info('Pre-detected reward redemption on order', {
+                    action: 'REDEMPTION_PRE_CHECK',
+                    orderId: order.id,
+                    rewardId: reward.id,
+                    offerId: reward.offer_id,
+                    discountCatalogId: catalogObjectId,
+                    merchantId
+                });
+
+                return {
+                    isRedemptionOrder: true,
+                    rewardId: reward.id,
+                    offerId: reward.offer_id,
+                    offerName: reward.offer_name,
+                    squareCustomerId: reward.square_customer_id,
+                    discountCatalogId: catalogObjectId
+                };
+            }
+        }
+
+        return { isRedemptionOrder: false };
+    }
+
+    /**
      * Process loyalty for completed order
+     *
+     * BUG FIX: Now checks for redemption BEFORE processing purchases.
+     * This ensures that paid qualifying items on a redemption order start
+     * a new reward window instead of being linked to the old reward.
+     *
      * @private
      */
     async _processLoyalty(order, merchantId, result) {
@@ -656,15 +730,41 @@ class OrderHandler {
                 return;
             }
 
-            const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source: 'WEBHOOK' });
+            // BUG FIX: Check for redemption BEFORE processing purchases
+            // This allows purchase processing to know it should start a new reward window
+            const redemptionCheck = await this._checkOrderForRedemption(order, merchantId);
+
+            if (redemptionCheck.isRedemptionOrder) {
+                logger.info('Processing redemption order - new purchases will start fresh window', {
+                    orderId: order.id,
+                    rewardBeingRedeemed: redemptionCheck.rewardId,
+                    offerId: redemptionCheck.offerId,
+                    merchantId
+                });
+            }
+
+            // Process purchases with redemption context
+            // If this is a redemption order, the purchase service will treat any
+            // existing earned reward as "about to be redeemed" and start a new window
+            const loyaltyResult = await processOrderForLoyalty(order, merchantId, {
+                source: 'WEBHOOK',
+                redemptionContext: redemptionCheck.isRedemptionOrder ? {
+                    rewardId: redemptionCheck.rewardId,
+                    offerId: redemptionCheck.offerId,
+                    isRedemptionOrder: true
+                } : null
+            });
+
             if (loyaltyResult.processed) {
                 result.loyalty = {
                     purchasesRecorded: loyaltyResult.purchasesRecorded.length,
-                    customerId: loyaltyResult.customerId
+                    customerId: loyaltyResult.customerId,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder
                 };
                 logger.info('Loyalty purchases processed via webhook', {
                     orderId: order.id,
                     purchaseCount: loyaltyResult.purchasesRecorded.length,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                     merchantId
                 });
 
@@ -680,14 +780,16 @@ class OrderHandler {
                 }
             }
 
-            // Check for reward redemption
+            // Finalize reward redemption AFTER purchases are recorded
+            // This uses the existing detectRewardRedemptionFromOrder which also
+            // handles cleanup of Square discount objects
             const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
             if (redemptionResult.detected) {
                 result.loyaltyRedemption = {
                     rewardId: redemptionResult.rewardId,
                     offerName: redemptionResult.offerName
                 };
-                logger.info('Loyalty reward redemption detected and processed', {
+                logger.info('Loyalty reward redemption finalized', {
                     orderId: order.id,
                     rewardId: redemptionResult.rewardId,
                     offerName: redemptionResult.offerName,

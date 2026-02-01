@@ -61,10 +61,14 @@ class LoyaltyWebhookService {
    * @param {Object} order - Square order object
    * @param {Object} [options] - Processing options
    * @param {string} [options.source] - Source of the event (e.g., 'WEBHOOK', 'BACKFILL')
+   * @param {Object} [options.redemptionContext] - Context if this order has a redemption
+   * @param {string} [options.redemptionContext.rewardId] - ID of reward being redeemed
+   * @param {string} [options.redemptionContext.offerId] - Offer ID of the reward
+   * @param {boolean} [options.redemptionContext.isRedemptionOrder] - True if redemption order
    * @returns {Promise<Object>} Processing result with trace
    */
   async processOrder(order, options = {}) {
-    const { source = 'WEBHOOK' } = options;
+    const { source = 'WEBHOOK', redemptionContext = null } = options;
 
     // Start trace for this order
     const traceId = this.tracer.startTrace({
@@ -300,6 +304,8 @@ class LoyaltyWebhookService {
       const qualifyingVariationIds = await this.offerService.getAllQualifyingVariationIds();
 
       // Step 3: Process each line item
+      // BUG FIX: Pass redemptionContext so purchases on a redemption order
+      // start a new reward window instead of being linked to the old reward
       const lineItemResults = [];
 
       for (const lineItem of (order.line_items || [])) {
@@ -308,7 +314,8 @@ class LoyaltyWebhookService {
           order,
           customerId,
           qualifyingVariationIds,
-          traceId
+          traceId,
+          redemptionContext  // Pass redemption context
         );
         lineItemResults.push(lineItemResult);
       }
@@ -413,8 +420,14 @@ class LoyaltyWebhookService {
   /**
    * Process a single line item
    * @private
+   * @param {Object} lineItem - Square line item
+   * @param {Object} order - Square order
+   * @param {string} customerId - Square customer ID
+   * @param {Set} qualifyingVariationIds - Set of variation IDs that qualify for loyalty
+   * @param {string} traceId - Trace ID for logging
+   * @param {Object|null} redemptionContext - Context if this order has a redemption
    */
-  async processLineItem(lineItem, order, customerId, qualifyingVariationIds, traceId) {
+  async processLineItem(lineItem, order, customerId, qualifyingVariationIds, traceId, redemptionContext = null) {
     // Prefer catalog_object_id (Square's standard field for catalog items)
     // Fall back to variation_id only if catalog_object_id is not available
     const variationId = lineItem.catalog_object_id || lineItem.variation_id;
@@ -463,6 +476,11 @@ class LoyaltyWebhookService {
     // Check if this is a loyalty redemption (should not count toward progress)
     // Only skip $0 items if they have a loyalty-related discount applied
     const totalMoney = lineItem.total_money?.amount || 0;
+
+    // BUG FIX: Use base_price_money for unit price (catalog price, pre-tax/discount)
+    // total_money includes tax and discounts, producing inconsistent unit prices
+    // base_price_money is the actual catalog price per unit
+    const basePriceCents = lineItem.base_price_money?.amount || 0;
     if (totalMoney <= 0) {
       // Check if any applied discount is from our loyalty system
       const hasLoyaltyDiscount = lineItem.applied_discounts?.some(discount => {
@@ -555,15 +573,37 @@ class LoyaltyWebhookService {
     });
 
     try {
+      // BUG FIX: Use base_price_money (catalog price) for consistent unit pricing
+      // Fall back to calculated price only if base_price_money not available
+      const unitPriceCents = basePriceCents > 0
+        ? basePriceCents
+        : (quantity > 0 ? Math.round(totalMoney / quantity) : 0);
+
+      loyaltyLogger.debug({
+        action: 'UNIT_PRICE_CALCULATION',
+        variationId,
+        basePriceCents,
+        totalMoney,
+        quantity,
+        calculatedUnitPrice: unitPriceCents,
+        usedBasePrice: basePriceCents > 0,
+        orderId: order.id,
+        merchantId: this.merchantId,
+      });
+
       const purchaseResult = await this.purchaseService.recordPurchase({
         squareOrderId: order.id,
         squareCustomerId: customerId,
         variationId,
         quantity,
-        unitPriceCents: Math.round(totalMoney / quantity),
+        unitPriceCents,
         totalPriceCents: totalMoney,
         purchasedAt: order.created_at || new Date().toISOString(),
         traceId,
+        // BUG FIX: Pass redemption context so purchase service knows
+        // to treat existing earned rewards as "about to be redeemed"
+        // and start a fresh window for new purchases
+        redemptionContext,
       });
 
       // Check if any rewards were earned
