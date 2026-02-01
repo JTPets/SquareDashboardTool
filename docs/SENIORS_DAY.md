@@ -523,8 +523,10 @@ async handleCustomerUpdated(context) {
 | `services/seniors/age-calculator.js` | Age calculation utilities |
 | `jobs/seniors-day-job.js` | Cron job handlers for enable/disable/sweep |
 | `database/migrations/032_seniors_day.sql` | Database schema changes |
-| `middleware/validators/seniors.js` | Validation rules (if admin routes needed) |
-| `routes/seniors.js` | Admin routes (if needed for manual controls) |
+| `middleware/validators/seniors.js` | Validation rules for admin routes |
+| `routes/seniors.js` | Admin API endpoints |
+| `public/seniors.html` | Admin UI page (standalone, not a loyalty tab) |
+| `public/js/seniors.js` | Admin UI frontend logic |
 
 ---
 
@@ -606,6 +608,68 @@ SENIORS_DISCOUNT: {
 
 ---
 
+## Admin UI (Phase 6)
+
+Standalone admin page at `/seniors.html` for operational visibility and manual controls. **Not a tab on the loyalty page** — this is a separate feature with its own UI.
+
+### Page Structure
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Seniors Day Discount - Admin                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Configuration                                            │   │
+│  │ ─────────────────────────────────────────────────────── │   │
+│  │ Status: ● Enabled / ○ Disabled    [Enable] [Disable]    │   │
+│  │ Discount: 10%       Min Age: 60                         │   │
+│  │ Square Group ID: GRP_xxx...       Last Enabled: Feb 1   │   │
+│  │ Pricing Rule ID: RULE_xxx...      Last Disabled: Feb 2  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Group Members (147 customers)           [Run Backfill]  │   │
+│  │ ─────────────────────────────────────────────────────── │   │
+│  │ Name              Birthday      Age   Added             │   │
+│  │ John Smith        1960-05-15    65    2026-01-15        │   │
+│  │ Mary Jones        1958-12-03    67    2026-01-20        │   │
+│  │ ...                                                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Audit Log                                                │   │
+│  │ ─────────────────────────────────────────────────────── │   │
+│  │ 2026-02-01 06:00  PRICING_RULE_ENABLED    CRON          │   │
+│  │ 2026-01-31 14:22  CUSTOMER_ADDED          WEBHOOK       │   │
+│  │ 2026-01-15 09:00  AGE_SWEEP               CRON          │   │
+│  │ ...                                                      │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### API Endpoints (`routes/seniors.js`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/seniors/config` | Get current configuration and Square object IDs |
+| POST | `/api/seniors/enable` | Manually enable pricing rule (outside normal schedule) |
+| POST | `/api/seniors/disable` | Manually disable pricing rule |
+| GET | `/api/seniors/members` | List customers in the seniors group (paginated) |
+| POST | `/api/seniors/backfill` | Trigger backfill of existing customers with DOB |
+| GET | `/api/seniors/audit` | Get audit log entries (paginated) |
+
+### Features
+
+1. **View Config** — Display current settings, Square object IDs, and status
+2. **View Group Members** — Paginated list of customers in the seniors group with name, birthday, age, and add date
+3. **Manual Enable/Disable** — Override the cron schedule for testing or emergencies (logs as `MANUAL` trigger)
+4. **Backfill Trigger** — Run the age sweep on-demand for existing customers
+5. **Audit Log** — Searchable/filterable log of all actions (enables, disables, customer adds/removes)
+
+---
+
 ## Implementation Phases
 
 ### Phase 1: Plan & Document ✅ (This Document)
@@ -640,6 +704,18 @@ SENIORS_DISCOUNT: {
 - [ ] Test full flow in development
 - [ ] Test Square POS discount application
 - [ ] Document edge cases
+
+### Phase 6: Admin UI
+- [ ] Create `public/seniors.html` (standalone page, not a loyalty tab)
+- [ ] Create `public/js/seniors.js` (frontend logic)
+- [ ] Create `routes/seniors.js` (API endpoints)
+- [ ] Implement view config feature
+- [ ] Implement view group members feature
+- [ ] Implement manual enable/disable toggle
+- [ ] Implement backfill trigger button
+- [ ] Implement audit log viewer
+
+> **Note:** Phase 6 is for operational visibility and manual controls. Automation (Phases 2-5) should be completed first — the admin UI is for monitoring and troubleshooting, not the primary workflow.
 
 ---
 
