@@ -2,7 +2,7 @@
 
 ## Overview
 
-Monthly discount program for customers aged 60+ who are loyalty members. Runs on the 1st of every month, all day, at all locations.
+Monthly discount program for customers aged 60+ with a Square customer profile. Runs on the 1st of every month, all day, at all locations.
 
 ---
 
@@ -10,12 +10,16 @@ Monthly discount program for customers aged 60+ who are loyalty members. Runs on
 
 | Requirement | Details |
 |-------------|---------|
-| **Eligibility** | Customer must be 60+ years old AND a loyalty member |
+| **Eligibility** | Customer must be 60+ years old with DOB on file in Square |
 | **Timing** | 1st of every month, all day (12:00 AM - 11:59 PM), all locations |
-| **Discount** | 10% off entire order (regular-priced merchandise) |
+| **Discount** | 10% off entire order (all items including clearance/sale) |
 | **Loyalty Points** | 1% loyalty accrual continues on the discounted total (independent of discount) |
-| **Stacking** | No other promos stack with the 10% seniors discount |
+| **Stacking** | Discounts stack — seniors discount + loyalty rewards both apply if earned |
 | **Identification** | Staff manually adds DOB to customer profile at POS checkout |
+
+> **Note on Loyalty Membership:** Loyalty membership is **not required** for the seniors discount. Any customer with a Square profile and DOB on file qualifies if they're 60+. However, loyalty membership is **recommended** for accurate tracking across all systems (purchase history, rewards, reporting).
+
+> **Note on Stacking:** For the initial implementation, discounts stack. If a customer is in the seniors group AND has an active loyalty reward, both apply. This keeps the implementation simple. Stacking behavior may be revisited in a future iteration if margin impact is too high.
 
 ---
 
@@ -133,7 +137,7 @@ POST /v2/catalog/batch-upsert
         "id": "#seniors-all-items",
         "product_set_data": {
           "name": "seniors-all-items",
-          "all_products": true  // Applies to ALL regular-priced items
+          "all_products": true  // Applies to ALL items (including clearance/sale)
         }
       },
       {
@@ -154,6 +158,8 @@ POST /v2/catalog/batch-upsert
 ```
 
 **To disable:** Update pricing rule with past dates or delete it.
+
+> ⚠️ **PHASE 2 VALIDATION REQUIRED:** Before rollout, confirm that a pricing rule with `valid_from_date`/`valid_until_date` AND `customer_group_ids_any` correctly requires **BOTH** conditions (date match AND group membership) before applying the discount. If Square treats them as OR conditions (either date OR group), we must fall back to the enable/disable cron approach (create/delete the pricing rule on the 1st/2nd rather than using date constraints).
 
 **Existing pattern** (`services/expiry/discount-service.js`):
 - `upsertPricingRule()` → lines 948-1107
@@ -181,14 +187,14 @@ GET /v2/customers/{customer_id}
 
 ## Database Schema
 
-### New Migration: `database/migrations/015_seniors_day.sql`
+### New Migration: `database/migrations/032_seniors_day.sql`
 
 ```sql
 -- ========================================
 -- MIGRATION: Seniors Day Discount Feature
 -- ========================================
 -- Manages age-based discount eligibility via Square Customer Groups.
--- Usage: psql -d your_database -f database/migrations/015_seniors_day.sql
+-- Usage: psql -d your_database -f database/migrations/032_seniors_day.sql
 
 BEGIN;
 
@@ -385,6 +391,8 @@ logger.info('Seniors discount cron job scheduled', {
 
 `services/webhook-handlers/catalog-handler.js:94-147`
 
+> ⚠️ **BLOCKING VALIDATION (Phase 2/4):** Before building the webhook handler, confirm whether `customer.updated` webhooks include the **full customer object** with the `birthday` field in the payload, or just the entity ID requiring a re-fetch via `GET /v2/customers/{id}`. This determines whether we can extract birthday directly from the webhook payload or need an additional API call. **Do not build the handler until this is confirmed.**
+
 ### Required Extension
 
 When `customer.updated` fires and includes a birthday field, check age and manage group membership.
@@ -482,7 +490,7 @@ async handleCustomerUpdated(context) {
 | `services/seniors/seniors-service.js` | Core business logic for seniors discount |
 | `services/seniors/age-calculator.js` | Age calculation utilities |
 | `jobs/seniors-day-job.js` | Cron job handlers for enable/disable/sweep |
-| `database/migrations/015_seniors_day.sql` | Database schema changes |
+| `database/migrations/032_seniors_day.sql` | Database schema changes |
 | `middleware/validators/seniors.js` | Validation rules (if admin routes needed) |
 | `routes/seniors.js` | Admin routes (if needed for manual controls) |
 
@@ -576,7 +584,9 @@ SENIORS_DISCOUNT: {
 - [x] Identify files to create/modify
 
 ### Phase 2: Data Layer
-- [ ] Create migration `015_seniors_day.sql`
+- [ ] **VALIDATION:** Confirm pricing rule date behavior (AND vs OR with customer_group_ids_any)
+- [ ] **VALIDATION:** Confirm customer.updated webhook payload includes birthday field (or requires re-fetch)
+- [ ] Create migration `032_seniors_day.sql`
 - [ ] Run migration on database
 - [ ] Create Square customer group (one-time per merchant)
 - [ ] Create Square discount object (one-time per merchant)
@@ -608,10 +618,11 @@ SENIORS_DISCOUNT: {
 | Customer removes birthday | Keep in group if previously 60+ (data correction is rare) |
 | Birthday format variations | Square standardizes to YYYY-MM-DD |
 | Customer turns 60 mid-month | Added to group immediately, discount applies next 1st |
-| Customer in multiple groups | Square handles gracefully, discount still applies |
+| Customer in multiple groups | Square handles gracefully, all applicable discounts apply |
 | Pricing rule already exists | Upsert pattern handles updates |
 | Webhook arrives twice | Idempotent operations (check before add) |
-| No loyalty membership | Seniors group is independent of loyalty program |
+| Customer has loyalty reward + seniors | Both discounts apply (stacking allowed in v1) |
+| Customer not in loyalty program | Still qualifies for seniors discount if 60+ with DOB on file |
 
 ---
 
@@ -661,13 +672,7 @@ if (customersAdded > 0 || customersRemoved > 0 || pricingRuleChanged) {
 1. **Multi-location:** Does the discount apply to all locations, or should it be configurable per location?
    - **Assumed:** All locations (simplest approach)
 
-2. **Exclusions:** Are there product categories excluded from the discount (e.g., already-discounted items)?
-   - **Assumed:** Regular-priced merchandise only (need clarification)
-
-3. **Loyalty requirement:** Does the customer need to be in our loyalty program, or just have a Square customer profile?
-   - **Assumed:** Loyalty member requirement (per business requirements)
-
-4. **Manual override:** Should staff be able to manually add someone to the seniors group without DOB verification?
+2. **Manual override:** Should staff be able to manually add someone to the seniors group without DOB verification?
    - **Assumed:** No, age verification via DOB only
 
 ---
