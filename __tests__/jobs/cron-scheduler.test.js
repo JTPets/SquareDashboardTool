@@ -41,6 +41,13 @@ jest.mock('../../jobs/expiry-discount-job', () => ({
     runScheduledExpiryDiscount: jest.fn()
 }));
 
+jest.mock('../../jobs/loyalty-catchup-job', () => ({
+    runLoyaltyCatchup: jest.fn(),
+    runScheduledLoyaltyCatchup: jest.fn(),
+    processMerchantCatchup: jest.fn(),
+    getMerchantsWithLoyalty: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -61,8 +68,8 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule at least 6 jobs (without GMC which is optional)
-            expect(cron.schedule).toHaveBeenCalledTimes(6);
+            // Should schedule at least 7 jobs (without GMC which is optional)
+            expect(cron.schedule).toHaveBeenCalledTimes(7);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -80,8 +87,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 7 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(7);
+            // Should schedule 8 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(8);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
@@ -173,6 +180,13 @@ describe('Jobs Index', () => {
         expect(jobs.runExpiryDiscountForMerchant).toBeDefined();
         expect(jobs.runExpiryDiscountForAllMerchants).toBeDefined();
         expect(jobs.runScheduledExpiryDiscount).toBeDefined();
+    });
+
+    it('should export loyalty catchup job functions', () => {
+        expect(jobs.runLoyaltyCatchup).toBeDefined();
+        expect(jobs.runScheduledLoyaltyCatchup).toBeDefined();
+        expect(jobs.processMerchantCatchup).toBeDefined();
+        expect(jobs.getMerchantsWithLoyalty).toBeDefined();
     });
 
     it('should export cron scheduler functions', () => {
