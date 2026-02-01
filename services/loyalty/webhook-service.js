@@ -86,6 +86,62 @@ class LoyaltyWebhookService {
         merchantId: this.merchantId,
       });
 
+      // Guard: Don't process non-COMPLETED orders (race condition protection)
+      if (order.state !== 'COMPLETED') {
+        this.tracer.span('ORDER_SKIP_NOT_COMPLETED', {
+          state: order.state,
+        });
+
+        const trace = this.tracer.endTrace();
+
+        loyaltyLogger.audit({
+          action: 'ORDER_PROCESSING_SKIP_STATE',
+          orderId: order.id,
+          state: order.state,
+          reason: 'not_completed',
+          traceId,
+          trace,
+          merchantId: this.merchantId,
+        });
+
+        return {
+          processed: false,
+          reason: 'not_completed',
+          orderId: order.id,
+          state: order.state,
+          trace,
+        };
+      }
+
+      // Guard: Don't process orders without line items (race condition protection)
+      // This can happen when webhook fires before Square populates order data
+      if (!order.line_items || order.line_items.length === 0) {
+        this.tracer.span('ORDER_SKIP_NO_LINE_ITEMS', {
+          state: order.state,
+        });
+
+        const trace = this.tracer.endTrace();
+
+        // Log at warn level - this indicates a race condition that needs catchup
+        loyaltyLogger.audit({
+          action: 'ORDER_PROCESSING_SKIP_EMPTY',
+          orderId: order.id,
+          state: order.state,
+          reason: 'no_line_items',
+          traceId,
+          trace,
+          merchantId: this.merchantId,
+        });
+
+        return {
+          processed: false,
+          reason: 'no_line_items',
+          orderId: order.id,
+          state: order.state,
+          trace,
+        };
+      }
+
       // Step 1: Identify customer
       this.tracer.span('CUSTOMER_LOOKUP_START');
       const customerResult = await this.customerService.identifyCustomerFromOrder(order);
@@ -180,6 +236,30 @@ class LoyaltyWebhookService {
       const qualifyingItems = lineItemResults.filter(r => r.qualifying);
       const purchasesRecorded = lineItemResults.filter(r => r.recorded).length;
       const rewardsEarned = lineItemResults.filter(r => r.rewardEarned).length;
+
+      // Warn if order has line items but none qualified - this may indicate config issues
+      if (qualifyingItems.length === 0 && lineItemResults.length > 0) {
+        const skipReasons = {};
+        lineItemResults.forEach(r => {
+          if (r.reason) {
+            skipReasons[r.reason] = (skipReasons[r.reason] || 0) + 1;
+          }
+        });
+
+        loyaltyLogger.error({
+          action: 'ORDER_ZERO_QUALIFYING_ITEMS',
+          orderId: order.id,
+          customerId,
+          totalLineItems: lineItemResults.length,
+          // Include variation IDs for diagnosis (to compare with qualifying set)
+          lineItemVariationIds: lineItemResults
+            .map(r => r.variationId)
+            .filter(Boolean),
+          skipReasons,
+          traceId,
+          merchantId: this.merchantId,
+        });
+      }
 
       this.tracer.span('ORDER_PROCESSING_COMPLETE', {
         totalLineItems: lineItemResults.length,
