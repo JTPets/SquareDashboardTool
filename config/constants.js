@@ -79,4 +79,14 @@ module.exports = {
         // Set to true in .env: USE_NEW_LOYALTY_SERVICE=true
         USE_NEW_LOYALTY_SERVICE: process.env.USE_NEW_LOYALTY_SERVICE === 'true',
     },
+
+    // Seniors Day discount configuration
+    // Monthly discount program for customers aged 60+ with DOB on file
+    SENIORS_DISCOUNT: {
+        MIN_AGE: 60,
+        DISCOUNT_PERCENT: 10,
+        GROUP_NAME: 'Seniors (60+)',
+        DISCOUNT_NAME: 'Seniors Day (10% Off)',
+        DAY_OF_MONTH: 1,  // 1st of every month
+    },
 };

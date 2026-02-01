@@ -679,18 +679,31 @@ Standalone admin page at `/seniors.html` for operational visibility and manual c
 - [x] Document webhook flow
 - [x] Identify files to create/modify
 
-### Phase 2: Data Layer
+### Phase 2: Data Layer ✅ (Complete)
 - [x] **VALIDATED:** customer.updated webhook requires re-fetch for birthday (confirmed)
-- [ ] **VALIDATE DURING SETUP:** Test pricing rule date+group behavior with throwaway rule
-- [ ] Create migration `032_seniors_day.sql`
-- [ ] Run migration on database
-- [ ] Create Square customer group (one-time per merchant)
-- [ ] Create Square discount object (one-time per merchant)
+- [x] Create migration `032_seniors_day.sql`
+- [x] Add `SENIORS_DISCOUNT` constants to `config/constants.js`
+- [x] Create `services/seniors/` directory structure
+- [x] Implement `seniors-service.js` with Square object setup
+- [x] Implement `age-calculator.js` utilities
+- [x] Create `scripts/setup-seniors-discount.js` setup script
+- [ ] **PRODUCTION:** Run migration on database
+- [ ] **PRODUCTION:** Run setup script to create Square objects
+- [ ] **VALIDATE DURING SETUP:** Test pricing rule date+group behavior
 
-### Phase 3: Core Service
-- [ ] Create `services/seniors/` directory
-- [ ] Implement `seniors-service.js` with core functions
-- [ ] Implement `age-calculator.js` utilities
+**To run in production:**
+```bash
+# 1. Run the migration
+set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f database/migrations/032_seniors_day.sql
+
+# 2. Run the setup script (creates Square objects for merchant 1)
+node scripts/setup-seniors-discount.js 1
+```
+
+### Phase 3: Core Service ✅ (Complete)
+- [x] Create `services/seniors/` directory
+- [x] Implement `seniors-service.js` with core functions
+- [x] Implement `age-calculator.js` utilities
 - [ ] Write unit tests for age calculation
 
 ### Phase 4: Automation
