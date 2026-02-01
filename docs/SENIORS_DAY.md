@@ -1,0 +1,681 @@
+# Seniors Day Discount Feature
+
+## Overview
+
+Monthly discount program for customers aged 60+ who are loyalty members. Runs on the 1st of every month, all day, at all locations.
+
+---
+
+## Business Requirements
+
+| Requirement | Details |
+|-------------|---------|
+| **Eligibility** | Customer must be 60+ years old AND a loyalty member |
+| **Timing** | 1st of every month, all day (12:00 AM - 11:59 PM), all locations |
+| **Discount** | 10% off entire order (regular-priced merchandise) |
+| **Loyalty Points** | 1% loyalty accrual continues on the discounted total (independent of discount) |
+| **Stacking** | No other promos stack with the 10% seniors discount |
+| **Identification** | Staff manually adds DOB to customer profile at POS checkout |
+
+---
+
+## Technical Approach: Square-Native Implementation
+
+This feature uses the same pattern as the existing loyalty system — **Customer Groups + Catalog Pricing Rules** managed by our automation layer.
+
+### Architecture Components
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     SENIORS DAY SYSTEM                           │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────┐     ┌─────────────────┐                    │
+│  │ Square Customer │     │ Catalog Pricing │                    │
+│  │ Group: Seniors  │────▶│ Rule: 10% Off   │                    │
+│  │ (60+)           │     │ for Seniors Grp │                    │
+│  └────────┬────────┘     └────────┬────────┘                    │
+│           │                       │                              │
+│           │                       │                              │
+│           ▼                       ▼                              │
+│  ┌─────────────────────────────────────────────┐                │
+│  │              Square POS                      │                │
+│  │  - Customer identified at checkout           │                │
+│  │  - If in Seniors group AND pricing rule      │                │
+│  │    is active → 10% auto-applies              │                │
+│  └─────────────────────────────────────────────┘                │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│                     OUR AUTOMATION LAYER                         │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────┐     ┌─────────────────┐                    │
+│  │ customer.updated│     │ Cron Jobs       │                    │
+│  │ Webhook Handler │     │                 │                    │
+│  │                 │     │ - 1st: Enable   │                    │
+│  │ DOB → Age Check │     │ - 2nd: Disable  │                    │
+│  │ → Group Mgmt    │     │ - Monthly: Scan │                    │
+│  └─────────────────┘     └─────────────────┘                    │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Square API Calls Required
+
+### 1. Customer Group Management
+
+**One-time setup:** Create "Seniors (60+)" customer group per merchant.
+
+```javascript
+// Create customer group
+POST /v2/customers/groups
+{
+  "idempotency_key": "seniors-group-{merchantId}",
+  "group": {
+    "name": "Seniors (60+)"
+  }
+}
+// Response: { "group": { "id": "GROUP_ID", "name": "Seniors (60+)" } }
+```
+
+**Existing functions to leverage** (`services/loyalty-admin/loyalty-service.js`):
+- `createRewardCustomerGroup()` → lines 3500-3567
+- `addCustomerToGroup()` → lines 3590-3633
+- `removeCustomerFromGroup()` → lines 3657-3700
+- `deleteCustomerGroup()` → lines 3723-3766
+
+**Modern equivalents** (`services/loyalty/square-client.js`):
+- `createCustomerGroup()` → line 355
+- `addCustomerToGroup()` → line 392
+- `removeCustomerFromGroup()` → line 406
+- `deleteCustomerGroup()` → line 371
+
+### 2. Catalog Discount Object
+
+**One-time setup:** Create 10% discount catalog object.
+
+```javascript
+// Create discount object
+POST /v2/catalog/object
+{
+  "idempotency_key": "seniors-discount-{merchantId}",
+  "object": {
+    "type": "DISCOUNT",
+    "id": "#seniors-10-off",
+    "discount_data": {
+      "name": "Seniors Day (10% Off)",
+      "discount_type": "FIXED_PERCENTAGE",
+      "percentage": "10"
+    }
+  }
+}
+// Response: { "catalog_object": { "id": "DISCOUNT_ID", ... } }
+```
+
+**Existing pattern** (`services/expiry/discount-service.js`):
+- `upsertSquareDiscount()` → lines 371-483
+
+### 3. Pricing Rule (Enable/Disable)
+
+The pricing rule ties the discount to the customer group. **Enable on 1st, disable on 2nd**.
+
+```javascript
+// Create/Enable pricing rule
+POST /v2/catalog/batch-upsert
+{
+  "idempotency_key": "seniors-pricing-rule-{merchantId}",
+  "batches": [{
+    "objects": [
+      {
+        "type": "PRODUCT_SET",
+        "id": "#seniors-all-items",
+        "product_set_data": {
+          "name": "seniors-all-items",
+          "all_products": true  // Applies to ALL regular-priced items
+        }
+      },
+      {
+        "type": "PRICING_RULE",
+        "id": "#seniors-pricing-rule",
+        "pricing_rule_data": {
+          "name": "seniors-day-discount",
+          "discount_id": "{DISCOUNT_ID}",
+          "match_products_id": "#seniors-all-items",
+          "customer_group_ids_any": ["{SENIORS_GROUP_ID}"],
+          "valid_from_date": "2026-02-01",  // Dynamic: 1st of month
+          "valid_until_date": "2026-02-01"  // Same day only
+        }
+      }
+    ]
+  }]
+}
+```
+
+**To disable:** Update pricing rule with past dates or delete it.
+
+**Existing pattern** (`services/expiry/discount-service.js`):
+- `upsertPricingRule()` → lines 948-1107
+
+### 4. Customer Lookup (for DOB)
+
+When customer is updated with DOB, fetch full customer details.
+
+```javascript
+// Get customer details including birthday
+GET /v2/customers/{customer_id}
+
+// Response includes:
+{
+  "customer": {
+    "id": "CUSTOMER_ID",
+    "given_name": "John",
+    "family_name": "Doe",
+    "birthday": "1960-05-15"  // YYYY-MM-DD format
+  }
+}
+```
+
+---
+
+## Database Schema
+
+### New Migration: `database/migrations/015_seniors_day.sql`
+
+```sql
+-- ========================================
+-- MIGRATION: Seniors Day Discount Feature
+-- ========================================
+-- Manages age-based discount eligibility via Square Customer Groups.
+-- Usage: psql -d your_database -f database/migrations/015_seniors_day.sql
+
+BEGIN;
+
+-- ----------------------------------------
+-- 1. Add birthday to loyalty_customers
+-- ----------------------------------------
+-- Square provides birthday in YYYY-MM-DD format
+-- We cache it locally for efficient age calculations
+
+ALTER TABLE loyalty_customers
+ADD COLUMN IF NOT EXISTS birthday DATE;
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_birthday
+ON loyalty_customers(merchant_id, birthday)
+WHERE birthday IS NOT NULL;
+
+COMMENT ON COLUMN loyalty_customers.birthday IS 'Customer birthday from Square (YYYY-MM-DD), used for seniors discount eligibility';
+
+-- ----------------------------------------
+-- 2. Seniors discount configuration table
+-- ----------------------------------------
+-- Tracks the Square objects created for each merchant's seniors discount
+
+CREATE TABLE IF NOT EXISTS seniors_discount_config (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+
+    -- Square object IDs
+    square_group_id TEXT,              -- Customer Group: "Seniors (60+)"
+    square_discount_id TEXT,           -- Catalog Discount: 10% off
+    square_product_set_id TEXT,        -- Product Set: all items
+    square_pricing_rule_id TEXT,       -- Pricing Rule: ties it together
+
+    -- Configuration
+    discount_percent INTEGER NOT NULL DEFAULT 10,
+    min_age INTEGER NOT NULL DEFAULT 60,
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+
+    -- Timestamps
+    last_enabled_at TIMESTAMPTZ,       -- Last time pricing rule was enabled
+    last_disabled_at TIMESTAMPTZ,      -- Last time pricing rule was disabled
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT seniors_discount_config_merchant_unique UNIQUE(merchant_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_config_merchant
+ON seniors_discount_config(merchant_id);
+
+COMMENT ON TABLE seniors_discount_config IS 'Seniors Day discount configuration per merchant - stores Square object IDs and settings';
+
+-- ----------------------------------------
+-- 3. Seniors group membership tracking
+-- ----------------------------------------
+-- Tracks which customers are in the seniors group (denormalized for queries)
+
+CREATE TABLE IF NOT EXISTS seniors_group_members (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    square_customer_id TEXT NOT NULL,
+    birthday DATE NOT NULL,
+    age_at_last_check INTEGER NOT NULL,
+    added_to_group_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    removed_from_group_at TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    CONSTRAINT seniors_group_members_unique UNIQUE(merchant_id, square_customer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_members_merchant_active
+ON seniors_group_members(merchant_id, is_active)
+WHERE is_active = TRUE;
+
+COMMENT ON TABLE seniors_group_members IS 'Tracks customers in the Seniors (60+) customer group';
+
+-- ----------------------------------------
+-- 4. Seniors discount audit log
+-- ----------------------------------------
+-- Tracks all changes for debugging and compliance
+
+CREATE TABLE IF NOT EXISTS seniors_discount_audit_log (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    action TEXT NOT NULL,              -- 'PRICING_RULE_ENABLED', 'PRICING_RULE_DISABLED',
+                                       -- 'CUSTOMER_ADDED', 'CUSTOMER_REMOVED', 'AGE_SWEEP'
+    square_customer_id TEXT,
+    details JSONB,                     -- Additional context
+    triggered_by TEXT NOT NULL,        -- 'CRON', 'WEBHOOK', 'MANUAL', 'BACKFILL'
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_audit_merchant_date
+ON seniors_discount_audit_log(merchant_id, created_at DESC);
+
+COMMENT ON TABLE seniors_discount_audit_log IS 'Audit trail for seniors discount actions';
+
+-- ----------------------------------------
+-- Success message
+-- ----------------------------------------
+DO $$
+BEGIN
+    RAISE NOTICE 'Seniors Day migration completed successfully!';
+    RAISE NOTICE 'Tables created/modified:';
+    RAISE NOTICE '  - loyalty_customers.birthday column added';
+    RAISE NOTICE '  - seniors_discount_config (Square object IDs)';
+    RAISE NOTICE '  - seniors_group_members (membership tracking)';
+    RAISE NOTICE '  - seniors_discount_audit_log (audit trail)';
+END $$;
+
+COMMIT;
+```
+
+---
+
+## Cron Jobs
+
+### 1. Enable Pricing Rule (1st of Month)
+
+**Schedule:** `0 6 * * *` (6:00 AM daily) — checks if today is the 1st
+
+```javascript
+// jobs/seniors-day-job.js
+
+/**
+ * Check if today is the 1st and enable seniors pricing rule
+ * Runs daily at 6 AM (before store opens)
+ */
+async function runSeniorsDiscountCheck() {
+    const today = new Date();
+    const dayOfMonth = today.getDate();
+
+    if (dayOfMonth === 1) {
+        await enableSeniorsPricingRule();
+    } else if (dayOfMonth === 2) {
+        await disableSeniorsPricingRule();
+    }
+}
+```
+
+**Alternative:** Two separate cron jobs
+
+```
+// Enable: 1st at 5:00 AM
+0 5 1 * *  → enableSeniorsPricingRule()
+
+// Disable: 2nd at 5:00 AM
+0 5 2 * *  → disableSeniorsPricingRule()
+```
+
+### 2. Monthly Age Sweep
+
+**Schedule:** `0 4 1 * *` (4:00 AM on 1st of month, before enable)
+
+Scans all customers with DOB on file to add anyone who turned 60 since last month.
+
+```javascript
+/**
+ * Monthly sweep to find customers who turned 60
+ * Runs at 4 AM on 1st before the pricing rule is enabled
+ */
+async function runMonthlyAgeSweep() {
+    // 1. Query all customers with birthday set
+    // 2. Calculate age as of today
+    // 3. For age >= 60 and not in group → add to group
+    // 4. For age < 60 and in group → remove from group (edge case)
+}
+```
+
+### Cron Scheduler Integration
+
+Add to `jobs/cron-scheduler.js`:
+
+```javascript
+const { runScheduledSeniorsDiscount } = require('./seniors-day-job');
+
+// Seniors Day discount management
+// Runs daily to check if pricing rule should be enabled/disabled
+const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '0 6 * * *';
+cronTasks.push(cron.schedule(seniorsSchedule, runScheduledSeniorsDiscount, {
+    timezone: 'America/Toronto'
+}));
+logger.info('Seniors discount cron job scheduled', {
+    schedule: seniorsSchedule,
+    timezone: 'America/Toronto'
+});
+```
+
+---
+
+## Webhook Handler: customer.updated
+
+### Current Handler Location
+
+`services/webhook-handlers/catalog-handler.js:94-147`
+
+### Required Extension
+
+When `customer.updated` fires and includes a birthday field, check age and manage group membership.
+
+```javascript
+// Extended handleCustomerUpdated in catalog-handler.js
+
+async handleCustomerUpdated(context) {
+    const { data, merchantId, entityId } = context;
+    const result = { handled: true };
+
+    if (!data.customer || !merchantId) {
+        return result;
+    }
+
+    const customerId = entityId || data.customer.id;
+
+    // Existing: Sync customer notes to delivery orders
+    // ... (existing code) ...
+
+    // Existing: Run loyalty catchup
+    // ... (existing code) ...
+
+    // NEW: Handle birthday/seniors eligibility
+    if (data.customer.birthday) {
+        const seniorsResult = await seniorsService.handleCustomerBirthdayUpdate({
+            merchantId,
+            squareCustomerId: customerId,
+            birthday: data.customer.birthday
+        });
+
+        if (seniorsResult.groupChanged) {
+            result.seniorsDiscount = seniorsResult;
+        }
+    }
+
+    return result;
+}
+```
+
+### Birthday Update Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              customer.updated Webhook Flow                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Extract birthday from webhook payload                         │
+│    data.customer.birthday = "1960-05-15"                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. Cache birthday to loyalty_customers table                     │
+│    UPDATE loyalty_customers SET birthday = $1                    │
+│    WHERE square_customer_id = $2 AND merchant_id = $3           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Calculate age                                                 │
+│    age = calculateAge("1960-05-15") → 65                        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌────────────────────┐        │        ┌────────────────────────┐
+│  age >= 60?        │────YES─┼───────▶│ Add to Seniors Group   │
+│                    │        │        │ PUT /customers/{id}/   │
+│                    │        │        │     groups/{groupId}   │
+└────────────────────┘        │        └────────────────────────┘
+         │                    │
+         NO                   │
+         │                    │
+         ▼                    │
+┌────────────────────────────┐│
+│ Check if in group          ││
+│ (shouldn't be, but verify) ││
+└────────────────────────────┘│
+         │                    │
+         ▼                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. Log to seniors_discount_audit_log                             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## New Files to Create
+
+| File | Purpose |
+|------|---------|
+| `services/seniors/index.js` | Service entry point, exports public API |
+| `services/seniors/seniors-service.js` | Core business logic for seniors discount |
+| `services/seniors/age-calculator.js` | Age calculation utilities |
+| `jobs/seniors-day-job.js` | Cron job handlers for enable/disable/sweep |
+| `database/migrations/015_seniors_day.sql` | Database schema changes |
+| `middleware/validators/seniors.js` | Validation rules (if admin routes needed) |
+| `routes/seniors.js` | Admin routes (if needed for manual controls) |
+
+---
+
+## Existing Files to Modify
+
+| File | Change |
+|------|--------|
+| `services/webhook-handlers/catalog-handler.js` | Extend `handleCustomerUpdated()` to check birthday |
+| `jobs/cron-scheduler.js` | Add seniors discount cron job registration |
+| `config/constants.js` | Add `SENIORS_DISCOUNT` configuration namespace |
+| `.env.example` | Add `SENIORS_DISCOUNT_CRON` schedule variable |
+
+---
+
+## Service Architecture
+
+Following the patterns established in `services/loyalty/` and `services/expiry/`:
+
+```
+services/seniors/
+├── index.js                    # Public API exports
+├── seniors-service.js          # Main orchestration service
+│   ├── initialize()            # Create Square objects (one-time setup)
+│   ├── enablePricingRule()     # Called on 1st of month
+│   ├── disablePricingRule()    # Called on 2nd of month
+│   ├── handleCustomerBirthdayUpdate()  # Webhook handler
+│   ├── runMonthlyAgeSweep()    # Monthly scan for new seniors
+│   └── backfillExistingCustomers()     # One-time backfill
+└── age-calculator.js           # Pure utility functions
+    ├── calculateAge()          # Birthday → age
+    ├── isSenior()              # Age >= 60 check
+    └── getNextBirthday()       # For future features
+```
+
+### Service Initialization Pattern
+
+```javascript
+// services/seniors/seniors-service.js
+
+const logger = require('../../utils/logger');
+const db = require('../../utils/database');
+
+class SeniorsService {
+    constructor(merchantId) {
+        this.merchantId = merchantId;
+        this.squareClient = null;  // Lazy-loaded
+        this.config = null;        // Cached config
+    }
+
+    async initialize() {
+        // Ensure Square objects exist for this merchant
+        // Called on first access or by setup script
+    }
+
+    async handleCustomerBirthdayUpdate({ squareCustomerId, birthday }) {
+        // Process birthday update from webhook
+    }
+}
+
+module.exports = SeniorsService;
+```
+
+---
+
+## Configuration Constants
+
+Add to `config/constants.js`:
+
+```javascript
+// Seniors Day discount configuration
+SENIORS_DISCOUNT: {
+    MIN_AGE: 60,
+    DISCOUNT_PERCENT: 10,
+    GROUP_NAME: 'Seniors (60+)',
+    DISCOUNT_NAME: 'Seniors Day (10% Off)',
+    DAY_OF_MONTH: 1,  // 1st of every month
+},
+```
+
+---
+
+## Implementation Phases
+
+### Phase 1: Plan & Document ✅ (This Document)
+- [x] Create implementation plan
+- [x] Document Square API calls
+- [x] Document cron jobs
+- [x] Document webhook flow
+- [x] Identify files to create/modify
+
+### Phase 2: Data Layer
+- [ ] Create migration `015_seniors_day.sql`
+- [ ] Run migration on database
+- [ ] Create Square customer group (one-time per merchant)
+- [ ] Create Square discount object (one-time per merchant)
+
+### Phase 3: Core Service
+- [ ] Create `services/seniors/` directory
+- [ ] Implement `seniors-service.js` with core functions
+- [ ] Implement `age-calculator.js` utilities
+- [ ] Write unit tests for age calculation
+
+### Phase 4: Automation
+- [ ] Extend `catalog-handler.js` with birthday handling
+- [ ] Create `jobs/seniors-day-job.js`
+- [ ] Register cron jobs in `cron-scheduler.js`
+- [ ] Implement monthly age sweep
+
+### Phase 5: Backfill & Testing
+- [ ] Create backfill script for existing customers
+- [ ] Test full flow in development
+- [ ] Test Square POS discount application
+- [ ] Document edge cases
+
+---
+
+## Edge Cases to Handle
+
+| Case | Handling |
+|------|----------|
+| Customer removes birthday | Keep in group if previously 60+ (data correction is rare) |
+| Birthday format variations | Square standardizes to YYYY-MM-DD |
+| Customer turns 60 mid-month | Added to group immediately, discount applies next 1st |
+| Customer in multiple groups | Square handles gracefully, discount still applies |
+| Pricing rule already exists | Upsert pattern handles updates |
+| Webhook arrives twice | Idempotent operations (check before add) |
+| No loyalty membership | Seniors group is independent of loyalty program |
+
+---
+
+## Testing Checklist
+
+- [ ] Unit tests for age calculation
+- [ ] Unit tests for service methods
+- [ ] Integration test: customer.updated webhook with birthday
+- [ ] Integration test: Cron job enables pricing rule on 1st
+- [ ] Integration test: Cron job disables pricing rule on 2nd
+- [ ] Manual test: Verify discount appears at Square POS
+- [ ] Manual test: Verify loyalty points accrue on discounted total
+
+---
+
+## Monitoring & Alerting
+
+Leverage existing email notification pattern from `jobs/expiry-discount-job.js`:
+
+```javascript
+// Send daily summary if any changes occurred
+if (customersAdded > 0 || customersRemoved > 0 || pricingRuleChanged) {
+    await emailNotifier.sendAlert(
+        `Seniors Day Report - ${businessName}`,
+        `Summary:\n- Customers added to group: ${customersAdded}\n- ...`
+    );
+}
+```
+
+---
+
+## Rollout Plan
+
+1. **Development**: Test full flow with test merchant
+2. **Staging**: Verify with real Square sandbox
+3. **Production**:
+   - Run migration
+   - Initialize Square objects for JTPets
+   - Backfill existing customers with DOB
+   - Enable cron jobs
+4. **Monitor**: Watch first Seniors Day (1st of next month)
+
+---
+
+## Open Questions
+
+1. **Multi-location:** Does the discount apply to all locations, or should it be configurable per location?
+   - **Assumed:** All locations (simplest approach)
+
+2. **Exclusions:** Are there product categories excluded from the discount (e.g., already-discounted items)?
+   - **Assumed:** Regular-priced merchandise only (need clarification)
+
+3. **Loyalty requirement:** Does the customer need to be in our loyalty program, or just have a Square customer profile?
+   - **Assumed:** Loyalty member requirement (per business requirements)
+
+4. **Manual override:** Should staff be able to manually add someone to the seniors group without DOB verification?
+   - **Assumed:** No, age verification via DOB only
+
+---
+
+## References
+
+- Existing customer group pattern: `services/loyalty-admin/loyalty-service.js:3500-3766`
+- Existing pricing rule pattern: `services/expiry/discount-service.js:948-1107`
+- Existing webhook handler: `services/webhook-handlers/catalog-handler.js:94-147`
+- Existing cron job pattern: `jobs/expiry-discount-job.js`
+- Birthday sync backlog item: `docs/TECHNICAL_DEBT.md:839-909` (BACKLOG-4)
