@@ -949,6 +949,53 @@ CREATE INDEX idx_loyalty_customers_birthday
 
 ---
 
+### BACKLOG-5: Rapid-Fire Webhook Duplicate Processing
+**Identified**: 2026-02-01
+**Priority**: Low (impact reduced by loyalty_processed_orders fix)
+**Status**: Documented, partially mitigated
+**Target**: TBD
+
+**Problem**: Same order processed 6+ times in seconds from rapid-fire Square webhooks. The webhook deduplication guard in `services/webhook-processor.js` uses event IDs but doesn't prevent the same *order* from being processed multiple times through the loyalty path when multiple events reference the same order.
+
+**Evidence from production logs (2026-02-01)**:
+- Order `K6q28eqJStewbShHVggjfvf5A66YY` processed 6 times at 10:42
+- Order `66Sqzx1VGyzYjLHesx4Wtv9I0haZY` processed 7 times at 10:51
+
+**Root Cause**: The webhook processor deduplicates by `event_id` but loyalty processing happens per order. When Square sends multiple webhook events for the same order (e.g., order.updated, order.completed in rapid succession), each event triggers full loyalty processing.
+
+**Current Mitigation** (2026-02-01):
+- Added `loyalty_processed_orders` table that tracks all processed orders
+- The `ON CONFLICT DO NOTHING` in `recordProcessedOrder()` handles duplicate attempts gracefully
+- Non-qualifying orders now recorded, so catchup job won't reprocess them
+- Qualifying orders have idempotency via `loyalty_purchase_events` unique constraint
+
+**Impact After Mitigation**:
+- First webhook processes the order fully
+- Subsequent webhooks detect order already processed via `loyalty_processed_orders`
+- No duplicate purchases recorded (idempotency key prevents it)
+- Wasted compute processing the same order multiple times, but no data corruption
+
+**Full Fix (Future)**:
+Add order-level deduplication to the webhook processor before dispatching to handlers:
+
+```javascript
+// In services/webhook-processor.js, before loyalty handler
+const orderCacheKey = `order:${orderId}:loyalty`;
+const alreadyProcessing = await redis.get(orderCacheKey);
+if (alreadyProcessing) {
+    logger.debug('Order already being processed for loyalty', { orderId });
+    return { skipped: true, reason: 'duplicate_order' };
+}
+await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
+```
+
+**Files involved**:
+- `services/webhook-processor.js` - Event-level dedup (works correctly)
+- `services/webhook-handlers/order-handler.js` - Order handler
+- `services/loyalty/webhook-service.js` - Loyalty processing
+
+---
+
 ## Previous Achievements
 
 These items are COMPLETE and should not regress:
