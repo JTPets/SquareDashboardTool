@@ -328,7 +328,7 @@ class LoyaltyWebhookService {
           }
         });
 
-        loyaltyLogger.warn({
+        loyaltyLogger.debug({
           action: 'ORDER_ZERO_QUALIFYING_ITEMS',
           orderId: order.id,
           customerId,
