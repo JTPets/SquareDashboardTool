@@ -2281,7 +2281,8 @@ async function redeemReward(redemptionData) {
             }
         }
 
-        // Create redemption record
+        // LEGACY: Remove after migration - modern reward-service.js doesn't use this table
+        // Create redemption record in legacy table (kept for backward compatibility)
         const redemptionResult = await client.query(`
             INSERT INTO loyalty_redemptions (
                 merchant_id, reward_id, offer_id, square_customer_id,
@@ -2657,21 +2658,48 @@ async function getCustomerLoyaltyHistory(squareCustomerId, merchantId, options =
 
     rewardQuery += ` ORDER BY r.created_at DESC`;
 
-    // Get redemptions
+    // Get redemptions from loyalty_rewards WHERE status = 'redeemed'
+    // Migrated from loyalty_redemptions table
     let redemptionQuery = `
-        SELECT rd.*, o.offer_name, o.brand_name, o.size_group
-        FROM loyalty_redemptions rd
-        JOIN loyalty_offers o ON rd.offer_id = o.id
-        WHERE rd.merchant_id = $1 AND rd.square_customer_id = $2
+        SELECT
+            r.id,
+            r.merchant_id,
+            r.offer_id,
+            r.square_customer_id,
+            r.redeemed_at,
+            r.redemption_order_id as square_order_id,
+            o.offer_name,
+            o.brand_name,
+            o.size_group,
+            pe_info.item_name as redeemed_item_name,
+            pe_info.variation_name as redeemed_variation_name,
+            pe_info.avg_price as redeemed_value_cents
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        LEFT JOIN LATERAL (
+            SELECT
+                lqv.item_name,
+                lqv.variation_name,
+                AVG(pe.unit_price_cents) FILTER (WHERE pe.unit_price_cents > 0) as avg_price
+            FROM loyalty_purchase_events pe
+            LEFT JOIN loyalty_qualifying_variations lqv
+                ON pe.variation_id = lqv.variation_id AND pe.offer_id = lqv.offer_id
+            WHERE pe.reward_id = r.id
+            GROUP BY lqv.item_name, lqv.variation_name
+            LIMIT 1
+        ) pe_info ON true
+        WHERE r.merchant_id = $1
+          AND r.square_customer_id = $2
+          AND r.status = 'redeemed'
     `;
     const redemptionParams = [merchantId, squareCustomerId];
 
     if (offerId) {
-        redemptionQuery += ` AND rd.offer_id = $${redemptionParams.length + 1}`;
+        redemptionQuery += ` AND r.offer_id = $${redemptionParams.length + 1}`;
         redemptionParams.push(offerId);
     }
 
-    redemptionQuery += ` ORDER BY rd.redeemed_at DESC`;
+    redemptionQuery += ` ORDER BY r.redeemed_at DESC`;
 
     const [purchases, rewards, redemptions] = await Promise.all([
         db.query(purchaseQuery, purchaseParams),

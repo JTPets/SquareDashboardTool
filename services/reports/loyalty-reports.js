@@ -27,19 +27,27 @@ const { formatMoney, escapeCSVField, UTF8_BOM } = require('../../utils/csv-helpe
 
 /**
  * Get complete redemption details for vendor receipt
- * @param {string} redemptionId - Redemption UUID
+ * Migrated from loyalty_redemptions to loyalty_rewards WHERE status = 'redeemed'
+ *
+ * @param {string} rewardId - Reward UUID (previously redemptionId)
  * @param {number} merchantId - Merchant ID for tenant isolation
  * @returns {Promise<Object>} Complete redemption data
  */
-async function getRedemptionDetails(redemptionId, merchantId) {
+async function getRedemptionDetails(rewardId, merchantId) {
     if (!merchantId) {
         throw new Error('merchantId is required - tenant isolation required');
     }
 
-    // Get redemption with reward and offer details (including vendor info)
+    // Get redemption from loyalty_rewards with offer details (including vendor info)
+    // Migrated from loyalty_redemptions table
     const redemptionResult = await db.query(`
         SELECT
-            rd.*,
+            r.id,
+            r.merchant_id,
+            r.offer_id,
+            r.square_customer_id,
+            r.redeemed_at,
+            r.redemption_order_id as square_order_id,
             r.current_quantity,
             r.required_quantity,
             r.window_start_date,
@@ -54,14 +62,29 @@ async function getRedemptionDetails(redemptionId, merchantId) {
             o.vendor_email,
             m.business_name,
             m.business_email,
-            u.name as redeemed_by_name
-        FROM loyalty_redemptions rd
-        JOIN loyalty_rewards r ON rd.reward_id = r.id
-        JOIN loyalty_offers o ON rd.offer_id = o.id
-        JOIN merchants m ON rd.merchant_id = m.id
-        LEFT JOIN users u ON rd.redeemed_by_user_id = u.id
-        WHERE rd.id = $1 AND rd.merchant_id = $2
-    `, [redemptionId, merchantId]);
+            -- Get item details and calculated value from purchase events
+            pe_info.item_name as redeemed_item_name,
+            pe_info.variation_name as redeemed_variation_name,
+            pe_info.variation_id as redeemed_variation_id,
+            pe_info.avg_price as redeemed_value_cents
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        JOIN merchants m ON r.merchant_id = m.id
+        LEFT JOIN LATERAL (
+            SELECT
+                lqv.item_name,
+                lqv.variation_name,
+                pe.variation_id,
+                AVG(pe.unit_price_cents) FILTER (WHERE pe.unit_price_cents > 0) as avg_price
+            FROM loyalty_purchase_events pe
+            LEFT JOIN loyalty_qualifying_variations lqv
+                ON pe.variation_id = lqv.variation_id AND pe.offer_id = lqv.offer_id
+            WHERE pe.reward_id = r.id
+            GROUP BY lqv.item_name, lqv.variation_name, pe.variation_id
+            LIMIT 1
+        ) pe_info ON true
+        WHERE r.id = $1 AND r.merchant_id = $2 AND r.status = 'redeemed'
+    `, [rewardId, merchantId]);
 
     if (redemptionResult.rows.length === 0) {
         return null;
@@ -88,14 +111,14 @@ async function getRedemptionDetails(redemptionId, merchantId) {
             ON pe.variation_id = vv.variation_id
         WHERE pe.reward_id = $1 AND pe.merchant_id = $2
         ORDER BY pe.purchased_at ASC
-    `, [redemption.reward_id, merchantId]);
+    `, [rewardId, merchantId]);
 
     // Calculate lowest price for vendor credit amount (per BCR policy)
     const lowestPriceResult = await db.query(`
         SELECT MIN(unit_price_cents) as lowest_price_cents
         FROM loyalty_purchase_events
         WHERE reward_id = $1 AND merchant_id = $2 AND quantity > 0
-    `, [redemption.reward_id, merchantId]);
+    `, [rewardId, merchantId]);
     const lowestPriceCents = lowestPriceResult.rows[0]?.lowest_price_cents || 0;
 
     return {
@@ -107,6 +130,8 @@ async function getRedemptionDetails(redemptionId, merchantId) {
 
 /**
  * Get redemptions for export with filters
+ * Migrated from loyalty_redemptions to loyalty_rewards WHERE status = 'redeemed'
+ *
  * @param {number} merchantId - Merchant ID
  * @param {Object} options - Filter options
  */
@@ -119,36 +144,55 @@ async function getRedemptionsForExport(merchantId, options = {}) {
 
     let query = `
         SELECT
-            rd.*,
+            r.id,
+            r.merchant_id,
+            r.offer_id,
+            r.square_customer_id,
+            r.redeemed_at,
+            r.redemption_order_id as square_order_id,
+            r.window_start_date,
+            r.window_end_date,
+            r.earned_at,
             o.offer_name,
             o.brand_name,
             o.size_group,
             o.required_quantity as offer_required_quantity,
-            r.window_start_date,
-            r.window_end_date,
-            r.earned_at,
-            m.business_name
-        FROM loyalty_redemptions rd
-        JOIN loyalty_rewards r ON rd.reward_id = r.id
-        JOIN loyalty_offers o ON rd.offer_id = o.id
-        JOIN merchants m ON rd.merchant_id = m.id
-        WHERE rd.merchant_id = $1
+            m.business_name,
+            pe_info.item_name as redeemed_item_name,
+            pe_info.variation_name as redeemed_variation_name,
+            pe_info.avg_price as redeemed_value_cents
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        JOIN merchants m ON r.merchant_id = m.id
+        LEFT JOIN LATERAL (
+            SELECT
+                lqv.item_name,
+                lqv.variation_name,
+                AVG(pe.unit_price_cents) FILTER (WHERE pe.unit_price_cents > 0) as avg_price
+            FROM loyalty_purchase_events pe
+            LEFT JOIN loyalty_qualifying_variations lqv
+                ON pe.variation_id = lqv.variation_id AND pe.offer_id = lqv.offer_id
+            WHERE pe.reward_id = r.id
+            GROUP BY lqv.item_name, lqv.variation_name
+            LIMIT 1
+        ) pe_info ON true
+        WHERE r.merchant_id = $1 AND r.status = 'redeemed'
     `;
     const params = [merchantId];
 
     if (startDate) {
         params.push(startDate);
-        query += ` AND rd.redeemed_at >= $${params.length}`;
+        query += ` AND r.redeemed_at >= $${params.length}`;
     }
 
     if (endDate) {
         params.push(endDate);
-        query += ` AND rd.redeemed_at <= $${params.length}`;
+        query += ` AND r.redeemed_at <= $${params.length}`;
     }
 
     if (offerId) {
         params.push(offerId);
-        query += ` AND rd.offer_id = $${params.length}`;
+        query += ` AND r.offer_id = $${params.length}`;
     }
 
     if (brandName) {
@@ -156,7 +200,7 @@ async function getRedemptionsForExport(merchantId, options = {}) {
         query += ` AND o.brand_name = $${params.length}`;
     }
 
-    query += ` ORDER BY rd.redeemed_at DESC`;
+    query += ` ORDER BY r.redeemed_at DESC`;
 
     const result = await db.query(query, params);
     return result.rows;
@@ -771,6 +815,7 @@ async function generateSummaryCSV(merchantId, options = {}) {
 
     const { startDate, endDate } = options;
 
+    // Migrated from loyalty_redemptions - now calculates value from purchase events
     let query = `
         SELECT
             o.brand_name,
@@ -780,12 +825,17 @@ async function generateSummaryCSV(merchantId, options = {}) {
             COUNT(DISTINCT CASE WHEN r.status = 'earned' THEN r.id END) as pending_rewards,
             COUNT(DISTINCT CASE WHEN r.status = 'redeemed' THEN r.id END) as redeemed_rewards,
             COUNT(DISTINCT CASE WHEN r.status = 'revoked' THEN r.id END) as revoked_rewards,
-            COALESCE(SUM(CASE WHEN r.status = 'redeemed' THEN rd.redeemed_value_cents END), 0) as total_redemption_value_cents,
+            -- Calculate value from purchase events linked to redeemed rewards
+            COALESCE(SUM(CASE WHEN r.status = 'redeemed' THEN reward_values.avg_price END), 0) as total_redemption_value_cents,
             COUNT(DISTINCT r.square_customer_id) as unique_customers,
             COUNT(DISTINCT pe.id) as total_purchase_events
         FROM loyalty_offers o
         LEFT JOIN loyalty_rewards r ON o.id = r.offer_id
-        LEFT JOIN loyalty_redemptions rd ON r.id = rd.reward_id
+        LEFT JOIN LATERAL (
+            SELECT AVG(lpe.unit_price_cents) FILTER (WHERE lpe.unit_price_cents > 0) as avg_price
+            FROM loyalty_purchase_events lpe
+            WHERE lpe.reward_id = r.id
+        ) reward_values ON r.status = 'redeemed'
         LEFT JOIN loyalty_purchase_events pe ON o.id = pe.offer_id
         WHERE o.merchant_id = $1 AND o.is_active = TRUE
     `;
@@ -793,12 +843,12 @@ async function generateSummaryCSV(merchantId, options = {}) {
 
     if (startDate) {
         params.push(startDate);
-        query += ` AND (rd.redeemed_at IS NULL OR rd.redeemed_at >= $${params.length})`;
+        query += ` AND (r.redeemed_at IS NULL OR r.redeemed_at >= $${params.length})`;
     }
 
     if (endDate) {
         params.push(endDate);
-        query += ` AND (rd.redeemed_at IS NULL OR rd.redeemed_at <= $${params.length})`;
+        query += ` AND (r.redeemed_at IS NULL OR r.redeemed_at <= $${params.length})`;
     }
 
     query += `
