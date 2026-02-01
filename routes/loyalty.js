@@ -722,14 +722,20 @@ router.get('/stats', requireAuth, requireMerchant, asyncHandler(async (req, res)
           AND redeemed_at >= NOW() - INTERVAL '30 days'
     `, [merchantId]);
 
-    // Get total redemption value from loyalty_redemptions (when available)
-    // Falls back to 0 for rewards redeemed via modern service without value tracking
+    // Calculate total redemption value from purchase events linked to redeemed rewards
+    // Each reward's value is the average unit_price_cents of its contributing purchases
+    // This reflects actual item prices at time of purchase
     const totalValue = await db.query(`
-        SELECT COALESCE(SUM(rd.redeemed_value_cents), 0) as total_cents
-        FROM loyalty_rewards r
-        LEFT JOIN loyalty_redemptions rd ON rd.reward_id = r.id
-        WHERE r.merchant_id = $1
-          AND r.status = 'redeemed'
+        SELECT COALESCE(SUM(reward_value), 0) as total_cents
+        FROM (
+            SELECT r.id, AVG(pe.unit_price_cents) as reward_value
+            FROM loyalty_rewards r
+            INNER JOIN loyalty_purchase_events pe ON pe.reward_id = r.id
+            WHERE r.merchant_id = $1
+              AND r.status = 'redeemed'
+              AND pe.unit_price_cents > 0
+            GROUP BY r.id
+        ) reward_values
     `, [merchantId]);
 
     res.json({
