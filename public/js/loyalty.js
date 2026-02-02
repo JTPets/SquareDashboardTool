@@ -1255,7 +1255,7 @@ async function submitRedemption() {
 // Redemptions
 async function loadRedemptions() {
   const tbody = document.getElementById('redemptions-table-body');
-  tbody.innerHTML = '<tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div><br>Loading...</td></tr>';
 
   try {
     const startDate = document.getElementById('redemption-start-date').value;
@@ -1271,12 +1271,40 @@ async function loadRedemptions() {
     const data = await response.json();
 
     if (data.redemptions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No redemptions found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No redemptions found.</td></tr>';
       return;
     }
 
     tbody.innerHTML = data.redemptions.map(r => {
       const phoneDisplay = r.customer_phone || 'No phone';
+
+      // Build vendor credit status badge and actions
+      let creditStatusBadge = '';
+      let creditActions = '';
+
+      if (!r.vendor_credit_status) {
+        // Not submitted
+        creditStatusBadge = '<span class="status-badge inactive" style="font-size: 10px;">Not Submitted</span>';
+        creditActions = `<button class="action-btn" style="font-size: 11px; padding: 4px 8px;" data-action="submitForVendorCredit" data-action-param="${escapeJsString(r.id)}">Submit</button>`;
+      } else if (r.vendor_credit_status === 'SUBMITTED') {
+        // Submitted, awaiting resolution
+        const submittedDate = r.vendor_credit_submitted_at ? formatDate(r.vendor_credit_submitted_at) : '';
+        creditStatusBadge = `<span class="status-badge in_progress" style="font-size: 10px;">Submitted${submittedDate ? ' ' + submittedDate : ''}</span>`;
+        creditActions = `
+          <button class="action-btn" style="font-size: 11px; padding: 4px 8px; background: #10b981; color: white;" data-action="markVendorCredited" data-action-param="${escapeJsString(r.id)}">Credited</button>
+          <button class="action-btn" style="font-size: 11px; padding: 4px 8px; background: #ef4444; color: white;" data-action="markVendorDenied" data-action-param="${escapeJsString(r.id)}">Denied</button>
+        `;
+      } else if (r.vendor_credit_status === 'CREDITED') {
+        // Credit received
+        const creditedDate = r.vendor_credit_resolved_at ? formatDate(r.vendor_credit_resolved_at) : '';
+        creditStatusBadge = `<span class="status-badge earned" style="font-size: 10px;">Credited ✓${creditedDate ? ' ' + creditedDate : ''}</span>`;
+        creditActions = '';
+      } else if (r.vendor_credit_status === 'DENIED') {
+        // Credit denied
+        creditStatusBadge = '<span class="status-badge" style="font-size: 10px; background: #fee2e2; color: #dc2626;">Denied</span>';
+        creditActions = `<button class="action-btn" style="font-size: 11px; padding: 4px 8px;" data-action="submitForVendorCredit" data-action-param="${escapeJsString(r.id)}">Resubmit</button>`;
+      }
+
       return `
       <tr>
         <td>${new Date(r.redeemed_at).toLocaleString()}</td>
@@ -1284,6 +1312,10 @@ async function loadRedemptions() {
         <td>${escapeHtml(r.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(r.brand_name)} - ${escapeHtml(r.size_group)}</small></td>
         <td>${r.redeemed_item_name ? escapeHtml(r.redeemed_item_name) : '-'}</td>
         <td>${r.redeemed_value_cents ? '$' + (r.redeemed_value_cents / 100).toFixed(2) : '-'}</td>
+        <td>
+          ${creditStatusBadge}
+          <div style="margin-top: 4px;">${creditActions}</div>
+        </td>
         <td><span class="status-badge ${r.redemption_type}">${r.redemption_type.replace(/_/g, ' ')}</span></td>
         <td>
           <button class="action-btn view" data-action="viewVendorReceipt" data-action-param="${escapeJsString(r.id)}">Receipt</button>
@@ -1293,7 +1325,52 @@ async function loadRedemptions() {
 
   } catch (error) {
     console.error('Failed to load redemptions:', error);
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load redemptions.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Failed to load redemptions.</td></tr>';
+  }
+}
+
+// Vendor Credit Status Updates
+async function updateVendorCreditStatus(rewardId, status, notes = null) {
+  try {
+    const body = { status };
+    if (notes) body.notes = notes;
+
+    const response = await fetch(`/api/loyalty/rewards/${rewardId}/vendor-credit`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update status');
+    }
+
+    // Refresh the redemptions list
+    loadRedemptions();
+    return true;
+  } catch (error) {
+    console.error('Failed to update vendor credit status:', error);
+    alert('Error: ' + error.message);
+    return false;
+  }
+}
+
+function submitForVendorCredit(element, event, rewardId) {
+  updateVendorCreditStatus(rewardId, 'SUBMITTED');
+}
+
+function markVendorCredited(element, event, rewardId) {
+  const notes = prompt('Invoice number or notes (optional):');
+  if (notes !== null) {
+    updateVendorCreditStatus(rewardId, 'CREDITED', notes || null);
+  }
+}
+
+function markVendorDenied(element, event, rewardId) {
+  const notes = prompt('Denial reason (optional):');
+  if (notes !== null) {
+    updateVendorCreditStatus(rewardId, 'DENIED', notes || null);
   }
 }
 
@@ -1640,3 +1717,6 @@ window.toggleAllAuditOrdersFromCheckbox = toggleAllAuditOrdersFromCheckbox;
 window.toggleAuditOrderFromCheckbox = toggleAuditOrderFromCheckbox;
 window.searchVariations = searchVariations;
 window.handleCustomerSearchKeyup = handleCustomerSearchKeyup;
+window.submitForVendorCredit = submitForVendorCredit;
+window.markVendorCredited = markVendorCredited;
+window.markVendorDenied = markVendorDenied;
