@@ -492,26 +492,54 @@ async function generateVendorReceipt(rewardId, merchantId) {
             const redemptionOrder = redemptionOrderResponse.order;
 
             if (redemptionOrder && redemptionOrder.lineItems) {
-                const redemptionItems = redemptionOrder.lineItems.map(item => {
+                // Build redemption items, splitting line items where qty > 1 for the redeemed item
+                // Only 1 item is free (the redeemed item), the rest are paid purchases
+                const freeQuantity = 1; // Standard: buy X get 1 free
+                const redemptionItems = [];
+
+                for (const item of redemptionOrder.lineItems) {
                     const basePriceCents = item.basePriceMoney?.amount
                         ? parseInt(item.basePriceMoney.amount)
                         : null;
-                    const totalCents = item.totalMoney?.amount
-                        ? parseInt(item.totalMoney.amount)
-                        : null;
+                    const itemQty = parseInt(item.quantity) || 1;
+                    const isRedeemedVariation = item.catalogObjectId === data.redeemed_variation_id;
 
-                    // Free item = total is 0 but base price > 0, OR it's the redeemed variation
-                    const isFreeItem = (totalCents === 0 && basePriceCents > 0) ||
-                        item.catalogObjectId === data.redeemed_variation_id;
-
-                    return {
-                        name: item.name,
-                        variationName: item.variationName || null,
-                        quantity: parseInt(item.quantity) || 1,
-                        unitPriceCents: isFreeItem ? 0 : basePriceCents,
-                        isFreeItem
-                    };
-                });
+                    if (isRedeemedVariation && itemQty > freeQuantity) {
+                        // Split: 1 free item + (qty-1) paid items
+                        redemptionItems.push({
+                            name: item.name,
+                            variationName: item.variationName || null,
+                            quantity: freeQuantity,
+                            unitPriceCents: 0,
+                            isFreeItem: true
+                        });
+                        redemptionItems.push({
+                            name: item.name,
+                            variationName: item.variationName || null,
+                            quantity: itemQty - freeQuantity,
+                            unitPriceCents: basePriceCents,
+                            isFreeItem: false
+                        });
+                    } else if (isRedeemedVariation) {
+                        // Single free item (qty === 1)
+                        redemptionItems.push({
+                            name: item.name,
+                            variationName: item.variationName || null,
+                            quantity: itemQty,
+                            unitPriceCents: 0,
+                            isFreeItem: true
+                        });
+                    } else {
+                        // Regular item (not the redeemed variation)
+                        redemptionItems.push({
+                            name: item.name,
+                            variationName: item.variationName || null,
+                            quantity: itemQty,
+                            unitPriceCents: basePriceCents,
+                            isFreeItem: false
+                        });
+                    }
+                }
 
                 // Sort: free items first (the redeemed item), then others
                 redemptionItems.sort((a, b) => (b.isFreeItem ? 1 : 0) - (a.isFreeItem ? 1 : 0));
