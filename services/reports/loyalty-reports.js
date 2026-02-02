@@ -599,211 +599,214 @@ async function generateVendorReceipt(rewardId, merchantId) {
     <meta charset="UTF-8">
     <title>Vendor Redemption Receipt - ${data.id}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
-            font-size: 12px;
-            line-height: 1.4;
+            font-size: 11px;
+            line-height: 1.3;
             color: #333;
-            padding: 20px;
+            padding: 12px;
             max-width: 800px;
             margin: 0 auto;
         }
         .header {
             text-align: center;
             border-bottom: 2px solid #333;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
+            padding-bottom: 6px;
+            margin-bottom: 10px;
         }
         .header h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
+            font-size: 18px;
+            display: inline;
         }
-        .header .subtitle {
-            color: #666;
-            font-size: 14px;
-        }
-        .receipt-number {
+        .header .receipt-id {
             font-family: monospace;
-            font-size: 10px;
-            color: #888;
-            margin-top: 5px;
+            font-size: 9px;
+            color: #666;
+            margin-left: 10px;
         }
         .section {
-            margin-bottom: 20px;
+            margin-bottom: 8px;
         }
         .section h2 {
-            font-size: 14px;
+            font-size: 11px;
             color: #333;
             border-bottom: 1px solid #ddd;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
+            padding-bottom: 2px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 15px;
+            gap: 6px;
+        }
+        .info-grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
         }
         .info-box {
             background: #f9f9f9;
-            padding: 10px;
-            border-radius: 4px;
+            padding: 4px 6px;
+            border-radius: 3px;
         }
         .info-box label {
             font-weight: bold;
-            font-size: 10px;
+            font-size: 8px;
             text-transform: uppercase;
             color: #666;
             display: block;
-            margin-bottom: 3px;
+            margin-bottom: 1px;
         }
         .info-box .value {
-            font-size: 14px;
+            font-size: 11px;
+        }
+        .divider {
+            grid-column: 1 / -1;
+            border-top: 1px dashed #ccc;
+            margin: 4px 0;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 11px;
+            font-size: 10px;
         }
         th {
             background: #333;
             color: white;
-            padding: 8px 5px;
+            padding: 4px 3px;
             text-align: left;
             font-weight: normal;
+            font-size: 9px;
         }
         td {
-            padding: 8px 5px;
+            padding: 4px 3px;
             border-bottom: 1px solid #eee;
         }
-        tr:nth-child(even) {
-            background: #f9f9f9;
-        }
-        .quantity, .currency {
-            text-align: right;
-        }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .quantity, .currency { text-align: right; }
         .table-note {
-            font-size: 10px;
+            font-size: 9px;
             color: #666;
-            margin-bottom: 10px;
+            margin-bottom: 4px;
             font-style: italic;
         }
         .qualifying-row {
             font-weight: bold;
             background: #e8f5e9 !important;
         }
-        .qualifying-row td {
-            border-left: 3px solid #4caf50;
-        }
+        .qualifying-row td { border-left: 2px solid #4caf50; }
         .non-qualifying-row {
             font-style: italic;
             color: #666;
         }
-        .non-qualifying-row td {
-            border-left: 3px solid transparent;
-        }
-        .free-item {
-            background: #fff3e0 !important;
-        }
-        .free-item td {
-            border-left-color: #ff9800 !important;
-        }
-        .redemption-row {
-            background: #fff8e1 !important;
-        }
-        .redemption-row td {
-            border-left: 3px solid #ff9800;
-        }
+        .non-qualifying-row td { border-left: 2px solid transparent; }
+        .free-item { background: #fff3e0 !important; }
+        .free-item td { border-left-color: #ff9800 !important; }
+        .redemption-row { background: #fff8e1 !important; }
+        .redemption-row td { border-left: 2px solid #ff9800; }
         .redemption-row.free-item {
             background: #ffecb3 !important;
             font-weight: bold;
         }
+        .summary-footer {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 8px;
+        }
         .summary {
             background: #f0f0f0;
-            padding: 15px;
-            margin-top: 20px;
+            padding: 8px;
             border-radius: 4px;
+            font-size: 10px;
         }
         .summary-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 5px;
+            margin-bottom: 2px;
         }
         .summary-row.total {
             font-weight: bold;
-            font-size: 14px;
             border-top: 1px solid #ccc;
-            padding-top: 10px;
-            margin-top: 10px;
+            padding-top: 4px;
+            margin-top: 4px;
+        }
+        .summary-row.credit {
+            background: #e8f5e9;
+            padding: 4px;
+            margin: 4px -8px -8px;
+            border-radius: 0 0 4px 4px;
+        }
+        .signature-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+        .signature-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+        }
+        .signature-box {
+            flex: 1;
+            border-top: 1px solid #333;
+            padding-top: 3px;
+            text-align: center;
+            font-size: 9px;
         }
         .footer {
-            margin-top: 30px;
-            padding-top: 15px;
+            margin-top: 8px;
+            padding-top: 6px;
             border-top: 1px solid #ddd;
-            font-size: 10px;
+            font-size: 8px;
             color: #666;
             text-align: center;
         }
-        .signature-line {
-            margin-top: 40px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .signature-box {
-            width: 45%;
-            border-top: 1px solid #333;
-            padding-top: 5px;
-            text-align: center;
-            font-size: 10px;
-        }
         @media print {
-            body {
-                padding: 0;
-            }
-            .no-print {
-                display: none;
-            }
+            body { padding: 8px; font-size: 10px; }
+            .no-print { display: none !important; }
+            .section { margin-bottom: 6px; }
+            table { font-size: 9px; }
+            th, td { padding: 3px 2px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>VENDOR REDEMPTION RECEIPT</h1>
-        <div class="subtitle">${data.brand_name} Frequent Buyer Program</div>
-        <div class="receipt-number">Receipt ID: ${data.id}</div>
+        <span class="receipt-id">${data.id}</span>
     </div>
 
+    <!-- Section 1: Merchant & Customer -->
     <div class="section">
-        <h2>Merchant Information</h2>
-        <div class="info-grid">
+        <h2>Merchant & Customer</h2>
+        <div class="info-grid-4">
             <div class="info-box">
-                <label>Business Name</label>
+                <label>Business</label>
                 <div class="value">${merchantDisplay.businessName}</div>
             </div>
             <div class="info-box">
                 <label>Business Email</label>
                 <div class="value">${merchantDisplay.businessEmail || 'N/A'}</div>
             </div>
-            ${merchantDisplay.locationName && merchantDisplay.locationName !== merchantDisplay.businessName ? `
             <div class="info-box">
-                <label>Location Name</label>
-                <div class="value">${merchantDisplay.locationName}</div>
-            </div>` : ''}
-            ${merchantDisplay.phoneNumber ? `
+                <label>Customer</label>
+                <div class="value">${customerDisplayName}</div>
+            </div>
             <div class="info-box">
-                <label>Business Phone</label>
-                <div class="value">${merchantDisplay.phoneNumber}</div>
-            </div>` : ''}
+                <label>Customer Phone</label>
+                <div class="value">${customerPhone || 'N/A'}</div>
+            </div>
         </div>
     </div>
 
+    <!-- Section 2: Program & Redemption -->
     <div class="section">
-        <h2>Offer Details</h2>
-        <div class="info-grid">
+        <h2>Program & Redemption</h2>
+        <div class="info-grid-4">
             <div class="info-box">
                 <label>Brand</label>
                 <div class="value">${data.brand_name}</div>
@@ -813,95 +816,49 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 <div class="value">${data.size_group}</div>
             </div>
             <div class="info-box">
-                <label>Program Name</label>
+                <label>Program</label>
                 <div class="value">${data.offer_name}</div>
             </div>
             <div class="info-box">
-                <label>Program Type</label>
+                <label>Type</label>
                 <div class="value">Buy ${data.required_quantity} Get 1 Free</div>
             </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Customer Information</h2>
-        <div class="info-grid">
+            <div class="divider"></div>
             <div class="info-box">
-                <label>Customer Name</label>
-                <div class="value">${customerDisplayName}</div>
-            </div>
-            <div class="info-box">
-                <label>Phone</label>
-                <div class="value">${customerPhone || 'Not on file'}</div>
-            </div>
-            <div class="info-box">
-                <label>Email</label>
-                <div class="value">${customerEmail || 'Not on file'}</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Redemption Details</h2>
-        <div class="info-grid">
-            <div class="info-box">
-                <label>Redemption Date</label>
+                <label>Redeemed</label>
                 <div class="value">${formatDate(data.redeemed_at)}</div>
             </div>
             <div class="info-box">
-                <label>Redemption Type</label>
-                <div class="value">STANDARD</div>
-            </div>
-            <div class="info-box">
-                <label>Redeemed Item Value</label>
+                <label>Item Value</label>
                 <div class="value">${formatCents(data.redeemed_value_cents)}</div>
             </div>
-            ${data.square_order_id ? `
             <div class="info-box">
-                <label>Square Order ID</label>
-                <div class="value">${data.square_order_id}</div>
-            </div>
-            ` : ''}
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Earning Window</h2>
-        <div class="info-grid">
-            <div class="info-box">
-                <label>Window Start</label>
-                <div class="value">${formatDate(data.window_start_date)}</div>
+                <label>Window</label>
+                <div class="value">${formatDate(data.window_start_date)} - ${formatDate(data.window_end_date)}</div>
             </div>
             <div class="info-box">
-                <label>Window End</label>
-                <div class="value">${formatDate(data.window_end_date)}</div>
-            </div>
-            <div class="info-box">
-                <label>Reward Earned</label>
+                <label>Earned</label>
                 <div class="value">${formatDate(data.earned_at)}</div>
             </div>
-            <div class="info-box">
-                <label>Window Duration</label>
-                <div class="value">${data.window_months} months</div>
-            </div>
         </div>
     </div>
 
+    <!-- Transactions Table -->
     <div class="section">
         <h2>Contributing Transactions</h2>
-        <p class="table-note">Items highlighted in <strong>green</strong> are qualifying purchases for this loyalty program. The <strong>orange section</strong> at the bottom shows the redemption order where the free item was received.</p>
+        <p class="table-note"><strong>Green</strong> = qualifying purchases | <strong>Orange</strong> = redemption order (free item)</p>
         <table>
             <thead>
                 <tr>
                     <th>Date</th>
                     <th>Item</th>
-                    <th>Vendor Item #</th>
+                    <th>Vendor #</th>
                     <th>Qty</th>
-                    <th>Retail Price</th>
-                    <th>Wholesale Cost</th>
+                    <th>Retail</th>
+                    <th>Wholesale</th>
                     <th>Payment</th>
                     <th>Order ID</th>
-                    <th>Order Total</th>
+                    <th>Total</th>
                 </tr>
             </thead>
             <tbody>
@@ -911,7 +868,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
         </table>
     </div>
 
-    <div class="section vendor-credit-section no-print" id="vendorCreditSection" style="margin-top: 20px; padding: 15px; border-radius: 8px; ${
+    <!-- Vendor Credit Tracking (no-print, interactive) -->
+    <div class="section vendor-credit-section no-print" id="vendorCreditSection" style="padding: 10px; border-radius: 6px; ${
         data.vendor_credit_status === 'CREDITED' ? 'background: #e8f5e9; border: 2px solid #4caf50;' :
         data.vendor_credit_status === 'DENIED' ? 'background: #ffebee; border: 2px solid #f44336;' :
         data.vendor_credit_status === 'SUBMITTED' ? 'background: #fff3e0; border: 2px solid #ff9800;' :
@@ -921,120 +879,44 @@ async function generateVendorReceipt(rewardId, merchantId) {
             data.vendor_credit_status === 'CREDITED' ? '#2e7d32' :
             data.vendor_credit_status === 'DENIED' ? '#c62828' :
             data.vendor_credit_status === 'SUBMITTED' ? '#e65100' : '#616161'
-        };">Vendor Credit Tracking</h2>
+        }; border: none; margin-bottom: 8px;">Vendor Credit Tracking</h2>
 
         ${data.vendor_name ? `
-        <div class="info-grid" style="margin-bottom: 15px;">
-            <div class="info-box" style="background: white;">
-                <label>Vendor</label>
-                <div class="value">${data.vendor_name}</div>
-            </div>
-            <div class="info-box" style="background: white;">
-                <label>Vendor Email</label>
-                <div class="value">${data.vendor_email || 'N/A'}</div>
-            </div>
+        <div style="display: flex; gap: 10px; margin-bottom: 8px; font-size: 11px;">
+            <span><strong>Vendor:</strong> ${data.vendor_name}</span>
+            <span><strong>Email:</strong> ${data.vendor_email || 'N/A'}</span>
         </div>
         ` : ''}
 
         <div id="vendorCreditStatus">
             ${!data.vendor_credit_status ? `
-            <!-- Not yet submitted -->
-            <div style="text-align: center; padding: 15px;">
-                <p style="margin-bottom: 15px; color: #666;">This redemption has not been submitted for vendor credit.</p>
+            <div style="text-align: center; padding: 8px;">
+                <p style="margin-bottom: 10px; color: #666; font-size: 11px;">Not yet submitted for vendor credit.</p>
                 <button onclick="updateVendorCredit('SUBMITTED')"
-                        style="background: #1976d2; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;">
-                    Mark as Submitted for Credit
+                        style="background: #1976d2; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold;">
+                    Mark as Submitted
                 </button>
             </div>
             ` : ''}
 
             ${data.vendor_credit_status === 'SUBMITTED' ? `
-            <!-- Submitted, awaiting resolution -->
-            <div style="padding: 10px;">
-                <div class="info-grid">
-                    <div class="info-box" style="background: white;">
-                        <label>Status</label>
-                        <div class="value" style="color: #e65100; font-weight: bold;">SUBMITTED</div>
-                    </div>
-                    <div class="info-box" style="background: white;">
-                        <label>Submitted On</label>
-                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
-                    </div>
-                </div>
-                ${data.vendor_credit_notes ? `
-                <div class="info-box" style="background: white; margin-top: 10px;">
-                    <label>Notes</label>
-                    <div class="value">${data.vendor_credit_notes}</div>
-                </div>
-                ` : ''}
-                <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: center;">
-                    <button onclick="updateVendorCredit('CREDITED')"
-                            style="background: #4caf50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
-                        Mark as Credited
-                    </button>
-                    <button onclick="promptDenied()"
-                            style="background: #f44336; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
-                        Mark as Denied
-                    </button>
+            <div style="font-size: 11px;">
+                <p><strong style="color: #e65100;">SUBMITTED</strong> on ${formatDate(data.vendor_credit_submitted_at)}${data.vendor_credit_notes ? ` — ${data.vendor_credit_notes}` : ''}</p>
+                <div style="display: flex; gap: 8px; margin-top: 8px; justify-content: center;">
+                    <button onclick="updateVendorCredit('CREDITED')" style="background: #4caf50; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Credited</button>
+                    <button onclick="promptDenied()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Denied</button>
                 </div>
             </div>
             ` : ''}
 
             ${data.vendor_credit_status === 'CREDITED' ? `
-            <!-- Credit received -->
-            <div style="padding: 10px;">
-                <div class="info-grid">
-                    <div class="info-box" style="background: white;">
-                        <label>Status</label>
-                        <div class="value" style="color: #2e7d32; font-weight: bold;">CREDIT RECEIVED</div>
-                    </div>
-                    <div class="info-box" style="background: white;">
-                        <label>Submitted On</label>
-                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
-                    </div>
-                    <div class="info-box" style="background: white;">
-                        <label>Credited On</label>
-                        <div class="value">${formatDate(data.vendor_credit_resolved_at)}</div>
-                    </div>
-                </div>
-                ${data.vendor_credit_notes ? `
-                <div class="info-box" style="background: white; margin-top: 10px;">
-                    <label>Notes</label>
-                    <div class="value">${data.vendor_credit_notes}</div>
-                </div>
-                ` : ''}
-            </div>
+            <p style="font-size: 11px;"><strong style="color: #2e7d32;">CREDIT RECEIVED</strong> — Submitted ${formatDate(data.vendor_credit_submitted_at)}, Credited ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` — ${data.vendor_credit_notes}` : ''}</p>
             ` : ''}
 
             ${data.vendor_credit_status === 'DENIED' ? `
-            <!-- Credit denied -->
-            <div style="padding: 10px;">
-                <div class="info-grid">
-                    <div class="info-box" style="background: white;">
-                        <label>Status</label>
-                        <div class="value" style="color: #c62828; font-weight: bold;">CREDIT DENIED</div>
-                    </div>
-                    <div class="info-box" style="background: white;">
-                        <label>Submitted On</label>
-                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
-                    </div>
-                    <div class="info-box" style="background: white;">
-                        <label>Denied On</label>
-                        <div class="value">${formatDate(data.vendor_credit_resolved_at)}</div>
-                    </div>
-                </div>
-                ${data.vendor_credit_notes ? `
-                <div class="info-box" style="background: white; margin-top: 10px;">
-                    <label>Denial Reason</label>
-                    <div class="value">${data.vendor_credit_notes}</div>
-                </div>
-                ` : ''}
-                <div style="margin-top: 15px; text-align: center;">
-                    <button onclick="updateVendorCredit('SUBMITTED')"
-                            style="background: #1976d2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
-                        Resubmit for Credit
-                    </button>
-                </div>
+            <div style="font-size: 11px;">
+                <p><strong style="color: #c62828;">DENIED</strong> — Submitted ${formatDate(data.vendor_credit_submitted_at)}, Denied ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` — Reason: ${data.vendor_credit_notes}` : ''}</p>
+                <button onclick="updateVendorCredit('SUBMITTED')" style="background: #1976d2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-top: 6px;">Resubmit</button>
             </div>
             ` : ''}
         </div>
@@ -1042,82 +924,46 @@ async function generateVendorReceipt(rewardId, merchantId) {
 
     <script>
         const rewardId = '${data.id}';
-
         async function updateVendorCredit(status, notes = null) {
             try {
                 const body = { status };
                 if (notes) body.notes = notes;
-
                 const response = await fetch('/api/loyalty/rewards/' + rewardId + '/vendor-credit', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-
-                if (response.ok) {
-                    // Reload to show updated status
-                    window.location.reload();
-                } else {
-                    const error = await response.json();
-                    alert('Error: ' + (error.error || 'Failed to update status'));
-                }
-            } catch (err) {
-                alert('Error updating vendor credit status: ' + err.message);
-            }
+                if (response.ok) { window.location.reload(); }
+                else { const error = await response.json(); alert('Error: ' + (error.error || 'Failed')); }
+            } catch (err) { alert('Error: ' + err.message); }
         }
-
         function promptDenied() {
-            const notes = prompt('Enter denial reason (optional):');
-            if (notes !== null) {
-                updateVendorCredit('DENIED', notes || null);
-            }
+            const notes = prompt('Denial reason (optional):');
+            if (notes !== null) updateVendorCredit('DENIED', notes || null);
         }
     </script>
 
-    <div class="summary">
-        <div class="summary-row">
-            <span>Total Purchases:</span>
-            <span>${totalPurchases} units</span>
+    <!-- Summary & Signature (side by side) -->
+    <div class="summary-footer">
+        <div class="summary">
+            <div class="summary-row"><span>Purchases:</span><span>${totalPurchases} units</span></div>
+            <div class="summary-row"><span>Refunds:</span><span>${totalRefunds} units</span></div>
+            <div class="summary-row"><span>Required:</span><span>${data.required_quantity} units</span></div>
+            <div class="summary-row total"><span>Net Qualifying:</span><span>${netQuantity} units</span></div>
+            <div class="summary-row"><span>Item Value:</span><span>${formatCents(data.redeemed_value_cents)}</span></div>
+            <div class="summary-row"><span>Lowest Price:</span><span>${formatCents(data.lowestPriceCents)}</span></div>
+            <div class="summary-row total credit"><span><strong>VENDOR CREDIT:</strong></span><span><strong>${formatCents(data.lowestPriceCents)}</strong></span></div>
         </div>
-        <div class="summary-row">
-            <span>Total Refunds:</span>
-            <span>${totalRefunds} units</span>
-        </div>
-        <div class="summary-row">
-            <span>Required Quantity:</span>
-            <span>${data.required_quantity} units</span>
-        </div>
-        <div class="summary-row total">
-            <span>Net Qualifying Purchases:</span>
-            <span>${netQuantity} units</span>
-        </div>
-        <div class="summary-row">
-            <span>Redeemed Item Value:</span>
-            <span>${formatCents(data.redeemed_value_cents)}</span>
-        </div>
-        <div class="summary-row">
-            <span>Lowest Price (of ${data.required_quantity} items):</span>
-            <span>${formatCents(data.lowestPriceCents)}</span>
-        </div>
-        <div class="summary-row total" style="background: #e8f5e9; padding: 10px; margin: 10px -15px -15px; border-radius: 0 0 4px 4px;">
-            <span><strong>VENDOR CREDIT AMOUNT:</strong></span>
-            <span><strong>${formatCents(data.lowestPriceCents)}</strong></span>
-        </div>
-    </div>
-
-    <div class="signature-line">
-        <div class="signature-box">
-            Vendor Representative
-        </div>
-        <div class="signature-box">
-            Date
+        <div class="signature-section">
+            <div class="signature-line">
+                <div class="signature-box">Vendor Representative</div>
+                <div class="signature-box">Date</div>
+            </div>
         </div>
     </div>
 
     <div class="footer">
-        <p>This receipt is generated for vendor reimbursement compliance purposes.</p>
-        <p>Generated on ${formatDate(new Date())} | Receipt ID: ${data.id}</p>
-        <p>Powered by Square Dashboard Addon Tool - Loyalty Program</p>
+        Generated ${formatDate(new Date())} | ${data.id} | Square Dashboard Addon - Loyalty Program
     </div>
 </body>
 </html>
