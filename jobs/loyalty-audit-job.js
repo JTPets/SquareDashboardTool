@@ -77,7 +77,7 @@ async function fetchSquareRedemptionEvents(merchantId, hoursBack = 48) {
                     }
                 }
             },
-            limit: 100,
+            limit: 30, // Square max for loyalty events
             cursor
         });
 
