@@ -213,7 +213,7 @@ router.get('/callback', async (req, res) => {
         `, [
             merchantId,
             merchantInfo.businessName || 'Unknown Business',
-            merchantInfo.mainLocationId || null,  // Square doesn't return email directly
+            null,  // Email fetched from Locations API at report time, not from Merchants API
             encryptedAccessToken,
             encryptedRefreshToken,
             expiresAt,

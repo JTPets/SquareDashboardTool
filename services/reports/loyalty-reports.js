@@ -30,6 +30,58 @@ const {
 } = require('../../utils/privacy-format');
 
 // ============================================================================
+// MERCHANT INFO HELPERS
+// ============================================================================
+
+/**
+ * Fetch fresh merchant and location info from Square APIs
+ * Square is the source of truth for all merchant/location data
+ *
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object>} Merchant info from Square
+ */
+async function fetchMerchantInfoFromSquare(merchantId) {
+    try {
+        const squareClient = await getSquareClientForMerchant(merchantId);
+
+        // Get merchant info (business name)
+        const merchantResponse = await squareClient.merchants.get({
+            merchantId: 'me'  // 'me' returns the merchant associated with the token
+        });
+        const merchantInfo = merchantResponse.merchant || {};
+
+        // Get locations (for contact info)
+        const locationsResponse = await squareClient.locations.list();
+        const locations = locationsResponse.locations || [];
+
+        // Find main location or first active location
+        const mainLocation = locations.find(loc =>
+            loc.id === merchantInfo.mainLocationId && loc.status === 'ACTIVE'
+        ) || locations.find(loc => loc.status === 'ACTIVE') || locations[0];
+
+        return {
+            businessName: merchantInfo.businessName || null,
+            squareMerchantId: merchantInfo.id || null,
+            mainLocationId: merchantInfo.mainLocationId || null,
+            // Location-specific details
+            location: mainLocation ? {
+                id: mainLocation.id,
+                name: mainLocation.name,
+                businessEmail: mainLocation.businessEmail || null,
+                phoneNumber: mainLocation.phoneNumber || null,
+                address: mainLocation.address || null
+            } : null
+        };
+    } catch (error) {
+        logger.warn('Failed to fetch merchant info from Square, using DB fallback', {
+            merchantId,
+            error: error.message
+        });
+        return null;
+    }
+}
+
+// ============================================================================
 // REPORT DATA QUERIES
 // ============================================================================
 
@@ -320,6 +372,18 @@ async function generateVendorReceipt(rewardId, merchantId) {
         throw new Error('Redemption not found');
     }
 
+    // Fetch fresh merchant info from Square APIs (source of truth)
+    const squareMerchantInfo = await fetchMerchantInfoFromSquare(merchantId);
+
+    // Build merchant display info with Square as source of truth, DB as fallback
+    const merchantDisplay = {
+        businessName: squareMerchantInfo?.businessName || data.business_name || 'N/A',
+        locationName: squareMerchantInfo?.location?.name || null,
+        locationId: squareMerchantInfo?.location?.id || null,
+        businessEmail: squareMerchantInfo?.location?.businessEmail || null,
+        phoneNumber: squareMerchantInfo?.location?.phoneNumber || null
+    };
+
     // Use shared formatting utilities
     const formatDate = formatReportDate;
 
@@ -554,12 +618,22 @@ async function generateVendorReceipt(rewardId, merchantId) {
         <div class="info-grid">
             <div class="info-box">
                 <label>Business Name</label>
-                <div class="value">${data.business_name}</div>
+                <div class="value">${merchantDisplay.businessName}</div>
             </div>
             <div class="info-box">
                 <label>Business Email</label>
-                <div class="value">${data.business_email || 'N/A'}</div>
+                <div class="value">${merchantDisplay.businessEmail || 'N/A'}</div>
             </div>
+            ${merchantDisplay.locationName && merchantDisplay.locationName !== merchantDisplay.businessName ? `
+            <div class="info-box">
+                <label>Location Name</label>
+                <div class="value">${merchantDisplay.locationName}</div>
+            </div>` : ''}
+            ${merchantDisplay.phoneNumber ? `
+            <div class="info-box">
+                <label>Business Phone</label>
+                <div class="value">${merchantDisplay.phoneNumber}</div>
+            </div>` : ''}
         </div>
     </div>
 

@@ -136,6 +136,8 @@ CREATE TABLE locations (
     active BOOLEAN DEFAULT TRUE,
     address TEXT,
     timezone TEXT,
+    phone_number TEXT,
+    business_email TEXT,
     merchant_id INTEGER REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
