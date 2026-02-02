@@ -17,62 +17,13 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { formatMoney, escapeCSVField, UTF8_BOM } = require('../../utils/csv-helpers');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
-
-// ============================================================================
-// PRIVACY-AWARE FORMATTING
-// ============================================================================
-
-/**
- * Format customer name as "First L."
- * @param {string} givenName - First name
- * @param {string} familyName - Last name
- * @returns {string} Formatted name
- */
-function formatPrivacyName(givenName, familyName) {
-    const first = givenName ? givenName.trim() : '';
-    const lastInitial = familyName ? familyName.trim().charAt(0).toUpperCase() + '.' : '';
-
-    if (first && lastInitial) {
-        return `${first} ${lastInitial}`;
-    } else if (first) {
-        return first;
-    }
-    return 'Customer';
-}
-
-/**
- * Format phone number as "***-XXXX" (last 4 digits)
- * @param {string} phone - Full phone number
- * @returns {string} Masked phone
- */
-function formatPrivacyPhone(phone) {
-    if (!phone) return null;
-
-    // Extract digits only
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length < 4) return '***-****';
-
-    const last4 = digits.slice(-4);
-    return `***-${last4}`;
-}
-
-/**
- * Format email as "user@d..." (truncated domain)
- * @param {string} email - Full email
- * @returns {string} Truncated email
- */
-function formatPrivacyEmail(email) {
-    if (!email) return null;
-
-    const atIndex = email.indexOf('@');
-    if (atIndex === -1) return email.slice(0, 8) + '...';
-
-    const localPart = email.slice(0, atIndex);
-    const domain = email.slice(atIndex + 1);
-    const domainTrunc = domain.length > 2 ? domain.slice(0, 1) + '...' : domain;
-
-    return `${localPart}@${domainTrunc}`;
-}
+const {
+    formatPrivacyName,
+    formatPrivacyPhone,
+    formatPrivacyEmail,
+    formatReportDate,
+    formatCents
+} = require('../../utils/privacy-format');
 
 // ============================================================================
 // DATA QUERIES
@@ -440,21 +391,8 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
         };
     }
 
-    const formatDate = (date) => {
-        if (!date) return 'N/A';
-        return new Date(date).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
-    const formatCents = (cents) => {
-        if (cents === null || cents === undefined) return 'N/A';
-        return `$${(cents / 100).toFixed(2)}`;
-    };
+    // Use shared formatting utilities
+    const formatDate = formatReportDate;
 
     // Format line item total, handling free items specially
     const formatLineItemTotal = (item) => {
