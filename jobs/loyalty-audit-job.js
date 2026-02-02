@@ -123,6 +123,61 @@ async function getLocalRedemptions(merchantId, orderIds) {
 }
 
 /**
+ * Get all our custom discount IDs for a merchant
+ * These are discounts created by our punch card system, not Square's native loyalty
+ *
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Set>} Set of square_discount_id values
+ */
+async function getOurDiscountIds(merchantId) {
+    const result = await db.query(`
+        SELECT DISTINCT square_discount_id
+        FROM loyalty_rewards
+        WHERE merchant_id = $1
+          AND square_discount_id IS NOT NULL
+    `, [merchantId]);
+
+    return new Set(result.rows.map(row => row.square_discount_id));
+}
+
+/**
+ * Check if an order contains one of our custom loyalty discounts
+ * Returns false for Square native points redemptions (not our system)
+ *
+ * @param {Object} squareClient - Square SDK client
+ * @param {string} orderId - Square order ID
+ * @param {Set} ourDiscountIds - Set of our discount IDs
+ * @returns {Promise<boolean>} True if order has our discount
+ */
+async function orderHasOurDiscount(squareClient, orderId, ourDiscountIds) {
+    if (ourDiscountIds.size === 0) return false;
+
+    try {
+        const response = await squareClient.orders.get({ orderId });
+        const order = response.order;
+
+        if (!order || !order.discounts) return false;
+
+        // Check if any applied discount matches our custom loyalty discounts
+        for (const discount of order.discounts) {
+            if (discount.catalogObjectId && ourDiscountIds.has(discount.catalogObjectId)) {
+                return true;
+            }
+        }
+
+        return false;
+    } catch (error) {
+        // If we can't fetch the order, log and return false (skip this event)
+        loyaltyLogger.error({
+            action: 'ORDER_FETCH_FAILED',
+            orderId,
+            error: error.message
+        });
+        return false;
+    }
+}
+
+/**
  * Check if purchase events exist for a reward
  *
  * @param {number} merchantId - Internal merchant ID
@@ -179,6 +234,7 @@ async function auditMerchant(merchant, hoursBack) {
     const results = {
         merchantId,
         eventsChecked: 0,
+        skippedNativePoints: 0,
         orphansFound: 0,
         missingRedemptions: 0,
         phantomRewards: 0,
@@ -194,6 +250,13 @@ async function auditMerchant(merchant, hoursBack) {
         if (events.length === 0) {
             return results;
         }
+
+        // Get Square client for order lookups
+        const squareClient = await getSquareClientForMerchant(merchantId);
+
+        // Get our custom discount IDs (punch card system)
+        // Square native points redemptions won't have these discounts
+        const ourDiscountIds = await getOurDiscountIds(merchantId);
 
         // Extract order IDs from events
         const orderIds = events
@@ -243,6 +306,16 @@ async function auditMerchant(merchant, hoursBack) {
             // Check for missing local redemption record
             const localRecord = localRedemptions.get(orderId);
             if (!localRecord) {
+                // Before flagging, check if this is actually our punch card system
+                // vs Square's native points loyalty (different systems)
+                const isOurRedemption = await orderHasOurDiscount(squareClient, orderId, ourDiscountIds);
+
+                if (!isOurRedemption) {
+                    // This is a Square native points redemption, not our system - skip
+                    results.skippedNativePoints++;
+                    continue;
+                }
+
                 results.missingRedemptions++;
                 results.orphansFound++;
                 await logAuditFinding({
@@ -309,6 +382,7 @@ async function runLoyaltyAudit(options = {}) {
     const aggregateResults = {
         merchantsAudited: 0,
         totalEventsChecked: 0,
+        totalSkippedNativePoints: 0,
         totalOrphansFound: 0,
         totalMissingRedemptions: 0,
         totalPhantomRewards: 0,
@@ -338,6 +412,7 @@ async function runLoyaltyAudit(options = {}) {
 
             aggregateResults.merchantsAudited++;
             aggregateResults.totalEventsChecked += results.eventsChecked;
+            aggregateResults.totalSkippedNativePoints += results.skippedNativePoints;
             aggregateResults.totalOrphansFound += results.orphansFound;
             aggregateResults.totalMissingRedemptions += results.missingRedemptions;
             aggregateResults.totalPhantomRewards += results.phantomRewards;
@@ -350,11 +425,13 @@ async function runLoyaltyAudit(options = {}) {
                 });
             }
 
-            // Log per-merchant if issues found
-            if (results.orphansFound > 0) {
+            // Log per-merchant if issues found or native points skipped
+            if (results.orphansFound > 0 || results.skippedNativePoints > 0) {
                 loyaltyLogger.audit({
-                    action: 'MERCHANT_AUDIT_ISSUES',
+                    action: results.orphansFound > 0 ? 'MERCHANT_AUDIT_ISSUES' : 'MERCHANT_AUDIT_SKIPPED_NATIVE',
                     merchantId: merchant.id,
+                    eventsChecked: results.eventsChecked,
+                    skippedNativePoints: results.skippedNativePoints,
                     orphansFound: results.orphansFound,
                     missingRedemptions: results.missingRedemptions,
                     phantomRewards: results.phantomRewards,
