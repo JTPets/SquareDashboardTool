@@ -454,7 +454,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 <td class="currency">${formatCents(p.unit_price_cents)}</td>
                 <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
                 <td>${order.paymentType || 'N/A'}</td>
-                <td style="font-size: 10px;">${order.orderId?.slice(0, 12) || 'N/A'}...</td>
+                <td style="font-size: 8px; word-break: break-all;">${order.orderId || 'N/A'}</td>
                 <td class="currency">${formatCents(order.orderTotalCents)}</td>
             </tr>`;
         }
@@ -474,7 +474,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 <td class="currency">${formatCents(item.unitPriceCents)}</td>
                 <td class="currency">${item.isQualifying ? formatCents(item.wholesaleCostCents) : ''}</td>
                 ${isFirst ? `<td rowspan="${allItems.length}">${order.paymentType || 'N/A'}</td>` : ''}
-                ${isFirst ? `<td rowspan="${allItems.length}" style="font-size: 10px;">${order.orderId?.slice(0, 12) || 'N/A'}...</td>` : ''}
+                ${isFirst ? `<td rowspan="${allItems.length}" style="font-size: 8px; word-break: break-all;">${order.orderId || 'N/A'}</td>` : ''}
                 ${isFirst ? `<td rowspan="${allItems.length}" class="currency">${formatCents(order.orderTotalCents)}</td>` : ''}
             </tr>`;
         }).join('');
@@ -568,7 +568,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                         <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
                         <td class="currency"></td>
                         ${isFirst ? `<td rowspan="${redemptionItems.length}">${redemptionPaymentType}</td>` : ''}
-                        ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 10px;">${data.square_order_id?.slice(0, 12) || 'N/A'}...</td>` : ''}
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 8px; word-break: break-all;">${data.square_order_id || 'N/A'}</td>` : ''}
                         ${isFirst ? `<td rowspan="${redemptionItems.length}" class="currency">${formatCents(redemptionTotalCents)}</td>` : ''}
                     </tr>`;
                 }).join('')}`;
