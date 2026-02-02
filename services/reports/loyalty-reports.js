@@ -114,6 +114,11 @@ async function getRedemptionDetails(rewardId, merchantId) {
             r.window_start_date,
             r.window_end_date,
             r.earned_at,
+            -- Vendor credit tracking
+            r.vendor_credit_status,
+            r.vendor_credit_submitted_at,
+            r.vendor_credit_resolved_at,
+            r.vendor_credit_notes,
             o.offer_name,
             o.brand_name,
             o.size_group,
@@ -906,10 +911,20 @@ async function generateVendorReceipt(rewardId, merchantId) {
         </table>
     </div>
 
-    ${data.vendor_name ? `
-    <div class="section" style="margin-top: 20px; background: #e8f5e9; padding: 15px; border-radius: 8px;">
-        <h2 style="color: #2e7d32;">Vendor Credit Submission</h2>
-        <div class="info-grid">
+    <div class="section vendor-credit-section no-print" id="vendorCreditSection" style="margin-top: 20px; padding: 15px; border-radius: 8px; ${
+        data.vendor_credit_status === 'CREDITED' ? 'background: #e8f5e9; border: 2px solid #4caf50;' :
+        data.vendor_credit_status === 'DENIED' ? 'background: #ffebee; border: 2px solid #f44336;' :
+        data.vendor_credit_status === 'SUBMITTED' ? 'background: #fff3e0; border: 2px solid #ff9800;' :
+        'background: #f5f5f5; border: 2px dashed #9e9e9e;'
+    }">
+        <h2 style="color: ${
+            data.vendor_credit_status === 'CREDITED' ? '#2e7d32' :
+            data.vendor_credit_status === 'DENIED' ? '#c62828' :
+            data.vendor_credit_status === 'SUBMITTED' ? '#e65100' : '#616161'
+        };">Vendor Credit Tracking</h2>
+
+        ${data.vendor_name ? `
+        <div class="info-grid" style="margin-bottom: 15px;">
             <div class="info-box" style="background: white;">
                 <label>Vendor</label>
                 <div class="value">${data.vendor_name}</div>
@@ -919,8 +934,145 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 <div class="value">${data.vendor_email || 'N/A'}</div>
             </div>
         </div>
+        ` : ''}
+
+        <div id="vendorCreditStatus">
+            ${!data.vendor_credit_status ? `
+            <!-- Not yet submitted -->
+            <div style="text-align: center; padding: 15px;">
+                <p style="margin-bottom: 15px; color: #666;">This redemption has not been submitted for vendor credit.</p>
+                <button onclick="updateVendorCredit('SUBMITTED')"
+                        style="background: #1976d2; color: white; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold;">
+                    Mark as Submitted for Credit
+                </button>
+            </div>
+            ` : ''}
+
+            ${data.vendor_credit_status === 'SUBMITTED' ? `
+            <!-- Submitted, awaiting resolution -->
+            <div style="padding: 10px;">
+                <div class="info-grid">
+                    <div class="info-box" style="background: white;">
+                        <label>Status</label>
+                        <div class="value" style="color: #e65100; font-weight: bold;">SUBMITTED</div>
+                    </div>
+                    <div class="info-box" style="background: white;">
+                        <label>Submitted On</label>
+                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
+                    </div>
+                </div>
+                ${data.vendor_credit_notes ? `
+                <div class="info-box" style="background: white; margin-top: 10px;">
+                    <label>Notes</label>
+                    <div class="value">${data.vendor_credit_notes}</div>
+                </div>
+                ` : ''}
+                <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: center;">
+                    <button onclick="updateVendorCredit('CREDITED')"
+                            style="background: #4caf50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                        Mark as Credited
+                    </button>
+                    <button onclick="promptDenied()"
+                            style="background: #f44336; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                        Mark as Denied
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+
+            ${data.vendor_credit_status === 'CREDITED' ? `
+            <!-- Credit received -->
+            <div style="padding: 10px;">
+                <div class="info-grid">
+                    <div class="info-box" style="background: white;">
+                        <label>Status</label>
+                        <div class="value" style="color: #2e7d32; font-weight: bold;">CREDIT RECEIVED</div>
+                    </div>
+                    <div class="info-box" style="background: white;">
+                        <label>Submitted On</label>
+                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
+                    </div>
+                    <div class="info-box" style="background: white;">
+                        <label>Credited On</label>
+                        <div class="value">${formatDate(data.vendor_credit_resolved_at)}</div>
+                    </div>
+                </div>
+                ${data.vendor_credit_notes ? `
+                <div class="info-box" style="background: white; margin-top: 10px;">
+                    <label>Notes</label>
+                    <div class="value">${data.vendor_credit_notes}</div>
+                </div>
+                ` : ''}
+            </div>
+            ` : ''}
+
+            ${data.vendor_credit_status === 'DENIED' ? `
+            <!-- Credit denied -->
+            <div style="padding: 10px;">
+                <div class="info-grid">
+                    <div class="info-box" style="background: white;">
+                        <label>Status</label>
+                        <div class="value" style="color: #c62828; font-weight: bold;">CREDIT DENIED</div>
+                    </div>
+                    <div class="info-box" style="background: white;">
+                        <label>Submitted On</label>
+                        <div class="value">${formatDate(data.vendor_credit_submitted_at)}</div>
+                    </div>
+                    <div class="info-box" style="background: white;">
+                        <label>Denied On</label>
+                        <div class="value">${formatDate(data.vendor_credit_resolved_at)}</div>
+                    </div>
+                </div>
+                ${data.vendor_credit_notes ? `
+                <div class="info-box" style="background: white; margin-top: 10px;">
+                    <label>Denial Reason</label>
+                    <div class="value">${data.vendor_credit_notes}</div>
+                </div>
+                ` : ''}
+                <div style="margin-top: 15px; text-align: center;">
+                    <button onclick="updateVendorCredit('SUBMITTED')"
+                            style="background: #1976d2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                        Resubmit for Credit
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+        </div>
     </div>
-    ` : ''}
+
+    <script>
+        const rewardId = '${data.id}';
+
+        async function updateVendorCredit(status, notes = null) {
+            try {
+                const body = { status };
+                if (notes) body.notes = notes;
+
+                const response = await fetch('/api/loyalty/rewards/' + rewardId + '/vendor-credit', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (response.ok) {
+                    // Reload to show updated status
+                    window.location.reload();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + (error.error || 'Failed to update status'));
+                }
+            } catch (err) {
+                alert('Error updating vendor credit status: ' + err.message);
+            }
+        }
+
+        function promptDenied() {
+            const notes = prompt('Enter denial reason (optional):');
+            if (notes !== null) {
+                updateVendorCredit('DENIED', notes || null);
+            }
+        }
+    </script>
 
     <div class="summary">
         <div class="summary-row">

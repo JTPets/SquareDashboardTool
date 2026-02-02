@@ -563,6 +563,93 @@ router.post('/rewards/:rewardId/redeem', requireAuth, requireMerchant, requireWr
 }));
 
 /**
+ * PATCH /api/loyalty/rewards/:rewardId/vendor-credit
+ * Update vendor credit submission status for a redeemed reward
+ *
+ * Body: { status: 'SUBMITTED'|'CREDITED'|'DENIED', notes?: string }
+ *
+ * Status flow:
+ * - null -> SUBMITTED: Mark as submitted for vendor credit
+ * - SUBMITTED -> CREDITED: Mark as credit received
+ * - SUBMITTED -> DENIED: Mark as credit denied
+ */
+router.patch('/rewards/:rewardId/vendor-credit', requireAuth, requireMerchant, requireWriteAccess, validators.updateVendorCredit, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { rewardId } = req.params;
+    const { status, notes } = req.body;
+
+    // Verify reward exists and is redeemed
+    const rewardResult = await db.query(`
+        SELECT id, status, vendor_credit_status
+        FROM loyalty_rewards
+        WHERE id = $1 AND merchant_id = $2
+    `, [rewardId, merchantId]);
+
+    if (rewardResult.rows.length === 0) {
+        return res.status(404).json({
+            success: false,
+            error: 'Reward not found',
+            code: 'NOT_FOUND'
+        });
+    }
+
+    const reward = rewardResult.rows[0];
+
+    if (reward.status !== 'redeemed') {
+        return res.status(400).json({
+            success: false,
+            error: 'Only redeemed rewards can have vendor credit status',
+            code: 'INVALID_REWARD_STATUS'
+        });
+    }
+
+    // Build update query based on status transition
+    let updateQuery;
+    let updateParams;
+
+    if (status === 'SUBMITTED') {
+        // Mark as submitted - set submitted timestamp
+        updateQuery = `
+            UPDATE loyalty_rewards
+            SET vendor_credit_status = $1,
+                vendor_credit_submitted_at = NOW(),
+                vendor_credit_notes = $2,
+                updated_at = NOW()
+            WHERE id = $3 AND merchant_id = $4
+            RETURNING id, vendor_credit_status, vendor_credit_submitted_at, vendor_credit_notes
+        `;
+        updateParams = [status, notes || null, rewardId, merchantId];
+    } else {
+        // Mark as CREDITED or DENIED - set resolved timestamp
+        updateQuery = `
+            UPDATE loyalty_rewards
+            SET vendor_credit_status = $1,
+                vendor_credit_resolved_at = NOW(),
+                vendor_credit_notes = COALESCE($2, vendor_credit_notes),
+                updated_at = NOW()
+            WHERE id = $3 AND merchant_id = $4
+            RETURNING id, vendor_credit_status, vendor_credit_submitted_at, vendor_credit_resolved_at, vendor_credit_notes
+        `;
+        updateParams = [status, notes || null, rewardId, merchantId];
+    }
+
+    const result = await db.query(updateQuery, updateParams);
+
+    logger.info('Updated vendor credit status', {
+        rewardId,
+        merchantId,
+        status,
+        previousStatus: reward.vendor_credit_status,
+        userId: req.session.user.id
+    });
+
+    res.json({
+        success: true,
+        vendorCredit: result.rows[0]
+    });
+}));
+
+/**
  * GET /api/loyalty/rewards
  * Get rewards with filtering (earned, redeemed, etc.)
  */
@@ -628,6 +715,10 @@ router.get('/redemptions', requireAuth, requireMerchant, validators.listRedempti
             r.square_customer_id,
             r.redeemed_at,
             r.redemption_order_id as square_order_id,
+            -- Vendor credit tracking
+            r.vendor_credit_status,
+            r.vendor_credit_submitted_at,
+            r.vendor_credit_resolved_at,
             o.offer_name,
             o.brand_name,
             o.size_group,
