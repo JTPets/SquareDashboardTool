@@ -133,7 +133,7 @@ The Square Node.js SDK in this project uses nested resource patterns, NOT the fl
 Common mistakes:
 - `squareClient.ordersApi.retrieveOrder()` → `squareClient.orders.get({ orderId })`
 - `squareClient.catalog.deleteObject()` → `squareClient.catalog.object.delete({ objectId })`
-- `squareClient.loyalty.searchLoyaltyEvents()` → `squareClient.loyalty.events.search()`
+- `squareClient.loyalty.searchLoyaltyEvents()` → `squareClient.loyalty.searchEvents()`
 - `response.result.order` → `response.order`
 
 **Rule**: Before writing any Square API call, grep the codebase for an existing working example of that endpoint.
