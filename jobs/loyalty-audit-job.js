@@ -63,7 +63,7 @@ async function fetchSquareRedemptionEvents(merchantId, hoursBack = 48) {
     });
 
     do {
-        const response = await squareClient.loyalty.events.search({
+        const response = await squareClient.loyalty.searchEvents({
             query: {
                 filter: {
                     typeFilter: {
