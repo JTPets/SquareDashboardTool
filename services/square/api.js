@@ -218,14 +218,16 @@ async function syncLocations(merchantId) {
         let synced = 0;
         for (const loc of locations) {
             await db.query(`
-                INSERT INTO locations (id, name, square_location_id, active, address, timezone, merchant_id, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                INSERT INTO locations (id, name, square_location_id, active, address, timezone, phone_number, business_email, merchant_id, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
                     square_location_id = EXCLUDED.square_location_id,
                     active = EXCLUDED.active,
                     address = EXCLUDED.address,
                     timezone = EXCLUDED.timezone,
+                    phone_number = EXCLUDED.phone_number,
+                    business_email = EXCLUDED.business_email,
                     merchant_id = EXCLUDED.merchant_id,
                     updated_at = CURRENT_TIMESTAMP
             `, [
@@ -235,6 +237,8 @@ async function syncLocations(merchantId) {
                 loc.status === 'ACTIVE',
                 loc.address ? JSON.stringify(loc.address) : null,
                 loc.timezone,
+                loc.phoneNumber || null,
+                loc.businessEmail || null,
                 merchantId
             ]);
             synced++;
