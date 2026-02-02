@@ -657,6 +657,28 @@ const resolveAuditFinding = [
     handleValidationErrors
 ];
 
+/**
+ * PATCH /api/loyalty/rewards/:rewardId/vendor-credit
+ * Update vendor credit submission status
+ */
+const updateVendorCredit = [
+    param('rewardId')
+        .isUUID()
+        .withMessage('rewardId must be a valid UUID'),
+    body('status')
+        .trim()
+        .notEmpty()
+        .withMessage('status is required')
+        .isIn(['SUBMITTED', 'CREDITED', 'DENIED'])
+        .withMessage('status must be SUBMITTED, CREDITED, or DENIED'),
+    body('notes')
+        .optional()
+        .trim()
+        .isLength({ max: 1000 })
+        .withMessage('notes cannot exceed 1000 characters'),
+    handleValidationErrors
+];
+
 module.exports = {
     listOffers,
     createOffer,
@@ -691,5 +713,6 @@ module.exports = {
     getRedemptionDetails,
     getBrandRedemptions,
     listAuditFindings,
-    resolveAuditFinding
+    resolveAuditFinding,
+    updateVendorCredit
 };

@@ -1442,6 +1442,14 @@ CREATE TABLE IF NOT EXISTS loyalty_rewards (
     -- Revocation reason (when status = 'revoked')
     revocation_reason TEXT,
 
+    -- Vendor credit submission tracking (for redeemed rewards)
+    vendor_credit_status VARCHAR(20) DEFAULT NULL CHECK (
+        vendor_credit_status IS NULL OR vendor_credit_status IN ('SUBMITTED', 'CREDITED', 'DENIED')
+    ),
+    vendor_credit_submitted_at TIMESTAMPTZ,
+    vendor_credit_resolved_at TIMESTAMPTZ,
+    vendor_credit_notes TEXT,
+
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1458,10 +1466,15 @@ CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_customer_offer ON loyalty_rewards
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_status ON loyalty_rewards(merchant_id, status);
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_earned ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'earned';
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_in_progress ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'in_progress';
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_vendor_credit_status ON loyalty_rewards(merchant_id, vendor_credit_status) WHERE vendor_credit_status IS NOT NULL;
 
 COMMENT ON TABLE loyalty_rewards IS 'Tracks reward progress and state: in_progress -> earned -> redeemed | revoked';
 COMMENT ON COLUMN loyalty_rewards.status IS 'State machine: in_progress (accumulating), earned (available), redeemed (used), revoked (invalidated)';
 COMMENT ON COLUMN loyalty_rewards.current_quantity IS 'Count of qualifying purchases within the rolling window';
+COMMENT ON COLUMN loyalty_rewards.vendor_credit_status IS 'Vendor credit submission status: SUBMITTED, CREDITED, or DENIED';
+COMMENT ON COLUMN loyalty_rewards.vendor_credit_submitted_at IS 'Timestamp when reward was submitted for vendor credit';
+COMMENT ON COLUMN loyalty_rewards.vendor_credit_resolved_at IS 'Timestamp when vendor credit was credited or denied';
+COMMENT ON COLUMN loyalty_rewards.vendor_credit_notes IS 'Notes about vendor credit (invoice number, denial reason, etc.)';
 
 -- 5. loyalty_redemptions - Records reward redemptions
 CREATE TABLE IF NOT EXISTS loyalty_redemptions (
