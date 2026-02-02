@@ -243,8 +243,27 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 | Medium-High | BACKLOG-2 | Delivery routing webhook sync |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
+| Medium | BACKLOG-6 | Consolidate Square discount/pricing rule deletion code |
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
+
+#### BACKLOG-6: Consolidate Square Discount Cleanup Code
+
+**Context**: Three separate code paths delete Square catalog objects (pricing rules, discounts, product sets) with different approaches:
+- Loyalty path uses individual DELETE calls in a loop
+- Expiry path uses batch DELETE
+- Reorder path uses DB-only with deferred rebuild
+
+**Files involved**:
+- `services/loyalty-admin/loyalty-service.js:deleteRewardDiscountObjects()` (lines 4039-4098)
+- `services/expiry/discount-service.js:upsertPricingRule()` (lines 948-1107)
+- `services/expiry/discount-service.js:clearExpiryDiscountForReorder()` (lines 1716-1823)
+
+**Proposed solution**: Extract shared `utils/square-catalog-cleanup.js` with:
+- `deleteCatalogObjects(merchantId, objectIds, options)` - unified deletion with batch/individual support
+- `removeExpiryDiscount(merchantId, variationId, options)` - expiry-specific cleanup
+
+**Audit date**: 2026-02-02
 
 See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) for details.
 

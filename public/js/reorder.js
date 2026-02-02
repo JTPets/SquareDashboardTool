@@ -632,6 +632,8 @@ async function createPurchaseOrder() {
     if (expiredCount > 0) warningMessage += `• ${expiredCount} EXPIRED item(s) - should be pulled from shelves\n`;
     if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) on clearance sale (expiring within 30 days)\n`;
     if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) with discount applied (expiring within 31-89 days)\n`;
+    warningMessage += '\n📋 IMPORTANT: Expiry dates and discounts will be REMOVED for these items when the PO is created.\n';
+    warningMessage += 'Remember to enter new expiry dates after receiving the stock.\n';
     warningMessage += '\nAre you sure you want to proceed?';
 
     if (!confirm(warningMessage)) {
@@ -710,7 +712,24 @@ async function createPurchaseOrder() {
 
     const result = await response.json();
     const po = result.data?.purchase_order || result.purchase_order;
-    alert(`Purchase Order ${po.po_number} created successfully!\nTotal: $${(po.total_cents / 100).toFixed(2)}`);
+    const clearedItems = result.data?.expiry_discounts_cleared || [];
+
+    // Build success message
+    let successMessage = `Purchase Order ${po.po_number} created successfully!\nTotal: $${(po.total_cents / 100).toFixed(2)}`;
+
+    // If expiry discounts were cleared, show which items
+    if (clearedItems.length > 0) {
+      successMessage += `\n\n📋 Expiry discounts cleared for ${clearedItems.length} item(s):`;
+      clearedItems.forEach(item => {
+        const name = item.variation_name
+          ? `${item.item_name} - ${item.variation_name}`
+          : item.item_name;
+        successMessage += `\n• ${name} (was ${item.previous_tier})`;
+      });
+      successMessage += '\n\n⚠️ Remember to enter new expiry dates after receiving the stock.';
+    }
+
+    alert(successMessage);
 
     // Reset selections and edited quantities
     selectedItems.clear();

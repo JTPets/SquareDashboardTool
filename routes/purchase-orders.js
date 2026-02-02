@@ -33,6 +33,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('../utils/csv-helpers');
 const validators = require('../middleware/validators/purchase-orders');
+const { clearExpiryDiscountForReorder, applyDiscounts } = require('../services/expiry/discount-service');
 
 /**
  * POST /api/purchase-orders
@@ -129,9 +130,82 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             return createdPo;
         });
 
+    // After PO creation, check for items with active expiry discounts and clear them
+    const clearedExpiryItems = [];
+    const affectedTiers = new Set();
+
+    // Get expiry status for all items in the PO
+    const variationIds = validItems.map(item => item.variation_id);
+    const expiryStatusResult = await db.query(`
+        SELECT
+            vds.variation_id,
+            edt.tier_code,
+            edt.is_auto_apply,
+            i.name as item_name,
+            v.name as variation_name
+        FROM variation_discount_status vds
+        JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+        JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+        WHERE vds.variation_id = ANY($2) AND vds.merchant_id = $1
+          AND edt.is_auto_apply = TRUE
+          AND edt.tier_code IN ('AUTO50', 'AUTO25', 'EXPIRED')
+    `, [merchantId, variationIds]);
+
+    // Clear expiry discounts for affected items
+    for (const item of expiryStatusResult.rows) {
+        try {
+            const result = await clearExpiryDiscountForReorder(merchantId, item.variation_id);
+            if (result.cleared) {
+                clearedExpiryItems.push({
+                    variation_id: item.variation_id,
+                    item_name: item.item_name,
+                    variation_name: item.variation_name,
+                    previous_tier: result.previousTier
+                });
+                affectedTiers.add(result.previousTier);
+            }
+        } catch (clearError) {
+            logger.error('Failed to clear expiry discount during PO creation', {
+                merchantId,
+                variationId: item.variation_id,
+                error: clearError.message
+            });
+            // Continue processing other items - don't fail the whole PO
+        }
+    }
+
+    // If any expiry discounts were cleared, trigger applyDiscounts to rebuild Square pricing rules
+    if (clearedExpiryItems.length > 0) {
+        try {
+            logger.info('Triggering applyDiscounts after reorder expiry clear', {
+                merchantId,
+                clearedCount: clearedExpiryItems.length,
+                affectedTiers: Array.from(affectedTiers)
+            });
+            // Run applyDiscounts asynchronously - don't wait for it to complete
+            // This rebuilds the Square pricing rules without the cleared variations
+            applyDiscounts({ merchantId, dryRun: false }).catch(applyError => {
+                logger.error('Background applyDiscounts failed after reorder', {
+                    merchantId,
+                    error: applyError.message
+                });
+            });
+        } catch (applyError) {
+            logger.error('Failed to trigger applyDiscounts after reorder', {
+                merchantId,
+                error: applyError.message
+            });
+            // Don't fail the PO creation - the daily job will clean up
+        }
+    }
+
     res.status(201).json({
         success: true,
-        data: { purchase_order: po }
+        data: {
+            purchase_order: po,
+            expiry_discounts_cleared: clearedExpiryItems
+        }
     });
 }));
 

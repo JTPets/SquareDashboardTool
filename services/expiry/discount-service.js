@@ -1695,6 +1695,133 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
     }
 }
 
+/**
+ * Clear expiry discount for a variation when it's being reordered
+ *
+ * TECH DEBT: Duplicate discount cleanup logic exists in:
+ * - services/loyalty-admin/loyalty-service.js:deleteRewardDiscountObjects() (loyalty path)
+ * - services/expiry/discount-service.js:upsertPricingRule() (expiry path)
+ * - This function (reorder path)
+ * All three should be consolidated into a shared utils/square-catalog-cleanup.js utility.
+ * See tech debt entry in CLAUDE.md.
+ *
+ * This function resets the variation's discount status to the OK tier and clears
+ * the expiration date. The next applyDiscounts() call will rebuild the Square
+ * pricing rules without this variation.
+ *
+ * @param {number} merchantId - Merchant ID
+ * @param {string} variationId - Variation ID to clear
+ * @returns {Promise<{cleared: boolean, previousTier: string|null, message: string}>}
+ */
+async function clearExpiryDiscountForReorder(merchantId, variationId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for clearExpiryDiscountForReorder');
+    }
+    if (!variationId) {
+        throw new Error('variationId is required for clearExpiryDiscountForReorder');
+    }
+
+    try {
+        // Get current discount status and tier info
+        const statusResult = await db.query(`
+            SELECT
+                vds.id as status_id,
+                vds.current_tier_id,
+                vds.discounted_price_cents,
+                vds.original_price_cents,
+                vds.discount_applied_at,
+                edt.tier_code,
+                edt.is_auto_apply
+            FROM variation_discount_status vds
+            JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+            WHERE vds.variation_id = $1 AND vds.merchant_id = $2
+        `, [variationId, merchantId]);
+
+        // If no status record or not in an auto-apply tier, nothing to clear
+        if (statusResult.rows.length === 0) {
+            return { cleared: false, previousTier: null, message: 'No discount status found' };
+        }
+
+        const status = statusResult.rows[0];
+
+        // Only clear if in an auto-apply discount tier (AUTO50, AUTO25, EXPIRED)
+        if (!status.is_auto_apply || !['AUTO50', 'AUTO25', 'EXPIRED'].includes(status.tier_code)) {
+            return { cleared: false, previousTier: status.tier_code, message: 'Not in an auto-apply discount tier' };
+        }
+
+        // Get the OK tier ID for this merchant
+        const okTierResult = await db.query(`
+            SELECT id FROM expiry_discount_tiers
+            WHERE tier_code = 'OK' AND merchant_id = $1
+        `, [merchantId]);
+
+        if (okTierResult.rows.length === 0) {
+            throw new Error('OK tier not found for merchant');
+        }
+
+        const okTierId = okTierResult.rows[0].id;
+
+        // Use transaction to atomically update discount status and clear expiry date
+        await db.transaction(async (client) => {
+            // Reset variation_discount_status to OK tier
+            await client.query(`
+                UPDATE variation_discount_status SET
+                    current_tier_id = $1,
+                    discounted_price_cents = NULL,
+                    discount_applied_at = NULL,
+                    updated_at = NOW()
+                WHERE variation_id = $2 AND merchant_id = $3
+            `, [okTierId, variationId, merchantId]);
+
+            // Clear expiration date so old date doesn't retrigger
+            await client.query(`
+                UPDATE variation_expiration SET
+                    expiration_date = NULL,
+                    updated_at = NOW()
+                WHERE variation_id = $1 AND merchant_id = $2
+            `, [variationId, merchantId]);
+
+            // Log audit event
+            await client.query(`
+                INSERT INTO expiry_discount_audit_log (
+                    merchant_id, variation_id, action, old_tier_id, new_tier_id,
+                    old_price_cents, new_price_cents, days_until_expiry,
+                    square_sync_status, triggered_by
+                )
+                VALUES ($1, $2, 'REORDER_CLEAR', $3, $4, $5, NULL, NULL, 'PENDING', 'REORDER')
+            `, [
+                merchantId,
+                variationId,
+                status.current_tier_id,
+                okTierId,
+                status.discounted_price_cents
+            ]);
+        });
+
+        logger.info('Cleared expiry discount for reorder', {
+            merchantId,
+            variationId,
+            previousTier: status.tier_code,
+            hadDiscount: status.discount_applied_at !== null
+        });
+
+        return {
+            cleared: true,
+            previousTier: status.tier_code,
+            message: `Cleared ${status.tier_code} discount and expiry date`
+        };
+
+    } catch (error) {
+        logger.error('Failed to clear expiry discount for reorder', {
+            merchantId,
+            variationId,
+            error: error.message,
+            stack: error.stack
+        });
+        throw error;
+    }
+}
+
 module.exports = {
     // Tier management
     getActiveTiers,
@@ -1720,6 +1847,7 @@ module.exports = {
     // Discount application
     applyDiscounts,
     getVariationsNeedingDiscountUpdate,
+    clearExpiryDiscountForReorder,
 
     // Automation
     runExpiryDiscountAutomation,
