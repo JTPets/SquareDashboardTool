@@ -138,48 +138,81 @@ async function getRedemptionDetails(rewardId, merchantId) {
     `, [rewardId, merchantId]);
     const lowestPriceCents = lowestPriceResult.rows[0]?.lowest_price_cents || 0;
 
-    // Enrich purchases with payment type from Square orders (fallback when not stored in DB)
+    // Fetch ALL unique orders to get full line items and payment types
+    // This provides complete order context for vendor receipts
     const purchases = purchasesResult.rows;
-    const orderIdsNeedingPaymentType = [...new Set(
+    const uniqueOrderIds = [...new Set(
         purchases
-            .filter(p => !p.payment_type && p.square_order_id)
+            .filter(p => p.square_order_id)
             .map(p => p.square_order_id)
     )];
 
-    if (orderIdsNeedingPaymentType.length > 0) {
+    const fullOrders = {};
+    if (uniqueOrderIds.length > 0) {
         try {
             const squareClient = await getSquareClientForMerchant(merchantId);
-            const orderPaymentTypes = {};
 
-            // Fetch orders individually (Square doesn't have batch get for orders by ID list)
-            for (const orderId of orderIdsNeedingPaymentType) {
+            // Fetch each order to get full line items and tender info
+            for (const orderId of uniqueOrderIds) {
                 try {
                     const orderResponse = await squareClient.orders.get({ orderId });
-                    if (orderResponse.order?.tenders?.length > 0) {
-                        // Use first tender's type (most orders have single payment method)
-                        orderPaymentTypes[orderId] = orderResponse.order.tenders[0].type;
+                    if (orderResponse.order) {
+                        fullOrders[orderId] = orderResponse.order;
                     }
                 } catch (orderError) {
-                    logger.debug('Failed to fetch order for payment type', {
+                    logger.debug('Failed to fetch order for enrichment', {
                         orderId,
                         error: orderError.message
                     });
                 }
             }
-
-            // Apply payment types to purchases
-            for (const purchase of purchases) {
-                if (!purchase.payment_type && orderPaymentTypes[purchase.square_order_id]) {
-                    purchase.payment_type = orderPaymentTypes[purchase.square_order_id];
-                }
-            }
         } catch (error) {
-            logger.warn('Failed to enrich payment types from Square', {
+            logger.warn('Failed to fetch Square orders for enrichment', {
                 merchantId,
                 rewardId,
                 error: error.message
             });
-            // Continue without enrichment - payment_type will show N/A
+            // Continue without enrichment
+        }
+    }
+
+    // Enrich each purchase with order data (payment type, line items, order total)
+    for (const purchase of purchases) {
+        const fullOrder = fullOrders[purchase.square_order_id];
+        if (!fullOrder) continue;
+
+        // Payment type fallback
+        if (!purchase.payment_type && fullOrder.tenders?.length > 0) {
+            purchase.payment_type = fullOrder.tenders[0].type;
+        }
+
+        // Order total
+        purchase.order_total_cents = fullOrder.totalMoney?.amount
+            ? parseInt(fullOrder.totalMoney.amount)
+            : null;
+
+        // Extract all line items from the order
+        if (fullOrder.lineItems) {
+            purchase.allLineItems = fullOrder.lineItems.map(item => {
+                const basePriceCents = item.basePriceMoney?.amount
+                    ? parseInt(item.basePriceMoney.amount)
+                    : null;
+                const totalCents = item.totalMoney?.amount
+                    ? parseInt(item.totalMoney.amount)
+                    : null;
+
+                return {
+                    name: item.name,
+                    variationName: item.variationName || null,
+                    quantity: parseInt(item.quantity) || 1,
+                    unitPriceCents: basePriceCents,
+                    totalCents: totalCents,
+                    isFreeItem: (totalCents === 0 || totalCents === null) && basePriceCents > 0,
+                    catalogObjectId: item.catalogObjectId || null,
+                    // Check if this line item is the qualifying one for this purchase
+                    isQualifying: item.catalogObjectId === purchase.variation_id
+                };
+            });
         }
     }
 
@@ -295,9 +328,35 @@ async function generateVendorReceipt(rewardId, merchantId) {
     const customerPhone = formatPrivacyPhone(data.phone_number);
     const customerEmail = formatPrivacyEmail(data.email_address);
 
-    // Build purchase history table rows (with wholesale cost, vendor item #, payment type)
-    const purchaseRows = data.contributingPurchases.map(p => `
-        <tr>
+    // Build purchase history table rows grouped by order
+    // Shows ALL line items from each order, with qualifying items highlighted
+    const purchaseRows = data.contributingPurchases.map(p => {
+        // If we have all line items from the order, show them all
+        if (p.allLineItems && p.allLineItems.length > 0) {
+            const orderRows = p.allLineItems.map((item, idx) => {
+                const isFirst = idx === 0;
+                const rowClass = item.isQualifying ? 'qualifying-row' : 'non-qualifying-row';
+                const itemClass = item.isFreeItem ? 'free-item' : '';
+
+                return `
+                <tr class="${rowClass} ${itemClass}">
+                    ${isFirst ? `<td rowspan="${p.allLineItems.length}">${formatDate(p.purchased_at)}</td>` : ''}
+                    <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}</td>
+                    <td>${item.isQualifying ? (p.vendor_item_number || p.sku || 'N/A') : ''}</td>
+                    <td class="quantity">${item.quantity}</td>
+                    <td class="currency">${formatCents(item.unitPriceCents)}</td>
+                    <td class="currency">${item.isQualifying ? formatCents(p.wholesale_cost_cents || p.vendor_unit_cost) : ''}</td>
+                    ${isFirst ? `<td rowspan="${p.allLineItems.length}">${p.payment_type || 'N/A'}</td>` : ''}
+                    ${isFirst ? `<td rowspan="${p.allLineItems.length}" style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>` : ''}
+                    ${isFirst ? `<td rowspan="${p.allLineItems.length}" class="currency">${formatCents(p.order_total_cents)}</td>` : ''}
+                </tr>`;
+            }).join('');
+            return orderRows;
+        }
+
+        // Fallback: no full order data, show just the qualifying item
+        return `
+        <tr class="qualifying-row">
             <td>${formatDate(p.purchased_at)}</td>
             <td>${p.item_name || 'Unknown'} - ${p.variation_name || p.variation_id}</td>
             <td>${p.vendor_item_number || p.sku || 'N/A'}</td>
@@ -306,8 +365,9 @@ async function generateVendorReceipt(rewardId, merchantId) {
             <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
             <td>${p.payment_type || 'N/A'}</td>
             <td style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>
-        </tr>
-    `).join('');
+            <td class="currency">${formatCents(p.order_total_cents)}</td>
+        </tr>`;
+    }).join('');
 
     // Calculate totals
     const totalPurchases = data.contributingPurchases.reduce((sum, p) => sum + (p.quantity > 0 ? p.quantity : 0), 0);
@@ -407,6 +467,32 @@ async function generateVendorReceipt(rewardId, merchantId) {
         }
         .quantity, .currency {
             text-align: right;
+        }
+        .table-note {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+        .qualifying-row {
+            font-weight: bold;
+            background: #e8f5e9 !important;
+        }
+        .qualifying-row td {
+            border-left: 3px solid #4caf50;
+        }
+        .non-qualifying-row {
+            font-style: italic;
+            color: #666;
+        }
+        .non-qualifying-row td {
+            border-left: 3px solid transparent;
+        }
+        .free-item {
+            background: #fff3e0 !important;
+        }
+        .free-item td {
+            border-left-color: #ff9800 !important;
         }
         .summary {
             background: #f0f0f0;
@@ -565,6 +651,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
 
     <div class="section">
         <h2>Contributing Transactions</h2>
+        <p class="table-note">Items highlighted in <strong>bold</strong> are qualifying purchases for this loyalty program. Other items shown for complete order context.</p>
         <table>
             <thead>
                 <tr>
@@ -576,10 +663,11 @@ async function generateVendorReceipt(rewardId, merchantId) {
                     <th>Wholesale Cost</th>
                     <th>Payment</th>
                     <th>Order ID</th>
+                    <th>Order Total</th>
                 </tr>
             </thead>
             <tbody>
-                ${purchaseRows || '<tr><td colspan="8">No purchase records available</td></tr>'}
+                ${purchaseRows || '<tr><td colspan="9">No purchase records available</td></tr>'}
             </tbody>
         </table>
     </div>
