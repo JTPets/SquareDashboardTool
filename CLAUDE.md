@@ -127,6 +127,17 @@ await squareClient.orders.createOrder({
 });
 ```
 
+### Square SDK Method Naming
+The Square Node.js SDK in this project uses nested resource patterns, NOT the flat API naming from Square's docs. Always check existing working code before writing Square API calls.
+
+Common mistakes:
+- `squareClient.ordersApi.retrieveOrder()` → `squareClient.orders.get({ orderId })`
+- `squareClient.catalog.deleteObject()` → `squareClient.catalog.object.delete({ objectId })`
+- `squareClient.loyalty.searchLoyaltyEvents()` → `squareClient.loyalty.events.search()`
+- `response.result.order` → `response.order`
+
+**Rule**: Before writing any Square API call, grep the codebase for an existing working example of that endpoint.
+
 ### Logging
 ```javascript
 const logger = require('../utils/logger');
