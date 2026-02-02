@@ -393,44 +393,91 @@ async function generateVendorReceipt(rewardId, merchantId) {
     const customerEmail = formatPrivacyEmail(data.email_address);
 
     // Build purchase history table rows grouped by order
-    // Shows ALL line items from each order, with qualifying items highlighted
-    const purchaseRows = data.contributingPurchases.map(p => {
-        // If we have all line items from the order, show them all
-        if (p.allLineItems && p.allLineItems.length > 0) {
-            const orderRows = p.allLineItems.map((item, idx) => {
-                const isFirst = idx === 0;
-                const rowClass = item.isQualifying ? 'qualifying-row' : 'non-qualifying-row';
-                const itemClass = item.isFreeItem ? 'free-item' : '';
+    // Group purchases by order to avoid showing same order multiple times
+    // Within each order: show qualifying items first, then non-qualifying items
+    const orderGroups = new Map();
+    for (const p of data.contributingPurchases) {
+        const orderId = p.square_order_id || `no-order-${p.id}`;
+        if (!orderGroups.has(orderId)) {
+            orderGroups.set(orderId, {
+                orderId: p.square_order_id,
+                purchasedAt: p.purchased_at,
+                paymentType: p.payment_type,
+                orderTotalCents: p.order_total_cents,
+                allLineItems: p.allLineItems || [],
+                qualifyingPurchases: []
+            });
+        }
+        orderGroups.get(orderId).qualifyingPurchases.push(p);
+    }
 
-                return `
-                <tr class="${rowClass} ${itemClass}">
-                    ${isFirst ? `<td rowspan="${p.allLineItems.length}">${formatDate(p.purchased_at)}</td>` : ''}
-                    <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}</td>
-                    <td>${item.isQualifying ? (p.vendor_item_number || p.sku || 'N/A') : ''}</td>
-                    <td class="quantity">${item.quantity}</td>
-                    <td class="currency">${formatCents(item.unitPriceCents)}</td>
-                    <td class="currency">${item.isQualifying ? formatCents(p.wholesale_cost_cents || p.vendor_unit_cost) : ''}</td>
-                    ${isFirst ? `<td rowspan="${p.allLineItems.length}">${p.payment_type || 'N/A'}</td>` : ''}
-                    ${isFirst ? `<td rowspan="${p.allLineItems.length}" style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>` : ''}
-                    ${isFirst ? `<td rowspan="${p.allLineItems.length}" class="currency">${formatCents(p.order_total_cents)}</td>` : ''}
-                </tr>`;
-            }).join('');
-            return orderRows;
+    const purchaseRows = Array.from(orderGroups.values()).map(order => {
+        // Build qualifying items from purchase_events (these are the authoritative source)
+        const qualifyingItems = order.qualifyingPurchases.map(p => ({
+            name: p.item_name || 'Unknown',
+            variationName: p.variation_name || null,
+            quantity: p.quantity,
+            unitPriceCents: p.unit_price_cents,
+            isQualifying: true,
+            isFreeItem: false,
+            catalogObjectId: p.variation_id,
+            vendorItemNumber: p.vendor_item_number || p.sku || 'N/A',
+            wholesaleCostCents: p.wholesale_cost_cents || p.vendor_unit_cost
+        }));
+
+        // Track which catalog objects are qualifying to avoid duplicates
+        const qualifyingCatalogIds = new Set(qualifyingItems.map(q => q.catalogObjectId));
+
+        // Non-qualifying items: all order line items that aren't qualifying
+        // Also exclude items that are free (these are the redemption rewards)
+        const nonQualifyingItems = order.allLineItems
+            .filter(item => !qualifyingCatalogIds.has(item.catalogObjectId))
+            .map(item => ({
+                ...item,
+                isQualifying: false,
+                vendorItemNumber: '',
+                wholesaleCostCents: null
+            }));
+
+        // Combine: qualifying first, then non-qualifying (sorted)
+        const allItems = [...qualifyingItems, ...nonQualifyingItems];
+
+        if (allItems.length === 0) {
+            // Fallback: no items at all, use purchase event data directly
+            const p = order.qualifyingPurchases[0];
+            return `
+            <tr class="qualifying-row">
+                <td>${formatDate(order.purchasedAt)}</td>
+                <td>${p.item_name || 'Unknown'} - ${p.variation_name || p.variation_id}</td>
+                <td>${p.vendor_item_number || p.sku || 'N/A'}</td>
+                <td class="quantity">${p.quantity}</td>
+                <td class="currency">${formatCents(p.unit_price_cents)}</td>
+                <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
+                <td>${order.paymentType || 'N/A'}</td>
+                <td style="font-size: 10px;">${order.orderId?.slice(0, 12) || 'N/A'}...</td>
+                <td class="currency">${formatCents(order.orderTotalCents)}</td>
+            </tr>`;
         }
 
-        // Fallback: no full order data, show just the qualifying item
-        return `
-        <tr class="qualifying-row">
-            <td>${formatDate(p.purchased_at)}</td>
-            <td>${p.item_name || 'Unknown'} - ${p.variation_name || p.variation_id}</td>
-            <td>${p.vendor_item_number || p.sku || 'N/A'}</td>
-            <td class="quantity">${p.quantity}</td>
-            <td class="currency">${formatCents(p.unit_price_cents)}</td>
-            <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
-            <td>${p.payment_type || 'N/A'}</td>
-            <td style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>
-            <td class="currency">${formatCents(p.order_total_cents)}</td>
-        </tr>`;
+        // Render all items with proper rowspan for order-level columns
+        return allItems.map((item, idx) => {
+            const isFirst = idx === 0;
+            const rowClass = item.isQualifying ? 'qualifying-row' : 'non-qualifying-row';
+            const itemClass = item.isFreeItem ? 'free-item' : '';
+
+            return `
+            <tr class="${rowClass} ${itemClass}">
+                ${isFirst ? `<td rowspan="${allItems.length}">${formatDate(order.purchasedAt)}</td>` : ''}
+                <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}</td>
+                <td>${item.isQualifying ? item.vendorItemNumber : ''}</td>
+                <td class="quantity">${item.quantity}</td>
+                <td class="currency">${formatCents(item.unitPriceCents)}</td>
+                <td class="currency">${item.isQualifying ? formatCents(item.wholesaleCostCents) : ''}</td>
+                ${isFirst ? `<td rowspan="${allItems.length}">${order.paymentType || 'N/A'}</td>` : ''}
+                ${isFirst ? `<td rowspan="${allItems.length}" style="font-size: 10px;">${order.orderId?.slice(0, 12) || 'N/A'}...</td>` : ''}
+                ${isFirst ? `<td rowspan="${allItems.length}" class="currency">${formatCents(order.orderTotalCents)}</td>` : ''}
+            </tr>`;
+        }).join('');
     }).join('');
 
     // Calculate totals
