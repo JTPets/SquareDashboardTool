@@ -480,6 +480,80 @@ async function generateVendorReceipt(rewardId, merchantId) {
         }).join('');
     }).join('');
 
+    // Fetch the redemption order (where customer received the free item)
+    // This is separate from contributing purchases - it's the order where reward was applied
+    let redemptionOrderRows = '';
+    if (data.square_order_id) {
+        try {
+            const squareClient = await getSquareClientForMerchant(merchantId);
+            const redemptionOrderResponse = await squareClient.orders.get({
+                orderId: data.square_order_id
+            });
+            const redemptionOrder = redemptionOrderResponse.order;
+
+            if (redemptionOrder && redemptionOrder.lineItems) {
+                const redemptionItems = redemptionOrder.lineItems.map(item => {
+                    const basePriceCents = item.basePriceMoney?.amount
+                        ? parseInt(item.basePriceMoney.amount)
+                        : null;
+                    const totalCents = item.totalMoney?.amount
+                        ? parseInt(item.totalMoney.amount)
+                        : null;
+
+                    // Free item = total is 0 but base price > 0, OR it's the redeemed variation
+                    const isFreeItem = (totalCents === 0 && basePriceCents > 0) ||
+                        item.catalogObjectId === data.redeemed_variation_id;
+
+                    return {
+                        name: item.name,
+                        variationName: item.variationName || null,
+                        quantity: parseInt(item.quantity) || 1,
+                        unitPriceCents: isFreeItem ? 0 : basePriceCents,
+                        isFreeItem
+                    };
+                });
+
+                // Sort: free items first (the redeemed item), then others
+                redemptionItems.sort((a, b) => (b.isFreeItem ? 1 : 0) - (a.isFreeItem ? 1 : 0));
+
+                const redemptionPaymentType = redemptionOrder.tenders?.[0]?.type || 'N/A';
+                const redemptionTotalCents = redemptionOrder.totalMoney?.amount
+                    ? parseInt(redemptionOrder.totalMoney.amount)
+                    : null;
+
+                redemptionOrderRows = `
+                <tr class="redemption-separator">
+                    <td colspan="9" style="background: #ff9800; color: white; text-align: center; font-weight: bold; padding: 8px;">
+                        REDEMPTION ORDER — Free Item Received
+                    </td>
+                </tr>
+                ${redemptionItems.map((item, idx) => {
+                    const isFirst = idx === 0;
+                    const rowClass = item.isFreeItem ? 'redemption-row free-item' : 'redemption-row';
+
+                    return `
+                    <tr class="${rowClass}">
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}">${formatDate(data.redeemed_at)}</td>` : ''}
+                        <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}${item.isFreeItem ? ' <strong>(FREE)</strong>' : ''}</td>
+                        <td>${item.isFreeItem ? 'REDEEMED' : ''}</td>
+                        <td class="quantity">${item.quantity}</td>
+                        <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
+                        <td class="currency"></td>
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}">${redemptionPaymentType}</td>` : ''}
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 10px;">${data.square_order_id?.slice(0, 12) || 'N/A'}...</td>` : ''}
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}" class="currency">${formatCents(redemptionTotalCents)}</td>` : ''}
+                    </tr>`;
+                }).join('')}`;
+            }
+        } catch (error) {
+            logger.debug('Failed to fetch redemption order for receipt', {
+                orderId: data.square_order_id,
+                error: error.message
+            });
+            // Continue without redemption order display
+        }
+    }
+
     // Calculate totals
     const totalPurchases = data.contributingPurchases.reduce((sum, p) => sum + (p.quantity > 0 ? p.quantity : 0), 0);
     const totalRefunds = data.contributingPurchases.reduce((sum, p) => sum + (p.quantity < 0 ? Math.abs(p.quantity) : 0), 0);
@@ -604,6 +678,16 @@ async function generateVendorReceipt(rewardId, merchantId) {
         }
         .free-item td {
             border-left-color: #ff9800 !important;
+        }
+        .redemption-row {
+            background: #fff8e1 !important;
+        }
+        .redemption-row td {
+            border-left: 3px solid #ff9800;
+        }
+        .redemption-row.free-item {
+            background: #ffecb3 !important;
+            font-weight: bold;
         }
         .summary {
             background: #f0f0f0;
@@ -772,7 +856,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
 
     <div class="section">
         <h2>Contributing Transactions</h2>
-        <p class="table-note">Items highlighted in <strong>bold</strong> are qualifying purchases for this loyalty program. Other items shown for complete order context.</p>
+        <p class="table-note">Items highlighted in <strong>green</strong> are qualifying purchases for this loyalty program. The <strong>orange section</strong> at the bottom shows the redemption order where the free item was received.</p>
         <table>
             <thead>
                 <tr>
@@ -789,6 +873,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
             </thead>
             <tbody>
                 ${purchaseRows || '<tr><td colspan="9">No purchase records available</td></tr>'}
+                ${redemptionOrderRows}
             </tbody>
         </table>
     </div>
