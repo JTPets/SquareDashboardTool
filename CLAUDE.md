@@ -257,6 +257,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 | Medium | BACKLOG-6 | Consolidate Square discount/pricing rule deletion code |
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
+| Low | BACKLOG-7 | Loyalty audit job per-event Square API calls |
 
 #### BACKLOG-6: Consolidate Square Discount Cleanup Code
 
@@ -277,6 +278,17 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 **Audit date**: 2026-02-02
 
 See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) for details.
+
+#### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
+
+**Context**: `orderHasOurDiscount()` in `jobs/loyalty-audit-job.js` fetches the full order via Square API for every `REDEEM_REWARD` event to check if it's our custom discount. At current volume (2-5 events per 48h window) this is fine, but a backfill audit over weeks/months would hit Square API rate limits.
+
+**Files involved**:
+- `jobs/loyalty-audit-job.js:orderHasOurDiscount()` (lines 152-178)
+
+**Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then check discounts in memory.
+
+**Audit date**: 2026-02-02
 
 ---
 
