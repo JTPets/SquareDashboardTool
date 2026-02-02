@@ -459,7 +459,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
             </div>
             <div class="info-box">
                 <label>Redemption Type</label>
-                <div class="value">${data.redemption_type.replace(/_/g, ' ').toUpperCase()}</div>
+                <div class="value">${(data.redemption_type || 'STANDARD').replace(/_/g, ' ').toUpperCase()}</div>
             </div>
             <div class="info-box">
                 <label>Redeemed Item Value</label>
@@ -650,7 +650,7 @@ async function generateRedemptionsCSV(merchantId, options = {}) {
         r.size_group,
         r.offer_name,
         r.square_customer_id,
-        r.redemption_type,
+        r.redemption_type || 'STANDARD',
         r.square_order_id || '',
         r.redeemed_item_name ? `${r.redeemed_item_name} - ${r.redeemed_variation_name || ''}` : '',
         r.redeemed_value_cents ? (r.redeemed_value_cents / 100).toFixed(2) : '',
