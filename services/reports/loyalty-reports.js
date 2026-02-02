@@ -20,6 +20,14 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { formatMoney, escapeCSVField, UTF8_BOM } = require('../../utils/csv-helpers');
+const { getSquareClientForMerchant } = require('../../middleware/merchant');
+const {
+    formatPrivacyName,
+    formatPrivacyPhone,
+    formatPrivacyEmail,
+    formatReportDate,
+    formatCents
+} = require('../../utils/privacy-format');
 
 // ============================================================================
 // REPORT DATA QUERIES
@@ -40,6 +48,7 @@ async function getRedemptionDetails(rewardId, merchantId) {
 
     // Get redemption from loyalty_rewards with offer details (including vendor info)
     // Migrated from loyalty_redemptions table
+    // Includes customer info from loyalty_customers cache for privacy-masked display
     const redemptionResult = await db.query(`
         SELECT
             r.id,
@@ -62,6 +71,11 @@ async function getRedemptionDetails(rewardId, merchantId) {
             o.vendor_email,
             m.business_name,
             m.business_email,
+            -- Customer info from cache (for privacy-masked display)
+            lc.given_name,
+            lc.family_name,
+            lc.phone_number,
+            lc.email_address,
             -- Get item details and calculated value from purchase events
             pe_info.item_name as redeemed_item_name,
             pe_info.variation_name as redeemed_variation_name,
@@ -70,6 +84,9 @@ async function getRedemptionDetails(rewardId, merchantId) {
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id
         JOIN merchants m ON r.merchant_id = m.id
+        LEFT JOIN loyalty_customers lc
+            ON r.square_customer_id = lc.square_customer_id
+            AND r.merchant_id = lc.merchant_id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,
@@ -121,9 +138,54 @@ async function getRedemptionDetails(rewardId, merchantId) {
     `, [rewardId, merchantId]);
     const lowestPriceCents = lowestPriceResult.rows[0]?.lowest_price_cents || 0;
 
+    // Enrich purchases with payment type from Square orders (fallback when not stored in DB)
+    const purchases = purchasesResult.rows;
+    const orderIdsNeedingPaymentType = [...new Set(
+        purchases
+            .filter(p => !p.payment_type && p.square_order_id)
+            .map(p => p.square_order_id)
+    )];
+
+    if (orderIdsNeedingPaymentType.length > 0) {
+        try {
+            const squareClient = await getSquareClientForMerchant(merchantId);
+            const orderPaymentTypes = {};
+
+            // Fetch orders individually (Square doesn't have batch get for orders by ID list)
+            for (const orderId of orderIdsNeedingPaymentType) {
+                try {
+                    const orderResponse = await squareClient.orders.get({ orderId });
+                    if (orderResponse.order?.tenders?.length > 0) {
+                        // Use first tender's type (most orders have single payment method)
+                        orderPaymentTypes[orderId] = orderResponse.order.tenders[0].type;
+                    }
+                } catch (orderError) {
+                    logger.debug('Failed to fetch order for payment type', {
+                        orderId,
+                        error: orderError.message
+                    });
+                }
+            }
+
+            // Apply payment types to purchases
+            for (const purchase of purchases) {
+                if (!purchase.payment_type && orderPaymentTypes[purchase.square_order_id]) {
+                    purchase.payment_type = orderPaymentTypes[purchase.square_order_id];
+                }
+            }
+        } catch (error) {
+            logger.warn('Failed to enrich payment types from Square', {
+                merchantId,
+                rewardId,
+                error: error.message
+            });
+            // Continue without enrichment - payment_type will show N/A
+        }
+    }
+
     return {
         ...redemption,
-        contributingPurchases: purchasesResult.rows,
+        contributingPurchases: purchases,
         lowestPriceCents
     };
 }
@@ -225,21 +287,13 @@ async function generateVendorReceipt(rewardId, merchantId) {
         throw new Error('Redemption not found');
     }
 
-    const formatDate = (date) => {
-        if (!date) return 'N/A';
-        return new Date(date).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
+    // Use shared formatting utilities
+    const formatDate = formatReportDate;
 
-    const formatCents = (cents) => {
-        if (cents === null || cents === undefined) return 'N/A';
-        return `$${(cents / 100).toFixed(2)}`;
-    };
+    // Build privacy-masked customer info
+    const customerDisplayName = formatPrivacyName(data.given_name, data.family_name);
+    const customerPhone = formatPrivacyPhone(data.phone_number);
+    const customerEmail = formatPrivacyEmail(data.email_address);
 
     // Build purchase history table rows (with wholesale cost, vendor item #, payment type)
     const purchaseRows = data.contributingPurchases.map(p => `
@@ -252,7 +306,6 @@ async function generateVendorReceipt(rewardId, merchantId) {
             <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
             <td>${p.payment_type || 'N/A'}</td>
             <td style="font-size: 10px;">${p.square_order_id?.slice(0, 12) || 'N/A'}...</td>
-            <td>${p.receipt_url ? `<a href="${p.receipt_url}" target="_blank">View</a>` : 'N/A'}</td>
         </tr>
     `).join('');
 
@@ -447,19 +500,33 @@ async function generateVendorReceipt(rewardId, merchantId) {
     </div>
 
     <div class="section">
-        <h2>Redemption Details</h2>
+        <h2>Customer Information</h2>
         <div class="info-grid">
             <div class="info-box">
-                <label>Customer ID</label>
-                <div class="value">${data.square_customer_id}</div>
+                <label>Customer Name</label>
+                <div class="value">${customerDisplayName}</div>
             </div>
+            <div class="info-box">
+                <label>Phone</label>
+                <div class="value">${customerPhone || 'Not on file'}</div>
+            </div>
+            <div class="info-box">
+                <label>Email</label>
+                <div class="value">${customerEmail || 'Not on file'}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Redemption Details</h2>
+        <div class="info-grid">
             <div class="info-box">
                 <label>Redemption Date</label>
                 <div class="value">${formatDate(data.redeemed_at)}</div>
             </div>
             <div class="info-box">
                 <label>Redemption Type</label>
-                <div class="value">${(data.redemption_type || 'STANDARD').replace(/_/g, ' ').toUpperCase()}</div>
+                <div class="value">STANDARD</div>
             </div>
             <div class="info-box">
                 <label>Redeemed Item Value</label>
@@ -469,12 +536,6 @@ async function generateVendorReceipt(rewardId, merchantId) {
             <div class="info-box">
                 <label>Square Order ID</label>
                 <div class="value">${data.square_order_id}</div>
-            </div>
-            ` : ''}
-            ${data.redeemed_by_name ? `
-            <div class="info-box">
-                <label>Processed By</label>
-                <div class="value">${data.redeemed_by_name}</div>
             </div>
             ` : ''}
         </div>
@@ -515,11 +576,10 @@ async function generateVendorReceipt(rewardId, merchantId) {
                     <th>Wholesale Cost</th>
                     <th>Payment</th>
                     <th>Order ID</th>
-                    <th>Receipt</th>
                 </tr>
             </thead>
             <tbody>
-                ${purchaseRows || '<tr><td colspan="9">No purchase records available</td></tr>'}
+                ${purchaseRows || '<tr><td colspan="8">No purchase records available</td></tr>'}
             </tbody>
         </table>
     </div>
@@ -570,13 +630,6 @@ async function generateVendorReceipt(rewardId, merchantId) {
             <span><strong>${formatCents(data.lowestPriceCents)}</strong></span>
         </div>
     </div>
-
-    ${data.admin_notes ? `
-    <div class="section" style="margin-top: 20px;">
-        <h2>Notes</h2>
-        <p>${data.admin_notes}</p>
-    </div>
-    ` : ''}
 
     <div class="signature-line">
         <div class="signature-box">

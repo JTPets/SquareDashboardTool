@@ -258,6 +258,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
 | Low | BACKLOG-7 | Loyalty audit job per-event Square API calls |
+| Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
 
 #### BACKLOG-6: Consolidate Square Discount Cleanup Code
 
@@ -287,6 +288,22 @@ See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) 
 - `jobs/loyalty-audit-job.js:orderHasOurDiscount()` (lines 152-178)
 
 **Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then check discounts in memory.
+
+**Audit date**: 2026-02-02
+
+#### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
+
+**Context**: Vendor emails and contact info are currently NULL in `loyalty_offers`. The vendor receipt report shows N/A for vendor email because we're relying on a local `vendor_email` column that's never populated. Square is the source of truth for vendor data via the Vendors API.
+
+**Files involved**:
+- `services/reports/loyalty-reports.js` (generateVendorReceipt)
+- `database/schema.sql` (loyalty_offers table)
+
+**Proposed solution**:
+- On offer creation/edit, link to Square vendor ID instead of storing vendor details locally
+- When generating reports, fetch vendor contact details (email, company name, rep name) from Square Vendors API
+- Fall back to N/A if vendor not set in Square
+- Remove `vendor_email` column from `loyalty_offers` once migration is complete
 
 **Audit date**: 2026-02-02
 
