@@ -3653,6 +3653,170 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
     }
 }
 
+/**
+ * Batch update catalog content (description, SEO title, SEO description)
+ * Used by AI autofill feature to push generated content to Square
+ *
+ * @param {number} merchantId - The merchant ID
+ * @param {Array<Object>} updates - Array of { itemId, fieldType, value }
+ *   - fieldType: 'description' | 'seo_title' | 'seo_description'
+ * @returns {Promise<Object>} - { succeeded: [], failed: [] }
+ */
+async function batchUpdateCatalogContent(merchantId, updates) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+    if (!updates || updates.length === 0) {
+        return { succeeded: [], failed: [] };
+    }
+
+    const accessToken = await getMerchantToken(merchantId);
+    const results = { succeeded: [], failed: [] };
+
+    // Get unique item IDs
+    const itemIds = [...new Set(updates.map(u => u.itemId))];
+
+    try {
+        // Batch retrieve current catalog objects to get versions
+        const retrieveData = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+            method: 'POST',
+            body: JSON.stringify({
+                object_ids: itemIds,
+                include_related_objects: false
+            }),
+            accessToken
+        });
+
+        const objectMap = new Map();
+        for (const obj of (retrieveData.objects || [])) {
+            if (obj.type === 'ITEM') {
+                objectMap.set(obj.id, obj);
+            }
+        }
+
+        // Group updates by item ID for merging
+        const updatesByItem = new Map();
+        for (const update of updates) {
+            if (!updatesByItem.has(update.itemId)) {
+                updatesByItem.set(update.itemId, []);
+            }
+            updatesByItem.get(update.itemId).push(update);
+        }
+
+        // Build batch update objects
+        const updateObjects = [];
+
+        for (const [itemId, itemUpdates] of updatesByItem) {
+            const currentObject = objectMap.get(itemId);
+            if (!currentObject) {
+                for (const u of itemUpdates) {
+                    results.failed.push({ itemId, fieldType: u.fieldType, error: 'Item not found in Square' });
+                }
+                continue;
+            }
+
+            // Clone current item_data and apply updates
+            const itemData = { ...currentObject.item_data };
+
+            for (const update of itemUpdates) {
+                if (update.fieldType === 'description') {
+                    itemData.description = update.value;
+                } else if (update.fieldType === 'seo_title' || update.fieldType === 'seo_description') {
+                    // Initialize ecom_seo_data if not present
+                    if (!itemData.ecom_seo_data) {
+                        itemData.ecom_seo_data = {};
+                    }
+                    if (update.fieldType === 'seo_title') {
+                        itemData.ecom_seo_data.page_title = update.value;
+                    } else {
+                        itemData.ecom_seo_data.page_description = update.value;
+                    }
+                }
+            }
+
+            updateObjects.push({
+                type: 'ITEM',
+                id: itemId,
+                version: currentObject.version,
+                item_data: itemData
+            });
+        }
+
+        if (updateObjects.length === 0) {
+            return results;
+        }
+
+        // Batch upsert
+        const idempotencyKey = generateIdempotencyKey('catalog-content-batch');
+
+        const upsertData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+            method: 'POST',
+            body: JSON.stringify({
+                idempotency_key: idempotencyKey,
+                batches: [{ objects: updateObjects }]
+            }),
+            accessToken
+        });
+
+        // Mark succeeded items
+        const succeededIds = new Set((upsertData.objects || []).map(o => o.id));
+        for (const update of updates) {
+            if (succeededIds.has(update.itemId)) {
+                results.succeeded.push({ itemId: update.itemId, fieldType: update.fieldType });
+            }
+        }
+
+        // Update local database with new values
+        for (const update of updates) {
+            if (succeededIds.has(update.itemId)) {
+                try {
+                    let query;
+                    if (update.fieldType === 'description') {
+                        query = 'UPDATE items SET description = $1 WHERE id = $2 AND merchant_id = $3';
+                    } else if (update.fieldType === 'seo_title') {
+                        query = 'UPDATE items SET seo_title = $1 WHERE id = $2 AND merchant_id = $3';
+                    } else if (update.fieldType === 'seo_description') {
+                        query = 'UPDATE items SET seo_description = $1 WHERE id = $2 AND merchant_id = $3';
+                    }
+                    if (query) {
+                        await db.query(query, [update.value, update.itemId, merchantId]);
+                    }
+                } catch (dbError) {
+                    logger.warn('Failed to update local DB after Square update', {
+                        itemId: update.itemId,
+                        fieldType: update.fieldType,
+                        error: dbError.message
+                    });
+                    // Don't fail the overall operation - Square update succeeded
+                }
+            }
+        }
+
+        logger.info('Batch catalog content update complete', {
+            merchantId,
+            total: updates.length,
+            succeeded: results.succeeded.length,
+            failed: results.failed.length
+        });
+
+    } catch (error) {
+        logger.error('Batch catalog content update failed', {
+            merchantId,
+            error: error.message,
+            stack: error.stack
+        });
+
+        // Mark all remaining as failed
+        for (const update of updates) {
+            if (!results.succeeded.find(s => s.itemId === update.itemId && s.fieldType === update.fieldType)) {
+                results.failed.push({ itemId: update.itemId, fieldType: update.fieldType, error: error.message });
+            }
+        }
+    }
+
+    return results;
+}
+
 module.exports = {
     syncLocations,
     syncVendors,
@@ -3682,6 +3846,8 @@ module.exports = {
     batchUpdateVariationPrices,
     // Cost update functions
     updateVariationCost,
+    // Catalog content update functions
+    batchUpdateCatalogContent,
     // Utility functions (for expiry discount module)
     generateIdempotencyKey,
     makeSquareRequest,
