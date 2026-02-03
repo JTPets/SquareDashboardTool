@@ -30,6 +30,9 @@ const { FEATURE_FLAGS } = require('../../config/constants');
 // Modern loyalty service (feature-flagged)
 const { LoyaltyWebhookService } = require('../loyalty');
 
+// Cart activity tracking for DRAFT orders
+const cartActivityService = require('../cart/cart-activity-service');
+
 // Square API version for direct API calls
 const SQUARE_API_VERSION = '2025-01-16';
 
@@ -385,6 +388,22 @@ class OrderHandler {
      * @private
      */
     async _processDeliveryRouting(order, merchantId, result) {
+        // Route DRAFT orders to cart_activity, not delivery
+        if (order.state === 'DRAFT') {
+            await this._processCartActivity(order, merchantId, result);
+            return; // Don't process as delivery
+        }
+
+        // Check for cart conversion when order transitions to OPEN/COMPLETED
+        if (['OPEN', 'COMPLETED'].includes(order.state)) {
+            await this._checkCartConversion(order.id, merchantId);
+        }
+
+        // Check for cart cancellation
+        if (order.state === 'CANCELED') {
+            await this._markCartCanceled(order.id, merchantId);
+        }
+
         // IMPORTANT: Check for customer refresh FIRST, before any early returns
         // Webhooks often have no fulfillments even when the order exists in our system
         if (['OPEN', 'COMPLETED'].includes(order.state)) {
@@ -412,8 +431,8 @@ class OrderHandler {
             return;
         }
 
-        // Auto-ingest OPEN orders
-        if (order.state !== 'COMPLETED' && order.state !== 'CANCELED') {
+        // Auto-ingest OPEN orders (not DRAFT - those go to cart_activity)
+        if (order.state === 'OPEN') {
             await this._ingestDeliveryOrder(order, merchantId, result);
         }
 
@@ -491,6 +510,74 @@ class OrderHandler {
             logger.error('Failed to handle order completion for delivery', {
                 error: completeError.message,
                 orderId
+            });
+        }
+    }
+
+    /**
+     * Process DRAFT order for cart activity tracking
+     * @private
+     */
+    async _processCartActivity(order, merchantId, result) {
+        try {
+            const cart = await cartActivityService.createFromDraftOrder(order, merchantId);
+            if (cart) {
+                result.cartActivity = {
+                    id: cart.id,
+                    itemCount: cart.item_count,
+                    status: cart.status
+                };
+                logger.info('DRAFT order routed to cart_activity', {
+                    merchantId,
+                    squareOrderId: order.id,
+                    cartActivityId: cart.id,
+                    source: order.source?.name
+                });
+            }
+        } catch (err) {
+            logger.error('Failed to process cart activity', {
+                merchantId,
+                squareOrderId: order.id,
+                error: err.message
+            });
+        }
+    }
+
+    /**
+     * Check for cart conversion when order transitions to OPEN/COMPLETED
+     * @private
+     */
+    async _checkCartConversion(orderId, merchantId) {
+        try {
+            const cart = await cartActivityService.markConverted(orderId, merchantId);
+            if (cart) {
+                logger.info('Cart conversion detected', {
+                    merchantId,
+                    squareOrderId: orderId,
+                    cartActivityId: cart.id
+                });
+            }
+        } catch (err) {
+            logger.warn('Failed to check cart conversion', {
+                merchantId,
+                squareOrderId: orderId,
+                error: err.message
+            });
+        }
+    }
+
+    /**
+     * Mark cart as canceled when order is canceled
+     * @private
+     */
+    async _markCartCanceled(orderId, merchantId) {
+        try {
+            await cartActivityService.markCanceled(orderId, merchantId);
+        } catch (err) {
+            logger.warn('Failed to mark cart canceled', {
+                merchantId,
+                squareOrderId: orderId,
+                error: err.message
             });
         }
     }

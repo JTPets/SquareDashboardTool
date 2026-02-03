@@ -70,6 +70,7 @@ const analyticsRoutes = require('./routes/analytics');
 const merchantsRoutes = require('./routes/merchants');
 const settingsRoutes = require('./routes/settings');
 const logsRoutes = require('./routes/logs');
+const cartActivityRoutes = require('./routes/cart-activity');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -317,6 +318,10 @@ app.use('/api/gmc', gmcRoutes);
 // ==================== DELIVERY ROUTES ====================
 // Delivery order management, POD photos, route optimization
 app.use('/api/delivery', deliveryRoutes);
+
+// ==================== CART ACTIVITY ROUTES ====================
+// Shopping cart tracking for DRAFT orders from Square Online
+app.use('/api/cart-activity', cartActivityRoutes);
 
 // ==================== WEBHOOK ROUTES ====================
 // Webhook subscription CRUD operations

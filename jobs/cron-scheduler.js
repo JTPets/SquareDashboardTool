@@ -18,6 +18,7 @@ const { runScheduledSmartSync, runScheduledGmcSync } = require('./sync-job');
 const { runScheduledExpiryDiscount } = require('./expiry-discount-job');
 const { runScheduledLoyaltyCatchup } = require('./loyalty-catchup-job');
 const { runScheduledLoyaltyAudit } = require('./loyalty-audit-job');
+const { runScheduledCartActivityCleanup } = require('./cart-activity-cleanup-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -96,6 +97,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Loyalty audit cron job scheduled', { schedule: loyaltyAuditSchedule, timezone: 'America/Toronto' });
+
+    // 10. Cart activity cleanup job
+    // Runs daily at 3 AM to mark abandoned carts (7+ days) and purge old records (30+ days)
+    const cartActivityCleanupSchedule = process.env.CART_ACTIVITY_CLEANUP_CRON || '0 3 * * *';
+    cronTasks.push(cron.schedule(cartActivityCleanupSchedule, runScheduledCartActivityCleanup, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Cart activity cleanup cron job scheduled', { schedule: cartActivityCleanupSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
