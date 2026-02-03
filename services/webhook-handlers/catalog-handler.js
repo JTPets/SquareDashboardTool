@@ -204,27 +204,36 @@ class CatalogHandler {
             merchantId
         });
 
-        // Sync the specific vendor directly
+        // Sync the specific vendor using upsert
+        // First try to update by ID, then by normalized name (handles ID changes),
+        // finally insert if neither exists
+        const contactName = vendor.contacts?.[0]?.name || null;
+        const contactEmail = vendor.contacts?.[0]?.email_address || null;
+        const contactPhone = vendor.contacts?.[0]?.phone_number || null;
+
         await db.query(`
-            INSERT INTO vendors (
-                id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at
+            WITH updated AS (
+                UPDATE vendors SET
+                    id = $1,
+                    name = $2,
+                    status = $3,
+                    contact_name = $4,
+                    contact_email = $5,
+                    contact_phone = $6,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE merchant_id = $7 AND (id = $1 OR vendor_name_normalized(name) = vendor_name_normalized($2))
+                RETURNING id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-            ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                status = EXCLUDED.status,
-                contact_name = EXCLUDED.contact_name,
-                contact_email = EXCLUDED.contact_email,
-                contact_phone = EXCLUDED.contact_phone,
-                merchant_id = EXCLUDED.merchant_id,
-                updated_at = CURRENT_TIMESTAMP
+            INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+            SELECT $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP
+            WHERE NOT EXISTS (SELECT 1 FROM updated)
         `, [
             vendorId,
             vendor.name,
             vendor.status,
-            vendor.contacts?.[0]?.name || null,
-            vendor.contacts?.[0]?.email_address || null,
-            vendor.contacts?.[0]?.phone_number || null,
+            contactName,
+            contactEmail,
+            contactPhone,
             merchantId
         ]);
 
