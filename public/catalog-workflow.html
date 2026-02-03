@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catalog Workflow - AI Content Autofill</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    /* Summary cards */
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      padding: 20px;
+      background: #1f2937;
+    }
+    .summary-card {
+      background: #374151;
+      border-radius: 8px;
+      padding: 15px;
+      text-align: center;
+      border-left: 4px solid;
+    }
+    .summary-card.not-ready { border-left-color: #dc2626; }
+    .summary-card.needs-description { border-left-color: #f59e0b; }
+    .summary-card.needs-seo-title { border-left-color: #3b82f6; }
+    .summary-card.needs-seo-desc { border-left-color: #8b5cf6; }
+    .summary-card.complete { border-left-color: #059669; }
+    .summary-card .count {
+      font-size: 32px;
+      font-weight: 700;
+      color: white;
+    }
+    .summary-card .label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* API Key Section */
+    .api-config {
+      padding: 15px 20px;
+      background: #fef3c7;
+      border-bottom: 1px solid #fcd34d;
+    }
+    .api-config-header {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .api-config label { font-weight: 500; color: #92400e; }
+    .api-config input[type="password"],
+    .api-config input[type="text"] {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 350px;
+      font-family: monospace;
+    }
+    .api-config small {
+      display: block;
+      margin-top: 8px;
+      color: #92400e;
+      font-size: 12px;
+    }
+    .api-status {
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .api-status.connected { background: #d1fae5; color: #065f46; }
+    .api-status.not-connected { background: #fee2e2; color: #991b1b; }
+
+    /* Context Section */
+    .context-section {
+      padding: 15px 20px;
+      background: #f3f4f6;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .context-section h3 {
+      font-size: 14px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+    .context-row {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    .context-field {
+      flex: 1;
+      min-width: 200px;
+    }
+    .context-field label {
+      display: block;
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .context-field textarea,
+    .context-field input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .context-field textarea {
+      height: 60px;
+      resize: vertical;
+    }
+    .context-field select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #e5e7eb;
+      background: #f9fafb;
+      overflow-x: auto;
+    }
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.2s;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab:hover {
+      color: #374151;
+      background: #f3f4f6;
+    }
+    .tab.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      background: white;
+    }
+    .tab .badge {
+      background: #e5e7eb;
+      color: #374151;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tab.active .badge {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    /* Tab content */
+    .tab-content {
+      display: none;
+      padding: 20px;
+    }
+    .tab-content.active { display: block; }
+
+    /* Buttons */
+    .btn {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+      min-height: 40px;
+    }
+    .btn-primary {
+      background: #2563eb;
+      color: white;
+      border: none;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-success {
+      background: #059669;
+      color: white;
+      border: none;
+    }
+    .btn-success:hover { background: #047857; }
+    .btn-secondary {
+      background: white;
+      color: #374151;
+    }
+    .btn-secondary:hover { background: #f3f4f6; }
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+      border: none;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+
+    /* Table styles */
+    .table-container {
+      overflow-x: auto;
+      max-height: 55vh;
+      overflow-y: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+    tr:hover { background: #f9fafb; }
+    .thumbnail {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #f3f4f6;
+    }
+    .thumbnail-placeholder {
+      width: 50px;
+      height: 50px;
+      background: #fee2e2;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #dc2626;
+      font-size: 20px;
+    }
+    .missing-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .missing-badge.image { background: #fee2e2; color: #991b1b; }
+    .missing-badge.category { background: #fef3c7; color: #92400e; }
+    .item-name { font-weight: 500; }
+    .item-variations { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .text-truncate {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .text-preview {
+      max-width: 250px;
+      font-size: 12px;
+      color: #6b7280;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Selection controls */
+    .selection-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 15px;
+      padding: 10px;
+      background: #f3f4f6;
+      border-radius: 4px;
+    }
+    .selection-controls span {
+      color: #6b7280;
+      font-size: 13px;
+    }
+
+    /* Generated content review */
+    .generated-item {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      overflow: hidden;
+    }
+    .generated-item-header {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      padding: 15px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .generated-item-header input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    .generated-item-body {
+      padding: 15px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+    .generated-item-body .field-group {
+      display: flex;
+      flex-direction: column;
+    }
+    .generated-item-body label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .generated-item-body .original {
+      padding: 10px;
+      background: #f3f4f6;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #6b7280;
+      min-height: 60px;
+    }
+    .generated-item-body textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      min-height: 60px;
+      resize: vertical;
+    }
+    .char-count {
+      font-size: 11px;
+      color: #6b7280;
+      text-align: right;
+      margin-top: 4px;
+    }
+    .char-count.warning { color: #f59e0b; }
+    .char-count.error { color: #dc2626; }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 {
+      font-size: 18px;
+      color: #374151;
+      margin-bottom: 10px;
+    }
+
+    /* Loading spinner */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #6b7280;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Alert boxes */
+    .alert {
+      padding: 12px 15px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .alert-info {
+      background: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #93c5fd;
+    }
+    .alert-warning {
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+    }
+    .alert-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .alert-success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+
+    /* Progress indicator */
+    .progress-bar {
+      height: 4px;
+      background: #e5e7eb;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 15px;
+    }
+    .progress-bar .progress {
+      height: 100%;
+      background: #2563eb;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Catalog Workflow - AI Content Autofill</h1>
+      <a href="/dashboard.html" class="back-button">Back to Dashboard</a>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary">
+      <div class="summary-card not-ready">
+        <div class="count" id="count-not-ready">-</div>
+        <div class="label">Not Ready</div>
+      </div>
+      <div class="summary-card needs-description">
+        <div class="count" id="count-needs-description">-</div>
+        <div class="label">Needs Description</div>
+      </div>
+      <div class="summary-card needs-seo-title">
+        <div class="count" id="count-needs-seo-title">-</div>
+        <div class="label">Needs SEO Title</div>
+      </div>
+      <div class="summary-card needs-seo-desc">
+        <div class="count" id="count-needs-seo-desc">-</div>
+        <div class="label">Needs SEO Desc</div>
+      </div>
+      <div class="summary-card complete">
+        <div class="count" id="count-complete">-</div>
+        <div class="label">Complete</div>
+      </div>
+    </div>
+
+    <!-- API Key Configuration -->
+    <div class="api-config">
+      <div class="api-config-header">
+        <label for="api-key">Claude API Key:</label>
+        <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+        <button class="btn btn-secondary" data-action="toggleApiKeyVisibility">Show</button>
+        <button class="btn btn-secondary" data-action="saveApiKey">Save</button>
+        <button class="btn btn-secondary" data-action="clearApiKey">Clear</button>
+        <span class="api-status not-connected" id="api-status">Not Connected</span>
+      </div>
+      <small>Your API key is stored in your browser only and passed directly to Claude's API. Clear it on shared devices.</small>
+    </div>
+
+    <!-- Context Configuration -->
+    <div class="context-section">
+      <h3>Generation Context (optional)</h3>
+      <div class="context-row">
+        <div class="context-field" style="flex: 2;">
+          <label for="business-context">Business Context</label>
+          <textarea id="business-context" placeholder="e.g., We are a pet food store specializing in premium natural pet foods with free local delivery..."></textarea>
+        </div>
+        <div class="context-field">
+          <label for="target-keywords">Target Keywords (comma-separated)</label>
+          <input type="text" id="target-keywords" placeholder="e.g., pet food, dog food, cat food">
+        </div>
+        <div class="context-field" style="flex: 0 0 150px;">
+          <label for="tone">Tone</label>
+          <select id="tone">
+            <option value="professional">Professional</option>
+            <option value="friendly">Friendly</option>
+            <option value="technical">Technical</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="not-ready" data-action="switchTab" data-action-param="not-ready">
+        Not Ready <span class="badge" id="badge-not-ready">0</span>
+      </div>
+      <div class="tab" data-tab="needs-description" data-action="switchTab" data-action-param="needs-description">
+        Needs Description <span class="badge" id="badge-needs-description">0</span>
+      </div>
+      <div class="tab" data-tab="needs-seo-title" data-action="switchTab" data-action-param="needs-seo-title">
+        Needs SEO Title <span class="badge" id="badge-needs-seo-title">0</span>
+      </div>
+      <div class="tab" data-tab="needs-seo-desc" data-action="switchTab" data-action-param="needs-seo-desc">
+        Needs SEO Description <span class="badge" id="badge-needs-seo-desc">0</span>
+      </div>
+      <div class="tab" data-tab="review" data-action="switchTab" data-action-param="review">
+        Review Generated
+      </div>
+      <div class="tab" data-tab="complete" data-action="switchTab" data-action-param="complete">
+        Complete <span class="badge" id="badge-complete">0</span>
+      </div>
+    </div>
+
+    <!-- Tab: Not Ready -->
+    <div class="tab-content active" id="tab-not-ready">
+      <div class="alert alert-warning">
+        These items are missing required prerequisites (image and/or category). Fix them in Square Dashboard before generating content.
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Missing</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="not-ready-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Needs Description -->
+    <div class="tab-content" id="tab-needs-description">
+      <div class="selection-controls">
+        <input type="checkbox" id="select-all-description" data-change="toggleSelectAllDescription">
+        <label for="select-all-description">Select All</label>
+        <span id="selected-count-description">0 selected</span>
+        <button class="btn btn-primary" data-action="generateDescriptions" id="btn-generate-descriptions" disabled>
+          Generate Descriptions
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;"></th>
+              <th>Image</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Variations</th>
+            </tr>
+          </thead>
+          <tbody id="needs-description-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Needs SEO Title -->
+    <div class="tab-content" id="tab-needs-seo-title">
+      <div class="selection-controls">
+        <input type="checkbox" id="select-all-seo-title" data-change="toggleSelectAllSeoTitle">
+        <label for="select-all-seo-title">Select All</label>
+        <span id="selected-count-seo-title">0 selected</span>
+        <button class="btn btn-primary" data-action="generateSeoTitles" id="btn-generate-seo-titles" disabled>
+          Generate SEO Titles
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;"></th>
+              <th>Image</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Description Preview</th>
+            </tr>
+          </thead>
+          <tbody id="needs-seo-title-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Needs SEO Description -->
+    <div class="tab-content" id="tab-needs-seo-desc">
+      <div class="selection-controls">
+        <input type="checkbox" id="select-all-seo-desc" data-change="toggleSelectAllSeoDesc">
+        <label for="select-all-seo-desc">Select All</label>
+        <span id="selected-count-seo-desc">0 selected</span>
+        <button class="btn btn-primary" data-action="generateSeoDescriptions" id="btn-generate-seo-desc" disabled>
+          Generate SEO Descriptions
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;"></th>
+              <th>Image</th>
+              <th>Name</th>
+              <th>SEO Title</th>
+              <th>Description Preview</th>
+            </tr>
+          </thead>
+          <tbody id="needs-seo-desc-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Review Generated -->
+    <div class="tab-content" id="tab-review">
+      <div id="review-content">
+        <div class="empty-state">
+          <h3>No Content to Review</h3>
+          <p>Select items from another tab and generate content to review it here.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Complete -->
+    <div class="tab-content" id="tab-complete">
+      <div class="alert alert-success">
+        These items have all content fields populated. They're ready for your online store.
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Image</th>
+              <th>Name</th>
+              <th>Category</th>
+              <th>SEO Title</th>
+              <th>SEO Description</th>
+            </tr>
+          </thead>
+          <tbody id="complete-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/event-delegation.js"></script>
+  <script src="/js/catalog-workflow.js"></script>
+</body>
+</html>
