@@ -740,7 +740,8 @@
     }
 
     // Archive batch
-    async function archiveBatch(batchId) {
+    async function archiveBatch(element, event, param) {
+      const batchId = param;
       if (!confirm(`Archive this import? It will be hidden but still searchable.`)) {
         return;
       }
@@ -764,7 +765,8 @@
     }
 
     // Unarchive batch
-    async function unarchiveBatch(batchId) {
+    async function unarchiveBatch(element, event, param) {
+      const batchId = param;
       try {
         const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/unarchive`, {
           method: 'POST'
@@ -784,7 +786,8 @@
     }
 
     // Delete batch
-    async function deleteBatch(batchId) {
+    async function deleteBatch(element, event, param) {
+      const batchId = param;
       if (!confirm(`Permanently delete this import? This cannot be undone.`)) {
         return;
       }
@@ -808,7 +811,8 @@
     }
 
     // Open price report for a batch from import history
-    async function openBatchReport(batchId) {
+    async function openBatchReport(element, event, param) {
+      const batchId = param;
       try {
         const response = await fetch(`/api/vendor-catalog/batches/${encodeURIComponent(batchId)}/report`);
         const data = await response.json();
