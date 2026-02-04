@@ -228,6 +228,7 @@ const getCustomerHistory = [
 /**
  * GET /api/loyalty/customer/:customerId/audit-history
  * Get customer order history for audit
+ * Supports chunked loading (startMonthsAgo/endMonthsAgo) or legacy days param
  */
 const getCustomerAuditHistory = [
     param('customerId')
@@ -236,8 +237,16 @@ const getCustomerAuditHistory = [
         .withMessage('customerId is required'),
     query('days')
         .optional()
-        .isInt({ min: 1, max: 365 })
-        .withMessage('days must be between 1 and 365'),
+        .isInt({ min: 1, max: 548 })
+        .withMessage('days must be between 1 and 548'),
+    query('startMonthsAgo')
+        .optional()
+        .isInt({ min: 0, max: 18 })
+        .withMessage('startMonthsAgo must be between 0 and 18'),
+    query('endMonthsAgo')
+        .optional()
+        .isInt({ min: 0, max: 18 })
+        .withMessage('endMonthsAgo must be between 0 and 18'),
     handleValidationErrors
 ];
 

@@ -326,21 +326,37 @@ router.get('/customer/:customerId/rewards', requireAuth, requireMerchant, valida
 
 /**
  * GET /api/loyalty/customer/:customerId/audit-history
- * Get 91-day order history for manual loyalty audit
+ * Get order history for manual loyalty audit (up to 18 months)
+ * Supports chunked loading (startMonthsAgo/endMonthsAgo) or legacy days param
  * Returns orders with qualifying/non-qualifying items analysis
  */
 router.get('/customer/:customerId/audit-history', requireAuth, requireMerchant, validators.getCustomerAuditHistory, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const customerId = req.params.customerId;
-    const days = parseInt(req.query.days) || 91;
 
-    const result = await loyaltyService.getCustomerOrderHistoryForAudit({
-        squareCustomerId: customerId,
-        merchantId,
-        periodDays: days
-    });
+    // Support chunked loading (startMonthsAgo/endMonthsAgo) or legacy days param
+    const startMonthsAgo = req.query.startMonthsAgo !== undefined ? parseInt(req.query.startMonthsAgo) : null;
+    const endMonthsAgo = req.query.endMonthsAgo !== undefined ? parseInt(req.query.endMonthsAgo) : null;
 
-    res.json(result);
+    // Use chunked params if both provided, otherwise fall back to legacy days param
+    if (startMonthsAgo !== null && endMonthsAgo !== null) {
+        const result = await loyaltyService.getCustomerOrderHistoryForAudit({
+            squareCustomerId: customerId,
+            merchantId,
+            startMonthsAgo,
+            endMonthsAgo
+        });
+        res.json(result);
+    } else {
+        // Backward compat: convert days to periodDays
+        const days = parseInt(req.query.days) || 91;
+        const result = await loyaltyService.getCustomerOrderHistoryForAudit({
+            squareCustomerId: customerId,
+            merchantId,
+            periodDays: days
+        });
+        res.json(result);
+    }
 }));
 
 /**
