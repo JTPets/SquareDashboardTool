@@ -38,6 +38,9 @@ const {
   generateTraceId,
 } = require('./loyalty-tracer');
 
+// Customer profile service (modern - reads from source of truth)
+const { getCustomerOfferProgress } = require('./customer-profile-service');
+
 module.exports = {
   // Main service (recommended entry point)
   LoyaltyWebhookService,
@@ -58,4 +61,7 @@ module.exports = {
   getTracer,
   cleanupTracer,
   generateTraceId,
+
+  // Customer profile (modern)
+  getCustomerOfferProgress,
 };
