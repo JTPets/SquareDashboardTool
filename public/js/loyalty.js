@@ -774,7 +774,21 @@ async function viewCustomerHistory(element, event, customerId) {
 let auditSelectedOrders = new Set();
 let auditOrdersData = null;
 
+// Chunked loading state
+let currentAuditCustomerId = null;
+let loadedAuditChunks = [];
+let allAuditOrders = [];
+let cachedCurrentRewards = [];
+let auditHasMoreHistory = false;
+let auditIsLoadingMore = false;
+
 async function viewOrderAuditHistory(customerId, customerName = 'Customer') {
+  // Reset all state for new customer
+  currentAuditCustomerId = customerId;
+  loadedAuditChunks = [];
+  allAuditOrders = [];
+  cachedCurrentRewards = [];
+  auditHasMoreHistory = false;
   auditSelectedOrders.clear();
   auditOrdersData = null;
 
@@ -784,21 +798,38 @@ async function viewOrderAuditHistory(customerId, customerName = 'Customer') {
     <small style="color: #6b7280;">ID: ${customerId}</small>
   `;
   document.getElementById('audit-summary').innerHTML = '';
-  document.getElementById('audit-orders-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading 91-day order history from Square...</div>';
+  document.getElementById('audit-orders-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading order history from Square (0-3 months)...</div>';
   updateAuditButton();
 
   showModal('order-audit-modal');
 
   try {
-    const response = await fetch(`/api/loyalty/customer/${customerId}/audit-history?days=91`);
+    // Load first chunk (0-3 months)
+    const response = await fetch(`/api/loyalty/customer/${customerId}/audit-history?startMonthsAgo=0&endMonthsAgo=3`);
+
+    // Discard if user switched customers
+    if (customerId !== currentAuditCustomerId) return;
+
     const data = await response.json();
 
     if (!response.ok) {
       throw new Error(data.error || 'Failed to fetch order history');
     }
 
-    auditOrdersData = data;
-    renderAuditOrders(data);
+    // Store state from first chunk
+    loadedAuditChunks.push({ start: 0, end: 3 });
+    allAuditOrders = data.orders;
+    cachedCurrentRewards = data.currentRewards || [];
+    auditHasMoreHistory = data.hasMoreHistory || false;
+
+    // Build merged data for rendering
+    auditOrdersData = {
+      ...data,
+      orders: allAuditOrders,
+      currentRewards: cachedCurrentRewards
+    };
+
+    renderAuditOrders(auditOrdersData);
 
   } catch (error) {
     console.error('Failed to load audit history:', error);
@@ -807,6 +838,82 @@ async function viewOrderAuditHistory(customerId, customerName = 'Customer') {
         Failed to load order history: ${escapeHtml(error.message)}
       </div>
     `;
+  }
+}
+
+async function loadMoreAuditHistory() {
+  if (auditIsLoadingMore || !auditHasMoreHistory) return;
+
+  const customerId = currentAuditCustomerId;
+  if (!customerId) return;
+
+  // Determine next chunk
+  const lastChunk = loadedAuditChunks[loadedAuditChunks.length - 1];
+  const nextStart = lastChunk ? lastChunk.end : 0;
+  const nextEnd = nextStart + 3;
+
+  if (nextEnd > 18) return; // Max 18 months
+
+  // Update UI to show loading
+  auditIsLoadingMore = true;
+  const loadMoreBtn = document.getElementById('audit-load-more-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = 'Loading...';
+  }
+
+  try {
+    const response = await fetch(`/api/loyalty/customer/${customerId}/audit-history?startMonthsAgo=${nextStart}&endMonthsAgo=${nextEnd}`);
+
+    // Discard if user switched customers
+    if (customerId !== currentAuditCustomerId) {
+      auditIsLoadingMore = false;
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load more history');
+    }
+
+    // Merge new orders
+    loadedAuditChunks.push({ start: nextStart, end: nextEnd });
+    allAuditOrders = [...allAuditOrders, ...data.orders];
+    auditHasMoreHistory = data.hasMoreHistory || false;
+
+    // Build merged data for rendering
+    auditOrdersData = {
+      ...data,
+      orders: allAuditOrders,
+      currentRewards: cachedCurrentRewards,
+      // Update summary to reflect all loaded orders
+      summary: {
+        totalOrders: allAuditOrders.length,
+        alreadyTracked: allAuditOrders.filter(o => o.isAlreadyTracked).length,
+        canBeAdded: allAuditOrders.filter(o => o.canBeAdded).length,
+        totalQualifyingQtyAvailable: allAuditOrders
+          .filter(o => o.canBeAdded)
+          .reduce((sum, o) => sum + o.totalQualifyingQty, 0)
+      },
+      // Update date range to span all loaded chunks
+      dateRange: {
+        start: data.dateRange.start,
+        end: loadedAuditChunks[0] ? auditOrdersData.dateRange?.end : data.dateRange.end
+      }
+    };
+
+    renderAuditOrders(auditOrdersData);
+
+  } catch (error) {
+    console.error('Failed to load more history:', error);
+    // Re-enable button on error
+    if (loadMoreBtn) {
+      loadMoreBtn.disabled = false;
+      loadMoreBtn.textContent = `Load More (${nextStart}-${nextEnd} months) - Retry`;
+    }
+  } finally {
+    auditIsLoadingMore = false;
   }
 }
 
@@ -868,12 +975,18 @@ function renderAuditOrders(data) {
   }
 
   // Build offer breakdown HTML
+  // Calculate loaded months for display
+  const loadedMonths = loadedAuditChunks.length > 0
+    ? loadedAuditChunks[loadedAuditChunks.length - 1].end
+    : 3;
+  const loadedMonthsText = loadedMonths === 1 ? '1 Month' : `${loadedMonths} Months`;
+
   let offerBreakdownHtml = '';
   const offerNames = Object.keys(offerBreakdown);
   if (offerNames.length > 0) {
     offerBreakdownHtml = `
       <div style="margin-top: 15px; background: #f8fafc; padding: 12px; border-radius: 8px;">
-        <div style="font-weight: 600; margin-bottom: 10px; font-size: 13px;">📊 Offer Unit Breakdown (91 Days)</div>
+        <div style="font-weight: 600; margin-bottom: 10px; font-size: 13px;">📊 Offer Unit Breakdown (${loadedMonthsText})</div>
         <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
           <thead>
             <tr style="background: #e2e8f0;">
@@ -947,7 +1060,21 @@ function renderAuditOrders(data) {
   `;
 
   if (data.orders.length === 0) {
-    container.innerHTML = '<div class="empty-state">No orders found in the last 91 days.</div>';
+    let emptyHtml = `<div class="empty-state">No orders found in the last ${loadedMonthsText.toLowerCase()}.</div>`;
+    // Show Load More button even if no orders in current chunk
+    if (auditHasMoreHistory) {
+      const nextStart = loadedAuditChunks.length > 0 ? loadedAuditChunks[loadedAuditChunks.length - 1].end : 0;
+      const nextEnd = nextStart + 3;
+      emptyHtml += `
+        <div style="text-align: center; margin-top: 15px;">
+          <button id="audit-load-more-btn" data-action="loadMoreAuditHistory"
+                  style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+            Load More (${nextStart}-${nextEnd} months ago)
+          </button>
+        </div>
+      `;
+    }
+    container.innerHTML = emptyHtml;
     return;
   }
 
@@ -1058,6 +1185,31 @@ function renderAuditOrders(data) {
   }
 
   html += '</tbody></table>';
+
+  // Add Load More button if there's more history
+  if (auditHasMoreHistory) {
+    const nextStart = loadedAuditChunks.length > 0 ? loadedAuditChunks[loadedAuditChunks.length - 1].end : 0;
+    const nextEnd = nextStart + 3;
+    html += `
+      <div style="text-align: center; margin-top: 15px; padding: 15px; background: #f8fafc; border-radius: 8px;">
+        <button id="audit-load-more-btn" data-action="loadMoreAuditHistory"
+                style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+          Load More (${nextStart}-${nextEnd} months ago)
+        </button>
+        <div style="margin-top: 8px; font-size: 11px; color: #6b7280;">
+          Loaded ${loadedMonths} of 18 months
+        </div>
+      </div>
+    `;
+  } else if (loadedAuditChunks.length > 1) {
+    // Show completion message if we loaded multiple chunks
+    html += `
+      <div style="text-align: center; margin-top: 15px; padding: 10px; background: #f0fdf4; border-radius: 8px; font-size: 12px; color: #059669;">
+        ✓ All ${loadedMonths} months of history loaded
+      </div>
+    `;
+  }
+
   container.innerHTML = html;
 }
 
@@ -1071,11 +1223,11 @@ function toggleAuditOrder(orderId, isChecked) {
 }
 
 function toggleAllAuditOrders(selectAll) {
-  if (!auditOrdersData) return;
+  if (!allAuditOrders || allAuditOrders.length === 0) return;
 
   auditSelectedOrders.clear();
   if (selectAll) {
-    for (const order of auditOrdersData.orders) {
+    for (const order of allAuditOrders) {
       if (order.canBeAdded) {
         auditSelectedOrders.add(order.orderId);
       }
@@ -1715,6 +1867,7 @@ window.loadRewards = loadRewards;
 window.loadRedemptions = loadRedemptions;
 window.toggleAllAuditOrdersFromCheckbox = toggleAllAuditOrdersFromCheckbox;
 window.toggleAuditOrderFromCheckbox = toggleAuditOrderFromCheckbox;
+window.loadMoreAuditHistory = loadMoreAuditHistory;
 window.searchVariations = searchVariations;
 window.handleCustomerSearchKeyup = handleCustomerSearchKeyup;
 window.submitForVendorCredit = submitForVendorCredit;

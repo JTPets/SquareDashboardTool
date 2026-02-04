@@ -266,8 +266,11 @@ async function auditMerchant(merchant, hoursBack) {
         // Get local redemption records
         const localRedemptions = await getLocalRedemptions(merchantId, orderIds);
 
-        // Track seen order IDs for double redemption detection
+        // Track seen order IDs for double redemption detection (only among our system's events)
         const seenOrderIds = new Map();
+
+        // Cache order discount checks to avoid re-fetching for double redemptions
+        const orderDiscountCache = new Map();
 
         for (const event of events) {
             const orderId = event.redeemReward?.orderId;
@@ -276,7 +279,21 @@ async function auditMerchant(merchant, hoursBack) {
 
             if (!orderId) continue;
 
-            // Check for double redemptions
+            // FILTER FIRST - Check if this is our punch card system vs Square native points
+            // This MUST happen before double redemption tracking to avoid false positives
+            let isOurRedemption = orderDiscountCache.get(orderId);
+            if (isOurRedemption === undefined) {
+                isOurRedemption = await orderHasOurDiscount(squareClient, orderId, ourDiscountIds);
+                orderDiscountCache.set(orderId, isOurRedemption);
+            }
+
+            if (!isOurRedemption) {
+                // This is a Square native points redemption, not our system - skip entirely
+                results.skippedNativePoints++;
+                continue;
+            }
+
+            // NOW track and check for doubles (only among our system's events)
             if (seenOrderIds.has(orderId)) {
                 results.doubleRedemptions++;
                 results.orphansFound++;
@@ -303,19 +320,9 @@ async function auditMerchant(merchant, hoursBack) {
                 createdAt: event.createdAt
             });
 
-            // Check for missing local redemption record
+            // Check for missing local redemption record (already filtered to our system)
             const localRecord = localRedemptions.get(orderId);
             if (!localRecord) {
-                // Before flagging, check if this is actually our punch card system
-                // vs Square's native points loyalty (different systems)
-                const isOurRedemption = await orderHasOurDiscount(squareClient, orderId, ourDiscountIds);
-
-                if (!isOurRedemption) {
-                    // This is a Square native points redemption, not our system - skip
-                    results.skippedNativePoints++;
-                    continue;
-                }
-
                 results.missingRedemptions++;
                 results.orphansFound++;
                 await logAuditFinding({

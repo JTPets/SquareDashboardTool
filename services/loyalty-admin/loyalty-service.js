@@ -4835,21 +4835,70 @@ async function createSquareLoyaltyReward({ merchantId, squareCustomerId, interna
  * Fetch a customer's order history from Square and analyze for loyalty eligibility
  * Used for manual audit workflow - admin searches customer, reviews orders, selects which to add
  *
+ * Supports two modes:
+ * 1. Chunked loading: startMonthsAgo/endMonthsAgo (e.g., 0-3 for recent 3 months)
+ * 2. Legacy days: periodDays (e.g., 91 for 91 days back)
+ *
  * @param {Object} params
  * @param {string} params.squareCustomerId - Square customer ID
  * @param {number} params.merchantId - Internal merchant ID
- * @param {number} [params.periodDays=91] - How many days of history to fetch
+ * @param {number} [params.startMonthsAgo=null] - Start of chunk (0 = now)
+ * @param {number} [params.endMonthsAgo=null] - End of chunk (3 = 3 months ago)
+ * @param {number} [params.periodDays=null] - Legacy: how many days of history to fetch
  * @returns {Promise<Object>} Order history with loyalty analysis
  */
-async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, periodDays = 91 }) {
+async function getCustomerOrderHistoryForAudit({
+    squareCustomerId,
+    merchantId,
+    startMonthsAgo = null,
+    endMonthsAgo = null,
+    periodDays = null
+}) {
     if (!squareCustomerId || !merchantId) {
         throw new Error('squareCustomerId and merchantId are required');
+    }
+
+    // Determine date range based on params
+    let startDate, endDate;
+    let isChunkedMode = false;
+
+    if (startMonthsAgo !== null && endMonthsAgo !== null) {
+        // Chunked mode: calculate dates from months
+        // Use day=1 to avoid rollover bugs (e.g., Mar 31 - 1 month should be Feb, not Mar 3)
+        isChunkedMode = true;
+
+        endDate = new Date();
+        endDate.setDate(1); // Set to 1st to prevent rollover
+        endDate.setMonth(endDate.getMonth() - startMonthsAgo);
+        // Set to end of month for the "end" boundary (or today if startMonthsAgo=0)
+        if (startMonthsAgo === 0) {
+            endDate = new Date(); // Use exact current time for most recent chunk
+        } else {
+            // Go to last day of previous month
+            endDate.setMonth(endDate.getMonth() + 1);
+            endDate.setDate(0); // Last day of previous month
+            endDate.setHours(23, 59, 59, 999);
+        }
+
+        startDate = new Date();
+        startDate.setDate(1); // Set to 1st to prevent rollover
+        startDate.setMonth(startDate.getMonth() - endMonthsAgo);
+        startDate.setHours(0, 0, 0, 0);
+    } else {
+        // Legacy days mode
+        const days = periodDays || 91;
+        endDate = new Date();
+        startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
     }
 
     logger.info('Fetching customer order history for loyalty audit', {
         squareCustomerId,
         merchantId,
-        periodDays
+        isChunkedMode,
+        startMonthsAgo,
+        endMonthsAgo,
+        periodDays,
+        dateRange: { start: startDate.toISOString(), end: endDate.toISOString() }
     });
 
     const accessToken = await getSquareAccessToken(merchantId);
@@ -4891,7 +4940,8 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
     const trackedOrderIds = new Set(trackedOrdersResult.rows.map(r => r.square_order_id));
     const trackedOrderSources = new Map(trackedOrdersResult.rows.map(r => [r.square_order_id, r.customer_source]));
 
-    // Get customer's current loyalty status
+    // Get customer's current loyalty status (only needed for first chunk or legacy mode)
+    // In chunked mode, frontend caches this from first request
     const rewardsResult = await db.query(`
         SELECT r.*, o.offer_name, o.required_quantity
         FROM loyalty_rewards r
@@ -4899,11 +4949,6 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
         WHERE r.merchant_id = $1 AND r.square_customer_id = $2
         ORDER BY r.created_at DESC
     `, [merchantId, squareCustomerId]);
-
-    // Calculate date range
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - periodDays);
 
     // Get merchant's location IDs (required for Square Orders Search API)
     const locationsResult = await db.query(`
@@ -5071,9 +5116,9 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
             .reduce((sum, o) => sum + o.totalQualifyingQty, 0)
     };
 
-    return {
+    // Build response with chunk info for chunked mode
+    const response = {
         squareCustomerId,
-        periodDays,
         dateRange: {
             start: startDate.toISOString(),
             end: endDate.toISOString()
@@ -5082,6 +5127,20 @@ async function getCustomerOrderHistoryForAudit({ squareCustomerId, merchantId, p
         summary,
         orders: analyzedOrders
     };
+
+    if (isChunkedMode) {
+        // Chunked mode: include chunk info and hasMoreHistory flag
+        response.chunk = {
+            startMonthsAgo,
+            endMonthsAgo
+        };
+        response.hasMoreHistory = endMonthsAgo < 18;
+    } else {
+        // Legacy mode: include periodDays for backward compat
+        response.periodDays = periodDays || 91;
+    }
+
+    return response;
 }
 
 /**
