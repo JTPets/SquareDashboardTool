@@ -54,6 +54,7 @@ const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/loyalty');
+const { getCustomerOfferProgress } = require('../services/loyalty');
 
 // ==================== OFFER MANAGEMENT ====================
 
@@ -294,6 +295,30 @@ router.get('/customer/:customerId', requireAuth, requireMerchant, validators.get
     res.json({
         customer: customerDetails,
         loyalty: loyaltyStatus
+    });
+}));
+
+/**
+ * GET /api/loyalty/customer/:customerId/profile
+ * Get customer loyalty profile (modern - reads from source of truth)
+ * Returns offer progress calculated from purchase_events table
+ */
+router.get('/customer/:customerId/profile', requireAuth, requireMerchant, validators.getCustomer, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const customerId = req.params.customerId;
+
+    // Get customer details from legacy service (for name, phone, email)
+    const customerDetails = await loyaltyService.getCustomerDetails(customerId, merchantId);
+
+    // Get offer progress from modern service (source of truth)
+    const profile = await getCustomerOfferProgress({
+        squareCustomerId: customerId,
+        merchantId
+    });
+
+    res.json({
+        customer: customerDetails,
+        offers: profile.offers
     });
 }));
 

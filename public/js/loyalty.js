@@ -649,13 +649,14 @@ async function showCustomerLoyalty(elementOrCustomerId, eventOrCustomerInfo = nu
   container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading loyalty status...</div>';
 
   try {
-    const response = await fetch(`/api/loyalty/customer/${actualCustomerId}`);
+    // Use modern /profile endpoint - reads from source of truth (purchase_events)
+    const response = await fetch(`/api/loyalty/customer/${actualCustomerId}/profile`);
     const data = await response.json();
 
     // Use customer info from search or from API response
     const customer = data.customer || actualCustomerInfo || { id: actualCustomerId };
     const displayName = customer.displayName || customer.givenName || 'Unknown Customer';
-    const offers = data.loyalty?.offers || data.offers || [];
+    const offers = data.offers || [];
 
     if (offers.length === 0) {
       container.innerHTML = `
