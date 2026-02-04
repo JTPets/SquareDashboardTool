@@ -92,7 +92,9 @@ const createOffer = [
         .withMessage('description cannot exceed 1000 characters'),
     body('vendorId')
         .optional({ nullable: true })
-        .custom((value) => isIntInRange(value, 'vendorId', 1)),
+        .isString()
+        .isLength({ min: 1, max: 100 })
+        .withMessage('vendorId must be a valid string'),
     handleValidationErrors
 ];
 
@@ -133,7 +135,10 @@ const updateOffer = [
         .optional({ nullable: true })
         .custom((value) => isIntInRange(value, 'window_months', 1, 36)),
     body('vendor_id')
-        .optional({ nullable: true }),
+        .optional({ nullable: true })
+        .isString()
+        .isLength({ min: 1, max: 100 })
+        .withMessage('vendor_id must be a valid string'),
     body('size_group')
         .optional()
         .trim()
