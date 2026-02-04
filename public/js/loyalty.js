@@ -818,9 +818,14 @@ async function viewOrderAuditHistory(customerId, customerName = 'Customer') {
       throw new Error(data.error || 'Failed to fetch order history');
     }
 
-    // Store state from first chunk
+    // Store state from first chunk (dedupe in case backend has duplicates)
     loadedAuditChunks.push({ start: 0, end: 3 });
-    allAuditOrders = data.orders;
+    const seen = new Set();
+    allAuditOrders = data.orders.filter(o => {
+      if (seen.has(o.orderId)) return false;
+      seen.add(o.orderId);
+      return true;
+    });
     cachedCurrentRewards = data.currentRewards || [];
     auditHasMoreHistory = data.hasMoreHistory || false;
 
@@ -879,9 +884,11 @@ async function loadMoreAuditHistory() {
       throw new Error(data.error || 'Failed to load more history');
     }
 
-    // Merge new orders
+    // Merge new orders, dedupe by orderId to handle date boundary overlaps
     loadedAuditChunks.push({ start: nextStart, end: nextEnd });
-    allAuditOrders = [...allAuditOrders, ...data.orders];
+    const existingIds = new Set(allAuditOrders.map(o => o.orderId));
+    const newOrders = data.orders.filter(o => !existingIds.has(o.orderId));
+    allAuditOrders = [...allAuditOrders, ...newOrders];
     auditHasMoreHistory = data.hasMoreHistory || false;
 
     // Build merged data for rendering
