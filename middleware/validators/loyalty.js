@@ -83,7 +83,7 @@ const createOffer = [
         .isLength({ max: 255 })
         .withMessage('offerName cannot exceed 255 characters'),
     body('windowMonths')
-        .optional()
+        .optional({ nullable: true })
         .custom((value) => isIntInRange(value, 'windowMonths', 1, 36)),
     body('description')
         .optional()
@@ -91,7 +91,7 @@ const createOffer = [
         .isLength({ max: 1000 })
         .withMessage('description cannot exceed 1000 characters'),
     body('vendorId')
-        .optional()
+        .optional({ nullable: true })
         .custom((value) => isIntInRange(value, 'vendorId', 1)),
     handleValidationErrors
 ];
@@ -130,7 +130,7 @@ const updateOffer = [
         .isBoolean()
         .withMessage('is_active must be a boolean'),
     body('window_months')
-        .optional()
+        .optional({ nullable: true })
         .custom((value) => isIntInRange(value, 'window_months', 1, 36)),
     body('vendor_id')
         .optional({ nullable: true }),
