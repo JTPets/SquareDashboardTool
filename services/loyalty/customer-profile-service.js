@@ -60,7 +60,8 @@ async function getCustomerOfferProgress({ squareCustomerId, merchantId }) {
         COUNT(*) FILTER (WHERE lr.status = 'redeemed') as total_rewards_redeemed,
         -- Check for currently earned (unredeemed) reward
         bool_or(lr.status = 'earned') as has_earned_reward,
-        MAX(lr.id) FILTER (WHERE lr.status = 'earned') as earned_reward_id
+        -- Use array_agg since MAX() doesn't support UUID type
+        (array_agg(lr.id ORDER BY lr.earned_at DESC) FILTER (WHERE lr.status = 'earned'))[1] as earned_reward_id
       FROM loyalty_rewards lr
       WHERE lr.merchant_id = $1
         AND lr.square_customer_id = $2
