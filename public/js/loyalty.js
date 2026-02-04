@@ -39,6 +39,7 @@ function deleteOfferFromButton(element) {
 
 function toggleVariationCardStop(element, event) {
   event.stopPropagation();
+  event.preventDefault(); // Prevent native checkbox toggle - let handler control it
   const variationId = element.dataset.actionParam;
   toggleVariationCard(variationId);
 }
