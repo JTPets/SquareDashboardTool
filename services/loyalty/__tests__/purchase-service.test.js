@@ -236,7 +236,7 @@ describe('LoyaltyPurchaseService', () => {
         .mockResolvedValueOnce({ rows: [] }) // No existing in_progress reward
         .mockResolvedValueOnce({ rows: [] }) // No existing earned reward
         .mockResolvedValueOnce({ rows: [{ id: 2001 }] }) // New reward created
-        .mockResolvedValueOnce({}) // Lock purchases
+        .mockResolvedValueOnce({ rows: [{ id: 'evt-1', quantity: 5, cumulative_qty: 5 }] }) // Lock purchases - returns 5 units, meets required_quantity=5, no split needed
         .mockResolvedValueOnce({ rows: [{ remaining_count: '0', remaining_qty: '0' }] }) // Check remaining
         .mockResolvedValueOnce({}); // COMMIT
 
@@ -462,7 +462,7 @@ describe('LoyaltyPurchaseService', () => {
         .mockResolvedValueOnce({ rows: [{ window_start: '2024-01-15', window_end: '2025-01-15' }] }) // Window dates for reward
         .mockResolvedValueOnce({ rows: [{ id: 500, status: 'in_progress' }] }) // Existing in_progress reward
         .mockResolvedValueOnce({}) // UPDATE reward to earned
-        .mockResolvedValueOnce({}) // Lock purchases
+        .mockResolvedValueOnce({ rows: [{ id: 'evt-1', quantity: 5, cumulative_qty: 5 }] }) // Lock purchases - returns 5 units, meets required_quantity=5, no split needed
         .mockResolvedValueOnce({ rows: [{ remaining_count: '0', remaining_qty: '0' }] }) // Check remaining
         .mockResolvedValueOnce({}); // COMMIT
 
