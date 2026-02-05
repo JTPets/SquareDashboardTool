@@ -10,7 +10,7 @@
 
 const { spawn } = require('child_process');
 const zlib = require('zlib');
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
@@ -162,16 +162,14 @@ async function runAutomatedBackup() {
             const backupDir = path.join(__dirname, '..', 'output', 'backups');
 
             // Ensure backup directory exists
-            if (!fs.existsSync(backupDir)) {
-                fs.mkdirSync(backupDir, { recursive: true });
-            }
+            await fs.mkdir(backupDir, { recursive: true });
 
             const timestamp = new Date().toISOString().split('T')[0];
             const filename = `backup_${timestamp}.sql.gz`;
             const filepath = path.join(backupDir, filename);
 
             // Save backup locally
-            fs.writeFileSync(filepath, compressedBackup);
+            await fs.writeFile(filepath, compressedBackup);
 
             logger.info('Backup saved locally (too large for email)', {
                 filepath,
@@ -180,7 +178,7 @@ async function runAutomatedBackup() {
             });
 
             // Clean up old backups (keep last N)
-            const backupFiles = fs.readdirSync(backupDir)
+            const backupFiles = (await fs.readdir(backupDir))
                 .filter(f => f.startsWith('backup_') && f.endsWith('.sql.gz'))
                 .sort()
                 .reverse();
@@ -188,7 +186,7 @@ async function runAutomatedBackup() {
             if (backupFiles.length > BACKUP_RETENTION_COUNT) {
                 const filesToDelete = backupFiles.slice(BACKUP_RETENTION_COUNT);
                 for (const file of filesToDelete) {
-                    fs.unlinkSync(path.join(backupDir, file));
+                    await fs.unlink(path.join(backupDir, file));
                     logger.info('Deleted old backup', { file });
                 }
             }
