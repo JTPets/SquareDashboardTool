@@ -230,12 +230,22 @@ const podUpload = multer({
     }
 });
 
-// Request logging
+// Structured request logging
 app.use((req, res, next) => {
     // Skip logging for static assets
-    if (!req.path.match(/\.(js|css|png|jpg|ico|svg|woff|woff2)$/)) {
-        logger.info('API request', { method: req.method, path: req.path, user: req.session?.user?.email });
+    if (req.path.match(/\.(js|css|png|jpg|ico|svg|woff|woff2)$/)) {
+        return next();
     }
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const meta = { method: req.method, path: req.path, status: res.statusCode, duration, user: req.session?.user?.email };
+        if (duration > 500 || res.statusCode >= 400 || req.method !== 'GET') {
+            logger.info('HTTP request', meta);
+        } else {
+            logger.debug('HTTP request', meta);
+        }
+    });
     next();
 });
 
