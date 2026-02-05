@@ -266,34 +266,32 @@ async function markCanceled(squareOrderId, merchantId) {
 
 /**
  * Mark pending carts as abandoned if older than threshold
- * @param {number} merchantId - Merchant ID (optional, null for all merchants)
+ * @param {number} merchantId - Merchant ID (required)
  * @param {number} daysThreshold - Days after which to mark as abandoned (default: 7)
  * @returns {Promise<number>} Number of carts marked as abandoned
  */
-async function markAbandoned(merchantId = null, daysThreshold = 7) {
+async function markAbandoned(merchantId, daysThreshold = 7) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
     try {
-        let query = `
+        const query = `
             UPDATE cart_activity
             SET status = 'abandoned',
                 updated_at = NOW()
             WHERE status = 'pending'
+              AND merchant_id = $1
               AND created_at < NOW() - INTERVAL '${daysThreshold} days'
+            RETURNING id, merchant_id, square_order_id
         `;
-        const params = [];
 
-        if (merchantId) {
-            query += ` AND merchant_id = $1`;
-            params.push(merchantId);
-        }
-
-        query += ' RETURNING id, merchant_id, square_order_id';
-
-        const result = await db.query(query, params);
+        const result = await db.query(query, [merchantId]);
 
         if (result.rows.length > 0) {
             logger.info('Carts marked as abandoned', {
                 count: result.rows.length,
-                merchantId: merchantId || 'all',
+                merchantId,
                 daysThreshold
             });
         }
@@ -310,29 +308,28 @@ async function markAbandoned(merchantId = null, daysThreshold = 7) {
 
 /**
  * Purge old cart activity records
- * @param {number} merchantId - Merchant ID (optional, null for all merchants)
+ * @param {number} merchantId - Merchant ID (required)
  * @param {number} daysThreshold - Days after which to delete (default: 30)
  * @returns {Promise<number>} Number of records deleted
  */
-async function purgeOld(merchantId = null, daysThreshold = 30) {
+async function purgeOld(merchantId, daysThreshold = 30) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
     try {
-        let query = `
+        const query = `
             DELETE FROM cart_activity
-            WHERE created_at < NOW() - INTERVAL '${daysThreshold} days'
+            WHERE merchant_id = $1
+              AND created_at < NOW() - INTERVAL '${daysThreshold} days'
         `;
-        const params = [];
 
-        if (merchantId) {
-            query += ` AND merchant_id = $1`;
-            params.push(merchantId);
-        }
-
-        const result = await db.query(query, params);
+        const result = await db.query(query, [merchantId]);
 
         if (result.rowCount > 0) {
             logger.info('Old cart activity records purged', {
                 count: result.rowCount,
-                merchantId: merchantId || 'all',
+                merchantId,
                 daysThreshold
             });
         }

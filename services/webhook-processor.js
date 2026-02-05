@@ -17,7 +17,7 @@ const { routeEvent } = require('./webhook-handlers');
 
 class WebhookProcessor {
     /**
-     * Verify Square HMAC-SHA256 signature
+     * Verify Square HMAC-SHA256 signature using timing-safe comparison
      *
      * @param {string} signature - The signature from x-square-hmacsha256-signature header
      * @param {string} rawBody - The raw request body
@@ -26,10 +26,24 @@ class WebhookProcessor {
      * @returns {boolean} Whether the signature is valid
      */
     verifySignature(signature, rawBody, notificationUrl, signatureKey) {
+        if (!signature || typeof signature !== 'string') {
+            return false;
+        }
+
         const hmac = crypto.createHmac('sha256', signatureKey);
         hmac.update(notificationUrl + rawBody);
         const expectedSignature = hmac.digest('base64');
-        return signature === expectedSignature;
+
+        // Use timing-safe comparison to prevent timing attacks
+        const signatureBuffer = Buffer.from(signature, 'utf8');
+        const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+        // timingSafeEqual throws if lengths differ, so check first
+        if (signatureBuffer.length !== expectedBuffer.length) {
+            return false;
+        }
+
+        return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
     }
 
     /**

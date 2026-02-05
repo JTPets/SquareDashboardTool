@@ -26,7 +26,8 @@ const {
     formatPrivacyPhone,
     formatPrivacyEmail,
     formatReportDate,
-    formatCents
+    formatCents,
+    escapeHtml
 } = require('../../utils/privacy-format');
 
 // ============================================================================
@@ -453,13 +454,13 @@ async function generateVendorReceipt(rewardId, merchantId) {
             return `
             <tr class="qualifying-row">
                 <td>${formatDate(order.purchasedAt)}</td>
-                <td>${p.item_name || 'Unknown'} - ${p.variation_name || p.variation_id}</td>
-                <td>${p.vendor_item_number || p.sku || 'N/A'}</td>
+                <td>${escapeHtml(p.item_name || 'Unknown')} - ${escapeHtml(p.variation_name || p.variation_id)}</td>
+                <td>${escapeHtml(p.vendor_item_number || p.sku || 'N/A')}</td>
                 <td class="quantity">${p.quantity}</td>
                 <td class="currency">${formatCents(p.unit_price_cents)}</td>
                 <td class="currency">${formatCents(p.wholesale_cost_cents || p.vendor_unit_cost)}</td>
-                <td>${order.paymentType || 'N/A'}</td>
-                <td style="font-size: 8px; word-break: break-all;">${order.orderId || 'N/A'}</td>
+                <td>${escapeHtml(order.paymentType || 'N/A')}</td>
+                <td style="font-size: 8px; word-break: break-all;">${escapeHtml(order.orderId || 'N/A')}</td>
                 <td class="currency">${formatCents(order.orderTotalCents)}</td>
             </tr>`;
         }
@@ -473,13 +474,13 @@ async function generateVendorReceipt(rewardId, merchantId) {
             return `
             <tr class="${rowClass} ${itemClass}">
                 ${isFirst ? `<td rowspan="${allItems.length}">${formatDate(order.purchasedAt)}</td>` : ''}
-                <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}</td>
-                <td>${item.isQualifying ? item.vendorItemNumber : ''}</td>
+                <td>${escapeHtml(item.name || 'Unknown')}${item.variationName ? ` - ${escapeHtml(item.variationName)}` : ''}</td>
+                <td>${item.isQualifying ? escapeHtml(item.vendorItemNumber) : ''}</td>
                 <td class="quantity">${item.quantity}</td>
                 <td class="currency">${formatCents(item.unitPriceCents)}</td>
                 <td class="currency">${item.isQualifying ? formatCents(item.wholesaleCostCents) : ''}</td>
-                ${isFirst ? `<td rowspan="${allItems.length}">${order.paymentType || 'N/A'}</td>` : ''}
-                ${isFirst ? `<td rowspan="${allItems.length}" style="font-size: 8px; word-break: break-all;">${order.orderId || 'N/A'}</td>` : ''}
+                ${isFirst ? `<td rowspan="${allItems.length}">${escapeHtml(order.paymentType || 'N/A')}</td>` : ''}
+                ${isFirst ? `<td rowspan="${allItems.length}" style="font-size: 8px; word-break: break-all;">${escapeHtml(order.orderId || 'N/A')}</td>` : ''}
                 ${isFirst ? `<td rowspan="${allItems.length}" class="currency">${formatCents(order.orderTotalCents)}</td>` : ''}
             </tr>`;
         }).join('');
@@ -583,13 +584,13 @@ async function generateVendorReceipt(rewardId, merchantId) {
                     return `
                     <tr class="${rowClass}">
                         ${isFirst ? `<td rowspan="${redemptionItems.length}">${formatDate(data.redeemed_at)}</td>` : ''}
-                        <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}${item.isFreeItem ? ' <strong>(FREE)</strong>' : ''}</td>
-                        <td>${item.isFreeItem ? (item.vendorItemNumber || '') : ''}</td>
+                        <td>${escapeHtml(item.name || 'Unknown')}${item.variationName ? ` - ${escapeHtml(item.variationName)}` : ''}${item.isFreeItem ? ' <strong>(FREE)</strong>' : ''}</td>
+                        <td>${item.isFreeItem ? escapeHtml(item.vendorItemNumber || '') : ''}</td>
                         <td class="quantity">${item.quantity}</td>
                         <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
                         <td class="currency"></td>
-                        ${isFirst ? `<td rowspan="${redemptionItems.length}">${redemptionPaymentType}</td>` : ''}
-                        ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 8px; word-break: break-all;">${data.square_order_id || 'N/A'}</td>` : ''}
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}">${escapeHtml(redemptionPaymentType)}</td>` : ''}
+                        ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 8px; word-break: break-all;">${escapeHtml(data.square_order_id || 'N/A')}</td>` : ''}
                         ${isFirst ? `<td rowspan="${redemptionItems.length}" class="currency">${formatCents(redemptionTotalCents)}</td>` : ''}
                     </tr>`;
                 }).join('')}`;
@@ -793,7 +794,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
 <body>
     <div class="header">
         <h1>VENDOR REDEMPTION RECEIPT</h1>
-        <span class="receipt-id">${data.id}</span>
+        <span class="receipt-id">${escapeHtml(data.id)}</span>
     </div>
 
     <!-- Section 1: Merchant & Customer -->
@@ -802,19 +803,19 @@ async function generateVendorReceipt(rewardId, merchantId) {
         <div class="info-grid-4">
             <div class="info-box">
                 <label>Business</label>
-                <div class="value">${merchantDisplay.businessName}</div>
+                <div class="value">${escapeHtml(merchantDisplay.businessName)}</div>
             </div>
             <div class="info-box">
                 <label>Business Email</label>
-                <div class="value">${merchantDisplay.businessEmail || 'N/A'}</div>
+                <div class="value">${escapeHtml(merchantDisplay.businessEmail || 'N/A')}</div>
             </div>
             <div class="info-box">
                 <label>Customer</label>
-                <div class="value">${customerDisplayName}</div>
+                <div class="value">${escapeHtml(customerDisplayName)}</div>
             </div>
             <div class="info-box">
                 <label>Customer Phone</label>
-                <div class="value">${customerPhone || 'N/A'}</div>
+                <div class="value">${escapeHtml(customerPhone || 'N/A')}</div>
             </div>
         </div>
     </div>
@@ -825,15 +826,15 @@ async function generateVendorReceipt(rewardId, merchantId) {
         <div class="info-grid-4">
             <div class="info-box">
                 <label>Brand</label>
-                <div class="value">${data.brand_name}</div>
+                <div class="value">${escapeHtml(data.brand_name)}</div>
             </div>
             <div class="info-box">
                 <label>Size Group</label>
-                <div class="value">${data.size_group}</div>
+                <div class="value">${escapeHtml(data.size_group)}</div>
             </div>
             <div class="info-box">
                 <label>Program</label>
-                <div class="value">${data.offer_name}</div>
+                <div class="value">${escapeHtml(data.offer_name)}</div>
             </div>
             <div class="info-box">
                 <label>Type</label>
@@ -899,8 +900,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
 
         ${data.vendor_name ? `
         <div style="display: flex; gap: 10px; margin-bottom: 6px; font-size: 10px;">
-            <span><strong>Vendor:</strong> ${data.vendor_name}</span>
-            <span><strong>Email:</strong> ${data.vendor_email || 'N/A'}</span>
+            <span><strong>Vendor:</strong> ${escapeHtml(data.vendor_name)}</span>
+            <span><strong>Email:</strong> ${escapeHtml(data.vendor_email || 'N/A')}</span>
         </div>
         ` : ''}
 
@@ -911,17 +912,17 @@ async function generateVendorReceipt(rewardId, merchantId) {
 
             ${data.vendor_credit_status === 'SUBMITTED' ? `
             <p><strong style="color: #e65100;">Status: SUBMITTED</strong></p>
-            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)}${data.vendor_credit_notes ? ` | Notes: ${data.vendor_credit_notes}` : ''}</p>
+            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)}${data.vendor_credit_notes ? ` | Notes: ${escapeHtml(data.vendor_credit_notes)}` : ''}</p>
             ` : ''}
 
             ${data.vendor_credit_status === 'CREDITED' ? `
             <p><strong style="color: #2e7d32;">Status: CREDIT RECEIVED</strong></p>
-            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)} | Credited: ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` | Notes: ${data.vendor_credit_notes}` : ''}</p>
+            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)} | Credited: ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` | Notes: ${escapeHtml(data.vendor_credit_notes)}` : ''}</p>
             ` : ''}
 
             ${data.vendor_credit_status === 'DENIED' ? `
             <p><strong style="color: #c62828;">Status: CREDIT DENIED</strong></p>
-            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)} | Denied: ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` | Reason: ${data.vendor_credit_notes}` : ''}</p>
+            <p>Submitted: ${formatDate(data.vendor_credit_submitted_at)} | Denied: ${formatDate(data.vendor_credit_resolved_at)}${data.vendor_credit_notes ? ` | Reason: ${escapeHtml(data.vendor_credit_notes)}` : ''}</p>
             ` : ''}
         </div>
     </div>

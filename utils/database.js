@@ -1977,7 +1977,8 @@ async function ensureSchema() {
         const settingsColumnMigrations = [
             { column: 'additional_cycle_count_email', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS additional_cycle_count_email TEXT' },
             { column: 'notification_email', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS notification_email TEXT' },
-            { column: 'low_stock_alerts_enabled', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS low_stock_alerts_enabled BOOLEAN DEFAULT TRUE' }
+            { column: 'low_stock_alerts_enabled', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS low_stock_alerts_enabled BOOLEAN DEFAULT TRUE' },
+            { column: 'claude_api_key_encrypted', sql: 'ALTER TABLE merchant_settings ADD COLUMN IF NOT EXISTS claude_api_key_encrypted TEXT' }
         ];
 
         for (const migration of settingsColumnMigrations) {

@@ -5,15 +5,20 @@
  * - Get item status/readiness for content generation
  * - Generate descriptions and SEO content via Claude API
  * - Apply generated content to Square catalog
+ * - Store/retrieve Claude API key securely per merchant
  *
  * Endpoints:
- * - GET  /api/ai-autofill/status   - Get items grouped by readiness
- * - POST /api/ai-autofill/generate - Generate content for items
- * - POST /api/ai-autofill/apply    - Apply content to Square
+ * - GET  /api/ai-autofill/status       - Get items grouped by readiness
+ * - POST /api/ai-autofill/generate     - Generate content for items
+ * - POST /api/ai-autofill/apply        - Apply content to Square
+ * - POST /api/ai-autofill/api-key      - Save Claude API key (encrypted)
+ * - GET  /api/ai-autofill/api-key/status - Check if API key is stored
+ * - DELETE /api/ai-autofill/api-key    - Delete stored API key
  */
 
 const express = require('express');
 const router = express.Router();
+const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
@@ -21,6 +26,112 @@ const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/ai-autofill');
 const aiAutofillService = require('../services/ai-autofill-service');
 const { batchUpdateCatalogContent } = require('../services/square/api');
+const { encryptToken, decryptToken } = require('../utils/token-encryption');
+
+// ============================================================================
+// API KEY MANAGEMENT - Secure server-side storage
+// ============================================================================
+
+/**
+ * POST /api/ai-autofill/api-key
+ * Save Claude API key encrypted per merchant
+ * The key is never returned to the frontend after storage
+ */
+router.post('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { apiKey } = req.body;
+
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.startsWith('sk-ant-')) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid API key format. Claude API keys start with sk-ant-',
+            code: 'INVALID_API_KEY'
+        });
+    }
+
+    // Encrypt the API key using AES-256-GCM
+    const encryptedKey = encryptToken(apiKey);
+
+    // Upsert into merchant_settings
+    await db.query(`
+        INSERT INTO merchant_settings (merchant_id, claude_api_key_encrypted, updated_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (merchant_id)
+        DO UPDATE SET claude_api_key_encrypted = $2, updated_at = NOW()
+    `, [merchantId, encryptedKey]);
+
+    logger.info('Claude API key stored for merchant', { merchantId });
+
+    res.json({
+        success: true,
+        message: 'API key saved securely'
+    });
+}));
+
+/**
+ * GET /api/ai-autofill/api-key/status
+ * Check if a Claude API key is stored (without exposing it)
+ */
+router.get('/api-key/status', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+
+    const result = await db.query(`
+        SELECT claude_api_key_encrypted IS NOT NULL as has_key
+        FROM merchant_settings
+        WHERE merchant_id = $1
+    `, [merchantId]);
+
+    const hasKey = result.rows.length > 0 && result.rows[0].has_key === true;
+
+    res.json({
+        success: true,
+        data: { hasKey }
+    });
+}));
+
+/**
+ * DELETE /api/ai-autofill/api-key
+ * Delete stored Claude API key
+ */
+router.delete('/api-key', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+
+    await db.query(`
+        UPDATE merchant_settings
+        SET claude_api_key_encrypted = NULL, updated_at = NOW()
+        WHERE merchant_id = $1
+    `, [merchantId]);
+
+    logger.info('Claude API key deleted for merchant', { merchantId });
+
+    res.json({
+        success: true,
+        message: 'API key deleted'
+    });
+}));
+
+/**
+ * Helper: Get decrypted API key for merchant
+ * @param {number} merchantId - The merchant ID
+ * @returns {Promise<string|null>} - Decrypted API key or null
+ */
+async function getApiKeyForMerchant(merchantId) {
+    const result = await db.query(`
+        SELECT claude_api_key_encrypted
+        FROM merchant_settings
+        WHERE merchant_id = $1
+    `, [merchantId]);
+
+    if (result.rows.length === 0 || !result.rows[0].claude_api_key_encrypted) {
+        return null;
+    }
+
+    return decryptToken(result.rows[0].claude_api_key_encrypted);
+}
+
+// ============================================================================
+// CONTENT GENERATION
+// ============================================================================
 
 /**
  * GET /api/ai-autofill/status
@@ -40,6 +151,7 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
 /**
  * POST /api/ai-autofill/generate
  * Generate content for selected items using Claude API
+ * Uses server-side stored API key (encrypted per merchant)
  *
  * Body: {
  *   itemIds: string[],
@@ -48,13 +160,20 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
  *   keywords?: string[],
  *   tone?: 'professional' | 'friendly' | 'technical'
  * }
- *
- * Header: x-claude-api-key (required)
  */
 router.post('/generate', requireAuth, requireMerchant, validators.generate, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const apiKey = req.headers['x-claude-api-key'];
     const { itemIds, fieldType, context, keywords, tone } = req.body;
+
+    // Get API key from encrypted server-side storage
+    const apiKey = await getApiKeyForMerchant(merchantId);
+    if (!apiKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'No Claude API key configured. Please save your API key first.',
+            code: 'API_KEY_NOT_CONFIGURED'
+        });
+    }
 
     // Fetch full item data
     const items = await aiAutofillService.getItemsForGeneration(merchantId, itemIds);
