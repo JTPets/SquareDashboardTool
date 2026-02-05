@@ -160,6 +160,7 @@ async function getEventsForRetry(limit = 50) {
             square_event_id,
             event_type,
             merchant_id,
+            square_merchant_id,
             event_data,
             retry_count,
             max_retries,
