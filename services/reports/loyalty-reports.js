@@ -490,6 +490,18 @@ async function generateVendorReceipt(rewardId, merchantId) {
     let redemptionOrderRows = '';
     if (data.square_order_id) {
         try {
+            // Fetch vendor code for the redeemed variation (same pattern as contributing purchases)
+            let redeemedVendorCode = null;
+            if (data.redeemed_variation_id) {
+                const vendorCodeResult = await db.query(`
+                    SELECT COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number
+                    FROM variations v
+                    LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
+                    WHERE v.id = $1
+                `, [data.redeemed_variation_id]);
+                redeemedVendorCode = vendorCodeResult.rows[0]?.vendor_item_number || null;
+            }
+
             const squareClient = await getSquareClientForMerchant(merchantId);
             const redemptionOrderResponse = await squareClient.orders.get({
                 orderId: data.square_order_id
@@ -516,14 +528,16 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             variationName: item.variationName || null,
                             quantity: freeQuantity,
                             unitPriceCents: 0,
-                            isFreeItem: true
+                            isFreeItem: true,
+                            vendorItemNumber: redeemedVendorCode
                         });
                         redemptionItems.push({
                             name: item.name,
                             variationName: item.variationName || null,
                             quantity: itemQty - freeQuantity,
                             unitPriceCents: basePriceCents,
-                            isFreeItem: false
+                            isFreeItem: false,
+                            vendorItemNumber: null
                         });
                     } else if (isRedeemedVariation) {
                         // Single free item (qty === 1)
@@ -532,7 +546,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             variationName: item.variationName || null,
                             quantity: itemQty,
                             unitPriceCents: 0,
-                            isFreeItem: true
+                            isFreeItem: true,
+                            vendorItemNumber: redeemedVendorCode
                         });
                     } else {
                         // Regular item (not the redeemed variation)
@@ -541,7 +556,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             variationName: item.variationName || null,
                             quantity: itemQty,
                             unitPriceCents: basePriceCents,
-                            isFreeItem: false
+                            isFreeItem: false,
+                            vendorItemNumber: null
                         });
                     }
                 }
@@ -568,7 +584,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                     <tr class="${rowClass}">
                         ${isFirst ? `<td rowspan="${redemptionItems.length}">${formatDate(data.redeemed_at)}</td>` : ''}
                         <td>${item.name || 'Unknown'}${item.variationName ? ` - ${item.variationName}` : ''}${item.isFreeItem ? ' <strong>(FREE)</strong>' : ''}</td>
-                        <td>${item.isFreeItem ? 'REDEEMED' : ''}</td>
+                        <td>${item.isFreeItem ? (item.vendorItemNumber || '') : ''}</td>
                         <td class="quantity">${item.quantity}</td>
                         <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
                         <td class="currency"></td>
