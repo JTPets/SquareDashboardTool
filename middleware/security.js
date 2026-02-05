@@ -284,6 +284,26 @@ function configurePasswordResetRateLimit() {
 }
 
 /**
+ * Configure Permissions-Policy header
+ * Disables access to sensitive browser features not needed by this application.
+ * Helmet v7 does not include this natively, so we set it as custom middleware.
+ */
+function configurePermissionsPolicy() {
+    const policy = [
+        'geolocation=()',
+        'camera=()',
+        'microphone=()',
+        'payment=()',
+        'usb=()'
+    ].join(', ');
+
+    return (req, res, next) => {
+        res.setHeader('Permissions-Policy', policy);
+        next();
+    };
+}
+
+/**
  * Configure CORS
  */
 function configureCors() {
@@ -359,6 +379,7 @@ function corsErrorHandler(err, req, res, next) {
 
 module.exports = {
     configureHelmet,
+    configurePermissionsPolicy,
     configureRateLimit,
     configureLoginRateLimit,
     configurePasswordResetRateLimit,
