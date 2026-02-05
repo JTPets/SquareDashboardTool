@@ -28,14 +28,14 @@
  * - variation-admin-service.js: Extracted (addQualifyingVariations, etc.)
  * - customer-cache-service.js: Extracted (cacheCustomerDetails, etc.)
  * - customer-admin-service.js: Extracted (getCustomerDetails, lookups, etc.)
+ * - expiration-service.js: Extracted (processExpiredWindowEntries, processExpiredEarnedRewards)
+ * - backfill-service.js: Extracted (prefetchRecentLoyaltyEvents, getCustomerOrderHistoryForAudit, etc.)
+ * - square-discount-service.js: Extracted (createSquareCustomerGroupDiscount, validateEarnedRewardsDiscounts, etc.)
  *
- * Remaining in legacy loyalty-service.js:
+ * Remaining in legacy loyalty-service.js (~1,480 lines):
  * - Purchase processing (processQualifyingPurchase, processRefund)
  * - Reward management (redeemReward, updateRewardProgress)
- * - Webhook processing (processOrderForLoyalty, etc.)
- * - Square Customer Group Discount integration
- * - Backfill/catchup operations
- * - Expiration processing
+ * - Webhook processing (processOrderForLoyalty, processOrderRefundsForLoyalty)
  *
  * Usage:
  *   const loyaltyAdmin = require('./services/loyalty-admin');
@@ -107,8 +107,35 @@ const {
     getCustomerEarnedRewards
 } = require('./customer-admin-service');
 
+// Expiration service
+const {
+    processExpiredWindowEntries,
+    processExpiredEarnedRewards
+} = require('./expiration-service');
+
+// Backfill service
+const {
+    prefetchRecentLoyaltyEvents,
+    findCustomerFromPrefetchedEvents,
+    isOrderAlreadyProcessedForLoyalty,
+    processOrderForLoyaltyIfNeeded,
+    getCustomerOrderHistoryForAudit,
+    addOrdersToLoyaltyTracking,
+    runLoyaltyCatchup
+} = require('./backfill-service');
+
+// Square discount service
+const {
+    getSquareLoyaltyProgram,
+    createSquareCustomerGroupDiscount,
+    cleanupSquareCustomerGroupDiscount,
+    detectRewardRedemptionFromOrder,
+    createSquareLoyaltyReward,
+    validateEarnedRewardsDiscounts
+} = require('./square-discount-service');
+
 // ============================================================================
-// LEGACY SERVICE (Functions not yet extracted)
+// LEGACY SERVICE (Core purchase and reward processing)
 // ============================================================================
 
 const legacyService = require('./loyalty-service');
@@ -122,38 +149,9 @@ const {
     // Reward management
     redeemReward,
 
-    // Rolling window
-    processExpiredWindowEntries,
-
-    // Customer lookups (batch prefetch)
-    prefetchRecentLoyaltyEvents,
-    findCustomerFromPrefetchedEvents,
-
-    // Square Customer Group Discount Integration
-    getSquareLoyaltyProgram,
-    createSquareCustomerGroupDiscount,
-    cleanupSquareCustomerGroupDiscount,
-    detectRewardRedemptionFromOrder,
-    createSquareLoyaltyReward,
-
     // Webhook processing
     processOrderForLoyalty,
-    processOrderRefundsForLoyalty,
-
-    // Backfill / Sync
-    isOrderAlreadyProcessedForLoyalty,
-    processOrderForLoyaltyIfNeeded,
-
-    // Manual Customer Order Audit
-    getCustomerOrderHistoryForAudit,
-    addOrdersToLoyaltyTracking,
-
-    // Background Loyalty Catchup
-    runLoyaltyCatchup,
-
-    // Discount Validation & Expiration
-    validateEarnedRewardsDiscounts,
-    processExpiredEarnedRewards
+    processOrderRefundsForLoyalty
 } = legacyService;
 
 // ============================================================================
