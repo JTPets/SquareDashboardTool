@@ -747,9 +747,9 @@ router.get('/webhooks/events', requireAuth, requireAdmin, validators.listWebhook
     const { limit = 50, status, event_type } = req.query;
 
     let query = `
-        SELECT id, square_event_id, event_type, merchant_id, status,
-               received_at, processed_at, processing_time_ms, error_message,
-               sync_results
+        SELECT id, square_event_id, event_type, merchant_id, square_merchant_id,
+               status, received_at, processed_at, processing_time_ms,
+               error_message, sync_results
         FROM webhook_events
         WHERE 1=1
     `;

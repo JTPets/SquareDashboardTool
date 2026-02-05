@@ -41,7 +41,7 @@ const webhookRetry = require('./utils/webhook-retry');
 const jobs = require('./jobs');
 
 // Security middleware
-const { configureHelmet, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -111,6 +111,7 @@ app.set('trust proxy', 1);
 // Security headers (helmet) - skip in development if causing issues
 if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
     app.use(configureHelmet());
+    app.use(configurePermissionsPolicy());
 }
 
 // Rate limiting

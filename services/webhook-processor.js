@@ -71,11 +71,28 @@ class WebhookProcessor {
      */
     async logEvent(event) {
         const insertResult = await db.query(`
-            INSERT INTO webhook_events (square_event_id, event_type, merchant_id, event_data, status)
+            INSERT INTO webhook_events (square_event_id, event_type, square_merchant_id, event_data, status)
             VALUES ($1, $2, $3, $4, 'processing')
             RETURNING id
         `, [event.event_id, event.type, event.merchant_id, JSON.stringify(event.data)]);
         return insertResult.rows[0]?.id;
+    }
+
+    /**
+     * Update webhook_events with resolved internal merchant ID
+     *
+     * @param {number} webhookEventId - The webhook event ID
+     * @param {number} merchantId - Internal merchant ID
+     * @returns {Promise<void>}
+     */
+    async updateEventMerchantId(webhookEventId, merchantId) {
+        if (!webhookEventId || !merchantId) {
+            return;
+        }
+        await db.query(
+            'UPDATE webhook_events SET merchant_id = $1 WHERE id = $2',
+            [merchantId, webhookEventId]
+        );
     }
 
     /**
@@ -220,6 +237,9 @@ class WebhookProcessor {
 
             // ==================== RESOLVE MERCHANT ====================
             const internalMerchantId = await this.resolveMerchant(event.merchant_id);
+
+            // Store resolved merchant ID on the webhook event
+            await this.updateEventMerchantId(webhookEventId, internalMerchantId);
 
             // ==================== BUILD CONTEXT ====================
             const context = this.buildContext(event, internalMerchantId, webhookEventId, startTime);

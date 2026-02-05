@@ -269,5 +269,5 @@ Global functions are automatically discovered by the event delegation module at 
 - ~335 handlers converted
 - No inline `onclick`, `onchange`, etc. handlers remain
 
-**Phase 2 IN PROGRESS**: Externalizing inline `<script>` blocks to `/public/js/`.
-- See [P0-4 in TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md#p0-4-csp-allows-unsafe-inline) for progress
+**Phase 2 COMPLETE**: All inline `<script>` blocks externalized to `/public/js/`.
+- 29/29 HTML files converted (see [P0-4 in TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md#p0-4-csp-allows-unsafe-inline))
