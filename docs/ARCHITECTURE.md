@@ -184,9 +184,22 @@ services/                     # Business logic services
 │   ├── loyalty-tracer.js     # Request tracing
 │   └── __tests__/            # 2,931 lines of tests
 │
-├── loyalty-admin/            # Legacy loyalty admin service (5,475 lines)
-│   ├── index.js
-│   └── loyalty-service.js    # Offer CRUD, customer management, rewards
+├── loyalty-admin/            # Modular loyalty admin (15 modules, 47 exports)
+│   ├── index.js              # Public API (re-exports all modules)
+│   ├── constants.js          # RewardStatus, AuditActions, RedemptionTypes
+│   ├── shared-utils.js       # fetchWithTimeout, getSquareAccessToken
+│   ├── audit-service.js      # logAuditEvent, getAuditLogs
+│   ├── settings-service.js   # getSetting, updateSetting, initializeDefaults
+│   ├── offer-admin-service.js      # Offer CRUD
+│   ├── variation-admin-service.js  # Qualifying variation management
+│   ├── customer-cache-service.js   # Local customer cache
+│   ├── customer-admin-service.js   # Customer lookups, status, history
+│   ├── purchase-service.js         # Purchase processing, refunds
+│   ├── reward-service.js           # Reward redemption, progress tracking
+│   ├── webhook-processing-service.js  # Webhook order processing
+│   ├── square-discount-service.js  # Square Customer Group Discount ops
+│   ├── backfill-service.js         # Catchup, order history backfill
+│   └── expiration-service.js       # Reward/offer expiration processing
 │
 ├── catalog/                  # Catalog data management (P1-2)
 │   ├── index.js

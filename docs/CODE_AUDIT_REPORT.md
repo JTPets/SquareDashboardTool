@@ -43,6 +43,7 @@
 ### CRIT-1: Cross-Tenant Cart Data Deletion
 
 **Severity**: CRITICAL
+**Status**: FIXED (2026-02-05)
 **Files**:
 - `services/cart/cart-activity-service.js` (lines 273-348)
 - `jobs/cart-activity-cleanup-job.js` (lines 30, 33)
@@ -83,6 +84,7 @@ async markAbandoned(merchantId, daysThreshold = 7) {
 ### CRIT-2: Google OAuth CSRF Vulnerability
 
 **Severity**: CRITICAL
+**Status**: FIXED (2026-02-05)
 **File**: `utils/google-sheets.js`
 
 **Vulnerability Description**:
@@ -119,6 +121,7 @@ function parseAuthState(state) {
 ### CRIT-3: Server-Side XSS in HTML Report Generation
 
 **Severity**: CRITICAL
+**Status**: FIXED (2026-02-05)
 **Files**:
 - `services/reports/loyalty-reports.js` (lines 902-924)
 - `services/reports/brand-redemption-report.js` (line 443)
@@ -155,6 +158,7 @@ function escapeHtml(text) {
 ### CRIT-4: Client-Side API Key Storage in localStorage
 
 **Severity**: CRITICAL
+**Status**: FIXED (2026-02-05)
 **File**: `public/js/catalog-workflow.js` (lines 17-60)
 
 **Vulnerability Description**:
@@ -240,6 +244,7 @@ async function runWithLock(lockId, jobFn) {
 ### HIGH-1: Timing Attack in Webhook Signature Verification
 
 **Severity**: HIGH
+**Status**: FIXED (2026-02-05)
 **File**: `services/webhook-processor.js` (line 32)
 
 ```javascript
@@ -259,6 +264,7 @@ return crypto.timingSafeEqual(
 ### HIGH-2: Webhook Error Response Returns 5xx
 
 **Severity**: HIGH
+**Status**: FIXED (2026-02-05)
 **File**: `services/webhook-processor.js` (line 271)
 
 **Issue**: Returning HTTP 500 causes Square to retry the webhook, potentially creating duplicate processing.
@@ -270,6 +276,7 @@ return crypto.timingSafeEqual(
 ### HIGH-3: Synchronous File I/O in Request Handlers
 
 **Severity**: HIGH
+**Status**: FIXED (2026-02-05)
 **Files**:
 - `routes/delivery.js:816-823` - `fs.existsSync()` blocks event loop
 - `jobs/backup-job.js:174,183-191` - Sync file operations

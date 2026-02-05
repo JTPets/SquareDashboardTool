@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Security Audit](./SECURITY_AUDIT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Review**: 2026-01-26
+**Last Review**: 2026-02-05
 **Master Engineering Review**: 2026-01-26
 **Current Grade**: A+ (All P0 and P1 security issues FIXED)
 **Target Grade**: A++ (Production-ready SaaS)
@@ -174,123 +174,39 @@ Modern service running in production with feature flags enabled.
 #### Architecture Overview
 
 ```
-CURRENT PRODUCTION FLOW
+PRODUCTION FLOW (2026-02-05)
 ────────────────────────────────────────────────────────────────────────
   Webhook Events ──► webhook-processor.js ──► webhook-handlers/
                                               ├── order-handler.js
                                               └── loyalty-handler.js
                                                        │
-                                                       ▼
-                                       ┌──────────────────────────────┐
-                                       │ utils/loyalty-service.js    │
-                                       │ (5,476 lines - LEGACY)      │
-                                       └──────────────────────────────┘
+                                    ┌──────────────────┴──────────────────┐
+                                    ▼                                     ▼
+                      services/loyalty/              services/loyalty-admin/
+                      (Modern webhook processing)    (15 modular services)
+                      ├── webhook-service.js         ├── index.js (47 exports)
+                      ├── square-client.js           ├── purchase-service.js
+                      ├── customer-service.js        ├── reward-service.js
+                      ├── offer-service.js           ├── webhook-processing-service.js
+                      ├── purchase-service.js        ├── square-discount-service.js
+                      ├── reward-service.js          ├── backfill-service.js
+                      ├── loyalty-logger.js          ├── expiration-service.js
+                      └── loyalty-tracer.js          └── ... (9 more modules)
 
-  routes/loyalty.js ───────────────────► utils/loyalty-service.js
-  (Admin API - 35+ function calls)
-
-MODERN SERVICE (Built, Tested, NOT Connected)
-────────────────────────────────────────────────────────────────────────
-  services/loyalty/
-  ├── index.js                 # Public API exports
-  ├── webhook-service.js       # LoyaltyWebhookService (main entry)
-  ├── square-client.js         # LoyaltySquareClient + SquareApiError
-  ├── customer-service.js      # LoyaltyCustomerService
-  ├── offer-service.js         # LoyaltyOfferService
-  ├── purchase-service.js      # LoyaltyPurchaseService
-  ├── reward-service.js        # LoyaltyRewardService
-  ├── loyalty-logger.js        # Structured logging (USED by legacy)
-  ├── loyalty-tracer.js        # Request tracing
-  └── __tests__/               # 2,931 lines of tests
+  routes/loyalty.js ───────────────────► services/loyalty-admin/
+  (Admin API - 47 function calls)
 ```
 
-#### What Modern Service Covers
-
-| Feature | Modern Service | Method |
-|---------|----------------|--------|
-| Order processing | Yes | `LoyaltyWebhookService.processOrder()` |
-| Customer ID (5 methods) | Yes | `LoyaltyCustomerService.identifyCustomerFromOrder()` |
-| Purchase recording | Yes | `LoyaltyPurchaseService.recordPurchase()` |
-| Reward management | Yes | `LoyaltyRewardService.*` |
-| Offer lookups | Yes | `LoyaltyOfferService.getActiveOffers()` |
-| Square API calls | Yes | `LoyaltySquareClient.*` |
-| Structured logging | Yes | `loyaltyLogger.*` |
-| Request tracing | Yes | `LoyaltyTracer` |
-
-#### What Stays in Legacy (Admin Features)
-
-| Feature | Used By | Notes |
-|---------|---------|-------|
-| Offer CRUD | `routes/loyalty.js` | Create/update/delete offers |
-| Variation management | `routes/loyalty.js` | Add qualifying variations |
-| Settings | `routes/loyalty.js` | Loyalty program settings |
-| Audit logs | `routes/loyalty.js` | Query audit history |
-| Customer caching | `routes/loyalty.js` | Local customer cache |
-| Square Customer Group Discount | `order-handler.js` | Reward delivery mechanism |
-| Refund processing | `order-handler.js` | Adjust quantities on refund |
-| Catchup/backfill | `loyalty-handler.js` | Process missed orders |
+The legacy `loyalty-service.js` monolith has been **fully eliminated**. All functions extracted to 15 dedicated modules in `services/loyalty-admin/`. See [ARCHITECTURE.md](./ARCHITECTURE.md#loyalty-admin-modules) for the full module structure.
 
 #### Migration Plan
 
-**Phase 1: Wire Up Modern Service (Add Feature Flag)** - COMPLETE
-```
-Files modified:
-  - services/webhook-handlers/order-handler.js
-  - services/webhook-handlers/loyalty-handler.js
-  - .env.example (added USE_NEW_LOYALTY_SERVICE=false)
-  - config/constants.js (added FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE)
-
-Both handlers now use FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE from config/constants.js:
-  - Modern: LoyaltyWebhookService.processOrder()
-  - Legacy: loyaltyService.processOrderForLoyalty() (default)
-
-Results are normalized to legacy format for backward compatibility.
-Other legacy functions (redemption detection, refunds, discounts) still use legacy service.
-```
-
+**Phase 1: Wire Up Modern Service** - COMPLETE
 **Phase 2: Test in Production** - COMPLETE (2026-01-30)
-```bash
-# .env - Enabled in production
-USE_MODULAR_WEBHOOK_PROCESSOR=true
-USE_NEW_LOYALTY_SERVICE=true
-```
+**Phase 3: Migrate Remaining Handlers** - COMPLETE
+**Phase 4: Extract Admin to Modular Services** - COMPLETE (2026-02-05)
 
-Production deployment running since ~2026-01-27. Rate limiting fix applied (commit 89b9a85) added:
-- 429 retry logic with Retry-After header support
-- Deduplication checks to prevent duplicate order processing
-- 100ms throttle delay between API calls in customer identification loop
-
-**Phase 3: Migrate Remaining Handlers**
-- `services/webhook-handlers/loyalty-handler.js` - Use modern for order processing
-- Keep legacy calls for: `runLoyaltyCatchup`, `isOrderAlreadyProcessedForLoyalty`
-
-**Phase 4: Extract Admin Features to Modular Services** - IN PROGRESS (2026-02-05)
-
-Chose option 3: Extract to `services/loyalty-admin/` with modular architecture.
-
-**Extracted Services:**
-```
-services/loyalty-admin/
-├── index.js                   # Re-exports all modules (backward compatible)
-├── constants.js               # RewardStatus, AuditActions, RedemptionTypes
-├── shared-utils.js            # fetchWithTimeout, getSquareAccessToken
-├── audit-service.js           # logAuditEvent, getAuditLogs
-├── settings-service.js        # getSetting, updateSetting, initializeDefaultSettings
-├── offer-admin-service.js     # createOffer, getOffers, updateOffer, deleteOffer
-├── variation-admin-service.js # addQualifyingVariations, checkVariationConflicts
-├── customer-cache-service.js  # cacheCustomerDetails, getCachedCustomer, search
-├── customer-admin-service.js  # getCustomerDetails, lookups, status, history
-└── loyalty-service.js         # Remaining functions (purchase, reward, webhook)
-```
-
-**Remaining in loyalty-service.js (to be extracted next):**
-- Purchase processing (processQualifyingPurchase, processRefund)
-- Reward management (redeemReward, updateRewardProgress)
-- Square Customer Group Discount integration
-- Backfill/catchup operations
-- Expiration processing
-
-All 179 loyalty tests pass after extraction.
+All 179 loyalty tests pass. No circular dependencies remain.
 
 #### Success Criteria
 
@@ -298,9 +214,10 @@ All 179 loyalty tests pass after extraction.
 - [x] Modern service processes orders when flag is `true`
 - [x] Legacy service still works when flag is `false`
 - [x] Rate limiting handled with retry logic (commit 89b9a85)
-- [x] Phase 4 modular extraction started (2026-02-05)
+- [x] Phase 4 modular extraction complete (2026-02-05)
+- [x] Legacy monolith eliminated - all functions in dedicated modules
 - [x] All existing tests pass (179 loyalty tests)
-- [ ] No regression in loyalty tracking (monitoring ongoing)
+- [x] No circular dependencies in module graph
 
 ---
 
@@ -355,7 +272,7 @@ async function getItems(merchantId, filters) {
 ```
 services/                # Business logic services
 ├── loyalty/             # Modern service (P1-1)
-├── loyalty-admin/       # Legacy loyalty admin service (5,475 lines)
+├── loyalty-admin/       # Modular loyalty admin (15 modules, 47 exports)
 ├── catalog/             # Catalog data management (P1-2)
 ├── merchant/            # Settings service
 ├── delivery/            # Delivery order management
@@ -376,7 +293,7 @@ utils/                   # Re-export stubs for backward compatibility
 ├── merchant-center-api.js # → services/gmc/merchant-service.js
 ├── vendor-catalog.js    # → services/vendor/
 ├── loyalty-reports.js   # → services/reports/
-├── loyalty-service.js   # → services/loyalty-admin/
+├── loyalty-service.js   # → services/loyalty-admin/ (monolith eliminated)
 ├── square-api.js        # → services/square/
 ├── database.js          # Re-exports getMerchantSettings from services/merchant/
 └── ... (remaining true utilities)
@@ -389,7 +306,7 @@ utils/                   # Re-export stubs for backward compatibility
 - `vendor-catalog.js` → `services/vendor/catalog-service.js` (1,331 lines)
 - `loyalty-reports.js` → `services/reports/loyalty-reports.js` (969 lines)
 - `square-api.js` → `services/square/api.js` (3,517 lines)
-- `loyalty-service.js` → `services/loyalty-admin/loyalty-service.js` (5,475 lines)
+- `loyalty-service.js` → `services/loyalty-admin/` (15 modular services, monolith eliminated)
 
 ---
 
