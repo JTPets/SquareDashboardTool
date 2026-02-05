@@ -12,9 +12,9 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
+const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
 
 // Lazy require to avoid circular dependency - updateRewardProgress stays in loyalty-service.js
-// cleanupSquareCustomerGroupDiscount will move to square-discount-service.js in a later extraction
 let _loyaltyService = null;
 function getLoyaltyService() {
     if (!_loyaltyService) {
@@ -162,7 +162,6 @@ async function processExpiredEarnedRewards(merchantId) {
 
         // Cleanup Square discount objects
         if (reward.square_discount_id || reward.square_group_id) {
-            const { cleanupSquareCustomerGroupDiscount } = getLoyaltyService();
             const cleanupResult = await cleanupSquareCustomerGroupDiscount({
                 merchantId,
                 squareCustomerId: reward.square_customer_id,

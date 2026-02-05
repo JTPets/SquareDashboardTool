@@ -78,7 +78,7 @@ jobs/            → Background jobs and cron tasks
 | Date | File | Rule Broken | Reason |
 |------|------|-------------|--------|
 | 2026-01-29 | utils/database.js | 2,093 line function | SQL schema definition, not logic |
-| 2026-01-29 | services/loyalty-admin/loyalty-service.js | 5,475 lines | Legacy service pending deprecation (P1-1) |
+| 2026-01-29 | services/loyalty-admin/loyalty-service.js | 1,482 lines | Reduced from 5,475 via P1-1 Phase 4 extraction |
 | 2026-01-29 | server.js | 1,006 lines | Express entry point, already reduced 66% |
 | 2026-01-29 | All LOW severity files | >300 lines | Stable code, refactor-on-touch policy |
 
@@ -180,13 +180,39 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 ├── services/            # Business logic
 │   ├── webhook-processor.js
 │   ├── webhook-handlers/ (6 handlers)
-│   ├── loyalty/         # Modern service
+│   ├── loyalty/         # Loyalty event logging
+│   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
 │   └── catalog/         # Example service layer
 ├── jobs/                # Cron tasks
 └── utils/               # database, logger, helpers
 ```
 
 **Middleware Stack**: `Request → requireAuth → loadMerchantContext → requireMerchant → validators.* → Handler`
+
+### Loyalty-Admin Module Structure
+
+The `services/loyalty-admin/` directory is a modular service layer (refactored P1-1 Phase 4):
+
+```
+services/loyalty-admin/
+├── index.js                    # Public API (47 exports)
+├── constants.js                # RewardStatus, AuditActions, RedemptionTypes
+├── shared-utils.js             # fetchWithTimeout, getSquareAccessToken
+├── audit-service.js            # logAuditEvent, getAuditLogs
+├── settings-service.js         # getSetting, updateSetting, etc.
+├── offer-admin-service.js      # createOffer, getOffers, etc.
+├── variation-admin-service.js  # addQualifyingVariations, etc.
+├── customer-cache-service.js   # cacheCustomerDetails, etc.
+├── customer-admin-service.js   # getCustomerDetails, lookups
+├── expiration-service.js       # processExpired* functions
+├── backfill-service.js         # runLoyaltyCatchup, order history
+├── square-discount-service.js  # Square Customer Group Discount ops
+└── loyalty-service.js          # Core purchase/reward processing (legacy)
+```
+
+**Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
+
+See [LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) for dependency diagram and known issues.
 
 ---
 
@@ -226,6 +252,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 | [docs/EVENT_DELEGATION.md](./docs/EVENT_DELEGATION.md) | CSP-compliant event handling, JS execution rules |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, middleware stack |
 | [docs/API_OPTIMIZATION_PLAN.md](./docs/API_OPTIMIZATION_PLAN.md) | Rate limit fixes, caching strategy |
+| [docs/LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) | Loyalty-admin module structure, dependencies, known issues |
 
 ---
 
@@ -268,7 +295,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 - Reorder path uses DB-only with deferred rebuild
 
 **Files involved**:
-- `services/loyalty-admin/loyalty-service.js:deleteRewardDiscountObjects()` (lines 4039-4098)
+- `services/loyalty-admin/square-discount-service.js:deleteRewardDiscountObjects()` (lines 519-600)
 - `services/expiry/discount-service.js:upsertPricingRule()` (lines 948-1107)
 - `services/expiry/discount-service.js:clearExpiryDiscountForReorder()` (lines 1716-1823)
 

@@ -53,6 +53,12 @@ const {
     lookupCustomerFromOrderRewards
 } = require('./customer-admin-service');
 
+// Square discount operations
+const {
+    createSquareCustomerGroupDiscount,
+    cleanupSquareCustomerGroupDiscount
+} = require('./square-discount-service');
+
 // ============================================================================
 // PURCHASE PROCESSING - Core loyalty earning logic
 // ============================================================================
