@@ -119,6 +119,18 @@ async function createFromDraftOrder(order, merchantId) {
 
     const cartData = extractCartData(order);
 
+    // Skip anonymous carts - no customer identifier means no abandoned cart recovery possible
+    // This prevents 70+ useless DB writes per hour from anonymous browsing sessions
+    if (!cartData.squareCustomerId && !cartData.phoneLast4) {
+        logger.debug('Skipping DRAFT order - no customer identifier for cart recovery', {
+            merchantId,
+            squareOrderId: order.id,
+            source: cartData.sourceName,
+            itemCount: cartData.itemCount
+        });
+        return null;
+    }
+
     try {
         const result = await db.query(`
             INSERT INTO cart_activity (
@@ -150,23 +162,14 @@ async function createFromDraftOrder(order, merchantId) {
 
         const cart = result.rows[0];
 
-        // Log with appropriate level based on customer data availability
-        if (!cartData.squareCustomerId && !cartData.phoneLast4) {
-            logger.warn('DRAFT order has no customer_id or phone', {
-                merchantId,
-                squareOrderId: order.id,
-                cartActivityId: cart.id
-            });
-        } else {
-            logger.info('Cart activity created from DRAFT order', {
-                merchantId,
-                squareOrderId: order.id,
-                cartActivityId: cart.id,
-                itemCount: cartData.itemCount,
-                cartTotal: cartData.cartTotalCents,
-                source: cartData.sourceName
-            });
-        }
+        logger.info('Cart activity created from DRAFT order', {
+            merchantId,
+            squareOrderId: order.id,
+            cartActivityId: cart.id,
+            itemCount: cartData.itemCount,
+            cartTotal: cartData.cartTotalCents,
+            source: cartData.sourceName
+        });
 
         return cart;
     } catch (err) {
