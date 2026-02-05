@@ -17,15 +17,7 @@ const { loyaltyLogger } = require('../loyalty/loyalty-logger');
 const { AuditActions } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { logAuditEvent } = require('./audit-service');
-
-// Lazy require to avoid circular dependency - processOrderForLoyalty stays in loyalty-service.js
-let _loyaltyService = null;
-function getLoyaltyService() {
-    if (!_loyaltyService) {
-        _loyaltyService = require('./loyalty-service');
-    }
-    return _loyaltyService;
-}
+const { processOrderForLoyalty } = require('./webhook-processing-service');
 
 /**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
@@ -257,7 +249,7 @@ async function processOrderForLoyaltyIfNeeded(order, merchantId) {
         source: 'sync_backfill'
     });
 
-    const { processOrderForLoyalty } = getLoyaltyService();
+    // processOrderForLoyalty is imported at top of file
     return processOrderForLoyalty(order, merchantId);
 }
 
@@ -601,7 +593,7 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
         errors: []
     };
 
-    const { processOrderForLoyalty } = getLoyaltyService();
+    // processOrderForLoyalty is imported at top of file
 
     // Fetch each order and process
     for (const orderId of orderIds) {
@@ -777,7 +769,7 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - periodDays);
 
-    const { processOrderForLoyalty } = getLoyaltyService();
+    // processOrderForLoyalty is imported at top of file
 
     // Process each customer
     for (const customer of customers) {

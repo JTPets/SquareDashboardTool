@@ -17,18 +17,8 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../loyalty/loyalty-logger');
-const { RedemptionTypes } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
-
-// Lazy require to avoid circular dependency - redeemReward stays in loyalty-service.js
-let _loyaltyService = null;
-function getLoyaltyService() {
-    if (!_loyaltyService) {
-        _loyaltyService = require('./loyalty-service');
-    }
-    return _loyaltyService;
-}
 
 /**
  * Get Square Loyalty Program for a merchant
@@ -1131,88 +1121,6 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
     return result;
 }
 
-/**
- * Check if an order used a reward discount and mark it as redeemed
- * Called from order webhook to detect when customer redeems at POS
- *
- * @param {Object} order - Square order object
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<Object>} Result with redeemed reward info if found
- */
-async function detectRewardRedemptionFromOrder(order, merchantId) {
-    try {
-        const discounts = order.discounts || [];
-        if (discounts.length === 0) {
-            return { detected: false };
-        }
-
-        // Look for any of our reward discounts in the order
-        for (const discount of discounts) {
-            const catalogObjectId = discount.catalog_object_id;
-            if (!catalogObjectId) continue;
-
-            // Check if this discount matches any of our earned rewards
-            // Check BOTH square_discount_id AND square_pricing_rule_id because Square
-            // may reference either one in the order discount depending on how it was applied
-            const rewardResult = await db.query(`
-                SELECT r.*, o.offer_name
-                FROM loyalty_rewards r
-                JOIN loyalty_offers o ON r.offer_id = o.id
-                WHERE r.merchant_id = $1
-                  AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
-                  AND r.status = 'earned'
-            `, [merchantId, catalogObjectId]);
-
-            if (rewardResult.rows.length > 0) {
-                const reward = rewardResult.rows[0];
-
-                logger.info('Detected reward redemption from order', {
-                    merchantId,
-                    orderId: order.id,
-                    rewardId: reward.id,
-                    discountId: catalogObjectId
-                });
-
-                // Redeem the reward
-                const { redeemReward } = getLoyaltyService();
-                const redemptionResult = await redeemReward({
-                    merchantId,
-                    rewardId: reward.id,
-                    squareOrderId: order.id,
-                    squareCustomerId: order.customer_id,
-                    redemptionType: RedemptionTypes.AUTO_DETECTED,
-                    redeemedValueCents: Number(discount.applied_money?.amount || 0),
-                    squareLocationId: order.location_id
-                });
-
-                return {
-                    detected: true,
-                    rewardId: reward.id,
-                    offerName: reward.offer_name,
-                    redemptionResult
-                };
-            }
-        }
-
-        return { detected: false };
-
-    } catch (error) {
-        logger.error('Error detecting reward redemption', {
-            error: error.message,
-            orderId: order?.id,
-            merchantId
-        });
-        return { detected: false, error: error.message };
-    }
-}
-
-// Legacy function for backward compatibility - now uses Customer Group Discounts
-// Keep the old name for any existing code references, but redirect to new implementation
-async function createSquareLoyaltyReward({ merchantId, squareCustomerId, internalRewardId, offerId }) {
-    logger.info('createSquareLoyaltyReward called - redirecting to Customer Group Discount approach');
-    return createSquareCustomerGroupDiscount({ merchantId, squareCustomerId, internalRewardId, offerId });
-}
-
 module.exports = {
     getSquareLoyaltyProgram,
     createRewardCustomerGroup,
@@ -1224,7 +1132,5 @@ module.exports = {
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
     validateEarnedRewardsDiscounts,
-    validateSingleRewardDiscount,
-    detectRewardRedemptionFromOrder,
-    createSquareLoyaltyReward
+    validateSingleRewardDiscount
 };

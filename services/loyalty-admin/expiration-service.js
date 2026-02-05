@@ -13,15 +13,7 @@ const logger = require('../../utils/logger');
 const { AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
-
-// Lazy require to avoid circular dependency - updateRewardProgress stays in loyalty-service.js
-let _loyaltyService = null;
-function getLoyaltyService() {
-    if (!_loyaltyService) {
-        _loyaltyService = require('./loyalty-service');
-    }
-    return _loyaltyService;
-}
+const { updateRewardProgress } = require('./purchase-service');
 
 /**
  * Process purchases that have expired from the rolling window
@@ -59,7 +51,6 @@ async function processExpiredWindowEntries(merchantId) {
             `, [row.offer_id]);
 
             if (offerResult.rows[0]) {
-                const { updateRewardProgress } = getLoyaltyService();
                 await updateRewardProgress(client, {
                     merchantId,
                     offerId: row.offer_id,
