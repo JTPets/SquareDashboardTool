@@ -13,8 +13,7 @@ let selectedItems = {
 let generatedResults = [];
 let currentFieldType = null;
 
-// LocalStorage keys
-const STORAGE_API_KEY = 'claude_api_key';
+// LocalStorage keys (API key is now stored server-side, not in localStorage)
 const STORAGE_CONTEXT = 'ai_autofill_context';
 const STORAGE_KEYWORDS = 'ai_autofill_keywords';
 const STORAGE_TONE = 'ai_autofill_tone';
@@ -23,17 +22,14 @@ const STORAGE_TONE = 'ai_autofill_tone';
 document.addEventListener('DOMContentLoaded', function() {
     loadSavedSettings();
     loadStatus();
+    checkApiKeyStatus();
 });
 
 // ==================== Settings Management ====================
 
 function loadSavedSettings() {
-    // Load API key
-    const savedKey = localStorage.getItem(STORAGE_API_KEY);
-    if (savedKey) {
-        document.getElementById('api-key').value = savedKey;
-        updateApiStatus(true);
-    }
+    // API key is now stored server-side (not in localStorage)
+    // Check status via API instead
 
     // Load context
     const savedContext = localStorage.getItem(STORAGE_CONTEXT);
@@ -54,22 +50,88 @@ function loadSavedSettings() {
     }
 }
 
-function saveApiKey() {
-    const apiKey = document.getElementById('api-key').value.trim();
-    if (apiKey) {
-        localStorage.setItem(STORAGE_API_KEY, apiKey);
-        updateApiStatus(true);
-        showAlert('API key saved to browser storage.', 'success');
-    } else {
-        showAlert('Please enter an API key.', 'warning');
+/**
+ * Check if API key is stored server-side
+ */
+async function checkApiKeyStatus() {
+    try {
+        const response = await fetch('/api/ai-autofill/api-key/status', { credentials: 'include' });
+        const result = await response.json();
+        if (result.success && result.data.hasKey) {
+            updateApiStatus(true);
+        } else {
+            updateApiStatus(false);
+        }
+    } catch (error) {
+        console.error('Failed to check API key status:', error);
+        updateApiStatus(false);
     }
 }
 
-function clearApiKey() {
-    localStorage.removeItem(STORAGE_API_KEY);
-    document.getElementById('api-key').value = '';
-    updateApiStatus(false);
-    showAlert('API key cleared from browser storage.', 'info');
+/**
+ * Save API key to secure server-side storage
+ */
+async function saveApiKey() {
+    const apiKey = document.getElementById('api-key').value.trim();
+    if (!apiKey) {
+        showAlert('Please enter an API key.', 'warning');
+        return;
+    }
+
+    if (!apiKey.startsWith('sk-ant-')) {
+        showAlert('Invalid API key format. Claude API keys start with sk-ant-', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/ai-autofill/api-key', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Failed to save API key');
+        }
+
+        // Clear the input field (key is now stored server-side, not shown again)
+        document.getElementById('api-key').value = '';
+        updateApiStatus(true);
+        showAlert('API key saved securely on server.', 'success');
+
+    } catch (error) {
+        console.error('Failed to save API key:', error);
+        showAlert('Failed to save API key: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Delete API key from server-side storage
+ */
+async function clearApiKey() {
+    try {
+        const response = await fetch('/api/ai-autofill/api-key', {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Failed to delete API key');
+        }
+
+        document.getElementById('api-key').value = '';
+        updateApiStatus(false);
+        showAlert('API key deleted from server.', 'info');
+
+    } catch (error) {
+        console.error('Failed to delete API key:', error);
+        showAlert('Failed to delete API key: ' + error.message, 'error');
+    }
 }
 
 function toggleApiKeyVisibility(element) {
@@ -87,7 +149,7 @@ function updateApiStatus(connected) {
     const statusEl = document.getElementById('api-status');
     if (connected) {
         statusEl.className = 'api-status connected';
-        statusEl.textContent = 'Key Saved';
+        statusEl.textContent = 'Key Saved (Server)';
     } else {
         statusEl.className = 'api-status not-connected';
         statusEl.textContent = 'Not Connected';
@@ -394,11 +456,7 @@ async function generateSeoDescriptions() {
 }
 
 async function generateContent(fieldType, itemIds) {
-    const apiKey = localStorage.getItem(STORAGE_API_KEY);
-    if (!apiKey) {
-        showAlert('Please enter and save your Claude API key first.', 'warning');
-        return;
-    }
+    // API key is stored server-side, no need to pass it from frontend
 
     if (itemIds.length === 0) {
         showAlert('Please select at least one item.', 'warning');
@@ -422,8 +480,7 @@ async function generateContent(fieldType, itemIds) {
             method: 'POST',
             credentials: 'include',
             headers: {
-                'Content-Type': 'application/json',
-                'x-claude-api-key': apiKey
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 itemIds,
