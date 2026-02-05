@@ -253,14 +253,17 @@ class WebhookProcessor {
             res.json({ received: true, processingTimeMs: processingTime });
 
         } catch (error) {
+            const processingTime = Date.now() - startTime;
+
             logger.error('Webhook processing error', {
                 error: error.message,
-                stack: error.stack
+                stack: error.stack,
+                webhookEventId,
+                processingTimeMs: processingTime
             });
 
-            // Mark webhook for retry with exponential backoff
+            // Mark webhook for retry with exponential backoff via our internal retry system
             if (webhookEventId) {
-                const processingTime = Date.now() - startTime;
                 await webhookRetry.markForRetry(webhookEventId, error.message).catch(dbErr => {
                     logger.error('Failed to mark webhook for retry', {
                         webhookEventId,
@@ -282,7 +285,11 @@ class WebhookProcessor {
                 });
             }
 
-            res.status(500).json({ error: error.message });
+            // Return 200 to Square to prevent their automatic retries.
+            // Failed events are stored in webhook_events and retried by our
+            // internal webhook-retry job, which prevents duplicate processing
+            // (e.g., double loyalty points, duplicate inventory syncs).
+            res.status(200).json({ received: true, queued_for_retry: true });
         }
     }
 }
