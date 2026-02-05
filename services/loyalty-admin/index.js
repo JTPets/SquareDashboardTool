@@ -11,31 +11,25 @@
  * - Audit logging
  * - Webhook order processing
  *
- * ARCHITECTURE:
- * This module re-exports functions from both:
- * 1. New modular services (offer-admin-service, variation-admin-service, etc.)
- * 2. Legacy loyalty-service.js (for functions not yet extracted)
+ * ARCHITECTURE (P1-1 Phase 4 Complete):
+ * All functions have been extracted to dedicated modular services.
+ * The legacy loyalty-service.js monolith has been eliminated.
  *
- * The refactoring is incremental - functions are extracted to dedicated services
- * one at a time while maintaining backward compatibility.
- *
- * Migration Progress (P1-1 Phase 4):
- * - constants.js: Extracted (RewardStatus, AuditActions, RedemptionTypes)
- * - shared-utils.js: Extracted (fetchWithTimeout, getSquareAccessToken)
- * - audit-service.js: Extracted (logAuditEvent, getAuditLogs)
- * - settings-service.js: Extracted (getSetting, updateSetting, etc.)
- * - offer-admin-service.js: Extracted (createOffer, getOffers, etc.)
- * - variation-admin-service.js: Extracted (addQualifyingVariations, etc.)
- * - customer-cache-service.js: Extracted (cacheCustomerDetails, etc.)
- * - customer-admin-service.js: Extracted (getCustomerDetails, lookups, etc.)
- * - expiration-service.js: Extracted (processExpiredWindowEntries, processExpiredEarnedRewards)
- * - backfill-service.js: Extracted (prefetchRecentLoyaltyEvents, getCustomerOrderHistoryForAudit, etc.)
- * - square-discount-service.js: Extracted (createSquareCustomerGroupDiscount, validateEarnedRewardsDiscounts, etc.)
- *
- * Remaining in legacy loyalty-service.js (~1,480 lines):
- * - Purchase processing (processQualifyingPurchase, processRefund)
- * - Reward management (redeemReward, updateRewardProgress)
- * - Webhook processing (processOrderForLoyalty, processOrderRefundsForLoyalty)
+ * Module Structure:
+ * - constants.js: RewardStatus, AuditActions, RedemptionTypes
+ * - shared-utils.js: fetchWithTimeout, getSquareAccessToken
+ * - audit-service.js: logAuditEvent, getAuditLogs
+ * - settings-service.js: getSetting, updateSetting, etc.
+ * - offer-admin-service.js: createOffer, getOffers, etc.
+ * - variation-admin-service.js: addQualifyingVariations, etc.
+ * - customer-cache-service.js: cacheCustomerDetails, etc.
+ * - customer-admin-service.js: getCustomerDetails, lookups, etc.
+ * - expiration-service.js: processExpiredWindowEntries, processExpiredEarnedRewards
+ * - backfill-service.js: runLoyaltyCatchup, order history
+ * - square-discount-service.js: Square Customer Group Discount ops
+ * - purchase-service.js: processQualifyingPurchase, processRefund, updateRewardProgress
+ * - reward-service.js: redeemReward, detectRewardRedemptionFromOrder
+ * - webhook-processing-service.js: processOrderForLoyalty, processOrderRefundsForLoyalty
  *
  * Usage:
  *   const loyaltyAdmin = require('./services/loyalty-admin');
@@ -49,7 +43,7 @@
  */
 
 // ============================================================================
-// NEW MODULAR SERVICES (Extracted)
+// MODULAR SERVICES
 // ============================================================================
 
 // Constants
@@ -129,30 +123,29 @@ const {
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
-    detectRewardRedemptionFromOrder,
-    createSquareLoyaltyReward,
     validateEarnedRewardsDiscounts
 } = require('./square-discount-service');
 
-// ============================================================================
-// LEGACY SERVICE (Core purchase and reward processing)
-// ============================================================================
-
-const legacyService = require('./loyalty-service');
-
-// Re-export everything from legacy that isn't in new modules
+// Purchase service (NEW - extracted from loyalty-service.js)
 const {
-    // Purchase processing
     processQualifyingPurchase,
     processRefund,
+    updateRewardProgress,
+    updateCustomerSummary
+} = require('./purchase-service');
 
-    // Reward management
+// Reward service (NEW - extracted from loyalty-service.js and square-discount-service.js)
+const {
     redeemReward,
+    detectRewardRedemptionFromOrder,
+    createSquareLoyaltyReward
+} = require('./reward-service');
 
-    // Webhook processing
+// Webhook processing service (NEW - extracted from loyalty-service.js)
+const {
     processOrderForLoyalty,
     processOrderRefundsForLoyalty
-} = legacyService;
+} = require('./webhook-processing-service');
 
 // ============================================================================
 // EXPORTS - Complete public API

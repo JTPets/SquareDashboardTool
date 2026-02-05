@@ -1,6 +1,6 @@
 # Loyalty Admin Service Architecture
 
-This document describes the modular architecture of `services/loyalty-admin/` after the P1-1 Phase 4 refactoring.
+This document describes the modular architecture of `services/loyalty-admin/` after completing the P1-1 Phase 4 refactoring.
 
 ## Overview
 
@@ -13,6 +13,8 @@ The loyalty-admin service layer provides the API for loyalty program administrat
 - Square Customer Group Discount integration
 - Audit logging
 - Webhook order processing
+
+**Status**: The legacy `loyalty-service.js` monolith (~1,480 lines) has been **fully eliminated**. All functions have been extracted to dedicated modular services.
 
 ## Module Dependency Diagram
 
@@ -28,243 +30,223 @@ The loyalty-admin service layer provides the API for loyalty program administrat
 │   constants.js  │     │   shared-utils.js   │     │     audit-service.js    │
 │ (RewardStatus,  │     │ (fetchWithTimeout,  │     │ (logAuditEvent,         │
 │  AuditActions,  │     │  getSquareAccess-   │     │  getAuditLogs)          │
-│ RedemptionTypes)│     │  Token, getSquare-  │◄────│                         │
-└─────────────────┘     │  Api)               │     └─────────────────────────┘
-         │              └─────────────────────┘                  │
-         │                          │                            │
-         ▼                          ▼                            ▼
+│ RedemptionTypes)│     │  Token)             │     └─────────────────────────┘
+└─────────────────┘     └─────────────────────┘
+         │                          │
+         ▼                          ▼
 ┌─────────────────┐     ┌─────────────────────┐     ┌─────────────────────────┐
 │ settings-       │     │ customer-cache-     │     │ offer-admin-service.js  │
 │ service.js      │     │ service.js          │     │ (createOffer, getOffers,│
-│ (getSetting,    │     │ (cacheCustomer-     │     │  getOfferById, update-  │
-│  updateSetting, │     │  Details, getCached-│     │  Offer, deleteOffer)    │
-│  etc.)          │     │  Customer, etc.)    │     └─────────────────────────┘
-└─────────────────┘     └─────────────────────┘                  │
-                                    │                            │
-                                    ▼                            ▼
+│                 │     │                     │     │  etc.)                  │
+└─────────────────┘     └─────────────────────┘     └─────────────────────────┘
+                                   │                            │
+                                   ▼                            ▼
                         ┌─────────────────────┐     ┌─────────────────────────┐
                         │ customer-admin-     │     │ variation-admin-        │
                         │ service.js          │     │ service.js              │
-                        │ (getCustomerDetails,│     │ (checkVariation-        │
-                        │  lookupCustomer-    │     │  Conflicts, add/get/    │
-                        │  From*, etc.)       │     │  removeQualifying-      │
-                        └─────────────────────┘     │  Variations, etc.)      │
-                                    │              └─────────────────────────┘
-                                    ▼
-         ┌──────────────────────────┼──────────────────────────┐
-         ▼                          ▼                          ▼
-┌─────────────────┐     ┌─────────────────────┐     ┌─────────────────────────┐
-│ expiration-     │     │ backfill-service.js │     │ square-discount-        │
-│ service.js      │     │ (prefetchRecent-    │     │ service.js              │
-│ (processExpired-│     │  LoyaltyEvents,     │     │ (createSquareCustomer-  │
-│  WindowEntries, │     │  isOrderAlready-    │     │  GroupDiscount, cleanup,│
-│  processExpired-│     │  Processed, run-    │     │  validateEarnedRewards, │
-│  EarnedRewards) │     │  LoyaltyCatchup)    │     │  detectRedemption)      │
-└────────┬────────┘     └──────────┬──────────┘     └───────────┬─────────────┘
-         │                         │                            │
-         │         LAZY REQUIRE    │                            │
-         └─────────────────────────┼────────────────────────────┘
-                                   ▼
-                        ┌─────────────────────┐
-                        │ loyalty-service.js  │
-                        │ (LEGACY - ~1,480    │
-                        │  lines remaining)   │
-                        │                     │
-                        │ Contains:           │
-                        │ - processQualifying-│
-                        │   Purchase          │
-                        │ - processRefund     │
-                        │ - redeemReward      │
-                        │ - processOrderFor-  │
-                        │   Loyalty           │
-                        │ - updateReward-     │
-                        │   Progress          │
-                        └─────────────────────┘
+                        └─────────────────────┘     └─────────────────────────┘
+                                   │
+         ┌─────────────────────────┼─────────────────────────┐
+         ▼                         ▼                         ▼
+┌─────────────────┐     ┌─────────────────────┐   ┌─────────────────────────┐
+│ square-discount-│     │  purchase-service   │   │   reward-service.js     │
+│ service.js      │◄────│       .js           │──►│ (redeemReward,          │
+│ (Square catalog │     │ (processQualifying- │   │  detectRedemption-      │
+│  discount ops)  │     │  Purchase, process- │   │  FromOrder)             │
+└────────┬────────┘     │  Refund, update-    │   └───────────┬─────────────┘
+         │              │  RewardProgress)    │               │
+         │              └──────────┬──────────┘               │
+         │                         │                          │
+         │              ┌──────────┴──────────┐               │
+         │              ▼                     ▼               │
+         │   ┌─────────────────────┐ ┌───────────────────┐    │
+         │   │ expiration-service  │ │ webhook-processing│    │
+         │   │       .js           │ │    -service.js    │◄───┘
+         │   │ (processExpired-    │ │ (processOrderFor- │
+         │   │  WindowEntries,     │ │  Loyalty, process-│
+         └──►│  processExpired-    │ │  OrderRefundsFor- │
+             │  EarnedRewards)     │ │  Loyalty)         │
+             └─────────────────────┘ └──────────┬────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │ backfill-service.js │
+                                    │ (runLoyaltyCatchup, │
+                                    │  orderHistory,      │
+                                    │  prefetch)          │
+                                    └─────────────────────┘
 ```
 
 ## Module Details
 
-### Core Modules (No Dependencies on loyalty-service.js)
+### Foundation Modules (No Service Dependencies)
 
 | Module | Lines | Functions | Purpose |
 |--------|-------|-----------|---------|
-| `constants.js` | 57 | 0 | RewardStatus, AuditActions, RedemptionTypes enums |
-| `shared-utils.js` | 73 | 3 | fetchWithTimeout, getSquareAccessToken, getSquareApi |
-| `audit-service.js` | 133 | 2 | logAuditEvent, getAuditLogs |
-| `settings-service.js` | 109 | 4 | getSetting, updateSetting, initializeDefaultSettings, getAllSettings |
-| `offer-admin-service.js` | 314 | 5 | CRUD for loyalty offers |
-| `variation-admin-service.js` | 285 | 6 | Qualifying variation management |
-| `customer-cache-service.js` | 224 | 4 | Customer detail caching |
-| `customer-admin-service.js` | 595 | 7 | Customer lookups and status queries |
+| `constants.js` | 56 | 0 | RewardStatus, AuditActions, RedemptionTypes enums |
+| `shared-utils.js` | 72 | 3 | fetchWithTimeout, getSquareAccessToken, getSquareApi |
 
-### Modules with Lazy Requires (Circular Dependency Avoidance)
+### Core Service Modules
 
-| Module | Lines | Functions | Lazy Require Reason |
-|--------|-------|-----------|---------------------|
-| `expiration-service.js` | 206 | 2 | Needs `updateRewardProgress` from loyalty-service |
-| `backfill-service.js` | 926 | 7 | Needs `processOrderForLoyalty` from loyalty-service |
-| `square-discount-service.js` | 1231 | 13 | Needs `redeemReward` from loyalty-service |
+| Module | Lines | Functions | Purpose |
+|--------|-------|-----------|---------|
+| `audit-service.js` | 132 | 2 | logAuditEvent, getAuditLogs |
+| `settings-service.js` | 108 | 4 | getSetting, updateSetting, initializeDefaultSettings, getAllSettings |
+| `offer-admin-service.js` | 313 | 5 | CRUD for loyalty offers |
+| `variation-admin-service.js` | 284 | 6 | Qualifying variation management |
+| `customer-cache-service.js` | 223 | 4 | Customer detail caching |
+| `customer-admin-service.js` | 594 | 7 | Customer lookups and status queries |
 
-### Legacy Module (Pending Further Extraction)
+### Business Logic Modules (Extracted from loyalty-service.js)
 
-| Module | Lines | Functions | Status |
-|--------|-------|-----------|--------|
-| `loyalty-service.js` | 1482 | 5 exported | Core purchase/reward/webhook processing |
+| Module | Lines | Functions | Purpose |
+|--------|-------|-----------|---------|
+| `purchase-service.js` | ~370 | 4 | processQualifyingPurchase, processRefund, updateRewardProgress, updateCustomerSummary |
+| `reward-service.js` | ~250 | 3 | redeemReward, detectRewardRedemptionFromOrder, createSquareLoyaltyReward |
+| `webhook-processing-service.js` | ~460 | 2 | processOrderForLoyalty, processOrderRefundsForLoyalty |
 
-## Lazy Requires and Why They Exist
+### Integration Modules
 
-### Pattern Used
-
-```javascript
-// Lazy require to avoid circular dependency
-let _loyaltyService = null;
-function getLoyaltyService() {
-    if (!_loyaltyService) {
-        _loyaltyService = require('./loyalty-service');
-    }
-    return _loyaltyService;
-}
-```
-
-### Where and Why
-
-1. **expiration-service.js** → loyalty-service.js
-   - Needs: `updateRewardProgress`, `cleanupSquareCustomerGroupDiscount`
-   - Why: Expiration processing must recalculate reward progress after window entries expire
-   - **Note**: `cleanupSquareCustomerGroupDiscount` is now in square-discount-service.js; comment on line 17 is stale
-
-2. **backfill-service.js** → loyalty-service.js
-   - Needs: `processOrderForLoyalty`
-   - Why: Backfill and catchup operations must process orders through the same loyalty logic
-
-3. **square-discount-service.js** → loyalty-service.js
-   - Needs: `redeemReward`
-   - Why: Auto-detected redemptions from orders must call redeemReward
-
-## Functions Remaining in loyalty-service.js
-
-These functions are tightly coupled and form the core purchase processing pipeline:
-
-| Function | Lines | Purpose | Why Not Extracted |
-|----------|-------|---------|-------------------|
-| `processQualifyingPurchase` | 84-227 | Record qualifying purchases | Core pipeline entry |
-| `updateRewardProgress` | 236-412 | Update reward state machine | Called by multiple paths |
-| `processRefund` | 425-589 | Handle refunds | Modifies reward state |
-| `redeemReward` | 604-754 | Mark reward as redeemed | Core redemption logic |
-| `updateCustomerSummary` | 765-846 | Update denormalized summary | Internal helper |
-| `processOrderForLoyalty` | 866-1322 | Process webhook orders | Complex customer identification |
-| `processOrderRefundsForLoyalty` | 1329-1420 | Process order refunds | Refund processing |
-
-### Extraction Recommendation
-
-Future extraction would require breaking the tight coupling between:
-- `updateRewardProgress` → `createSquareCustomerGroupDiscount` (async fire-and-forget)
-- `redeemReward` → `cleanupSquareCustomerGroupDiscount` (cleanup after redemption)
+| Module | Lines | Functions | Purpose |
+|--------|-------|-----------|---------|
+| `square-discount-service.js` | ~1,136 | 11 | Square Customer Group Discount CRUD, validation |
+| `expiration-service.js` | ~200 | 2 | processExpiredWindowEntries, processExpiredEarnedRewards |
+| `backfill-service.js` | ~920 | 7 | Catchup, order history audit, prefetch |
 
 ## Import Rules
 
-### ✅ DO
+### External Consumers
 
-1. **External consumers**: Import from `./services/loyalty-admin` (index.js)
-   ```javascript
-   const loyaltyAdmin = require('./services/loyalty-admin');
-   ```
+Always import from `./services/loyalty-admin` (index.js):
 
-2. **Internal modules**: Import directly from sibling modules
-   ```javascript
-   const { logAuditEvent } = require('./audit-service');
-   ```
-
-3. **Circular dependencies**: Use lazy require pattern
-   ```javascript
-   function getLoyaltyService() {
-       if (!_loyaltyService) {
-           _loyaltyService = require('./loyalty-service');
-       }
-       return _loyaltyService;
-   }
-   ```
-
-### ❌ DON'T
-
-1. Extracted modules should NOT import from `./index.js`
-2. Extracted modules should NOT import functions from loyalty-service.js that exist in other extracted modules
-3. Don't use require at top level when circular dependency exists
-
-## Known Issues (Post-Merge Verification)
-
-### Issue 1: Missing Import in loyalty-service.js
-
-**Location**: `services/loyalty-admin/loyalty-service.js` lines 372, 717
-
-**Problem**: `createSquareCustomerGroupDiscount` and `cleanupSquareCustomerGroupDiscount` are called but not imported. These functions exist in `square-discount-service.js`.
-
-**Impact**: Would cause ReferenceError at runtime if these code paths execute.
-
-**Fix Required**:
 ```javascript
-// Add to imports section (after line 54)
-const { createSquareCustomerGroupDiscount, cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
+const loyaltyAdmin = require('./services/loyalty-admin');
+await loyaltyAdmin.processOrderForLoyalty(order, merchantId);
 ```
 
-### Issue 2: Stale Comment and Wrong Import in expiration-service.js
+### Internal Modules (Direct Sibling Imports)
 
-**Location**: `services/loyalty-admin/expiration-service.js` lines 17, 165-166
+Modules within loyalty-admin import directly from siblings, NEVER through index.js:
 
-**Problem**:
-- Comment says "cleanupSquareCustomerGroupDiscount will move to square-discount-service.js" but it's already there
-- Code uses `getLoyaltyService()` to get the function, but loyalty-service.js doesn't export it
-
-**Impact**: Would cause error when trying to cleanup expired earned rewards.
-
-**Fix Required**:
 ```javascript
-// Line 17: Update comment
-// cleanupSquareCustomerGroupDiscount is now in square-discount-service.js
-
-// Line 165-166: Replace with direct import
-const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
+// purchase-service.js
+const { logAuditEvent } = require('./audit-service');
+const { getOfferForVariation } = require('./variation-admin-service');
+const { createSquareCustomerGroupDiscount } = require('./square-discount-service');
 ```
+
+### No Lazy Requires Needed
+
+After the final extraction, there are **no circular dependencies** in the module graph. All imports are direct:
+
+- `purchase-service.js` → `square-discount-service.js` (one-way)
+- `reward-service.js` → `purchase-service.js` (one-way, for updateCustomerSummary)
+- `reward-service.js` → `square-discount-service.js` (one-way)
+- `webhook-processing-service.js` → `purchase-service.js` (one-way)
+- `expiration-service.js` → `purchase-service.js` (one-way)
+- `backfill-service.js` → `webhook-processing-service.js` (one-way)
+
+## Function Reference
+
+### Purchase Processing (purchase-service.js)
+
+| Function | Purpose |
+|----------|---------|
+| `processQualifyingPurchase(purchaseData)` | Record a qualifying purchase from an order |
+| `processRefund(refundData)` | Handle refunds that affect loyalty tracking |
+| `updateRewardProgress(client, data)` | Update reward state machine after purchase/refund |
+| `updateCustomerSummary(client, merchantId, customerId, offerId)` | Update denormalized customer stats |
+
+### Reward Management (reward-service.js)
+
+| Function | Purpose |
+|----------|---------|
+| `redeemReward(redemptionData)` | Mark an earned reward as redeemed |
+| `detectRewardRedemptionFromOrder(order, merchantId)` | Auto-detect when order uses our discount |
+| `createSquareLoyaltyReward(params)` | Legacy redirect to createSquareCustomerGroupDiscount |
+
+### Webhook Processing (webhook-processing-service.js)
+
+| Function | Purpose |
+|----------|---------|
+| `processOrderForLoyalty(order, merchantId, options)` | Process order from webhook, identify customer, track purchases |
+| `processOrderRefundsForLoyalty(order, merchantId)` | Process refunds from order webhook |
+
+### Square Discount Operations (square-discount-service.js)
+
+| Function | Purpose |
+|----------|---------|
+| `getSquareLoyaltyProgram(merchantId)` | Get Square Loyalty program config |
+| `createSquareCustomerGroupDiscount(params)` | Create discount for earned reward |
+| `cleanupSquareCustomerGroupDiscount(params)` | Delete discount after redemption |
+| `validateEarnedRewardsDiscounts(params)` | Validate/fix discount sync issues |
 
 ## Export Verification
 
-All 47 exports from index.js are correctly mapped:
+All 47 exports from index.js are correctly mapped to their source modules:
 
 ### Constants (3)
-- RewardStatus, AuditActions, RedemptionTypes
+- RewardStatus, AuditActions, RedemptionTypes → `constants.js`
 
 ### Settings (4)
-- getSetting, updateSetting, initializeDefaultSettings, getAllSettings
+- getSetting, updateSetting, initializeDefaultSettings, getAllSettings → `settings-service.js`
 
 ### Offer Management (5)
-- createOffer, getOffers, getOfferById, updateOffer, deleteOffer
+- createOffer, getOffers, getOfferById, updateOffer, deleteOffer → `offer-admin-service.js`
 
 ### Variation Management (6)
-- checkVariationConflicts, addQualifyingVariations, getQualifyingVariations, getOfferForVariation, removeQualifyingVariation, getAllVariationAssignments
+- checkVariationConflicts, addQualifyingVariations, getQualifyingVariations, getOfferForVariation, removeQualifyingVariation, getAllVariationAssignments → `variation-admin-service.js`
 
 ### Customer APIs (11)
-- getCustomerDetails, lookupCustomerFromLoyalty, lookupCustomerFromFulfillmentRecipient, lookupCustomerFromOrderRewards, getCustomerLoyaltyStatus, getCustomerLoyaltyHistory, getCustomerEarnedRewards, cacheCustomerDetails, getCachedCustomer, searchCachedCustomers, updateCustomerStats
+- From `customer-admin-service.js`: getCustomerDetails, lookupCustomerFromLoyalty, lookupCustomerFromFulfillmentRecipient, lookupCustomerFromOrderRewards, getCustomerLoyaltyStatus, getCustomerLoyaltyHistory, getCustomerEarnedRewards
+- From `customer-cache-service.js`: cacheCustomerDetails, getCachedCustomer, searchCachedCustomers, updateCustomerStats
 
-### Square Integration (7)
-- getSquareLoyaltyProgram, createSquareCustomerGroupDiscount, cleanupSquareCustomerGroupDiscount, detectRewardRedemptionFromOrder, createSquareLoyaltyReward, validateEarnedRewardsDiscounts, prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents
+### Square Integration (5)
+- From `square-discount-service.js`: getSquareLoyaltyProgram, createSquareCustomerGroupDiscount, cleanupSquareCustomerGroupDiscount, validateEarnedRewardsDiscounts
+- From `reward-service.js`: detectRewardRedemptionFromOrder, createSquareLoyaltyReward
 
-### Processing (9)
-- processQualifyingPurchase, processRefund, redeemReward, processOrderForLoyalty, processOrderRefundsForLoyalty, processExpiredWindowEntries, processExpiredEarnedRewards, isOrderAlreadyProcessedForLoyalty, processOrderForLoyaltyIfNeeded
+### Processing (7)
+- From `purchase-service.js`: processQualifyingPurchase, processRefund
+- From `reward-service.js`: redeemReward
+- From `webhook-processing-service.js`: processOrderForLoyalty, processOrderRefundsForLoyalty
+- From `expiration-service.js`: processExpiredWindowEntries, processExpiredEarnedRewards
 
-### Backfill/Audit (5)
-- getCustomerOrderHistoryForAudit, addOrdersToLoyaltyTracking, runLoyaltyCatchup, logAuditEvent, getAuditLogs, getSquareAccessToken, fetchWithTimeout
+### Backfill/Audit (7)
+- From `backfill-service.js`: isOrderAlreadyProcessedForLoyalty, processOrderForLoyaltyIfNeeded, getCustomerOrderHistoryForAudit, addOrdersToLoyaltyTracking, runLoyaltyCatchup, prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents
+- From `audit-service.js`: logAuditEvent, getAuditLogs
+- From `shared-utils.js`: getSquareAccessToken, fetchWithTimeout
 
-## Instructions for Future Extractions
+## Migration History
 
-1. **Identify the function(s)** to extract and their dependencies
-2. **Create new service file** in `services/loyalty-admin/`
-3. **Move function(s)** with necessary imports
-4. **Update index.js** to import from new module instead of loyalty-service.js
-5. **Update loyalty-service.js** to import from new module if still needed internally
-6. **Check for circular dependencies** - use lazy require if needed
-7. **Update this document** with new module information
+### P1-1 Phase 4 Complete
+
+The loyalty-admin module refactoring is complete:
+
+| Date | Module Created | Lines | Source |
+|------|----------------|-------|--------|
+| 2026-01-28 | constants.js | 56 | loyalty-service.js |
+| 2026-01-28 | shared-utils.js | 72 | loyalty-service.js |
+| 2026-01-28 | audit-service.js | 132 | loyalty-service.js |
+| 2026-01-28 | settings-service.js | 108 | loyalty-service.js |
+| 2026-01-28 | offer-admin-service.js | 313 | loyalty-service.js |
+| 2026-01-28 | variation-admin-service.js | 284 | loyalty-service.js |
+| 2026-01-28 | customer-cache-service.js | 223 | loyalty-service.js |
+| 2026-01-29 | customer-admin-service.js | 594 | loyalty-service.js |
+| 2026-01-29 | expiration-service.js | 205 | loyalty-service.js |
+| 2026-01-29 | backfill-service.js | 925 | loyalty-service.js |
+| 2026-01-30 | square-discount-service.js | 1230 | loyalty-service.js |
+| 2026-02-05 | purchase-service.js | ~370 | loyalty-service.js |
+| 2026-02-05 | reward-service.js | ~250 | loyalty-service.js + square-discount-service.js |
+| 2026-02-05 | webhook-processing-service.js | ~460 | loyalty-service.js |
+
+### Final Cleanup (2026-02-05)
+
+- **Deleted**: `loyalty-service.js` (was 1,482 lines)
+- **Moved**: `detectRewardRedemptionFromOrder`, `createSquareLoyaltyReward` from square-discount-service.js to reward-service.js
+- **Removed**: All lazy requires (no circular dependencies remain)
+- **Updated**: All internal imports to use direct sibling requires
 
 ---
 
 *Last Updated: 2026-02-05*
-*Refactoring Phase: P1-1 Phase 4 Complete*
+*Refactoring Phase: P1-1 Phase 4 COMPLETE - Monolith Eliminated*
