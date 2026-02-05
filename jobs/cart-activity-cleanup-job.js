@@ -9,6 +9,7 @@
  */
 
 const logger = require('../utils/logger');
+const db = require('../utils/database');
 const cartActivityService = require('../services/cart/cart-activity-service');
 
 // Configuration
@@ -26,24 +27,54 @@ async function runCartActivityCleanup() {
     try {
         logger.info('Starting cart activity cleanup job');
 
-        // Mark pending carts older than 7 days as abandoned
-        const abandonedCount = await cartActivityService.markAbandoned(null, ABANDON_THRESHOLD_DAYS);
+        // Get all active merchants
+        const merchantsResult = await db.query(
+            'SELECT id FROM merchants WHERE is_active = TRUE'
+        );
+        const merchants = merchantsResult.rows;
 
-        // Purge records older than 30 days
-        const purgedCount = await cartActivityService.purgeOld(null, PURGE_THRESHOLD_DAYS);
+        let totalAbandoned = 0;
+        let totalPurged = 0;
+
+        // Process each merchant separately for tenant isolation
+        for (const merchant of merchants) {
+            try {
+                // Mark pending carts older than 7 days as abandoned
+                const abandonedCount = await cartActivityService.markAbandoned(
+                    merchant.id,
+                    ABANDON_THRESHOLD_DAYS
+                );
+                totalAbandoned += abandonedCount;
+
+                // Purge records older than 30 days
+                const purgedCount = await cartActivityService.purgeOld(
+                    merchant.id,
+                    PURGE_THRESHOLD_DAYS
+                );
+                totalPurged += purgedCount;
+            } catch (err) {
+                // Log error but continue with other merchants
+                logger.error('Cart cleanup failed for merchant', {
+                    merchantId: merchant.id,
+                    error: err.message
+                });
+            }
+        }
 
         const duration = Date.now() - startTime;
 
         logger.info('Cart activity cleanup job completed', {
-            abandonedCount,
-            purgedCount,
+            merchantCount: merchants.length,
+            abandonedCount: totalAbandoned,
+            purgedCount: totalPurged,
             durationMs: duration
         });
 
         return {
             success: true,
-            abandonedCount,
-            purgedCount,
+            merchantCount: merchants.length,
+            abandonedCount: totalAbandoned,
+            purgedCount: totalPurged,
             durationMs: duration
         };
     } catch (err) {
