@@ -509,7 +509,7 @@ Note: Login rate limiting tested in `security.test.js`
 
 **Status**: COMPLETE (2026-01-27)
 **Priority**: CRITICAL - Rate limiting causing service interruptions
-**Full Implementation Plan**: See `docs/API_OPTIMIZATION_PLAN.md`
+**Full Implementation Plan**: See `docs/archive/API_OPTIMIZATION_PLAN.md`
 
 ### Executive Summary
 
@@ -772,7 +772,7 @@ Items identified but not urgent. Return to these when time permits.
 2. Add migration to standardize existing endpoints
 3. Update frontend code to match
 
-See [EVENT_DELEGATION.md - API Response Data Wrapper Mismatch](./EVENT_DELEGATION.md#6-api-response-data-wrapper-mismatch) for debugging guidance.
+See [EVENT_DELEGATION.md - API Response Data Wrapper Mismatch](./archive/EVENT_DELEGATION.md#6-api-response-data-wrapper-mismatch) for debugging guidance.
 
 ---
 

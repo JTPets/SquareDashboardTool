@@ -46,7 +46,7 @@ res.json({ success: true, data: { ... } });
 res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
 ```
 
-> **Warning**: Response formats are inconsistent. Always check the actual route before writing frontend code. See [EVENT_DELEGATION.md](./docs/EVENT_DELEGATION.md#6-api-response-data-wrapper-mismatch).
+> **Warning**: Response formats are inconsistent. Always check the actual route before writing frontend code.
 
 ### Code Organization
 ```
@@ -78,7 +78,6 @@ jobs/            → Background jobs and cron tasks
 | Date | File | Rule Broken | Reason |
 |------|------|-------------|--------|
 | 2026-01-29 | utils/database.js | 2,093 line function | SQL schema definition, not logic |
-| 2026-01-29 | services/loyalty-admin/loyalty-service.js | 1,482 lines | Reduced from 5,475 via P1-1 Phase 4 extraction |
 | 2026-01-29 | server.js | 1,006 lines | Express entry point, already reduced 66% |
 | 2026-01-29 | All LOW severity files | >300 lines | Stable code, refactor-on-touch policy |
 
@@ -191,28 +190,11 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Loyalty-Admin Module Structure
 
-The `services/loyalty-admin/` directory is a modular service layer (refactored P1-1 Phase 4):
-
-```
-services/loyalty-admin/
-├── index.js                    # Public API (47 exports)
-├── constants.js                # RewardStatus, AuditActions, RedemptionTypes
-├── shared-utils.js             # fetchWithTimeout, getSquareAccessToken
-├── audit-service.js            # logAuditEvent, getAuditLogs
-├── settings-service.js         # getSetting, updateSetting, etc.
-├── offer-admin-service.js      # createOffer, getOffers, etc.
-├── variation-admin-service.js  # addQualifyingVariations, etc.
-├── customer-cache-service.js   # cacheCustomerDetails, etc.
-├── customer-admin-service.js   # getCustomerDetails, lookups
-├── expiration-service.js       # processExpired* functions
-├── backfill-service.js         # runLoyaltyCatchup, order history
-├── square-discount-service.js  # Square Customer Group Discount ops
-└── loyalty-service.js          # Core purchase/reward processing (legacy)
-```
+The `services/loyalty-admin/` directory contains 15 modular services (47 exports). The legacy monolith has been fully eliminated.
 
 **Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
 
-See [LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) for dependency diagram and known issues.
+See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module details and dependency rules.
 
 ---
 
@@ -247,19 +229,18 @@ See [LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) for dependency dia
 
 | Document | Contents |
 |----------|----------|
-| [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | P0/P1/P2/P3 status, roadmap to A++, API optimization |
+| [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | P0/P1/P2/P3 status, roadmap to A++ |
 | [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) | Vulnerability history, fixes, security best practices |
-| [docs/EVENT_DELEGATION.md](./docs/EVENT_DELEGATION.md) | CSP-compliant event handling, JS execution rules |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, middleware stack |
-| [docs/API_OPTIMIZATION_PLAN.md](./docs/API_OPTIMIZATION_PLAN.md) | Rate limit fixes, caching strategy |
-| [docs/LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) | Loyalty-admin module structure, dependencies, known issues |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
+| [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
+| [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
 
 ---
 
 ## Current Status
 
 **Grade**: A+ (All P0 and P1 issues FIXED)
-**Last Review**: 2026-02-01
+**Last Review**: 2026-02-05
 
 | Priority | Status |
 |----------|--------|
@@ -268,11 +249,8 @@ See [LOYALTY_ARCHITECTURE.md](./docs/LOYALTY_ARCHITECTURE.md) for dependency dia
 | P1 Architecture | 9/9 Complete |
 | P2 Testing | 6/6 Complete |
 | API Optimization | 4/4 Complete |
+| P1-1 Loyalty Migration | Complete (monolith eliminated) |
 | P3 Scalability | Optional |
-
-### Active Work
-
-- **P1-1 Loyalty Migration**: Running in production (rate limiting fix applied 2026-01-30)
 
 ### Backlog (Target: TBD)
 

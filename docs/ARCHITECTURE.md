@@ -244,6 +244,34 @@ services/                     # Business logic services
 
 ---
 
+## Loyalty Admin Modules
+
+The `services/loyalty-admin/` directory contains 15 modular services (47 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
+
+**Import rule**: Always import from `services/loyalty-admin` (index.js):
+```javascript
+const loyaltyAdmin = require('./services/loyalty-admin');
+await loyaltyAdmin.processOrderForLoyalty(order, merchantId);
+```
+
+### Module Categories
+
+| Category | Modules | Purpose |
+|----------|---------|---------|
+| Foundation | `constants.js`, `shared-utils.js` | Enums, shared helpers (no service dependencies) |
+| Core Admin | `audit-service.js`, `settings-service.js`, `offer-admin-service.js`, `variation-admin-service.js` | CRUD and configuration |
+| Customer | `customer-cache-service.js`, `customer-admin-service.js` | Customer data and caching |
+| Processing | `purchase-service.js`, `reward-service.js`, `webhook-processing-service.js` | Order/reward processing |
+| Integration | `square-discount-service.js`, `expiration-service.js`, `backfill-service.js` | Square API, cleanup, catchup |
+
+### Dependency Rules
+
+- No circular dependencies in the module graph
+- Internal modules import directly from siblings, never through index.js
+- All dependency arrows are one-way (e.g., `purchase-service` → `square-discount-service`)
+
+---
+
 ## Square API Integration
 
 ```javascript
