@@ -111,6 +111,23 @@ function formatCents(cents) {
     return `$${(cents / 100).toFixed(2)}`;
 }
 
+// ============================================================================
+// HTML ESCAPING (XSS PREVENTION)
+// ============================================================================
+
+/**
+ * Escape HTML special characters to prevent XSS attacks
+ * Use this for ALL user-controlled strings inserted into HTML templates
+ *
+ * @param {string|any} text - Text to escape (converts non-strings)
+ * @returns {string} HTML-escaped string
+ */
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, c => map[c]);
+}
+
 module.exports = {
     // Privacy formatting
     formatPrivacyName,
@@ -122,5 +139,8 @@ module.exports = {
     formatReportDateOnly,
 
     // Currency formatting
-    formatCents
+    formatCents,
+
+    // HTML escaping
+    escapeHtml
 };

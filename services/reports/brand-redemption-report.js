@@ -22,7 +22,8 @@ const {
     formatPrivacyPhone,
     formatPrivacyEmail,
     formatReportDate,
-    formatCents
+    formatCents,
+    escapeHtml
 } = require('../../utils/privacy-format');
 
 // ============================================================================
@@ -421,7 +422,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
             if (p.allLineItems && p.allLineItems.length > 0) {
                 const itemsList = p.allLineItems.map(item =>
                     `<div class="line-item ${item.catalogObjectId === p.qualifyingItem.variationId ? 'qualifying' : ''}${item.isFreeItem ? ' free-item' : ''}">
-                        <span class="item-name">${item.name}${item.variationName ? ` - ${item.variationName}` : ''}</span>
+                        <span class="item-name">${escapeHtml(item.name)}${item.variationName ? ` - ${escapeHtml(item.variationName)}` : ''}</span>
                         <span class="item-details">x${item.quantity} @ ${formatCents(item.unitPriceCents)} = ${formatLineItemTotal(item)}</span>
                     </div>`
                 ).join('');
@@ -429,7 +430,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
             } else {
                 lineItemsHtml = `<div class="line-items-list">
                     <div class="line-item qualifying">
-                        <span class="item-name">${p.qualifyingItem.itemName || 'Unknown'} - ${p.qualifyingItem.variationName || ''}</span>
+                        <span class="item-name">${escapeHtml(p.qualifyingItem.itemName || 'Unknown')} - ${escapeHtml(p.qualifyingItem.variationName || '')}</span>
                         <span class="item-details">x${p.qualifyingItem.quantity} @ ${formatCents(p.qualifyingItem.unitPriceCents)}</span>
                     </div>
                 </div>`;
@@ -439,17 +440,17 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
                 <tr class="${p.isRefund ? 'refund-row' : ''}">
                     <td class="date-col">${formatDate(p.purchasedAt)}</td>
                     <td class="order-col">
-                        <div class="order-id">${p.orderId?.slice(0, 12) || 'N/A'}...</div>
-                        ${p.receiptUrl ? `<a href="${p.receiptUrl}" target="_blank" class="receipt-link">View Receipt</a>` : '<span class="no-receipt">No digital receipt</span>'}
+                        <div class="order-id">${escapeHtml(p.orderId?.slice(0, 12) || 'N/A')}...</div>
+                        ${p.receiptUrl ? `<a href="${escapeHtml(p.receiptUrl)}" target="_blank" class="receipt-link">View Receipt</a>` : '<span class="no-receipt">No digital receipt</span>'}
                     </td>
                     <td class="items-col">${lineItemsHtml}</td>
                     <td class="qualifying-col">
                         <div class="qualifying-item">
-                            <strong>${p.qualifyingItem.itemName || 'Unknown'}</strong>
-                            ${p.qualifyingItem.sku ? `<div class="sku">SKU: ${p.qualifyingItem.sku}</div>` : ''}
+                            <strong>${escapeHtml(p.qualifyingItem.itemName || 'Unknown')}</strong>
+                            ${p.qualifyingItem.sku ? `<div class="sku">SKU: ${escapeHtml(p.qualifyingItem.sku)}</div>` : ''}
                         </div>
                     </td>
-                    <td class="payment-col">${p.paymentType || 'Unknown'}</td>
+                    <td class="payment-col">${escapeHtml(p.paymentType || 'Unknown')}</td>
                     <td class="total-col">${formatCents(p.orderTotal)}</td>
                 </tr>
             `;
@@ -459,7 +460,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
             <div class="redemption-card" id="redemption-${index + 1}">
                 <div class="card-header">
                     <h2>Redemption #${index + 1}</h2>
-                    <div class="reward-id">ID: ${r.rewardId}</div>
+                    <div class="reward-id">ID: ${escapeHtml(r.rewardId)}</div>
                 </div>
 
                 <div class="info-sections">
@@ -468,19 +469,19 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
                         <div class="info-grid">
                             <div class="info-item">
                                 <label>Name</label>
-                                <span>${r.customer.displayName}</span>
+                                <span>${escapeHtml(r.customer.displayName)}</span>
                             </div>
                             <div class="info-item">
                                 <label>Phone</label>
-                                <span>${r.customer.phoneLastFour || 'Not on file'}</span>
+                                <span>${escapeHtml(r.customer.phoneLastFour || 'Not on file')}</span>
                             </div>
                             <div class="info-item">
                                 <label>Email</label>
-                                <span>${r.customer.emailTruncated || 'Not on file'}</span>
+                                <span>${escapeHtml(r.customer.emailTruncated || 'Not on file')}</span>
                             </div>
                             <div class="info-item">
                                 <label>Customer ID</label>
-                                <span class="monospace">${r.customer.squareCustomerId}</span>
+                                <span class="monospace">${escapeHtml(r.customer.squareCustomerId)}</span>
                             </div>
                         </div>
                     </div>
@@ -494,15 +495,15 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
                             </div>
                             <div class="info-item">
                                 <label>Order ID</label>
-                                <span class="monospace">${r.redemptionOrderId || 'N/A'}</span>
+                                <span class="monospace">${escapeHtml(r.redemptionOrderId || 'N/A')}</span>
                             </div>
                             <div class="info-item">
                                 <label>Free Item</label>
-                                <span>${r.redeemedItem.name || 'Unknown'}${r.redeemedItem.variation ? ` - ${r.redeemedItem.variation}` : ''}</span>
+                                <span>${escapeHtml(r.redeemedItem.name || 'Unknown')}${r.redeemedItem.variation ? ` - ${escapeHtml(r.redeemedItem.variation)}` : ''}</span>
                             </div>
                             <div class="info-item">
                                 <label>SKU</label>
-                                <span>${r.redeemedItem.sku || 'N/A'}</span>
+                                <span>${escapeHtml(r.redeemedItem.sku || 'N/A')}</span>
                             </div>
                             <div class="info-item highlight">
                                 <label>Retail Value</label>
@@ -565,7 +566,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Brand Redemption Report - ${brandTitle}</title>
+    <title>Brand Redemption Report - ${escapeHtml(brandTitle)}</title>
     <style>
         * {
             margin: 0;
@@ -862,7 +863,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
 <body>
     <div class="report-header">
         <h1>Brand Redemption Report</h1>
-        <div class="subtitle">${brandTitle} Frequent Buyer Program - Proof of Purchase Documentation</div>
+        <div class="subtitle">${escapeHtml(brandTitle)} Frequent Buyer Program - Proof of Purchase Documentation</div>
         <div class="meta">
             Generated on ${formatDate(new Date())} |
             ${report.summary.dateRange.earliest ? `Redemptions from ${formatDate(report.summary.dateRange.earliest)} to ${formatDate(report.summary.dateRange.latest)}` : 'No date range'}
@@ -884,7 +885,7 @@ async function generateBrandRedemptionHTML(merchantId, options = {}) {
         </div>
         <div class="stat">
             <label>Merchant</label>
-            <span class="value" style="font-size: 14px;">${report.redemptions[0]?.merchantName || 'N/A'}</span>
+            <span class="value" style="font-size: 14px;">${escapeHtml(report.redemptions[0]?.merchantName || 'N/A')}</span>
         </div>
     </div>
 
