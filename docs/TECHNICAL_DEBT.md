@@ -264,11 +264,33 @@ Production deployment running since ~2026-01-27. Rate limiting fix applied (comm
 - `services/webhook-handlers/loyalty-handler.js` - Use modern for order processing
 - Keep legacy calls for: `runLoyaltyCatchup`, `isOrderAlreadyProcessedForLoyalty`
 
-**Phase 4: Decide on Admin Features**
-Options:
-1. Add to modern service (`LoyaltyOfferService.createOffer()`, etc.)
-2. Keep legacy as "admin service" separate from webhook processing
-3. Extract to new `services/loyalty-admin/` module
+**Phase 4: Extract Admin Features to Modular Services** - IN PROGRESS (2026-02-05)
+
+Chose option 3: Extract to `services/loyalty-admin/` with modular architecture.
+
+**Extracted Services:**
+```
+services/loyalty-admin/
+├── index.js                   # Re-exports all modules (backward compatible)
+├── constants.js               # RewardStatus, AuditActions, RedemptionTypes
+├── shared-utils.js            # fetchWithTimeout, getSquareAccessToken
+├── audit-service.js           # logAuditEvent, getAuditLogs
+├── settings-service.js        # getSetting, updateSetting, initializeDefaultSettings
+├── offer-admin-service.js     # createOffer, getOffers, updateOffer, deleteOffer
+├── variation-admin-service.js # addQualifyingVariations, checkVariationConflicts
+├── customer-cache-service.js  # cacheCustomerDetails, getCachedCustomer, search
+├── customer-admin-service.js  # getCustomerDetails, lookups, status, history
+└── loyalty-service.js         # Remaining functions (purchase, reward, webhook)
+```
+
+**Remaining in loyalty-service.js (to be extracted next):**
+- Purchase processing (processQualifyingPurchase, processRefund)
+- Reward management (redeemReward, updateRewardProgress)
+- Square Customer Group Discount integration
+- Backfill/catchup operations
+- Expiration processing
+
+All 179 loyalty tests pass after extraction.
 
 #### Success Criteria
 
@@ -276,8 +298,9 @@ Options:
 - [x] Modern service processes orders when flag is `true`
 - [x] Legacy service still works when flag is `false`
 - [x] Rate limiting handled with retry logic (commit 89b9a85)
+- [x] Phase 4 modular extraction started (2026-02-05)
+- [x] All existing tests pass (179 loyalty tests)
 - [ ] No regression in loyalty tracking (monitoring ongoing)
-- [ ] All existing tests pass
 
 ---
 
