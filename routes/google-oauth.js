@@ -1,10 +1,10 @@
 /**
  * Google OAuth Routes
  *
- * Handles Google OAuth authentication flow for Google Sheets integration:
+ * Handles Google OAuth authentication flow for Google Merchant Center:
  * - Check authentication status
  * - Start OAuth flow
- * - Handle OAuth callback
+ * - Handle OAuth callback (with CSRF-safe state validation)
  * - Disconnect Google account
  *
  * Endpoints:
@@ -17,7 +17,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
-const googleSheets = require('../utils/google-sheets');
+const googleAuth = require('../utils/google-auth');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
@@ -40,7 +40,7 @@ function getPublicAppUrl(req) {
  */
 router.get('/google/status', requireAuth, requireMerchant, validators.status, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const status = await googleSheets.getAuthStatus(merchantId);
+    const status = await googleAuth.getAuthStatus(merchantId);
     res.json(status);
 }));
 
@@ -51,9 +51,11 @@ router.get('/google/status', requireAuth, requireMerchant, validators.status, as
  */
 router.get('/google/auth', requireAuth, requireMerchant, validators.auth, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const authUrl = googleSheets.getAuthUrl(merchantId);
+    const userId = req.session.user.id;
+    const authUrl = await googleAuth.getAuthUrl(merchantId, userId);
     logger.info('Redirecting to Google OAuth', {
         merchantId,
+        userId,
         redirectUri: process.env.GOOGLE_REDIRECT_URI
     });
     res.redirect(authUrl);
@@ -61,8 +63,13 @@ router.get('/google/auth', requireAuth, requireMerchant, validators.auth, asyncH
 
 /**
  * GET /api/google/callback
- * Google OAuth callback - exchanges code for tokens
- * Merchant ID is encoded in the state parameter
+ * Google OAuth callback - validates state and exchanges code for tokens
+ *
+ * State parameter is validated against the database:
+ * - Must exist (prevents forged states)
+ * - Must not be expired (10-minute window)
+ * - Must not have been used before (prevents replay attacks)
+ * - Merchant ID is retrieved from the DB record (not from the state value)
  *
  * IMPORTANT: After OAuth, we redirect to PUBLIC_APP_URL (not relative path).
  * This ensures the browser goes to the correct host (e.g., LAN IP) instead of
@@ -85,13 +92,16 @@ router.get('/google/callback', validators.callback, async (req, res) => {
             return res.redirect(`${publicUrl}/gmc-feed.html?google_error=missing_code_or_state`);
         }
 
-        // Parse merchant ID from state
-        const { merchantId } = googleSheets.parseAuthState(state);
+        // Validate state against database (CSRF protection)
+        // This also marks the state as used to prevent replay attacks
+        const stateRecord = await googleAuth.validateAuthState(state);
+        const { merchantId } = stateRecord;
+
         if (!merchantId) {
             return res.redirect(`${publicUrl}/gmc-feed.html?google_error=invalid_state`);
         }
 
-        await googleSheets.exchangeCodeForTokens(code, merchantId);
+        await googleAuth.exchangeCodeForTokens(code, merchantId);
         logger.info('Google OAuth successful for merchant', { merchantId, publicUrl });
         res.redirect(`${publicUrl}/gmc-feed.html?google_connected=true`);
     } catch (error) {
@@ -110,7 +120,7 @@ router.get('/google/callback', validators.callback, async (req, res) => {
  */
 router.post('/google/disconnect', requireAuth, requireMerchant, validators.disconnect, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    await googleSheets.disconnect(merchantId);
+    await googleAuth.disconnect(merchantId);
     res.json({ success: true, message: 'Google account disconnected' });
 }));
 

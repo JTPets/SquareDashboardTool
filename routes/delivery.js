@@ -813,8 +813,10 @@ router.get('/pod/:id', requireAuth, requireMerchant, validators.getPod, asyncHan
     }
 
     // Serve the file
-    const fsSync = require('fs');
-    if (!fsSync.existsSync(pod.full_path)) {
+    const fsPromises = require('fs').promises;
+    try {
+        await fsPromises.access(pod.full_path);
+    } catch {
         return res.status(404).json({ error: 'POD file not found' });
     }
 

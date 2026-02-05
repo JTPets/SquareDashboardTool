@@ -435,15 +435,17 @@ describe('WebhookProcessor', () => {
             });
         });
 
-        it('should handle processing errors', async () => {
+        it('should return 200 on processing errors to prevent Square retries', async () => {
             process.env.NODE_ENV = 'development';
             db.query.mockReset();
             db.query.mockRejectedValueOnce(new Error('Database error'));
 
             await webhookProcessor.processWebhook(mockReq, mockRes);
 
-            expect(mockRes.status).toHaveBeenCalledWith(500);
-            expect(mockRes.json).toHaveBeenCalledWith({ error: 'Database error' });
+            // Returns 200 to Square to prevent automatic retries;
+            // failed events are retried internally via webhook-retry job
+            expect(mockRes.status).toHaveBeenCalledWith(200);
+            expect(mockRes.json).toHaveBeenCalledWith({ received: true, queued_for_retry: true });
         });
 
         it('should mark webhook for retry on error', async () => {

@@ -16,6 +16,8 @@
  */
 
 const { google } = require('googleapis');
+const fsPromises = require('fs').promises;
+const path = require('path');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
@@ -264,14 +266,13 @@ async function upsertProduct(options) {
     const auth = await getAuthClient(merchantId);
 
     // Debug file logging
-    const fs = require('fs');
-    const debugFile = require('path').join(__dirname, '../../output/gmc-product-sync-debug.log');
+    const debugFile = path.join(__dirname, '../../output/gmc-product-sync-debug.log');
 
     try {
         // Use the Products API (products_v1beta)
         // dataSource must be passed as query parameter, not in body
         const dataSourceName = `accounts/${gmcMerchantId}/dataSources/${dataSourceId}`;
-        const path = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
+        const apiPath = `/products/v1beta/accounts/${gmcMerchantId}/productInputs:insert?dataSource=${encodeURIComponent(dataSourceName)}`;
 
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
@@ -288,13 +289,13 @@ async function upsertProduct(options) {
             upsertProductState._logged = true;
         }
 
-        const response = await merchantApiRequest(auth, 'POST', path, productInput);
+        const response = await merchantApiRequest(auth, 'POST', apiPath, productInput);
 
         // Log first success per channel to debug file
         upsertProductState._successCount[channel]++;
         if (upsertProductState._successCount[channel] === 1) {
             const successMsg = `[${new Date().toISOString()}] SUCCESS [${channel}] #1: offerId=${product.offerId}\n`;
-            fs.appendFileSync(debugFile, successMsg);
+            await fsPromises.appendFile(debugFile, successMsg);
         }
 
         return { success: true, data: response };
@@ -311,7 +312,7 @@ async function upsertProduct(options) {
   details: ${error.details ? JSON.stringify(error.details, null, 2) : 'none'}
 ---
 `;
-            fs.appendFileSync(debugFile, errorMsg);
+            await fsPromises.appendFile(debugFile, errorMsg);
         }
 
         logger.error('Failed to upsert product in GMC', {
@@ -493,9 +494,8 @@ async function syncProductCatalog(merchantId) {
     upsertProductState._successCount = { ONLINE: 0, LOCAL: 0 };
 
     // Write sync start to debug file
-    const fs = require('fs');
-    const debugFile = require('path').join(__dirname, '../../output/gmc-product-sync-debug.log');
-    fs.writeFileSync(debugFile, `[${new Date().toISOString()}] === STARTING PRODUCT CATALOG SYNC ===\nmerchantId: ${merchantId}\n\n`);
+    const debugFile = path.join(__dirname, '../../output/gmc-product-sync-debug.log');
+    await fsPromises.writeFile(debugFile, `[${new Date().toISOString()}] === STARTING PRODUCT CATALOG SYNC ===\nmerchantId: ${merchantId}\n\n`);
 
     // Create sync log entry
     const logId = await createSyncLog({
@@ -621,7 +621,7 @@ Total products: ${totalProducts}
 Succeeded: ${syncResult.succeeded}
 Failed: ${syncResult.failed}
 `;
-        fs.appendFileSync(debugFile, summaryMsg);
+        await fsPromises.appendFile(debugFile, summaryMsg);
 
         logger.info('Product catalog sync completed', {
             merchantId,
@@ -687,7 +687,7 @@ async function updateLocalInventory(options) {
     const lang = contentLanguage || 'en';
     const feed = feedLabel || 'CA';
     const productName = `local~${lang}~${feed}~${productId}`;
-    const path = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
+    const apiPath = `/inventories/v1beta/accounts/${gmcMerchantId}/products/${encodeURIComponent(productName)}/localInventories:insert`;
 
     const localInventory = {
         storeCode: storeCode,
@@ -696,16 +696,15 @@ async function updateLocalInventory(options) {
     };
 
     // Debug: Write to file for troubleshooting (first few only)
-    const fs = require('fs');
-    const debugFile = require('path').join(__dirname, '../../output/gmc-local-inventory-debug.log');
+    const debugFile = path.join(__dirname, '../../output/gmc-local-inventory-debug.log');
 
     try {
-        const response = await merchantApiRequest(auth, 'POST', path, localInventory);
+        const response = await merchantApiRequest(auth, 'POST', apiPath, localInventory);
 
         // Log first success to debug file
         if (!localInventoryState._loggedSuccess) {
             const successMsg = `[${new Date().toISOString()}] SUCCESS: productId=${productId}, productName=${productName}, storeCode=${storeCode}\n`;
-            fs.appendFileSync(debugFile, successMsg);
+            await fsPromises.appendFile(debugFile, successMsg);
             logger.info('First successful local inventory update', {
                 productId,
                 productName,
@@ -724,7 +723,7 @@ async function updateLocalInventory(options) {
   productId: ${productId}
   productName: ${productName}
   storeCode: ${storeCode}
-  path: ${path}
+  path: ${apiPath}
   feedLabel: ${feed}
   contentLanguage: ${lang}
   error: ${error.message}
@@ -732,7 +731,7 @@ async function updateLocalInventory(options) {
   body: ${JSON.stringify(localInventory)}
 ---
 `;
-            fs.appendFileSync(debugFile, errorMsg);
+            await fsPromises.appendFile(debugFile, errorMsg);
         }
 
         // Log errors with full details for debugging
@@ -746,7 +745,7 @@ async function updateLocalInventory(options) {
                 productId,
                 productName,
                 storeCode,
-                path,
+                path: apiPath,
                 localInventory,
                 feedLabel: feed,
                 contentLanguage: lang
@@ -947,9 +946,8 @@ async function syncAllLocationsInventory(merchantId) {
     localInventoryState._debugCount = 0;
 
     // Write sync start to debug file
-    const fs = require('fs');
-    const debugFile = require('path').join(__dirname, '../../output/gmc-local-inventory-debug.log');
-    fs.writeFileSync(debugFile, `[${new Date().toISOString()}] === STARTING LOCAL INVENTORY SYNC ===\nmerchantId: ${merchantId}\n\n`);
+    const debugFile = path.join(__dirname, '../../output/gmc-local-inventory-debug.log');
+    await fsPromises.writeFile(debugFile, `[${new Date().toISOString()}] === STARTING LOCAL INVENTORY SYNC ===\nmerchantId: ${merchantId}\n\n`);
 
     // Create sync log entry
     const logId = await createSyncLog({

@@ -1203,6 +1203,7 @@ async function ensureSchema() {
                 id SERIAL PRIMARY KEY,
                 state TEXT UNIQUE NOT NULL,
                 user_id INTEGER REFERENCES users(id),
+                merchant_id INTEGER REFERENCES merchants(id),
                 redirect_uri TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 expires_at TIMESTAMPTZ NOT NULL,
