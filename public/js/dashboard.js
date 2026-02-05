@@ -5,6 +5,8 @@
 
 // Auto-refresh interval ID (for cleanup if needed)
 let autoRefreshInterval = null;
+let dashboardReady = false;
+const AUTO_REFRESH_MS = 300000;
 
 /**
  * Escape HTML to prevent XSS
@@ -429,14 +431,35 @@ document.addEventListener('DOMContentLoaded', async function() {
   const hasMerchant = await loadMerchantInfo();
 
   if (hasMerchant) {
+    dashboardReady = true;
     loadStats();
     updateSyncStatus();
 
-    // Auto-refresh every 5 minutes
+    // Auto-refresh every 5 minutes (pauses when tab is hidden)
     autoRefreshInterval = setInterval(() => {
       loadStats();
       updateSyncStatus();
-    }, 300000);
+    }, AUTO_REFRESH_MS);
+  }
+});
+
+// Pause polling when tab is hidden, resume when visible
+document.addEventListener('visibilitychange', () => {
+  if (!dashboardReady) return;
+  if (document.hidden) {
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+  } else {
+    loadStats();
+    updateSyncStatus();
+    if (!autoRefreshInterval) {
+      autoRefreshInterval = setInterval(() => {
+        loadStats();
+        updateSyncStatus();
+      }, AUTO_REFRESH_MS);
+    }
   }
 });
 

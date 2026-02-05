@@ -6,6 +6,31 @@
 // State
 let orders = { pending: [], active: [], completed: [] };
 let activeRoute = null;
+let pollInterval = null;
+const POLL_INTERVAL_MS = 60000;
+
+function startPolling() {
+  if (!pollInterval) {
+    pollInterval = setInterval(loadOrders, POLL_INTERVAL_MS);
+  }
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+}
+
+// Pause polling when tab is hidden, resume when visible
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    loadOrders();
+    startPolling();
+  }
+});
 
 // Tab switching
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,8 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial load
   loadOrders();
 
-  // Refresh every 30 seconds
-  setInterval(loadOrders, 30000);
+  // Refresh every 60 seconds (pauses when tab is hidden)
+  startPolling();
 });
 
 async function loadOrders() {

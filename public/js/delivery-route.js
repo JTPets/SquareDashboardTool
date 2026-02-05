@@ -714,37 +714,40 @@ async function revokeShareLink() {
   }
 }
 
+function startPolling() {
+  if (!refreshInterval) {
+    refreshInterval = setInterval(loadRoute, 60000);
+  }
+}
+
+function stopPolling() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+}
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
   // Initial load
   loadRoute();
 
-  // Refresh every 60 seconds (only when page is visible)
-  refreshInterval = setInterval(loadRoute, 60000);
+  // Refresh every 60 seconds (pauses when tab is hidden)
+  startPolling();
 });
 
-// Handle screen unlock / tab visibility changes
+// Pause polling when tab is hidden, resume when visible
 document.addEventListener('visibilitychange', async function() {
-  if (document.visibilityState === 'visible') {
-    // Page became visible (e.g., screen unlocked, tab switched back)
-    // Reload the route data silently
+  if (document.hidden) {
+    stopPolling();
+  } else {
     try {
       await loadRoute();
     } catch (error) {
-      // If session expired or network error, show friendly message
       console.error('Failed to reload route on visibility change:', error);
       showToast('Connection issue. Pull down to refresh.', 'error');
     }
-  }
-});
-
-// Also handle page focus (belt and suspenders)
-window.addEventListener('focus', function() {
-  // Debounce - don't reload if we just loaded
-  if (route) {
-    loadRoute().catch(err => {
-      console.error('Failed to reload on focus:', err);
-    });
+    startPolling();
   }
 });
 
