@@ -6,7 +6,8 @@
 let allLogs = [];
 let refreshInterval;
 let countdownInterval;
-let secondsRemaining = 30;
+let secondsRemaining = 60;
+const REFRESH_INTERVAL_SEC = 60;
 
 // Load logs and stats on page load
 async function loadStats() {
@@ -126,7 +127,7 @@ function showMessage(type, text) {
 }
 
 function resetCountdown() {
-  secondsRemaining = 30;
+  secondsRemaining = REFRESH_INTERVAL_SEC;
   document.getElementById('countdown').textContent = secondsRemaining;
 }
 
@@ -139,21 +140,41 @@ function updateCountdown() {
   }
 }
 
+function startPolling() {
+  if (!refreshInterval) {
+    refreshInterval = setInterval(refreshLogs, REFRESH_INTERVAL_SEC * 1000);
+  }
+  if (!countdownInterval) {
+    countdownInterval = setInterval(updateCountdown, 1000);
+  }
+}
+
+function stopPolling() {
+  clearInterval(refreshInterval);
+  clearInterval(countdownInterval);
+  refreshInterval = null;
+  countdownInterval = null;
+}
+
+// Pause polling when tab is hidden, resume when visible
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    refreshLogs();
+    startPolling();
+  }
+});
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
   refreshLogs();
-
-  // Set up auto-refresh every 30 seconds
-  refreshInterval = setInterval(refreshLogs, 30000);
-
-  // Update countdown every second
-  countdownInterval = setInterval(updateCountdown, 1000);
+  startPolling();
 });
 
 // Cleanup intervals when page unloads
 window.addEventListener('beforeunload', () => {
-  clearInterval(refreshInterval);
-  clearInterval(countdownInterval);
+  stopPolling();
 });
 
 // Expose functions to global scope for event delegation
