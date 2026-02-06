@@ -14,6 +14,7 @@
 
 const db = require('./database');
 const logger = require('./logger');
+const emailNotifier = require('./email-notifier');
 
 // Configuration
 const DEFAULT_MAX_RETRIES = 5;
@@ -96,7 +97,8 @@ async function incrementRetry(webhookEventId, errorMessage) {
                 ELSE 'pending_retry'
             END
         WHERE id = $3
-        RETURNING id, retry_count, max_retries, next_retry_at, status
+        RETURNING id, retry_count, max_retries, next_retry_at, status,
+                  event_type, square_merchant_id, error_message, received_at
     `, [errorMessage, DEFAULT_MAX_RETRIES, webhookEventId]);
 
     if (result.rows.length === 0) {
@@ -113,11 +115,31 @@ async function incrementRetry(webhookEventId, errorMessage) {
             nextRetryAt: event.next_retry_at
         });
     } else {
-        logger.warn('Webhook max retries exceeded', {
-            webhookEventId,
+        // Webhook exhausted all retries — permanently dead
+        logger.error('Webhook exhausted all retries', {
+            webhookEventId: event.id,
+            eventType: event.event_type,
+            squareMerchantId: event.square_merchant_id,
             retryCount: event.retry_count,
-            maxRetries: event.max_retries
+            lastError: event.error_message,
+            receivedAt: event.received_at
         });
+
+        // Send email alert (non-blocking — don't let email failure break retry flow)
+        try {
+            await emailNotifier.sendAlert(
+                `Webhook dead: ${event.event_type}`,
+                `Webhook event ${event.id} exhausted all ${event.retry_count} retries and is permanently failed.\n\n` +
+                `Event Type:    ${event.event_type}\n` +
+                `Merchant (Sq): ${event.square_merchant_id || 'N/A'}\n` +
+                `Received At:   ${event.received_at}\n` +
+                `Retry Count:   ${event.retry_count}/${event.max_retries}\n` +
+                `Last Error:    ${event.error_message}\n\n` +
+                `Action required: Check logs and investigate. Use resetForRetry(${event.id}) to re-queue if the root cause is fixed.`
+            );
+        } catch (emailErr) {
+            logger.warn('Failed to send dead webhook alert email', { error: emailErr.message });
+        }
     }
 
     return event;

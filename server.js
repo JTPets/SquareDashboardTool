@@ -429,6 +429,20 @@ app.get('/api/health', async (req, res) => {
         const minutes = Math.floor((uptimeSeconds % 3600) / 60);
         const uptime = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
+        // Webhook health stats (last 24h)
+        let webhookHealth = null;
+        try {
+            const stats = await webhookRetry.getRetryStats();
+            webhookHealth = {
+                dead_24h: parseInt(stats.exhausted_retries) || 0,
+                in_retry_24h: (parseInt(stats.pending_retries) || 0) + (parseInt(stats.scheduled_retries) || 0),
+                failed_total_24h: parseInt(stats.failed_total) || 0,
+                completed_24h: parseInt(stats.completed) || 0
+            };
+        } catch (whErr) {
+            logger.warn('Health check: webhook stats query failed', { error: whErr.message });
+        }
+
         res.json({
             status: 'ok',
             database: dbConnected ? 'connected' : 'disconnected',
@@ -439,6 +453,7 @@ app.get('/api/health', async (req, res) => {
                 heapUsed: process.memoryUsage().heapUsed,
                 heapTotal: process.memoryUsage().heapTotal
             },
+            webhooks: webhookHealth,
             nodeVersion: process.version,
             timestamp: new Date().toISOString(),
             version: '1.0.0'
