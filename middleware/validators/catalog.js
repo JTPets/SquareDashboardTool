@@ -40,6 +40,8 @@ const getVariations = [
     query('item_id').optional().isString(),
     query('sku').optional().isString().trim(),
     query('has_cost').optional().isIn(['true', 'false']),
+    query('search').optional().isString().trim().isLength({ min: 2, max: 100 }),
+    query('limit').optional().isInt({ min: 1, max: 200 }),
     handleValidationErrors
 ];
 
