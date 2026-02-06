@@ -11,9 +11,9 @@
 ├── server.js                 # ~1,000 lines - route setup, middleware
 ├── config/constants.js       # Centralized configuration
 ├── database/
-│   ├── schema.sql            # 50+ tables
-│   └── migrations/           # 003-028
-├── routes/                   # 20 route modules (~246 routes total)
+│   ├── schema.sql            # 33+ tables
+│   └── migrations/           # 003-043
+├── routes/                   # 23 route modules (~250+ routes total)
 ├── middleware/
 │   ├── auth.js               # Authentication middleware
 │   ├── merchant.js           # Multi-tenant context
@@ -24,7 +24,7 @@
 │   ├── sync-queue.js         # Sync state (persisted to DB)
 │   ├── webhook-handlers/     # 6 event handlers
 │   ├── loyalty/              # Modern service layer
-│   ├── loyalty-admin/        # Legacy admin service
+│   ├── loyalty-admin/        # Modular loyalty admin (15 modules)
 │   ├── catalog/              # Catalog data management
 │   ├── merchant/             # Settings service
 │   ├── delivery/             # Delivery order management
@@ -33,7 +33,8 @@
 │   ├── gmc/                  # Google Merchant Center
 │   ├── vendor/               # Vendor catalog import
 │   ├── reports/              # Report generation
-│   └── square/               # Square API integration
+│   ├── square/               # Square API integration
+│   └── bundle-calculator.js  # Bundle order optimization
 ├── jobs/                     # Cron tasks
 │   ├── cron-scheduler.js     # Job scheduling
 │   ├── backup-job.js         # Database backups
@@ -237,9 +238,11 @@ services/                     # Business logic services
 │   ├── index.js
 │   └── loyalty-reports.js    # Vendor receipts, audit exports
 │
-└── square/                   # Square API integration
-    ├── index.js
-    └── api.js                # Sync, inventory, custom attributes, prices
+├── square/                   # Square API integration
+│   ├── index.js
+│   └── api.js                # Sync, inventory, custom attributes, prices
+│
+└── bundle-calculator.js      # Bundle order optimization (individual vs bundle cost)
 ```
 
 ---
