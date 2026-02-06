@@ -1747,7 +1747,7 @@ CREATE TABLE IF NOT EXISTS bundle_definitions (
     bundle_sku TEXT,
     bundle_cost_cents INTEGER NOT NULL,
     bundle_sell_price_cents INTEGER,
-    vendor_id INTEGER,
+    vendor_id TEXT REFERENCES vendors(id) ON DELETE SET NULL,
     is_active BOOLEAN DEFAULT true,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),

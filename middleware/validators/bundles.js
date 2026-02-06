@@ -13,8 +13,10 @@ const { handleValidationErrors } = require('./index');
 const getBundles = [
     query('vendor_id')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('vendor_id must be a positive integer'),
+        .isString()
+        .trim()
+        .notEmpty()
+        .withMessage('vendor_id must be a non-empty string'),
     query('active_only')
         .optional()
         .isBoolean()
@@ -62,8 +64,10 @@ const createBundle = [
         .withMessage('bundle_sell_price_cents must be a non-negative integer'),
     body('vendor_id')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('vendor_id must be a positive integer'),
+        .isString()
+        .trim()
+        .notEmpty()
+        .withMessage('vendor_id must be a non-empty string'),
     body('notes')
         .optional()
         .trim()
@@ -114,8 +118,10 @@ const updateBundle = [
         .withMessage('notes must be under 2000 characters'),
     body('vendor_id')
         .optional()
-        .isInt({ min: 1 })
-        .withMessage('vendor_id must be a positive integer'),
+        .isString()
+        .trim()
+        .notEmpty()
+        .withMessage('vendor_id must be a non-empty string'),
     body('components')
         .optional()
         .isArray({ min: 1 })
