@@ -9,6 +9,13 @@ let selectedItems = new Set();
 const pendingMinStockSaves = new Map();
 // Track user-edited order quantities (cases) by variation_id
 const editedOrderQtys = new Map();
+// Bundle analysis data
+let bundleAnalysis = [];
+let bundleAffiliations = {};
+// Track which bundles are expanded
+const expandedBundles = new Set();
+// Track selected bundle options: { bundleId: 'optimized'|'all_bundles'|'all_individual' }
+const selectedBundleOptions = new Map();
 
 // Load configuration from server
 async function loadConfig() {
@@ -110,11 +117,20 @@ async function getSuggestions() {
     const data = await response.json();
 
     allSuggestions = data.suggestions || [];
+    bundleAnalysis = data.bundle_analysis || [];
+    bundleAffiliations = data.bundle_affiliations || {};
     // Default all items to selected, clear any edited quantities
     selectedItems.clear();
     editedOrderQtys.clear();
     allSuggestions.forEach(item => selectedItems.add(item.variation_id));
     document.getElementById('select-all').checked = true;
+    // Default all bundles to expanded, default option to optimized
+    expandedBundles.clear();
+    selectedBundleOptions.clear();
+    bundleAnalysis.forEach(b => {
+      expandedBundles.add(b.bundle_id);
+      selectedBundleOptions.set(b.bundle_id, 'optimized');
+    });
 
     if (allSuggestions.length === 0) {
       tbody.innerHTML = `
@@ -177,10 +193,152 @@ function sortSuggestions() {
   }
 }
 
+function renderBundleRows() {
+  if (bundleAnalysis.length === 0) return '';
+
+  return bundleAnalysis.map(bundle => {
+    const isExpanded = expandedBundles.has(bundle.bundle_id);
+    const toggle = isExpanded ? '&#9660;' : '&#9654;';
+    const selectedOption = selectedBundleOptions.get(bundle.bundle_id) || 'optimized';
+    const opt = bundle.order_options || {};
+    const optResult = opt.optimized || {};
+    const daysText = bundle.days_of_bundle_stock < 999
+      ? bundle.days_of_bundle_stock + 'd stock'
+      : 'N/A';
+    const bestCost = optResult.total_cost_cents
+      ? '$' + (optResult.total_cost_cents / 100).toFixed(2)
+      : '$0.00';
+
+    // Parent row
+    let html = `
+      <tr class="bundle-parent-row" data-bundle-id="${bundle.bundle_id}">
+        <td colspan="19" data-action="toggleBundleExpand" data-action-param="${bundle.bundle_id}">
+          <span class="bundle-toggle">${toggle}</span>
+          Bundle: ${escapeHtml(bundle.bundle_item_name)}
+          | Assemblable: ${bundle.assemblable_qty}
+          | ${daysText}
+          | Best: ${bestCost}
+          ${optResult.savings_pct > 0 ? ' (saves ' + optResult.savings_pct + '%)' : ''}
+          | ${bundle.vendor_name ? escapeHtml(bundle.vendor_name) : 'No vendor'}
+        </td>
+      </tr>`;
+
+    if (isExpanded) {
+      // Child rows
+      const children = bundle.children || [];
+      html += children.map(child => {
+        const daysClass = child.days_of_stock === 0 ? 'days-critical' :
+          child.days_of_stock < 7 ? 'days-critical' :
+          child.days_of_stock < 14 ? 'days-warning' : 'days-ok';
+        const daysStr = child.days_of_stock < 999 ? child.days_of_stock.toFixed(1) : '-';
+        const costStr = child.individual_cost_cents
+          ? '$' + (child.individual_cost_cents / 100).toFixed(2) : '-';
+
+        return `
+          <tr class="bundle-child-row" data-bundle-id="${bundle.bundle_id}">
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>
+              <span class="bundle-child-label">|--</span>
+              ${escapeHtml(child.child_item_name || '')}
+              ${child.child_variation_name ? '<br><small style="color:#6b7280;">' + escapeHtml(child.child_variation_name) + '</small>' : ''}
+            </td>
+            <td class="sku">${escapeHtml(child.child_sku || '-')}</td>
+            <td class="text-right">${child.stock}</td>
+            <td class="text-right">${child.stock_alert_min || '-'}</td>
+            <td class="text-right">-</td>
+            <td class="text-right ${daysClass}">${daysStr}</td>
+            <td class="text-right">-</td>
+            <td class="text-right">
+              <small>
+                ${child.total_daily_velocity.toFixed(2)}/day
+                <div class="bundle-velocity-split">
+                  Ind: ${child.individual_daily_velocity.toFixed(2)} |
+                  <span class="bundle-pct">Bundle: ${child.pct_from_bundles}%</span>
+                </div>
+              </small>
+            </td>
+            <td class="text-right">${child.individual_need}</td>
+            <td class="text-right">x${child.quantity_in_bundle}/bundle</td>
+            <td class="text-right">${costStr}</td>
+            <td colspan="5"></td>
+          </tr>`;
+      }).join('');
+
+      // Options row
+      const allInd = opt.all_individual || {};
+      const allBun = opt.all_bundles || {};
+      const optimized = opt.optimized || {};
+      const totalSurplusAll = allBun.surplus ? Object.values(allBun.surplus).reduce((s, v) => s + v, 0) : 0;
+      const totalSurplusOpt = optimized.surplus ? Object.values(optimized.surplus).reduce((s, v) => s + v, 0) : 0;
+
+      html += `
+        <tr class="bundle-options-row" data-bundle-id="${bundle.bundle_id}">
+          <td colspan="19">
+            <div class="order-options">
+              <label class="order-option ${selectedOption === 'optimized' ? 'best' : ''}">
+                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="optimized"
+                       ${selectedOption === 'optimized' ? 'checked' : ''}
+                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                Buy ${optimized.bundle_qty || 0} bundle(s) + top-up &mdash;
+                $${((optimized.total_cost_cents || 0) / 100).toFixed(2)}
+                ${optimized.savings_pct > 0 ? '<strong>(saves ' + optimized.savings_pct + '%)</strong>' : ''}
+                ${totalSurplusOpt > 0 ? ' | surplus: ' + totalSurplusOpt + ' units' : ''}
+              </label>
+              <label class="order-option ${selectedOption === 'all_bundles' ? 'best' : ''}">
+                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_bundles"
+                       ${selectedOption === 'all_bundles' ? 'checked' : ''}
+                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                Buy ${allBun.bundle_qty || 0} bundle(s) only &mdash;
+                $${((allBun.total_cost_cents || 0) / 100).toFixed(2)}
+                ${totalSurplusAll > 0 ? ' | surplus: ' + totalSurplusAll + ' units' : ''}
+              </label>
+              <label class="order-option ${selectedOption === 'all_individual' ? 'best' : ''}">
+                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_individual"
+                       ${selectedOption === 'all_individual' ? 'checked' : ''}
+                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                Buy individually &mdash;
+                $${((allInd.total_cost_cents || 0) / 100).toFixed(2)}
+                (exact quantities)
+              </label>
+            </div>
+          </td>
+        </tr>`;
+    }
+
+    // Separator
+    html += `<tr class="bundle-separator"><td colspan="19"></td></tr>`;
+
+    return html;
+  }).join('');
+}
+
+function toggleBundleExpand(element, event, bundleId) {
+  const bid = parseInt(bundleId);
+  if (expandedBundles.has(bid)) {
+    expandedBundles.delete(bid);
+  } else {
+    expandedBundles.add(bid);
+  }
+  renderTable();
+}
+
+function selectBundleOption(element) {
+  const bundleId = parseInt(element.dataset.bundleId);
+  const value = element.value;
+  selectedBundleOptions.set(bundleId, value);
+  renderTable();
+  updateFooter();
+}
+
 function renderTable() {
   const tbody = document.getElementById('suggestions-body');
 
-  tbody.innerHTML = allSuggestions.map((item, index) => {
+  // Render bundle groups first, then standalone items
+  const bundleHtml = renderBundleRows();
+
+  const itemsHtml = allSuggestions.map((item, index) => {
     const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
                      item.days_until_stockout < 7 ? 'days-critical' :
                      item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
@@ -356,6 +514,7 @@ function renderTable() {
         <td>
           <div class="product-name">
             ${tierCircleHtml}${escapeHtml(item.item_name)}
+            ${bundleAffiliations[item.variation_id] ? '<span class="bundle-badge" title="Part of: ' + escapeHtml(bundleAffiliations[item.variation_id].join(', ')) + '">BUNDLE</span>' : ''}
           </div>
           ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
           ${expiryInfoHtml}
@@ -437,6 +596,8 @@ function renderTable() {
       </tr>
     `;
   }).join('');
+
+  tbody.innerHTML = bundleHtml + itemsHtml;
 }
 
 function toggleSelectAll(checked) {
@@ -1287,3 +1448,6 @@ window.saveCost = saveCost;
 window.getSuggestions = getSuggestions;
 window.toggleSelectAllFromCheckbox = toggleSelectAllFromCheckbox;
 window.toggleItemFromCheckbox = toggleItemFromCheckbox;
+// Bundle functions
+window.toggleBundleExpand = toggleBundleExpand;
+window.selectBundleOption = selectBundleOption;
