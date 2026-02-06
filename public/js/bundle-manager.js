@@ -120,6 +120,7 @@ function showCreateForm() {
     document.getElementById('bundle-variation-id').value = '';
     document.getElementById('bundle-item-id').value = '';
     document.getElementById('bundle-item-name-hidden').value = '';
+    document.getElementById('bundle-sku').value = '';
     document.getElementById('bundle-cost').value = '';
     document.getElementById('bundle-sell-price').value = '';
     document.getElementById('bundle-vendor').value = '';
@@ -154,6 +155,7 @@ function editBundle(element, event, bundleId) {
     document.getElementById('bundle-variation-id').value = bundle.bundle_variation_id;
     document.getElementById('bundle-item-id').value = bundle.bundle_item_id || '';
     document.getElementById('bundle-item-name-hidden').value = bundle.bundle_item_name;
+    document.getElementById('bundle-sku').value = bundle.bundle_sku || '';
     document.getElementById('bundle-cost').value = (bundle.bundle_cost_cents / 100).toFixed(2);
     document.getElementById('bundle-sell-price').value = bundle.bundle_sell_price_cents
         ? (bundle.bundle_sell_price_cents / 100).toFixed(2) : '';
@@ -203,7 +205,11 @@ async function searchCatalog(query) {
             item_id: v.item_id,
             name: v.item_name || v.name,
             variation_name: v.name,
-            sku: v.sku || null
+            sku: v.sku || null,
+            price_cents: v.price_money || null,
+            cost_cents: v.cost_cents || null,
+            vendor_id: v.primary_vendor_id || null,
+            vendor_name: v.primary_vendor_name || null
         }));
     } catch (error) {
         console.error('Catalog search failed:', error);
@@ -226,12 +232,17 @@ function searchBundleItem(element) {
         if (results.length === 0) {
             dropdown.innerHTML = '<div class="search-option">No results found</div>';
         } else {
-            dropdown.innerHTML = results.map((r, i) => `
+            dropdown.innerHTML = results.map((r, i) => {
+                const details = [r.sku ? 'SKU: ' + escapeHtml(r.sku) : 'No SKU'];
+                if (r.price_cents) details.push('$' + (r.price_cents / 100).toFixed(2));
+                if (r.cost_cents) details.push('Cost: $' + (r.cost_cents / 100).toFixed(2));
+                if (r.vendor_name) details.push(escapeHtml(r.vendor_name));
+                return `
                 <div class="search-option" data-action="selectBundleItem" data-action-param="${i}">
                     <div class="option-name">${escapeHtml(r.name)}${r.variation_name ? ' - ' + escapeHtml(r.variation_name) : ''}</div>
-                    <div class="option-sku">${r.sku ? 'SKU: ' + escapeHtml(r.sku) : 'No SKU'} | ${r.variation_id}</div>
-                </div>
-            `).join('');
+                    <div class="option-sku">${details.join(' | ')}</div>
+                </div>`;
+            }).join('');
         }
         dropdown.classList.add('visible');
         // Store results for selection
@@ -246,11 +257,36 @@ function selectBundleItem(element, event, index) {
     if (!item) return;
 
     selectedBundleItem = item;
-    document.getElementById('bundle-item-search').value = item.name + (item.variation_name ? ' - ' + item.variation_name : '');
+    const displayName = item.name + (item.variation_name ? ' - ' + item.variation_name : '');
+    document.getElementById('bundle-item-search').value = displayName;
     document.getElementById('bundle-variation-id').value = item.variation_id;
     document.getElementById('bundle-item-id').value = item.item_id;
-    document.getElementById('bundle-item-name-hidden').value = item.name + (item.variation_name ? ' - ' + item.variation_name : '');
+    document.getElementById('bundle-item-name-hidden').value = displayName;
+    document.getElementById('bundle-sku').value = item.sku || '';
     dropdown.classList.remove('visible');
+
+    // Auto-fill sell price from catalog price
+    const sellPriceInput = document.getElementById('bundle-sell-price');
+    if (!sellPriceInput.value && item.price_cents) {
+        sellPriceInput.value = (item.price_cents / 100).toFixed(2);
+    }
+
+    // Auto-fill cost from vendor cost data
+    const costInput = document.getElementById('bundle-cost');
+    if (!costInput.value && item.cost_cents) {
+        costInput.value = (item.cost_cents / 100).toFixed(2);
+    }
+
+    // Auto-select vendor if one is associated
+    if (item.vendor_id) {
+        const vendorSelect = document.getElementById('bundle-vendor');
+        for (const opt of vendorSelect.options) {
+            if (opt.value === item.vendor_id) {
+                vendorSelect.value = item.vendor_id;
+                break;
+            }
+        }
+    }
 }
 
 function searchComponentItem(element) {
@@ -268,12 +304,15 @@ function searchComponentItem(element) {
         if (results.length === 0) {
             dropdown.innerHTML = '<div class="search-option">No results found</div>';
         } else {
-            dropdown.innerHTML = results.map((r, i) => `
+            dropdown.innerHTML = results.map((r, i) => {
+                const details = [r.sku ? 'SKU: ' + escapeHtml(r.sku) : 'No SKU'];
+                if (r.cost_cents) details.push('Cost: $' + (r.cost_cents / 100).toFixed(2));
+                return `
                 <div class="search-option" data-action="selectComponentItem" data-action-param="${i}">
                     <div class="option-name">${escapeHtml(r.name)}${r.variation_name ? ' - ' + escapeHtml(r.variation_name) : ''}</div>
-                    <div class="option-sku">${r.sku ? 'SKU: ' + escapeHtml(r.sku) : 'No SKU'}</div>
-                </div>
-            `).join('');
+                    <div class="option-sku">${details.join(' | ')}</div>
+                </div>`;
+            }).join('');
         }
         dropdown.classList.add('visible');
         dropdown._results = results;
@@ -291,6 +330,12 @@ function selectComponentItem(element, event, index) {
     selectedComponent = item;
     document.getElementById('comp-item-search').value = item.name + (item.variation_name ? ' - ' + item.variation_name : '');
     dropdown.classList.remove('visible');
+
+    // Auto-fill individual cost from vendor cost data
+    const costInput = document.getElementById('comp-cost');
+    if (!costInput.value && item.cost_cents) {
+        costInput.value = (item.cost_cents / 100).toFixed(2);
+    }
 }
 
 // ==================== COMPONENT EDITOR ====================
@@ -376,10 +421,12 @@ async function saveBundle() {
         return;
     }
 
+    const bundleSku = document.getElementById('bundle-sku').value;
     const payload = {
         bundle_variation_id: variationId,
         bundle_item_id: document.getElementById('bundle-item-id').value || undefined,
         bundle_item_name: itemName,
+        bundle_sku: bundleSku || undefined,
         bundle_cost_cents: Math.round(costDollars * 100),
         bundle_sell_price_cents: sellDollars > 0 ? Math.round(sellDollars * 100) : undefined,
         vendor_id: vendorId ? parseInt(vendorId) : undefined,

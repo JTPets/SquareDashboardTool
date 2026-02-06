@@ -47,9 +47,20 @@ async function getVariations(merchantId, filters = {}) {
     const { item_id, sku, has_cost, search, limit } = filters;
 
     let query = `
-        SELECT v.*, i.name as item_name, i.category_name, i.images as item_images
+        SELECT v.*, i.name as item_name, i.category_name, i.images as item_images,
+            vv_cost.unit_cost_money as cost_cents,
+            vv_cost.vendor_id as primary_vendor_id,
+            vv_cost.vendor_name as primary_vendor_name
         FROM variations v
         JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+        LEFT JOIN LATERAL (
+            SELECT vv.unit_cost_money, vv.vendor_id, ve.name as vendor_name
+            FROM variation_vendors vv
+            LEFT JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $1
+            WHERE vv.variation_id = v.id AND vv.merchant_id = $1
+            ORDER BY vv.updated_at DESC NULLS LAST
+            LIMIT 1
+        ) vv_cost ON true
         WHERE v.merchant_id = $1
     `;
     const params = [merchantId];
