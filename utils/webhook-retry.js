@@ -91,11 +91,7 @@ async function incrementRetry(webhookEventId, errorMessage) {
                 THEN NOW() + (INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0) + 1))
                 ELSE NULL
             END,
-            status = CASE
-                WHEN COALESCE(retry_count, 0) + 1 >= COALESCE(max_retries, $2)
-                THEN 'failed'
-                ELSE 'pending_retry'
-            END
+            status = 'failed'
         WHERE id = $3
         RETURNING id, retry_count, max_retries, next_retry_at, status,
                   event_type, square_merchant_id, error_message, received_at

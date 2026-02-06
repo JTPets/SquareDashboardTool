@@ -42,19 +42,38 @@ async function processWebhookRetries(batchSize = 10) {
                 squareEventId: event.square_event_id
             });
 
-            // Look up internal merchant ID from Square merchant ID
-            const merchantResult = await db.query(
-                'SELECT id FROM merchants WHERE square_merchant_id = $1 AND is_active = TRUE',
-                [event.merchant_id]
-            );
+            // Resolve internal merchant ID
+            // After migration 041, merchant_id is the internal INTEGER FK
+            // Fall back to square_merchant_id lookup for un-backfilled rows
+            let internalMerchantId = event.merchant_id;
 
-            if (merchantResult.rows.length === 0) {
-                await webhookRetry.incrementRetry(event.id, 'Merchant not found or inactive');
+            if (!internalMerchantId && event.square_merchant_id) {
+                const merchantResult = await db.query(
+                    'SELECT id FROM merchants WHERE square_merchant_id = $1 AND is_active = TRUE',
+                    [event.square_merchant_id]
+                );
+                if (merchantResult.rows.length === 0) {
+                    await webhookRetry.incrementRetry(event.id, 'Merchant not found or inactive');
+                    failed++;
+                    continue;
+                }
+                internalMerchantId = merchantResult.rows[0].id;
+            } else if (internalMerchantId) {
+                // Verify merchant is still active
+                const merchantResult = await db.query(
+                    'SELECT id FROM merchants WHERE id = $1 AND is_active = TRUE',
+                    [internalMerchantId]
+                );
+                if (merchantResult.rows.length === 0) {
+                    await webhookRetry.incrementRetry(event.id, 'Merchant not found or inactive');
+                    failed++;
+                    continue;
+                }
+            } else {
+                await webhookRetry.incrementRetry(event.id, 'No merchant ID available');
                 failed++;
                 continue;
             }
-
-            const internalMerchantId = merchantResult.rows[0].id;
             let syncResult = null;
 
             // Re-trigger appropriate sync based on event type
@@ -108,7 +127,21 @@ async function processWebhookRetries(batchSize = 10) {
                 retryCount: event.retry_count,
                 error: retryError.message
             });
-            await webhookRetry.incrementRetry(event.id, retryError.message);
+            try {
+                await webhookRetry.incrementRetry(event.id, retryError.message);
+            } catch (incrementError) {
+                // Safety net: if incrementRetry itself fails (e.g., constraint violation),
+                // force-clear next_retry_at to prevent infinite retry loops
+                logger.error('incrementRetry failed, force-stopping retries for event', {
+                    webhookEventId: event.id,
+                    incrementError: incrementError.message,
+                    originalError: retryError.message
+                });
+                await db.query(
+                    `UPDATE webhook_events SET next_retry_at = NULL, error_message = $1 WHERE id = $2`,
+                    [`incrementRetry failed: ${incrementError.message}; original: ${retryError.message}`, event.id]
+                );
+            }
             failed++;
         }
     }
