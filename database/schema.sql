@@ -1732,6 +1732,54 @@ BEGIN
 END $$;
 
 -- ========================================
+-- MIGRATION: Bundle Support for Reorder System
+-- ========================================
+-- Square has no API support for bundles. We build our own relationship layer.
+-- Bundle availability = MIN(child_stock / qty_per_bundle) across all children.
+
+CREATE TABLE IF NOT EXISTS bundle_definitions (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    bundle_variation_id TEXT NOT NULL,
+    bundle_item_id TEXT,
+    bundle_item_name TEXT NOT NULL,
+    bundle_variation_name TEXT,
+    bundle_sku TEXT,
+    bundle_cost_cents INTEGER NOT NULL,
+    bundle_sell_price_cents INTEGER,
+    vendor_id INTEGER,
+    is_active BOOLEAN DEFAULT true,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id, bundle_variation_id)
+);
+
+CREATE TABLE IF NOT EXISTS bundle_components (
+    id SERIAL PRIMARY KEY,
+    bundle_id INTEGER NOT NULL REFERENCES bundle_definitions(id) ON DELETE CASCADE,
+    child_variation_id TEXT NOT NULL,
+    child_item_id TEXT,
+    quantity_in_bundle INTEGER NOT NULL DEFAULT 1,
+    child_item_name TEXT,
+    child_variation_name TEXT,
+    child_sku TEXT,
+    individual_cost_cents INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(bundle_id, child_variation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bundle_defs_merchant ON bundle_definitions(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_defs_vendor ON bundle_definitions(merchant_id, vendor_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_defs_variation ON bundle_definitions(bundle_variation_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_components_child ON bundle_components(child_variation_id);
+CREATE INDEX IF NOT EXISTS idx_bundle_components_bundle ON bundle_components(bundle_id);
+
+COMMENT ON TABLE bundle_definitions IS 'Parent bundle items - Square has no API support for bundles, so we track relationships locally';
+COMMENT ON TABLE bundle_components IS 'Child items within a bundle, with quantity per bundle';
+
+-- ========================================
 -- FINAL: Schema creation complete
 -- ========================================
 DO $$
@@ -1744,6 +1792,7 @@ BEGIN
     RAISE NOTICE 'Subscription tables: 4';
     RAISE NOTICE 'Delivery tables: 6';
     RAISE NOTICE 'Loyalty tables: 8';
-    RAISE NOTICE 'Total tables: 31+';
+    RAISE NOTICE 'Bundle tables: 2';
+    RAISE NOTICE 'Total tables: 33+';
     RAISE NOTICE '============================================';
 END $$;

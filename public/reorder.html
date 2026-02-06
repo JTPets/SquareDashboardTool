@@ -507,6 +507,89 @@
       .editable-input { width: 50px; font-size: 12px; }
     }
 
+    /* Bundle group styles */
+    .bundle-parent-row {
+      background: #eff6ff !important;
+      border-left: 4px solid #2563eb;
+    }
+    .bundle-parent-row td {
+      padding: 10px 12px;
+      font-weight: 600;
+    }
+    .bundle-parent-row:hover {
+      background: #dbeafe !important;
+    }
+    .bundle-toggle {
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+    .bundle-child-row {
+      background: #f8fafc !important;
+      border-left: 4px solid #93c5fd;
+    }
+    .bundle-child-row td:first-child {
+      padding-left: 24px;
+    }
+    .bundle-child-label {
+      color: #6b7280;
+      font-size: 12px;
+      margin-right: 4px;
+    }
+    .bundle-options-row {
+      background: #fefce8 !important;
+      border-left: 4px solid #facc15;
+    }
+    .bundle-options-row td {
+      padding: 12px 16px;
+    }
+    .order-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .order-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .order-option:hover { background: rgba(0,0,0,0.03); }
+    .order-option.best {
+      background: #d1fae5;
+      border: 1px solid #059669;
+      font-weight: 500;
+    }
+    .order-option input[type="radio"] { margin: 0; }
+    .bundle-badge {
+      display: inline-block;
+      background: #dbeafe;
+      color: #1d4ed8;
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 4px;
+      cursor: help;
+      font-weight: 600;
+    }
+    .bundle-separator {
+      height: 2px;
+      background: #2563eb;
+    }
+    .bundle-velocity-split {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+    .bundle-velocity-split .bundle-pct {
+      color: #2563eb;
+      font-weight: 600;
+    }
+
     /* Toast notifications */
     .toast {
       position: fixed;
@@ -542,6 +625,7 @@
       <h1>📋 Reorder Suggestions</h1>
       <div class="header-buttons">
         <a href="purchase-orders.html" class="back-button" style="background: #f59e0b;">Manage POs</a>
+        <a href="bundle-manager.html" class="back-button" style="background: #7c3aed;">Bundle Manager</a>
         <a href="/dashboard.html" class="back-button">← Dashboard</a>
       </div>
     </div>

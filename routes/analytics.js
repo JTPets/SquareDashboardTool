@@ -19,6 +19,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { batchResolveImageUrls } = require('../utils/image-utils');
+const { calculateOrderOptions } = require('../services/bundle-calculator');
 
 // ==================== SALES VELOCITY ENDPOINTS ====================
 
@@ -521,11 +522,198 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             item_images: undefined  // Remove from response
         }));
 
+    // ==================== BUNDLE ANALYSIS ====================
+    // Query active bundles for this merchant and build bundle analysis
+    let bundleAnalysis = [];
+    const bundleAffiliations = {};
+
+    try {
+        const bundlesResult = await db.query(`
+            SELECT
+                bd.id as bundle_id, bd.bundle_variation_id, bd.bundle_item_id,
+                bd.bundle_item_name, bd.bundle_variation_name, bd.bundle_sku,
+                bd.bundle_cost_cents, bd.bundle_sell_price_cents,
+                bd.vendor_id,
+                ve.name as vendor_name,
+                bc.child_variation_id, bc.quantity_in_bundle,
+                bc.child_item_name, bc.child_variation_name,
+                bc.child_sku, bc.individual_cost_cents
+            FROM bundle_definitions bd
+            JOIN bundle_components bc ON bd.id = bc.bundle_id
+            LEFT JOIN vendors ve ON bd.vendor_id = ve.id AND ve.merchant_id = $1
+            WHERE bd.merchant_id = $1 AND bd.is_active = true
+            ORDER BY bd.id, bc.child_item_name
+        `, [merchantId]);
+
+        if (bundlesResult.rows.length > 0) {
+            // Collect variation IDs for velocity + inventory lookups
+            const childVarIds = [...new Set(bundlesResult.rows.map(r => r.child_variation_id))];
+            const bundleVarIds = [...new Set(bundlesResult.rows.map(r => r.bundle_variation_id))];
+            const allBundleVarIds = [...new Set([...childVarIds, ...bundleVarIds])];
+
+            // Fetch bundle velocity (bundle parent sales from sales_velocity)
+            let velocityQuery = `
+                SELECT variation_id, daily_avg_quantity
+                FROM sales_velocity
+                WHERE variation_id = ANY($1) AND merchant_id = $2 AND period_days = 91
+            `;
+            const velocityParams = [allBundleVarIds, merchantId];
+            if (location_id) {
+                velocityQuery += ` AND location_id = $3`;
+                velocityParams.push(location_id);
+            }
+
+            // Fetch inventory for bundle children
+            let invQuery = `
+                SELECT catalog_object_id, COALESCE(SUM(quantity), 0) as stock
+                FROM inventory_counts
+                WHERE catalog_object_id = ANY($1) AND merchant_id = $2 AND state = 'IN_STOCK'
+            `;
+            const invParams = [childVarIds, merchantId];
+            if (location_id) {
+                invQuery += ` AND location_id = $3`;
+                invParams.push(location_id);
+            }
+            invQuery += ` GROUP BY catalog_object_id`;
+
+            // Fetch stock_alert_min for children
+            const minStockQuery = `
+                SELECT id, COALESCE(stock_alert_min, 0) as stock_alert_min
+                FROM variations WHERE id = ANY($1) AND merchant_id = $2
+            `;
+
+            const [velResult, invResult, minResult] = await Promise.all([
+                db.query(velocityQuery, velocityParams),
+                db.query(invQuery, invParams),
+                db.query(minStockQuery, [childVarIds, merchantId])
+            ]);
+
+            const velMap = new Map(velResult.rows.map(r => [r.variation_id, parseFloat(r.daily_avg_quantity) || 0]));
+            const invMap = new Map(invResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
+            const minMap = new Map(minResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
+
+            // Group by bundle
+            const bundleGroups = new Map();
+            for (const row of bundlesResult.rows) {
+                if (!bundleGroups.has(row.bundle_id)) {
+                    bundleGroups.set(row.bundle_id, {
+                        bundle_id: row.bundle_id,
+                        bundle_variation_id: row.bundle_variation_id,
+                        bundle_item_name: row.bundle_item_name,
+                        bundle_variation_name: row.bundle_variation_name,
+                        bundle_sku: row.bundle_sku,
+                        bundle_cost_cents: row.bundle_cost_cents,
+                        bundle_sell_price_cents: row.bundle_sell_price_cents,
+                        vendor_id: row.vendor_id,
+                        vendor_name: row.vendor_name,
+                        children: []
+                    });
+                }
+                bundleGroups.get(row.bundle_id).children.push(row);
+
+                // Build affiliations map
+                if (!bundleAffiliations[row.child_variation_id]) {
+                    bundleAffiliations[row.child_variation_id] = [];
+                }
+                bundleAffiliations[row.child_variation_id].push(row.bundle_item_name);
+            }
+
+            // For each bundle, calculate analysis
+            for (const [, bundle] of bundleGroups) {
+                const bundleVelocity = velMap.get(bundle.bundle_variation_id) || 0;
+
+                // Calculate corrected velocity and individual need for each child
+                const childrenWithNeeds = bundle.children.map(child => {
+                    const childIndVelocity = velMap.get(child.child_variation_id) || 0;
+                    const bundleDrivenDaily = bundleVelocity * child.quantity_in_bundle;
+                    const totalDailyVelocity = childIndVelocity + bundleDrivenDaily;
+
+                    const stock = invMap.get(child.child_variation_id) || 0;
+                    const minStock = minMap.get(child.child_variation_id) || 0;
+
+                    // Individual need: target stock for supply_days using TOTAL velocity
+                    const targetStock = (totalDailyVelocity * supplyDaysNum) + minStock;
+                    const individualNeed = Math.max(0, Math.ceil(targetStock - stock));
+
+                    // Assemblable from this child
+                    const availableForBundles = Math.max(0, stock - minStock);
+                    const canAssemble = child.quantity_in_bundle > 0
+                        ? Math.floor(availableForBundles / child.quantity_in_bundle)
+                        : 0;
+
+                    const daysOfStock = totalDailyVelocity > 0
+                        ? Math.round((stock / totalDailyVelocity) * 10) / 10
+                        : 999;
+
+                    return {
+                        variation_id: child.child_variation_id,
+                        child_item_name: child.child_item_name,
+                        child_variation_name: child.child_variation_name,
+                        child_sku: child.child_sku,
+                        quantity_in_bundle: child.quantity_in_bundle,
+                        individual_cost_cents: child.individual_cost_cents || 0,
+                        stock,
+                        stock_alert_min: minStock,
+                        available_for_bundles: availableForBundles,
+                        can_assemble: canAssemble,
+                        individual_need: individualNeed,
+                        individual_daily_velocity: childIndVelocity,
+                        bundle_driven_daily_velocity: bundleDrivenDaily,
+                        total_daily_velocity: totalDailyVelocity,
+                        pct_from_bundles: totalDailyVelocity > 0
+                            ? Math.round((bundleDrivenDaily / totalDailyVelocity) * 1000) / 10
+                            : 0,
+                        days_of_stock: daysOfStock
+                    };
+                });
+
+                // Calculate assemblable qty (bottleneck)
+                const assemblableQty = childrenWithNeeds.length > 0
+                    ? Math.min(...childrenWithNeeds.map(c => c.can_assemble))
+                    : 0;
+                const limitingChild = childrenWithNeeds.reduce((min, c) =>
+                    c.can_assemble < min.can_assemble ? c : min, childrenWithNeeds[0]);
+                const daysOfBundleStock = bundleVelocity > 0
+                    ? Math.round((assemblableQty / bundleVelocity) * 10) / 10
+                    : 999;
+
+                // Run the bundle calculator optimizer
+                const orderOptions = calculateOrderOptions(
+                    { cost_cents: bundle.bundle_cost_cents, variation_id: bundle.bundle_variation_id },
+                    childrenWithNeeds
+                );
+
+                bundleAnalysis.push({
+                    bundle_id: bundle.bundle_id,
+                    bundle_variation_id: bundle.bundle_variation_id,
+                    bundle_item_name: bundle.bundle_item_name,
+                    bundle_variation_name: bundle.bundle_variation_name,
+                    bundle_sku: bundle.bundle_sku,
+                    bundle_cost_cents: bundle.bundle_cost_cents,
+                    bundle_sell_price_cents: bundle.bundle_sell_price_cents,
+                    vendor_name: bundle.vendor_name,
+                    vendor_id: bundle.vendor_id,
+                    assemblable_qty: assemblableQty,
+                    limiting_component: limitingChild ? limitingChild.child_item_name : null,
+                    days_of_bundle_stock: daysOfBundleStock,
+                    bundle_daily_velocity: bundleVelocity,
+                    children: childrenWithNeeds,
+                    order_options: orderOptions
+                });
+            }
+        }
+    } catch (bundleErr) {
+        // Bundle analysis is additive - don't fail the whole request
+        logger.error('Bundle analysis failed', { error: bundleErr.message, merchantId });
+    }
+
     res.json({
         count: suggestionsWithImages.length,
         supply_days: supplyDaysNum,
         safety_days: safetyDays,
-        suggestions: suggestionsWithImages
+        suggestions: suggestionsWithImages,
+        bundle_analysis: bundleAnalysis,
+        bundle_affiliations: bundleAffiliations
     });
 }));
 

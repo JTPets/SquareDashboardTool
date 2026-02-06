@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bundle Manager - Square Dashboard Addon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.4;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    .back-button {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .back-button:hover { background: rgba(255,255,255,0.3); }
+
+    .content { padding: 20px; }
+
+    .bundle-list { margin-bottom: 20px; }
+    .bundle-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .bundle-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: #f9fafb;
+      cursor: pointer;
+    }
+    .bundle-card-header:hover { background: #f3f4f6; }
+    .bundle-info { flex: 1; }
+    .bundle-name { font-weight: 600; font-size: 16px; color: #1f2937; }
+    .bundle-meta { font-size: 13px; color: #6b7280; margin-top: 2px; }
+    .bundle-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .bundle-status.active { background: #d1fae5; color: #065f46; }
+    .bundle-status.inactive { background: #fee2e2; color: #991b1b; }
+    .bundle-actions { display: flex; gap: 8px; }
+    .btn {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-edit { background: #dbeafe; color: #1d4ed8; }
+    .btn-edit:hover { background: #bfdbfe; }
+    .btn-delete { background: #fee2e2; color: #991b1b; }
+    .btn-delete:hover { background: #fecaca; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #059669; color: white; }
+    .btn-success:hover { background: #047857; }
+    .btn-cancel { background: #6b7280; color: white; }
+    .btn-cancel:hover { background: #4b5563; }
+
+    .bundle-components {
+      padding: 12px 16px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .component-table {
+      width: 100%;
+      font-size: 13px;
+      border-collapse: collapse;
+    }
+    .component-table th {
+      text-align: left;
+      padding: 6px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .component-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    /* Form styles */
+    .form-section {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .form-section.visible { display: block; }
+    .form-section h3 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #1f2937;
+    }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 200px;
+    }
+    .form-group label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .form-group input, .form-group select {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
+    }
+
+    /* Component editor */
+    .component-editor { margin-top: 16px; }
+    .component-editor h4 { font-size: 14px; margin-bottom: 8px; color: #374151; }
+    .component-add-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .component-add-row .form-group { min-width: 150px; }
+    .component-list-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .component-list-table th {
+      text-align: left;
+      padding: 8px;
+      background: #f9fafb;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+    .component-list-table td {
+      padding: 8px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .btn-remove { background: none; border: none; color: #dc2626; cursor: pointer; font-size: 16px; }
+    .btn-remove:hover { color: #991b1b; }
+
+    .form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    /* Search dropdown */
+    .search-container { position: relative; }
+    .search-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #d1d5db;
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 100;
+      display: none;
+    }
+    .search-dropdown.visible { display: block; }
+    .search-option {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .search-option:hover { background: #f3f4f6; }
+    .search-option .option-name { font-weight: 500; }
+    .search-option .option-sku { color: #6b7280; font-size: 12px; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+    }
+    .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #374151; }
+
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      color: white;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      transform: translateX(120%);
+      transition: transform 0.3s ease;
+      max-width: 400px;
+    }
+    .toast.active { transform: translateX(0); }
+    .toast.success { background: #10b981; }
+    .toast.error { background: #ef4444; }
+
+    @media (max-width: 768px) {
+      .form-row { flex-direction: column; }
+      .form-group { min-width: 100%; }
+      .component-add-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Bundle Manager</h1>
+      <div class="header-buttons">
+        <a href="/reorder.html" class="back-button">Reorder Suggestions</a>
+        <a href="/dashboard.html" class="back-button">Dashboard</a>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Existing bundles list -->
+      <div class="bundle-list" id="bundle-list">
+        <div class="empty-state">
+          <h3>Loading bundles...</h3>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-new-bundle" data-action="showCreateForm">+ Create New Bundle</button>
+
+      <!-- Create/Edit form -->
+      <div class="form-section" id="bundle-form">
+        <h3 id="form-title">Create New Bundle</h3>
+
+        <div class="form-row">
+          <div class="form-group search-container">
+            <label for="bundle-item-search">Bundle Item (search catalog)</label>
+            <input type="text" id="bundle-item-search" placeholder="Type to search items..."
+                   data-input="searchBundleItem" autocomplete="off">
+            <div class="search-dropdown" id="bundle-item-dropdown"></div>
+            <input type="hidden" id="bundle-variation-id">
+            <input type="hidden" id="bundle-item-id">
+            <input type="hidden" id="bundle-item-name-hidden">
+          </div>
+          <div class="form-group">
+            <label for="bundle-cost">Bundle Cost ($)</label>
+            <input type="number" id="bundle-cost" step="0.01" min="0" placeholder="0.00">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bundle-sell-price">Sell Price ($, optional)</label>
+            <input type="number" id="bundle-sell-price" step="0.01" min="0" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label for="bundle-vendor">Vendor</label>
+            <select id="bundle-vendor">
+              <option value="">No vendor</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="bundle-notes">Notes (optional)</label>
+            <input type="text" id="bundle-notes" placeholder="Optional notes...">
+          </div>
+        </div>
+
+        <!-- Component editor -->
+        <div class="component-editor">
+          <h4>Components</h4>
+          <div class="component-add-row">
+            <div class="form-group search-container">
+              <label for="comp-item-search">Add Component (search catalog)</label>
+              <input type="text" id="comp-item-search" placeholder="Search for child item..."
+                     data-input="searchComponentItem" autocomplete="off">
+              <div class="search-dropdown" id="comp-item-dropdown"></div>
+            </div>
+            <div class="form-group" style="max-width: 120px;">
+              <label for="comp-qty">Qty per Bundle</label>
+              <input type="number" id="comp-qty" min="1" value="1">
+            </div>
+            <div class="form-group" style="max-width: 120px;">
+              <label for="comp-cost">Individual Cost ($)</label>
+              <input type="number" id="comp-cost" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <button class="btn btn-success" style="align-self: flex-end; margin-bottom: 2px;"
+                    data-action="addComponent">Add</button>
+          </div>
+
+          <table class="component-list-table" id="component-table" style="display: none;">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>SKU</th>
+                <th>Qty per Bundle</th>
+                <th>Individual Cost</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="component-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" data-action="saveBundle">Save Bundle</button>
+          <button class="btn btn-cancel" data-action="cancelForm">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/event-delegation.js"></script>
+  <script src="/js/error-helper.js"></script>
+  <script src="/js/bundle-manager.js"></script>
+
+  <div class="toast" id="toast"></div>
+</body>
+</html>
