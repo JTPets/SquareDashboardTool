@@ -44,7 +44,7 @@ async function getVariations(merchantId, filters = {}) {
         throw new Error('merchantId is required for getVariations');
     }
 
-    const { item_id, sku, has_cost } = filters;
+    const { item_id, sku, has_cost, search, limit } = filters;
 
     let query = `
         SELECT v.*, i.name as item_name, i.category_name, i.images as item_images
@@ -64,11 +64,22 @@ async function getVariations(merchantId, filters = {}) {
         query += ` AND v.sku ILIKE $${params.length}`;
     }
 
+    if (search) {
+        params.push(`%${search}%`);
+        const searchIdx = params.length;
+        query += ` AND (i.name ILIKE $${searchIdx} OR v.name ILIKE $${searchIdx} OR v.sku ILIKE $${searchIdx})`;
+    }
+
     if (has_cost === 'true' || has_cost === true) {
         query += ` AND EXISTS (SELECT 1 FROM variation_vendors vv WHERE vv.variation_id = v.id AND vv.merchant_id = $1)`;
     }
 
     query += ' ORDER BY i.name, v.name';
+
+    if (limit) {
+        params.push(parseInt(limit));
+        query += ` LIMIT $${params.length}`;
+    }
 
     const result = await db.query(query, params);
 

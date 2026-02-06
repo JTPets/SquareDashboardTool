@@ -195,34 +195,16 @@ async function deactivateBundle(element, event, bundleId) {
 async function searchCatalog(query) {
     if (!query || query.length < 2) return [];
     try {
-        const response = await fetch(`/api/items?search=${encodeURIComponent(query)}&limit=20`);
+        const response = await fetch(`/api/variations?search=${encodeURIComponent(query)}&limit=20`);
         const data = await response.json();
-        const items = data.items || data || [];
-        // Flatten to variations
-        const results = [];
-        for (const item of items) {
-            const variations = item.variations || [];
-            if (variations.length === 0) {
-                results.push({
-                    variation_id: item.id,
-                    item_id: item.id,
-                    name: item.name,
-                    variation_name: null,
-                    sku: item.sku || null
-                });
-            } else {
-                for (const v of variations) {
-                    results.push({
-                        variation_id: v.id,
-                        item_id: item.id,
-                        name: item.name,
-                        variation_name: v.name,
-                        sku: v.sku || null
-                    });
-                }
-            }
-        }
-        return results;
+        const variations = data.variations || [];
+        return variations.map(v => ({
+            variation_id: v.id,
+            item_id: v.item_id,
+            name: v.item_name || v.name,
+            variation_name: v.name,
+            sku: v.sku || null
+        }));
     } catch (error) {
         console.error('Catalog search failed:', error);
         return [];

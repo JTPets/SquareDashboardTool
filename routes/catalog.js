@@ -80,8 +80,8 @@ router.get('/items', requireAuth, requireMerchant, validators.getItems, asyncHan
  */
 router.get('/variations', requireAuth, requireMerchant, validators.getVariations, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const { item_id, sku, has_cost } = req.query;
-    const result = await catalogService.getVariations(merchantId, { item_id, sku, has_cost });
+    const { item_id, sku, has_cost, search, limit } = req.query;
+    const result = await catalogService.getVariations(merchantId, { item_id, sku, has_cost, search, limit });
     res.json(result);
 }));
 
