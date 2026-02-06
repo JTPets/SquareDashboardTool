@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Security Audit](./SECURITY_AUDIT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Review**: 2026-02-05
+**Last Review**: 2026-02-06
 **Master Engineering Review**: 2026-01-26
 **Current Grade**: A+ (All P0 and P1 security issues FIXED)
 **Target Grade**: A++ (Production-ready SaaS)
@@ -918,6 +918,10 @@ These items are COMPLETE and should not regress:
 | Multi-tenant isolation: merchant_id on all queries | 2026-01-26 | Security |
 | Modern loyalty service built with 2,931 lines of tests | 2026-01-26 | services/loyalty/ |
 | P0-1, P0-2, P0-3 security fixes applied | 2026-01-26 | Security |
+| Bundle reorder system (tables, routes, calculator, UI) | 2026-02-06 | routes/bundles.js, services/bundle-calculator.js |
+| Dead webhook alerting + health endpoint stats | 2026-02-06 | utils/webhook-retry.js, server.js |
+| Webhook retry infinite loop fixed (2 root causes) | 2026-02-06 | invalid status + merchant_id type mismatch |
+| Bundle vendor_id type fixed (INTEGER→TEXT) | 2026-02-06 | migration 043 |
 
 ---
 

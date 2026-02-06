@@ -174,14 +174,15 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 /home/user/SquareDashboardTool/
 ├── server.js            # Route setup, middleware (~1,000 lines)
 ├── config/constants.js  # Centralized configuration
-├── routes/              # 20 modules, ~246 routes
+├── routes/              # 23 modules, ~250+ routes
 ├── middleware/          # auth, merchant, security, validators/
 ├── services/            # Business logic
 │   ├── webhook-processor.js
 │   ├── webhook-handlers/ (6 handlers)
 │   ├── loyalty/         # Loyalty event logging
 │   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
-│   └── catalog/         # Example service layer
+│   ├── catalog/         # Catalog data management
+│   └── bundle-calculator.js  # Bundle order optimization
 ├── jobs/                # Cron tasks
 └── utils/               # database, logger, helpers
 ```
@@ -240,7 +241,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 ## Current Status
 
 **Grade**: A+ (All P0 and P1 issues FIXED)
-**Last Review**: 2026-02-05
+**Last Review**: 2026-02-06
 
 | Priority | Status |
 |----------|--------|
@@ -250,6 +251,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | P2 Testing | 6/6 Complete |
 | API Optimization | 4/4 Complete |
 | P1-1 Loyalty Migration | Complete (monolith eliminated) |
+| Bundle Reorder System | Complete (new feature) |
 | P3 Scalability | Optional |
 
 ### Backlog (Target: TBD)
