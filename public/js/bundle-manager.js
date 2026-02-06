@@ -429,7 +429,7 @@ async function saveBundle() {
         bundle_sku: bundleSku || undefined,
         bundle_cost_cents: Math.round(costDollars * 100),
         bundle_sell_price_cents: sellDollars > 0 ? Math.round(sellDollars * 100) : undefined,
-        vendor_id: vendorId ? parseInt(vendorId) : undefined,
+        vendor_id: vendorId || undefined,
         notes: notes || undefined,
         components: pendingComponents.map(c => ({
             child_variation_id: c.child_variation_id,

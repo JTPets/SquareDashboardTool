@@ -61,7 +61,7 @@ router.get('/', requireAuth, requireMerchant, validators.getBundles, asyncHandle
     }
 
     if (vendor_id) {
-        params.push(parseInt(vendor_id));
+        params.push(vendor_id);
         query_str += ` AND bd.vendor_id = $${params.length}`;
     }
 
