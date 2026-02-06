@@ -5,11 +5,14 @@
 
 BEGIN;
 
--- Step 1: Drop the integer column
+-- Step 1: Change column type to TEXT (idempotent - no-op if already TEXT)
 ALTER TABLE bundle_definitions ALTER COLUMN vendor_id TYPE TEXT USING vendor_id::TEXT;
 
--- Step 2: Add FK constraint now that types match
--- (original migration omitted FK because of the type mismatch)
+-- Step 2: Drop existing FK constraint if present, then re-add
+-- (handles re-running after partial failure)
+ALTER TABLE bundle_definitions
+    DROP CONSTRAINT IF EXISTS fk_bundle_definitions_vendor;
+
 ALTER TABLE bundle_definitions
     ADD CONSTRAINT fk_bundle_definitions_vendor
     FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL;
