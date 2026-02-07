@@ -15,6 +15,7 @@ jest.mock('../../utils/subscription-handler', () => ({
 
 jest.mock('../../utils/square-api', () => ({
     syncCatalog: jest.fn().mockResolvedValue({ items: 10, variations: 20 }),
+    deltaSyncCatalog: jest.fn().mockResolvedValue({ items: 10, variations: 20, deltaSync: true }),
     syncInventory: jest.fn().mockResolvedValue({ counts: 50 }),
     syncCommittedInventory: jest.fn().mockResolvedValue({ synced: true }),
     syncSalesVelocity: jest.fn().mockResolvedValue({ updated: true }),
@@ -194,7 +195,7 @@ describe('CatalogHandler', () => {
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
             expect(result.skipped).toBe(true);
-            expect(squareApi.syncCatalog).not.toHaveBeenCalled();
+            expect(squareApi.deltaSyncCatalog).not.toHaveBeenCalled();
 
             process.env.WEBHOOK_CATALOG_SYNC = originalEnv;
         });
@@ -208,7 +209,7 @@ describe('CatalogHandler', () => {
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
             expect(result.error).toBe('Merchant not found');
-            expect(squareApi.syncCatalog).not.toHaveBeenCalled();
+            expect(squareApi.deltaSyncCatalog).not.toHaveBeenCalled();
         });
 
         it('should execute catalog sync via queue', async () => {
@@ -219,7 +220,7 @@ describe('CatalogHandler', () => {
 
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
-            expect(squareApi.syncCatalog).toHaveBeenCalledWith(1);
+            expect(squareApi.deltaSyncCatalog).toHaveBeenCalledWith(1);
             expect(result.catalog).toBeDefined();
         });
 
@@ -234,14 +235,14 @@ describe('CatalogHandler', () => {
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
             expect(result.queued).toBe(true);
-            expect(squareApi.syncCatalog).not.toHaveBeenCalled();
+            expect(squareApi.deltaSyncCatalog).not.toHaveBeenCalled();
         });
 
         it('should run follow-up sync when pending webhooks arrived', async () => {
-            squareApi.syncCatalog.mockImplementationOnce(async (merchantId) => {
+            squareApi.deltaSyncCatalog.mockImplementationOnce(async (merchantId) => {
                 // Simulate webhook arriving during sync
                 syncQueue.setCatalogSyncPending(merchantId, true);
-                return { items: 10, variations: 20 };
+                return { items: 10, variations: 20, deltaSync: true };
             });
 
             const context = {
@@ -251,7 +252,7 @@ describe('CatalogHandler', () => {
 
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
-            expect(squareApi.syncCatalog).toHaveBeenCalledTimes(2);
+            expect(squareApi.deltaSyncCatalog).toHaveBeenCalledTimes(2);
             expect(result.followUpSync).toBeDefined();
         });
     });
@@ -369,7 +370,7 @@ describe('Handler Integration', () => {
 
         expect(result1.queued).toBe(true);
         expect(result2.catalog).toBeDefined();
-        expect(squareApi.syncCatalog).toHaveBeenCalledWith(2);
-        expect(squareApi.syncCatalog).not.toHaveBeenCalledWith(1);
+        expect(squareApi.deltaSyncCatalog).toHaveBeenCalledWith(2);
+        expect(squareApi.deltaSyncCatalog).not.toHaveBeenCalledWith(1);
     });
 });
