@@ -131,10 +131,13 @@ async function makeSquareRequest(endpoint, options = {}) {
 
     let lastError;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
         try {
             const response = await fetch(url, {
                 ...options,
-                headers
+                headers,
+                signal: controller.signal
             });
 
             const data = await response.json();
@@ -176,6 +179,17 @@ async function makeSquareRequest(endpoint, options = {}) {
 
             return data;
         } catch (error) {
+            // Convert AbortError to a descriptive timeout error
+            if (error.name === 'AbortError') {
+                lastError = new Error(`Square API request timed out after 30s: ${endpoint}`);
+                logger.warn('Square API request timed out', { endpoint, attempt: attempt + 1 });
+                if (attempt < MAX_RETRIES - 1) {
+                    const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+                    await sleep(delay);
+                }
+                continue;
+            }
+
             lastError = error;
 
             // Don't retry non-retryable errors
@@ -188,6 +202,8 @@ async function makeSquareRequest(endpoint, options = {}) {
                 logger.warn(`Request failed, retrying in ${delay}ms`, { attempt: attempt + 1, max_retries: MAX_RETRIES });
                 await sleep(delay);
             }
+        } finally {
+            clearTimeout(timeout);
         }
     }
 

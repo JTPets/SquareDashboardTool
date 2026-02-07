@@ -19,9 +19,11 @@ const db = require('./utils/database');
 // Store cron task references for graceful shutdown
 // Populated by jobs.initializeCronJobs() in startServer()
 let cronTasks = [];
+let httpServer = null;
 
 // Sync queue is now managed by services/sync-queue.js
 // Webhook processing is now handled by services/webhook-processor.js
+const syncQueue = require('./services/sync-queue');
 
 const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
@@ -792,7 +794,7 @@ async function startServer() {
         }
 
         // Start server
-        app.listen(PORT, () => {
+        httpServer = app.listen(PORT, () => {
             // Log OAuth configuration for debugging
             const publicAppUrl = process.env.PUBLIC_APP_URL || '(auto-detect from request)';
             const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || '(not set)';
@@ -987,18 +989,50 @@ async function startServer() {
 async function gracefulShutdown(signal) {
     logger.info(`${signal} received, starting graceful shutdown`);
 
-    // Set a force-exit timeout (10 seconds)
+    // Set a force-exit timeout (45 seconds to allow sync drain)
     const forceExitTimeout = setTimeout(() => {
         logger.error('Graceful shutdown timed out, forcing exit');
         process.exit(1);
-    }, 10000);
+    }, 45000);
 
     try {
-        // Stop all cron jobs
+        // 1. Stop accepting new HTTP requests
+        if (httpServer) {
+            logger.info('Closing HTTP server (stop accepting new requests)');
+            await new Promise((resolve) => httpServer.close(resolve));
+        }
+
+        // 2. Stop all cron jobs (prevent new syncs from starting)
         logger.info(`Stopping ${cronTasks.length} cron tasks`);
         jobs.stopCronJobs();
 
-        // Close database connections
+        // 3. Wait for active syncs to complete (up to 30 seconds)
+        const syncDrainStart = Date.now();
+        const syncDrainTimeout = 30000;
+        let status = syncQueue.getStatus();
+        let hasActiveSyncs = status.catalog.inProgress.length > 0 || status.inventory.inProgress.length > 0;
+
+        if (hasActiveSyncs) {
+            logger.info('Waiting for active syncs to complete before closing database', {
+                catalogInProgress: status.catalog.inProgress,
+                inventoryInProgress: status.inventory.inProgress
+            });
+        }
+
+        while (hasActiveSyncs && (Date.now() - syncDrainStart) < syncDrainTimeout) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            status = syncQueue.getStatus();
+            hasActiveSyncs = status.catalog.inProgress.length > 0 || status.inventory.inProgress.length > 0;
+        }
+
+        if (hasActiveSyncs) {
+            logger.warn('Sync drain timed out, proceeding with database close', {
+                catalogInProgress: status.catalog.inProgress,
+                inventoryInProgress: status.inventory.inProgress
+            });
+        }
+
+        // 4. Close database connections
         logger.info('Closing database connections');
         await db.close();
 
