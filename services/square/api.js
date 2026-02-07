@@ -964,8 +964,8 @@ async function deltaSyncCatalog(merchantId) {
 async function _updateDeltaTimestamp(merchantId, latestTime) {
     try {
         await db.query(`
-            INSERT INTO sync_history (sync_type, merchant_id, last_delta_timestamp, status)
-            VALUES ('catalog', $1, $2, 'success')
+            INSERT INTO sync_history (sync_type, merchant_id, last_delta_timestamp, status, started_at, completed_at)
+            VALUES ('catalog', $1, $2, 'success', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
                 last_delta_timestamp = EXCLUDED.last_delta_timestamp
         `, [merchantId, latestTime]);
@@ -1417,6 +1417,8 @@ async function syncInventory(merchantId) {
         }
 
         let totalSynced = 0;
+        let totalBatches = 0;
+        const aggregateStateCount = {};
 
         // Process in batches of 100 (Square API limit)
         const batchSize = 100;
@@ -1438,12 +1440,10 @@ async function syncInventory(merchantId) {
 
                 const counts = data.counts || [];
 
-                // Log counts by state for debugging
-                const stateCount = counts.reduce((acc, c) => {
-                    acc[c.state] = (acc[c.state] || 0) + 1;
-                    return acc;
-                }, {});
-                logger.info('Inventory counts by state', { merchantId, batch: Math.floor(i / batchSize) + 1, states: stateCount });
+                // Accumulate state counts for end-of-sync summary
+                for (const c of counts) {
+                    aggregateStateCount[c.state] = (aggregateStateCount[c.state] || 0) + 1;
+                }
 
                 for (const count of counts) {
                     await db.query(`
@@ -1464,7 +1464,7 @@ async function syncInventory(merchantId) {
                     totalSynced++;
                 }
 
-                logger.info('Inventory sync batch complete', { merchantId, batch: Math.floor(i / batchSize) + 1, total_synced: totalSynced });
+                totalBatches++;
             } catch (error) {
                 logger.error('Inventory sync batch failed', { merchantId, batch: Math.floor(i / batchSize) + 1, error: error.message, stack: error.stack });
                 // Continue with next batch
@@ -1474,7 +1474,12 @@ async function syncInventory(merchantId) {
             await sleep(100);
         }
 
-        logger.info('Inventory sync complete', { merchantId, records: totalSynced });
+        logger.info('Inventory sync complete', {
+            merchantId,
+            variationsUpdated: totalSynced,
+            batches: totalBatches,
+            states: aggregateStateCount
+        });
         return totalSynced;
     } catch (error) {
         logger.error('Inventory sync failed', { merchantId, error: error.message, stack: error.stack });

@@ -314,6 +314,29 @@ See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) 
 
 **Audit date**: 2026-02-02
 
+### Architectural Tech Debt
+
+#### Unified Audit Logging
+
+**Current state**: Audit trails are fragmented across feature-specific tables:
+- `webhook_events` (webhook processing)
+- `loyalty_audit_logs` (loyalty point changes)
+- `loyalty_purchase_events` (purchase-triggered loyalty)
+- `delivery_audit_log` (delivery state changes)
+- `sync_history` (sync operations)
+
+**Missing coverage**:
+- Inventory changes (PO receives, adjustments, corrections)
+- Catalog edits (price changes, item creation/deletion)
+- Admin actions (manual overrides, settings changes)
+- No unified "who, what, when, before/after" trail
+
+**Impact**: Currently acceptable for single-store. Required before franchise deployment — franchisees need auditable change history and central visibility into per-location operations.
+
+**Recommended approach**: Single `audit_log` table with columns for actor, action, entity_type, entity_id, before_value (JSONB), after_value (JSONB), merchant_id, created_at. Retrofit existing feature-specific audit tables as views or migrate data over time.
+
+**Priority**: Low (single store), High (pre-franchise).
+
 ---
 
 ## PR Checklist
