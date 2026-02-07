@@ -635,7 +635,8 @@ async function syncCatalog(merchantId) {
 }
 
 // Maximum objects from delta sync before falling back to full sync
-const DELTA_SYNC_FALLBACK_THRESHOLD = 500;
+// At higher counts, individual upserts are less efficient than a full sync
+const DELTA_SYNC_FALLBACK_THRESHOLD = 100;
 
 /**
  * Delta sync catalog — fetch only objects changed since last sync.
