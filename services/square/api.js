@@ -363,10 +363,12 @@ async function syncCatalog(merchantId) {
         let cursor = null;
 
         // Fetch ALL catalog objects in one pass - building maps first
+        // ITEM_VARIATION removed from types — variations are extracted from item_data.variations
+        // on each ITEM object, reducing API response size and page count
         // Use include_related_objects=true to get category associations
         logger.info('Starting catalog fetch', { merchantId });
         do {
-            const endpoint = `/v2/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE,CATEGORY&include_deleted_objects=false&include_related_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
+            const endpoint = `/v2/catalog/list?types=ITEM,IMAGE,CATEGORY&include_deleted_objects=false&include_related_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint, { accessToken });
 
             const objects = data.objects || [];
@@ -386,10 +388,12 @@ async function syncCatalog(merchantId) {
                     case 'ITEM':
                         // Store full object to preserve top-level fields like present_at_all_locations
                         itemsMap.set(obj.id, obj);
-                        break;
-                    case 'ITEM_VARIATION':
-                        // Store full object to preserve custom_attribute_values and other top-level fields
-                        variationsMap.set(obj.id, obj);
+                        // Extract variations from item_data.variations (full CatalogObject representations)
+                        if (obj.item_data?.variations) {
+                            for (const varObj of obj.item_data.variations) {
+                                variationsMap.set(varObj.id, varObj);
+                            }
+                        }
                         break;
                     case 'IMAGE':
                         imagesMap.set(obj.id, obj.image_data);
@@ -483,6 +487,7 @@ async function syncCatalog(merchantId) {
         logger.info('Items synced', { count: stats.items });
 
         // 4. Insert variations
+        const variationInventorySummary = { tracked: 0, alertEnabled: 0, totalOverrides: 0 };
         for (const [id, varObj] of variationsMap) {
             try {
                 const varData = varObj.item_variation_data;
@@ -498,10 +503,25 @@ async function syncCatalog(merchantId) {
                 stats.variations++;
                 stats.variationVendors += vendorCount;
                 syncedVariationIds.add(id);
+
+                // Collect inventory summary
+                if (varData.track_inventory) variationInventorySummary.tracked++;
+                if (varData.location_overrides?.some(o => o.inventory_alert_type === 'LOW_QUANTITY')) {
+                    variationInventorySummary.alertEnabled++;
+                }
+                variationInventorySummary.totalOverrides += varData.location_overrides?.length || 0;
             } catch (error) {
                 logger.error('Failed to sync variation', { id, error: error.message, stack: error.stack });
             }
         }
+
+        logger.info('Synced inventory fields for variations', {
+            merchantId,
+            variationsSynced: stats.variations,
+            trackingInventory: variationInventorySummary.tracked,
+            lowQuantityAlerts: variationInventorySummary.alertEnabled,
+            locationOverrides: variationInventorySummary.totalOverrides
+        });
 
         logger.info('Catalog sync complete', stats);
 
@@ -601,10 +621,355 @@ async function syncCatalog(merchantId) {
         stats.variations_deleted = variationsMarkedDeleted;
         stats.inventory_zeroed += inventoryZeroed;
 
+        // Seed delta timestamp so next webhook can use delta sync instead of full
+        // Use current time in RFC 3339 format (Square's expected format)
+        const now = new Date().toISOString();
+        await _updateDeltaTimestamp(merchantId, now);
+        logger.info('Delta timestamp seeded after full sync', { merchantId, timestamp: now });
+
         return stats;
     } catch (error) {
         logger.error('Catalog sync failed', { error: error.message, stack: error.stack });
         throw error;
+    }
+}
+
+// Maximum objects from delta sync before falling back to full sync
+const DELTA_SYNC_FALLBACK_THRESHOLD = 500;
+
+/**
+ * Delta sync catalog — fetch only objects changed since last sync.
+ * Uses Square's SearchCatalogObjects with begin_time filter.
+ * Falls back to full syncCatalog if no prior timestamp or too many changes.
+ *
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
+ * @returns {Promise<Object>} Sync stats (items, variations, categories, images, etc.)
+ */
+async function deltaSyncCatalog(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for deltaSyncCatalog');
+    }
+
+    // Get last delta timestamp from sync_history
+    const historyResult = await db.query(
+        'SELECT last_delta_timestamp FROM sync_history WHERE sync_type = $1 AND merchant_id = $2',
+        ['catalog', merchantId]
+    );
+
+    const lastTimestamp = historyResult.rows[0]?.last_delta_timestamp;
+
+    if (!lastTimestamp) {
+        logger.info('No previous delta timestamp — falling back to full catalog sync', { merchantId });
+        return syncCatalog(merchantId);
+    }
+
+    logger.info('Starting delta catalog sync', { merchantId, since: lastTimestamp });
+
+    const stats = {
+        categories: 0,
+        images: 0,
+        items: 0,
+        variations: 0,
+        variationVendors: 0,
+        items_deleted: 0,
+        variations_deleted: 0,
+        deltaSync: true
+    };
+
+    const itemsMap = new Map();
+    const variationsMap = new Map();
+    const imagesMap = new Map();
+    const categoriesMap = new Map();
+    const deletedItemIds = [];
+    const deletedVariationIds = [];
+
+    try {
+        const accessToken = await getMerchantToken(merchantId);
+        let cursor = null;
+        let totalObjects = 0;
+        let latestTime = null;
+
+        // Fetch changed objects using SearchCatalogObjects with begin_time
+        do {
+            const requestBody = {
+                begin_time: lastTimestamp,
+                object_types: ['ITEM', 'ITEM_VARIATION', 'IMAGE', 'CATEGORY'],
+                include_related_objects: true,
+                include_deleted_objects: true,
+                limit: 1000
+            };
+            if (cursor) {
+                requestBody.cursor = cursor;
+            }
+
+            const data = await makeSquareRequest('/v2/catalog/search', {
+                accessToken,
+                method: 'POST',
+                body: JSON.stringify(requestBody)
+            });
+
+            const objects = data.objects || [];
+            const relatedObjects = data.related_objects || [];
+            totalObjects += objects.length;
+
+            // Capture latest_time from response (use for next delta sync)
+            if (data.latest_time) {
+                latestTime = data.latest_time;
+            }
+
+            // Check if too many changes — fall back to full sync
+            if (totalObjects > DELTA_SYNC_FALLBACK_THRESHOLD) {
+                logger.warn('Delta sync returned too many objects — falling back to full sync', {
+                    merchantId,
+                    objectCount: totalObjects,
+                    threshold: DELTA_SYNC_FALLBACK_THRESHOLD
+                });
+                return syncCatalog(merchantId);
+            }
+
+            // Process related objects (categories referenced by changed items)
+            for (const obj of relatedObjects) {
+                if (obj.type === 'CATEGORY') {
+                    const categoryName = obj.category_data?.name || obj.name || 'Uncategorized';
+                    categoriesMap.set(obj.id, { name: categoryName });
+                }
+            }
+
+            // Classify changed objects
+            for (const obj of objects) {
+                // Handle deleted objects
+                if (obj.is_deleted) {
+                    if (obj.type === 'ITEM') {
+                        deletedItemIds.push(obj.id);
+                    } else if (obj.type === 'ITEM_VARIATION') {
+                        deletedVariationIds.push(obj.id);
+                    }
+                    continue;
+                }
+
+                switch (obj.type) {
+                    case 'ITEM':
+                        itemsMap.set(obj.id, obj);
+                        // Also extract nested variations from item_data.variations
+                        // Guards against cases where Square returns a changed ITEM
+                        // but doesn't separately emit its variations as ITEM_VARIATION objects
+                        if (obj.item_data?.variations) {
+                            for (const varObj of obj.item_data.variations) {
+                                if (!varObj.is_deleted) {
+                                    variationsMap.set(varObj.id, varObj);
+                                } else {
+                                    deletedVariationIds.push(varObj.id);
+                                }
+                            }
+                        }
+                        break;
+                    case 'ITEM_VARIATION':
+                        variationsMap.set(obj.id, obj);
+                        break;
+                    case 'IMAGE':
+                        imagesMap.set(obj.id, obj.image_data);
+                        break;
+                    case 'CATEGORY':
+                        const categoryName = obj.category_data?.name || obj.name || 'Uncategorized';
+                        categoriesMap.set(obj.id, { name: categoryName });
+                        break;
+                }
+            }
+
+            cursor = data.cursor;
+        } while (cursor);
+
+        logger.info('Delta sync objects fetched', {
+            merchantId,
+            items: itemsMap.size,
+            variations: variationsMap.size,
+            images: imagesMap.size,
+            categories: categoriesMap.size,
+            deletedItems: deletedItemIds.length,
+            deletedVariations: deletedVariationIds.length,
+            totalObjects
+        });
+
+        // If nothing changed, just update timestamp and return
+        if (totalObjects === 0) {
+            logger.info('Delta sync: no changes since last sync', { merchantId });
+            if (latestTime) {
+                await _updateDeltaTimestamp(merchantId, latestTime);
+            }
+            return stats;
+        }
+
+        // Upsert categories
+        for (const [id, cat] of categoriesMap) {
+            try {
+                await syncCategory({ id, category_data: cat }, merchantId);
+                stats.categories++;
+            } catch (error) {
+                logger.error('Delta sync: failed to sync category', { id, error: error.message });
+            }
+        }
+
+        // Upsert images
+        for (const [id, img] of imagesMap) {
+            try {
+                await syncImage({ id, image_data: img }, merchantId);
+                stats.images++;
+            } catch (error) {
+                logger.error('Delta sync: failed to sync image', { id, error: error.message });
+            }
+        }
+
+        // Upsert items (need category name resolution)
+        for (const [id, itemObj] of itemsMap) {
+            try {
+                const itemData = itemObj.item_data;
+                let categoryId = null;
+                let categoryName = null;
+
+                if (itemData.categories && itemData.categories.length > 0) {
+                    categoryId = itemData.categories[0].id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+                if (!categoryId && itemData.category_id) {
+                    categoryId = itemData.category_id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+                if (!categoryId && itemData.reporting_category?.id) {
+                    categoryId = itemData.reporting_category.id;
+                    categoryName = categoriesMap.get(categoryId)?.name || null;
+                }
+
+                // If category not in delta response, look up from DB
+                if (categoryId && !categoryName) {
+                    const catResult = await db.query(
+                        'SELECT name FROM categories WHERE id = $1 AND merchant_id = $2',
+                        [categoryId, merchantId]
+                    );
+                    categoryName = catResult.rows[0]?.name || null;
+                }
+
+                itemObj.item_data.category_id = categoryId;
+                await syncItem(itemObj, categoryName, merchantId);
+                stats.items++;
+            } catch (error) {
+                logger.error('Delta sync: failed to sync item', { id, error: error.message });
+            }
+        }
+
+        // Upsert variations
+        let variationInventorySummary = { tracked: 0, alertEnabled: 0, totalOverrides: 0 };
+        for (const [id, varObj] of variationsMap) {
+            try {
+                const varData = varObj.item_variation_data;
+                // For delta sync, parent item may not be in this batch — check DB
+                if (!itemsMap.has(varData.item_id)) {
+                    const parentCheck = await db.query(
+                        'SELECT id FROM items WHERE id = $1 AND merchant_id = $2 AND is_deleted = FALSE',
+                        [varData.item_id, merchantId]
+                    );
+                    if (parentCheck.rows.length === 0) {
+                        logger.warn('Delta sync: skipping variation — parent item not found', {
+                            variation_id: id,
+                            item_id: varData.item_id
+                        });
+                        continue;
+                    }
+                }
+                const vendorCount = await syncVariation(varObj, merchantId);
+                stats.variations++;
+                stats.variationVendors += vendorCount;
+
+                // Collect summary instead of per-variation logging
+                if (varData.track_inventory) variationInventorySummary.tracked++;
+                if (varData.location_overrides?.some(o => o.inventory_alert_type === 'LOW_QUANTITY')) {
+                    variationInventorySummary.alertEnabled++;
+                }
+                variationInventorySummary.totalOverrides += varData.location_overrides?.length || 0;
+            } catch (error) {
+                logger.error('Delta sync: failed to sync variation', { id, error: error.message });
+            }
+        }
+
+        if (stats.variations > 0) {
+            logger.info('Delta sync: variation inventory summary', {
+                merchantId,
+                variationsSynced: stats.variations,
+                trackingInventory: variationInventorySummary.tracked,
+                lowQuantityAlerts: variationInventorySummary.alertEnabled,
+                locationOverrides: variationInventorySummary.totalOverrides
+            });
+        }
+
+        // Process deletions from delta response (objects with is_deleted: true)
+        for (const itemId of deletedItemIds) {
+            try {
+                await db.query(
+                    'UPDATE items SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND merchant_id = $2',
+                    [itemId, merchantId]
+                );
+                const invResult = await db.query(`
+                    UPDATE inventory_counts SET quantity = 0, updated_at = CURRENT_TIMESTAMP
+                    WHERE merchant_id = $2 AND catalog_object_id IN (
+                        SELECT id FROM variations WHERE item_id = $1 AND merchant_id = $2
+                    )
+                `, [itemId, merchantId]);
+                stats.items_deleted++;
+                logger.info('Delta sync: item marked deleted', { itemId, inventoryZeroed: invResult.rowCount });
+            } catch (error) {
+                logger.error('Delta sync: failed to mark item deleted', { itemId, error: error.message });
+            }
+        }
+
+        for (const variationId of deletedVariationIds) {
+            try {
+                await db.query(
+                    'UPDATE variations SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND merchant_id = $2',
+                    [variationId, merchantId]
+                );
+                await db.query(
+                    'UPDATE inventory_counts SET quantity = 0, updated_at = CURRENT_TIMESTAMP WHERE catalog_object_id = $1 AND merchant_id = $2',
+                    [variationId, merchantId]
+                );
+                stats.variations_deleted++;
+            } catch (error) {
+                logger.error('Delta sync: failed to mark variation deleted', { variationId, error: error.message });
+            }
+        }
+
+        // Update stored timestamp for next delta sync
+        if (latestTime) {
+            await _updateDeltaTimestamp(merchantId, latestTime);
+        }
+
+        logger.info('Delta catalog sync complete', { merchantId, ...stats });
+        return stats;
+    } catch (error) {
+        // On any error, log and fall back to full sync
+        logger.error('Delta catalog sync failed — falling back to full sync', {
+            merchantId,
+            error: error.message,
+            stack: error.stack
+        });
+        return syncCatalog(merchantId);
+    }
+}
+
+/**
+ * Update the stored delta timestamp for next SearchCatalogObjects call.
+ * @param {number} merchantId
+ * @param {string} latestTime - Square's latest_time from SearchCatalogObjects response
+ * @private
+ */
+async function _updateDeltaTimestamp(merchantId, latestTime) {
+    try {
+        await db.query(`
+            INSERT INTO sync_history (sync_type, merchant_id, last_delta_timestamp, status)
+            VALUES ('catalog', $1, $2, 'success')
+            ON CONFLICT (sync_type, merchant_id) DO UPDATE SET
+                last_delta_timestamp = EXCLUDED.last_delta_timestamp
+        `, [merchantId, latestTime]);
+    } catch (error) {
+        logger.warn('Failed to update delta timestamp', { merchantId, error: error.message });
     }
 }
 
@@ -817,17 +1182,7 @@ async function syncVariation(obj, merchantId) {
         }
     }
 
-    // Log inventory alert fields for debugging
-    if (Math.random() < 0.02) {
-        logger.info('Variation inventory fields from Square', {
-            variation_id: obj.id,
-            sku: data.sku,
-            track_inventory: data.track_inventory,
-            inventory_alert_type: inventoryAlertType,
-            inventory_alert_threshold: inventoryAlertThreshold,
-            location_overrides_count: data.location_overrides?.length || 0
-        });
-    }
+    // Per-variation inventory logging removed — see summary log in syncCatalog/deltaSyncCatalog
 
     // Insert/update variation
     await db.query(`
@@ -3821,6 +4176,7 @@ module.exports = {
     syncLocations,
     syncVendors,
     syncCatalog,
+    deltaSyncCatalog,
     syncInventory,
     syncCommittedInventory,
     syncSalesVelocity,

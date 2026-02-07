@@ -30,13 +30,14 @@ class CatalogHandler {
 
     /**
      * Handle catalog.version.updated event
-     * Syncs catalog from Square when changes are detected
+     * Uses delta sync (SearchCatalogObjects with begin_time) instead of full catalog fetch.
+     * Falls back to full sync automatically if no prior timestamp or too many changes.
      *
      * @param {Object} context - Webhook context
      * @returns {Promise<Object>} Result with sync details
      */
     async handleCatalogVersionUpdated(context) {
-        const { merchantId } = context;
+        const { merchantId, data } = context;
         const result = { handled: true };
 
         if (process.env.WEBHOOK_CATALOG_SYNC === 'false') {
@@ -51,13 +52,38 @@ class CatalogHandler {
             return result;
         }
 
+        // Deduplicate by catalog version timestamp from webhook payload
+        const catalogVersionUpdatedAt = data?.object?.catalog_version?.updated_at;
+        if (catalogVersionUpdatedAt) {
+            try {
+                const versionCheck = await db.query(
+                    'SELECT last_catalog_version FROM sync_history WHERE sync_type = $1 AND merchant_id = $2',
+                    ['catalog', merchantId]
+                );
+                const lastVersion = versionCheck.rows[0]?.last_catalog_version;
+                if (lastVersion && lastVersion >= catalogVersionUpdatedAt) {
+                    logger.info('Catalog webhook skipped — already processed this version', {
+                        merchantId,
+                        webhookVersion: catalogVersionUpdatedAt,
+                        lastProcessed: lastVersion
+                    });
+                    result.skipped = true;
+                    result.reason = 'duplicate_version';
+                    return result;
+                }
+            } catch (error) {
+                // Non-fatal — proceed with sync if dedup check fails
+                logger.warn('Catalog version dedup check failed', { error: error.message });
+            }
+        }
+
         // Use sync queue to prevent duplicate concurrent syncs
         const syncResult = await this.syncQueue.executeWithQueue(
             'catalog',
             merchantId,
             async () => {
-                logger.info('Catalog change detected via webhook, syncing...', { merchantId });
-                return await squareApi.syncCatalog(merchantId);
+                logger.info('Catalog change detected via webhook, running delta sync...', { merchantId });
+                return await squareApi.deltaSyncCatalog(merchantId);
             }
         );
 
@@ -68,9 +94,10 @@ class CatalogHandler {
         } else {
             result.catalog = {
                 items: syncResult.result?.items,
-                variations: syncResult.result?.variations
+                variations: syncResult.result?.variations,
+                deltaSync: syncResult.result?.deltaSync
             };
-            logger.info('Catalog sync completed via webhook', result.catalog);
+            logger.info('Catalog delta sync completed via webhook', result.catalog);
 
             if (syncResult.followUpResult) {
                 result.followUpSync = {
@@ -78,6 +105,19 @@ class CatalogHandler {
                     variations: syncResult.followUpResult.variations
                 };
                 logger.info('Follow-up catalog sync completed', result.followUpSync);
+            }
+        }
+
+        // Update last_catalog_version after successful sync
+        if (!syncResult.error && !syncResult.queued && catalogVersionUpdatedAt) {
+            try {
+                await db.query(`
+                    UPDATE sync_history
+                    SET last_catalog_version = $1
+                    WHERE sync_type = 'catalog' AND merchant_id = $2
+                `, [catalogVersionUpdatedAt, merchantId]);
+            } catch (error) {
+                logger.warn('Failed to update catalog version', { error: error.message });
             }
         }
 
