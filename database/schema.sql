@@ -125,6 +125,8 @@ CREATE TABLE sync_history (
     records_synced INTEGER DEFAULT 0,
     error_message TEXT,
     duration_seconds INTEGER,
+    last_delta_timestamp TEXT,   -- Square's latest_time from SearchCatalogObjects (for delta sync begin_time)
+    last_catalog_version TEXT,   -- Webhook catalog version updated_at (for dedup)
     UNIQUE(sync_type, merchant_id)
 );
 
