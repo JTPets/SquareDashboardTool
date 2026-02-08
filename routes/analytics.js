@@ -576,11 +576,12 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             }
             invQuery += ` GROUP BY catalog_object_id`;
 
-            // Fetch stock_alert_min (with location override) and is_deleted for children
+            // Fetch stock_alert_min (with location override), is_deleted, and vendor_code for children
             let minStockQuery = `
                 SELECT v.id,
                     COALESCE(vls.stock_alert_min, v.stock_alert_min, 0) as stock_alert_min,
-                    COALESCE(v.is_deleted, FALSE) as is_deleted
+                    COALESCE(v.is_deleted, FALSE) as is_deleted,
+                    vv.vendor_code
                 FROM variations v
                 LEFT JOIN variation_location_settings vls
                     ON v.id = vls.variation_id AND vls.merchant_id = $2
@@ -590,6 +591,10 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 minStockQuery += ` AND vls.location_id = $3`;
                 minStockParams.push(location_id);
             }
+            minStockQuery += `
+                LEFT JOIN variation_vendors vv
+                    ON v.id = vv.variation_id AND vv.merchant_id = $2
+            `;
             minStockQuery += ` WHERE v.id = ANY($1) AND v.merchant_id = $2`;
 
             const [velResult, invResult, minResult] = await Promise.all([
@@ -602,6 +607,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             const invMap = new Map(invResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
             const minMap = new Map(minResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
             const deletedMap = new Map(minResult.rows.map(r => [r.id, r.is_deleted === true]));
+            const vendorCodeMap = new Map(minResult.rows.map(r => [r.id, r.vendor_code || null]));
 
             // Group by bundle
             const bundleGroups = new Map();
@@ -675,7 +681,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                             ? Math.round((bundleDrivenDaily / totalDailyVelocity) * 1000) / 10
                             : 0,
                         days_of_stock: daysOfStock,
-                        is_deleted: deletedMap.get(child.child_variation_id) || false
+                        is_deleted: deletedMap.get(child.child_variation_id) || false,
+                        vendor_code: vendorCodeMap.get(child.child_variation_id) || null
                     };
                 });
 
