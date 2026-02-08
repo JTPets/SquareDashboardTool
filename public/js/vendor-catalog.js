@@ -356,6 +356,11 @@
 
           document.getElementById('result-content').innerHTML = html;
 
+          // Inject label printer controls if price updates are showing
+          if (result.stats.priceUpdatesCount > 0 && typeof LabelPrinter !== 'undefined') {
+            injectPrinterControls('#result-content');
+          }
+
           // Refresh stats
           loadStats();
         } else {
@@ -948,6 +953,11 @@
         document.getElementById('result-title').textContent = 'Price Report';
         document.getElementById('result-content').innerHTML = html;
 
+        // Inject label printer controls if price updates are showing
+        if (priceUpdates.length > 0 && typeof LabelPrinter !== 'undefined') {
+          injectPrinterControls('#result-content');
+        }
+
       } catch (error) {
         alert('Error loading report: ' + error.message);
       }
@@ -1159,6 +1169,8 @@
         btn.textContent = `Push Selected to Square (${checkboxes.length})`;
         btn.disabled = checkboxes.length === 0;
       }
+      // Also update print button count
+      updatePrintButtonCount();
     }
 
     // Toggle select all price checkboxes
@@ -1315,11 +1327,130 @@
       URL.revokeObjectURL(url);
     }
 
+    // ===== Label Printing Integration =====
+
+    // Initialize label printer on page load (non-blocking)
+    async function initLabelPrinter() {
+      const available = await LabelPrinter.checkAvailability();
+      if (available) {
+        await LabelPrinter.discoverPrinters();
+      }
+    }
+
+    // Inject the printer controls bar into the price report actions area
+    function injectPrinterControls(parentSelector) {
+      const existing = document.getElementById('label-printer-bar');
+      if (existing) existing.remove();
+
+      const bar = document.createElement('div');
+      bar.id = 'label-printer-bar';
+      bar.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-top: 10px; padding: 10px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; flex-wrap: wrap;';
+
+      bar.innerHTML = `
+        <span style="font-size: 12px; font-weight: 600; color: #0369a1;">Print Labels:</span>
+        <span id="printer-selector-container" style="font-size: 12px;"></span>
+        <span id="template-selector-container" style="font-size: 12px;"></span>
+        <button id="print-selected-labels-btn" data-action="printSelectedLabels" style="padding: 6px 14px; background: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;" disabled>
+          Print Selected (0)
+        </button>
+        <div id="print-progress" style="display: none; font-size: 12px; color: #0369a1;"></div>
+        <div id="print-result" style="display: none; font-size: 12px; padding: 4px 8px; border-radius: 4px;"></div>
+      `;
+
+      // Insert after the push-result div if it exists, otherwise after the actions bar
+      const pushResult = document.getElementById('push-result');
+      if (pushResult && pushResult.parentElement) {
+        pushResult.parentElement.insertBefore(bar, pushResult.nextSibling);
+      } else {
+        const parent = document.querySelector(parentSelector);
+        if (parent) parent.appendChild(bar);
+      }
+
+      // Populate dropdowns
+      LabelPrinter.renderPrinterSelector('printer-selector-container');
+      LabelPrinter.renderTemplateSelector('template-selector-container');
+
+      // Update print button count
+      updatePrintButtonCount();
+    }
+
+    // Update the print button count based on checked checkboxes
+    function updatePrintButtonCount() {
+      const btn = document.getElementById('print-selected-labels-btn');
+      if (!btn) return;
+      const checkboxes = document.querySelectorAll('.price-update-checkbox:checked');
+      btn.textContent = `Print Selected (${checkboxes.length})`;
+      btn.disabled = checkboxes.length === 0;
+    }
+
+    // Print labels for the selected price update items
+    async function printSelectedLabels() {
+      const checkboxes = document.querySelectorAll('.price-update-checkbox:checked');
+      if (checkboxes.length === 0) {
+        alert('Please select at least one item to print labels for');
+        return;
+      }
+
+      const priceChanges = [];
+      checkboxes.forEach(cb => {
+        const variationId = cb.dataset.variationId;
+        const newPriceCents = parseInt(cb.dataset.newPrice);
+        if (variationId && !isNaN(newPriceCents)) {
+          priceChanges.push({ variationId, newPriceCents });
+        }
+      });
+
+      if (priceChanges.length === 0) {
+        alert('No valid items selected for label printing');
+        return;
+      }
+
+      const progressEl = document.getElementById('print-progress');
+      const resultEl = document.getElementById('print-result');
+      const btn = document.getElementById('print-selected-labels-btn');
+
+      if (progressEl) progressEl.style.display = 'inline';
+      if (resultEl) resultEl.style.display = 'none';
+      if (btn) btn.disabled = true;
+
+      try {
+        const templateId = LabelPrinter.getSelectedTemplateId();
+        const result = await LabelPrinter.printLabelsWithPrices({
+          priceChanges,
+          templateId,
+          copies: 1,
+          onProgress: function (msg) {
+            if (progressEl) progressEl.textContent = msg;
+          }
+        });
+
+        if (progressEl) progressEl.style.display = 'none';
+        if (resultEl) {
+          resultEl.style.display = 'inline';
+          resultEl.style.background = '#dcfce7';
+          resultEl.style.color = '#166534';
+          resultEl.textContent = `Printed ${result.printed} label(s) to ${result.printer}`;
+        }
+      } catch (err) {
+        if (progressEl) progressEl.style.display = 'none';
+        if (resultEl) {
+          resultEl.style.display = 'inline';
+          resultEl.style.background = '#fef2f2';
+          resultEl.style.color = '#991b1b';
+          resultEl.textContent = err.message;
+        }
+      }
+
+      if (btn) btn.disabled = false;
+      updatePrintButtonCount();
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       loadStats();
       loadVendors();
       loadFieldTypes();
+      initLabelPrinter();
     });
 
     // Expose functions to global scope for event delegation
@@ -1341,3 +1472,4 @@
     window.loadBatchesFromCheckbox = loadBatchesFromCheckbox;
     window.toggleSelectAllPricesFromCheckbox = toggleSelectAllPricesFromCheckbox;
     window.updatePushButtonCount = updatePushButtonCount;
+    window.printSelectedLabels = printSelectedLabels;
