@@ -528,7 +528,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
     const bundleAffiliations = {};
 
     try {
-        const bundlesResult = await db.query(`
+        let bundleQuery = `
             SELECT
                 bd.id as bundle_id, bd.bundle_variation_id, bd.bundle_item_id,
                 bd.bundle_item_name, bd.bundle_variation_name, bd.bundle_sku,
@@ -542,8 +542,17 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             JOIN bundle_components bc ON bd.id = bc.bundle_id
             LEFT JOIN vendors ve ON bd.vendor_id = ve.id AND ve.merchant_id = $1
             WHERE bd.merchant_id = $1 AND bd.is_active = true
-            ORDER BY bd.id, bc.child_item_name
-        `, [merchantId]);
+        `;
+        const bundleParams = [merchantId];
+        if (vendor_id === 'none') {
+            bundleQuery += ` AND bd.vendor_id IS NULL`;
+        } else if (vendor_id) {
+            bundleParams.push(vendor_id);
+            bundleQuery += ` AND bd.vendor_id = $${bundleParams.length}`;
+        }
+        bundleQuery += ` ORDER BY bd.id, bc.child_item_name`;
+
+        const bundlesResult = await db.query(bundleQuery, bundleParams);
 
         if (bundlesResult.rows.length > 0) {
             // Collect variation IDs for velocity + inventory lookups
