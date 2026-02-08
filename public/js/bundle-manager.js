@@ -124,6 +124,7 @@ function showCreateForm() {
     document.getElementById('bundle-cost').value = '';
     document.getElementById('bundle-sell-price').value = '';
     document.getElementById('bundle-vendor').value = '';
+    document.getElementById('bundle-vendor-code').value = '';
     document.getElementById('bundle-notes').value = '';
     document.getElementById('bundle-item-search').disabled = false;
     renderComponentEditor();
@@ -160,6 +161,7 @@ function editBundle(element, event, bundleId) {
     document.getElementById('bundle-sell-price').value = bundle.bundle_sell_price_cents
         ? (bundle.bundle_sell_price_cents / 100).toFixed(2) : '';
     document.getElementById('bundle-vendor').value = bundle.vendor_id || '';
+    document.getElementById('bundle-vendor-code').value = bundle.vendor_code || '';
     document.getElementById('bundle-notes').value = bundle.notes || '';
     renderComponentEditor();
     document.getElementById('bundle-form').classList.add('visible');
@@ -406,6 +408,7 @@ async function saveBundle() {
     const costDollars = parseFloat(document.getElementById('bundle-cost').value) || 0;
     const sellDollars = parseFloat(document.getElementById('bundle-sell-price').value) || 0;
     const vendorId = document.getElementById('bundle-vendor').value;
+    const vendorCode = document.getElementById('bundle-vendor-code').value;
     const notes = document.getElementById('bundle-notes').value;
 
     if (!variationId) {
@@ -430,6 +433,7 @@ async function saveBundle() {
         bundle_cost_cents: Math.round(costDollars * 100),
         bundle_sell_price_cents: sellDollars > 0 ? Math.round(sellDollars * 100) : undefined,
         vendor_id: vendorId || undefined,
+        vendor_code: vendorCode || undefined,
         notes: notes || undefined,
         components: pendingComponents.map(c => ({
             child_variation_id: c.child_variation_id,
