@@ -559,7 +559,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             `;
             const velocityParams = [allBundleVarIds, merchantId];
             if (location_id) {
-                velocityQuery += ` AND location_id = $3`;
+                velocityQuery += ` AND (location_id = $3 OR location_id IS NULL)`;
                 velocityParams.push(location_id);
             }
 
@@ -571,7 +571,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             `;
             const invParams = [childVarIds, merchantId];
             if (location_id) {
-                invQuery += ` AND location_id = $3`;
+                invQuery += ` AND (location_id = $3 OR location_id IS NULL)`;
                 invParams.push(location_id);
             }
             invQuery += ` GROUP BY catalog_object_id`;
