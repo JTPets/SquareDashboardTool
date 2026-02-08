@@ -579,6 +579,59 @@
       font-weight: 500;
     }
     .order-option input[type="radio"] { margin: 0; }
+    .bundle-qty-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .bundle-qty-input {
+      width: 55px;
+      padding: 4px 6px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .bundle-qty-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+    .bundle-cost-summary {
+      font-weight: 400;
+      color: #374151;
+      font-size: 13px;
+    }
+    .bundle-presets {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding-left: 10px;
+    }
+    .order-option-sm {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      color: #6b7280;
+      background: rgba(0,0,0,0.03);
+      border: 1px solid transparent;
+    }
+    .order-option-sm:hover { background: rgba(0,0,0,0.06); }
+    .order-option-sm.active {
+      background: #d1fae5;
+      border-color: #059669;
+      color: #065f46;
+      font-weight: 500;
+    }
+    .order-option-sm input[type="radio"] { margin: 0; width: 12px; height: 12px; }
     .bundle-badge {
       display: inline-block;
       background: #dbeafe;

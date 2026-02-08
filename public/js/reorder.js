@@ -16,6 +16,8 @@ let bundleAffiliations = {};
 const expandedBundles = new Set();
 // Track selected bundle options: { bundleId: 'optimized'|'all_bundles'|'all_individual' }
 const selectedBundleOptions = new Map();
+// Track user-edited bundle quantities: bundleId -> qty
+const editedBundleQtys = new Map();
 
 // Load configuration from server
 async function loadConfig() {
@@ -127,6 +129,7 @@ async function getSuggestions() {
     // Default all bundles to expanded, default option to optimized
     expandedBundles.clear();
     selectedBundleOptions.clear();
+    editedBundleQtys.clear();
     bundleAnalysis.forEach(b => {
       expandedBundles.add(b.bundle_id);
       selectedBundleOptions.set(b.bundle_id, 'optimized');
@@ -281,38 +284,56 @@ function renderBundleRows() {
       const allInd = opt.all_individual || {};
       const allBun = opt.all_bundles || {};
       const optimized = opt.optimized || {};
-      const totalSurplusAll = allBun.surplus ? Object.values(allBun.surplus).reduce((s, v) => s + v, 0) : 0;
-      const totalSurplusOpt = optimized.surplus ? Object.values(optimized.surplus).reduce((s, v) => s + v, 0) : 0;
+
+      // Effective bundle qty (user-edited or preset)
+      const effectiveQty = getEffectiveBundleQty(bundle);
+      const effectiveCost = calculateBundleOptionClient(bundle, effectiveQty);
+      const effectiveTotalSurplus = effectiveCost.surplus ? Object.values(effectiveCost.surplus).reduce((s, v) => s + v, 0) : 0;
+
+      // Determine if current qty matches a preset
+      const isOptimized = selectedOption === 'optimized' && effectiveQty === (optimized.bundle_qty || 0);
+      const isAllBundles = selectedOption === 'all_bundles' && effectiveQty === (allBun.bundle_qty || 0);
+      const isIndividual = selectedOption === 'all_individual' && effectiveQty === 0;
 
       html += `
         <tr class="bundle-options-row" data-bundle-id="${bundle.bundle_id}">
           <td colspan="19">
             <div class="order-options">
-              <label class="order-option ${selectedOption === 'optimized' ? 'best' : ''}">
-                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="optimized"
-                       ${selectedOption === 'optimized' ? 'checked' : ''}
-                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                Buy ${optimized.bundle_qty || 0} bundle(s) + top-up &mdash;
-                $${((optimized.total_cost_cents || 0) / 100).toFixed(2)}
-                ${optimized.savings_pct > 0 ? '<strong>(saves ' + optimized.savings_pct + '%)</strong>' : ''}
-                ${totalSurplusOpt > 0 ? ' | surplus: ' + totalSurplusOpt + ' units' : ''}
-              </label>
-              <label class="order-option ${selectedOption === 'all_bundles' ? 'best' : ''}">
-                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_bundles"
-                       ${selectedOption === 'all_bundles' ? 'checked' : ''}
-                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                Buy ${allBun.bundle_qty || 0} bundle(s) only &mdash;
-                $${((allBun.total_cost_cents || 0) / 100).toFixed(2)}
-                ${totalSurplusAll > 0 ? ' | surplus: ' + totalSurplusAll + ' units' : ''}
-              </label>
-              <label class="order-option ${selectedOption === 'all_individual' ? 'best' : ''}">
-                <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_individual"
-                       ${selectedOption === 'all_individual' ? 'checked' : ''}
-                       data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                Buy individually &mdash;
-                $${((allInd.total_cost_cents || 0) / 100).toFixed(2)}
-                (exact quantities)
-              </label>
+              <div class="bundle-qty-control">
+                <label>Order:</label>
+                <input type="number" class="bundle-qty-input" min="0" max="99"
+                       value="${effectiveQty}"
+                       data-change="updateBundleQty" data-blur="updateBundleQty"
+                       data-bundle-id="${bundle.bundle_id}"
+                       data-keydown="blurOnEnter">
+                <span>bundle(s)</span>
+                <span class="bundle-cost-summary">
+                  &mdash; <strong>$${(effectiveCost.total_cost_cents / 100).toFixed(2)}</strong>
+                  ${effectiveCost.topup_cost_cents > 0 ? ' (incl. $' + (effectiveCost.topup_cost_cents / 100).toFixed(2) + ' top-ups)' : ''}
+                  ${effectiveTotalSurplus > 0 ? ' | surplus: ' + effectiveTotalSurplus + ' units' : ''}
+                </span>
+              </div>
+              <div class="bundle-presets">
+                <label class="order-option-sm ${isOptimized ? 'active' : ''}">
+                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="optimized"
+                         ${selectedOption === 'optimized' ? 'checked' : ''}
+                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                  Optimized (${optimized.bundle_qty || 0} + top-up) $${((optimized.total_cost_cents || 0) / 100).toFixed(2)}
+                  ${optimized.savings_pct > 0 ? '<strong>(saves ' + optimized.savings_pct + '%)</strong>' : ''}
+                </label>
+                <label class="order-option-sm ${isAllBundles ? 'active' : ''}">
+                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_bundles"
+                         ${selectedOption === 'all_bundles' ? 'checked' : ''}
+                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                  All bundles (${allBun.bundle_qty || 0}) $${((allBun.total_cost_cents || 0) / 100).toFixed(2)}
+                </label>
+                <label class="order-option-sm ${isIndividual ? 'active' : ''}">
+                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_individual"
+                         ${selectedOption === 'all_individual' ? 'checked' : ''}
+                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
+                  Individual $${((allInd.total_cost_cents || 0) / 100).toFixed(2)}
+                </label>
+              </div>
             </div>
           </td>
         </tr>`;
@@ -339,6 +360,81 @@ function selectBundleOption(element) {
   const bundleId = parseInt(element.dataset.bundleId);
   const value = element.value;
   selectedBundleOptions.set(bundleId, value);
+
+  // Sync editable qty to match the preset
+  const bundle = bundleAnalysis.find(b => b.bundle_id === bundleId);
+  if (bundle) {
+    const opt = bundle.order_options || {};
+    const presetQty = value === 'all_individual' ? 0 : (opt[value]?.bundle_qty || 0);
+    editedBundleQtys.set(bundleId, presetQty);
+  }
+
+  renderTable();
+  updateFooter();
+}
+
+/**
+ * Client-side bundle cost calculation (mirrors services/bundle-calculator.js)
+ */
+function calculateBundleOptionClient(bundle, bundleQty) {
+  const children = bundle.children || [];
+  const bundleCostPerUnit = bundle.cost_cents || 0;
+  const bundleCost = bundleQty * bundleCostPerUnit;
+  let topupCost = 0;
+  const surplus = {};
+
+  for (const child of children) {
+    const unitsFromBundles = bundleQty * child.quantity_in_bundle;
+    const remainingNeed = Math.max(0, child.individual_need - unitsFromBundles);
+
+    if (remainingNeed > 0) {
+      topupCost += Math.ceil(remainingNeed) * (child.individual_cost_cents || 0);
+    }
+
+    if (unitsFromBundles > child.individual_need) {
+      surplus[child.child_item_name] = unitsFromBundles - child.individual_need;
+    }
+  }
+
+  return {
+    bundle_qty: bundleQty,
+    bundle_cost_cents: bundleCost,
+    topup_cost_cents: topupCost,
+    total_cost_cents: bundleCost + topupCost,
+    surplus
+  };
+}
+
+function getEffectiveBundleQty(bundle) {
+  if (editedBundleQtys.has(bundle.bundle_id)) {
+    return editedBundleQtys.get(bundle.bundle_id);
+  }
+  const selectedOption = selectedBundleOptions.get(bundle.bundle_id) || 'optimized';
+  const opt = bundle.order_options || {};
+  if (selectedOption === 'all_individual') return 0;
+  return opt[selectedOption]?.bundle_qty || 0;
+}
+
+function updateBundleQty(input) {
+  const bundleId = parseInt(input.dataset.bundleId);
+  const qty = Math.max(0, parseInt(input.value) || 0);
+  editedBundleQtys.set(bundleId, qty);
+
+  // Auto-select matching preset radio
+  const bundle = bundleAnalysis.find(b => b.bundle_id === bundleId);
+  if (bundle) {
+    const opt = bundle.order_options || {};
+    if (qty === (opt.optimized?.bundle_qty || 0)) {
+      selectedBundleOptions.set(bundleId, 'optimized');
+    } else if (qty === (opt.all_bundles?.bundle_qty || 0)) {
+      selectedBundleOptions.set(bundleId, 'all_bundles');
+    } else if (qty === 0) {
+      selectedBundleOptions.set(bundleId, 'all_individual');
+    } else {
+      selectedBundleOptions.set(bundleId, 'custom');
+    }
+  }
+
   renderTable();
   updateFooter();
 }
@@ -763,8 +859,16 @@ function updateFooter() {
     return sum + (actualUnits * item.unit_cost_cents / 100);
   }, 0);
 
+  // Add bundle costs based on selected/edited bundle quantities
+  let bundleCost = 0;
+  for (const bundle of bundleAnalysis) {
+    const qty = getEffectiveBundleQty(bundle);
+    const cost = calculateBundleOptionClient(bundle, qty);
+    bundleCost += cost.total_cost_cents / 100;
+  }
+
   document.getElementById('selected-count').textContent = selectedSuggestions.length;
-  document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
+  document.getElementById('total-cost').textContent = '$' + (totalCost + bundleCost).toFixed(2);
   document.getElementById('create-po-btn').disabled = selectedSuggestions.length === 0;
 }
 
@@ -1462,3 +1566,4 @@ window.toggleItemFromCheckbox = toggleItemFromCheckbox;
 // Bundle functions
 window.toggleBundleExpand = toggleBundleExpand;
 window.selectBundleOption = selectBundleOption;
+window.updateBundleQty = updateBundleQty;
