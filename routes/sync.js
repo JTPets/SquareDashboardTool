@@ -25,6 +25,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/sync');
 const asyncHandler = require('../middleware/async-handler');
+const { reconcileBundleComponents } = require('../services/webhook-handlers/catalog-handler');
 
 // ==================== SYNC HELPER FUNCTIONS ====================
 
@@ -223,6 +224,7 @@ async function runSmartSync({ merchantId } = {}) {
             }, merchantId);
             synced.push('catalog');
             summary.catalog = result;
+            await reconcileBundleComponents(merchantId);
         } catch (error) {
             logger.error('Catalog sync error', { merchantId, error: error.message, stack: error.stack });
             errors.push({ type: 'catalog', error: error.message });

@@ -108,6 +108,11 @@ class CatalogHandler {
             }
         }
 
+        // Reconcile bundle components that reference deleted/replaced variations
+        if (!syncResult.error && !syncResult.queued) {
+            await reconcileBundleComponents(merchantId);
+        }
+
         // Update last_catalog_version after successful sync
         if (!syncResult.error && !syncResult.queued && catalogVersionUpdatedAt) {
             try {
@@ -390,4 +395,60 @@ class CatalogHandler {
     }
 }
 
+/**
+ * Reconcile bundle components that reference deleted/replaced variations.
+ * When Square replaces a variation (new ID, same SKU), bundle_components
+ * still point to the old deleted ID. This finds stale references and
+ * updates them to the active replacement.
+ *
+ * Called after catalog sync (webhook + cron) to auto-repair bundles.
+ */
+async function reconcileBundleComponents(merchantId) {
+    try {
+        const staleResult = await db.query(`
+            SELECT bc.id as component_id, bc.bundle_id, bc.child_variation_id as old_id,
+                   bc.child_sku, v_new.id as new_id, v_new.name as new_variation_name,
+                   i_new.name as new_item_name
+            FROM bundle_components bc
+            JOIN bundle_definitions bd ON bc.bundle_id = bd.id AND bd.merchant_id = $1
+            JOIN variations v_old ON bc.child_variation_id = v_old.id AND v_old.merchant_id = $1
+            JOIN variations v_new ON v_new.sku = bc.child_sku AND v_new.merchant_id = $1
+                AND COALESCE(v_new.is_deleted, FALSE) = FALSE
+                AND v_new.id != bc.child_variation_id
+            JOIN items i_new ON v_new.item_id = i_new.id AND i_new.merchant_id = $1
+            WHERE bd.is_active = true
+              AND v_old.is_deleted = TRUE
+              AND bc.child_sku IS NOT NULL
+        `, [merchantId]);
+
+        if (staleResult.rows.length === 0) return;
+
+        for (const row of staleResult.rows) {
+            await db.query(`
+                UPDATE bundle_components
+                SET child_variation_id = $1, child_variation_name = $2,
+                    child_item_name = $3, updated_at = NOW()
+                WHERE id = $4
+            `, [row.new_id, row.new_variation_name, row.new_item_name, row.component_id]);
+
+            logger.info('Bundle component reconciled: replaced deleted variation', {
+                merchantId,
+                bundleId: row.bundle_id,
+                oldVariationId: row.old_id,
+                newVariationId: row.new_id,
+                sku: row.child_sku
+            });
+        }
+
+        logger.info('Bundle component reconciliation complete', {
+            merchantId, componentsFixed: staleResult.rows.length
+        });
+    } catch (error) {
+        logger.warn('Bundle component reconciliation failed', {
+            merchantId, error: error.message
+        });
+    }
+}
+
 module.exports = CatalogHandler;
+module.exports.reconcileBundleComponents = reconcileBundleComponents;
