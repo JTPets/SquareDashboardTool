@@ -36,7 +36,7 @@ router.get('/', requireAuth, requireMerchant, validators.getBundles, asyncHandle
             bd.id, bd.merchant_id, bd.bundle_variation_id, bd.bundle_item_id,
             bd.bundle_item_name, bd.bundle_variation_name, bd.bundle_sku,
             bd.bundle_cost_cents, bd.bundle_sell_price_cents,
-            bd.vendor_id, bd.is_active, bd.notes,
+            bd.vendor_id, bd.vendor_code, bd.is_active, bd.notes,
             bd.created_at, bd.updated_at,
             ve.name as vendor_name,
             json_agg(json_build_object(
@@ -94,7 +94,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
         SELECT
             bd.id as bundle_id, bd.bundle_variation_id, bd.bundle_item_name,
             bd.bundle_cost_cents, bd.bundle_sell_price_cents,
-            bd.vendor_id, bd.bundle_sku,
+            bd.vendor_id, bd.vendor_code as bundle_vendor_code, bd.bundle_sku,
             ve.name as vendor_name,
             bc.child_variation_id, bc.quantity_in_bundle,
             bc.child_item_name, bc.child_sku, bc.individual_cost_cents
@@ -190,6 +190,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
                 bundle_sell_price_cents: row.bundle_sell_price_cents,
                 bundle_sku: row.bundle_sku,
                 vendor_id: row.vendor_id,
+                bundle_vendor_code: row.bundle_vendor_code,
                 vendor_name: row.vendor_name,
                 children: []
             });
@@ -269,6 +270,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
             bundle_sell_price_cents: bundle.bundle_sell_price_cents,
             bundle_sku: bundle.bundle_sku,
             vendor_id: bundle.vendor_id,
+            bundle_vendor_code: bundle.bundle_vendor_code,
             vendor_name: bundle.vendor_name,
             assemblable_qty: assemblableQty,
             limiting_component: limitingComponent,
@@ -292,7 +294,7 @@ router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHan
     const {
         bundle_variation_id, bundle_item_id, bundle_item_name,
         bundle_variation_name, bundle_sku, bundle_cost_cents,
-        bundle_sell_price_cents, vendor_id, notes, components
+        bundle_sell_price_cents, vendor_id, vendor_code, notes, components
     } = req.body;
 
     const result = await db.transaction(async (client) => {
@@ -302,14 +304,14 @@ router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHan
                 merchant_id, bundle_variation_id, bundle_item_id,
                 bundle_item_name, bundle_variation_name, bundle_sku,
                 bundle_cost_cents, bundle_sell_price_cents,
-                vendor_id, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                vendor_id, vendor_code, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
         `, [
             merchantId, bundle_variation_id, bundle_item_id || null,
             bundle_item_name, bundle_variation_name || null, bundle_sku || null,
             bundle_cost_cents, bundle_sell_price_cents || null,
-            vendor_id || null, notes || null
+            vendor_id || null, vendor_code || null, notes || null
         ]);
 
         const bundleId = defResult.rows[0].id;
@@ -373,7 +375,7 @@ router.post('/', requireAuth, requireMerchant, validators.createBundle, asyncHan
 router.put('/:id', requireAuth, requireMerchant, validators.updateBundle, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const bundleId = parseInt(req.params.id);
-    const { bundle_cost_cents, bundle_sell_price_cents, is_active, notes, vendor_id, components } = req.body;
+    const { bundle_cost_cents, bundle_sell_price_cents, is_active, notes, vendor_id, vendor_code, components } = req.body;
 
     const result = await db.transaction(async (client) => {
         // Verify ownership
@@ -411,6 +413,10 @@ router.put('/:id', requireAuth, requireMerchant, validators.updateBundle, asyncH
         if (vendor_id !== undefined) {
             updates.push(`vendor_id = $${paramIdx++}`);
             params.push(vendor_id);
+        }
+        if (vendor_code !== undefined) {
+            updates.push(`vendor_code = $${paramIdx++}`);
+            params.push(vendor_code || null);
         }
 
         updates.push('updated_at = NOW()');

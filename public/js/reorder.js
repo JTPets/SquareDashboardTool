@@ -220,6 +220,7 @@ function renderBundleRows() {
           | Best: ${bestCost}
           ${optResult.savings_pct > 0 ? ' (saves ' + optResult.savings_pct + '%)' : ''}
           | ${bundle.vendor_name ? escapeHtml(bundle.vendor_name) : 'No vendor'}
+          ${bundle.bundle_vendor_code ? ' | <span class="clickable" data-action="copyToClipboard" data-action-param="' + escapeJsString(bundle.bundle_vendor_code) + '" data-copy-label="Bundle Vendor Code" title="Click to copy Bundle Vendor Code" style="font-family:monospace;background:rgba(255,255,255,0.3);padding:1px 6px;border-radius:3px;">Case: ' + escapeHtml(bundle.bundle_vendor_code) + '</span>' : ''}
         </td>
       </tr>`;
 

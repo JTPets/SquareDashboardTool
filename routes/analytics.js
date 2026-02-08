@@ -533,7 +533,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 bd.id as bundle_id, bd.bundle_variation_id, bd.bundle_item_id,
                 bd.bundle_item_name, bd.bundle_variation_name, bd.bundle_sku,
                 bd.bundle_cost_cents, bd.bundle_sell_price_cents,
-                bd.vendor_id,
+                bd.vendor_id, bd.vendor_code as bundle_vendor_code,
                 ve.name as vendor_name,
                 bc.child_variation_id, bc.quantity_in_bundle,
                 bc.child_item_name, bc.child_variation_name,
@@ -622,6 +622,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                         bundle_cost_cents: row.bundle_cost_cents,
                         bundle_sell_price_cents: row.bundle_sell_price_cents,
                         vendor_id: row.vendor_id,
+                        bundle_vendor_code: row.bundle_vendor_code,
                         vendor_name: row.vendor_name,
                         children: []
                     });
@@ -712,6 +713,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     bundle_sell_price_cents: bundle.bundle_sell_price_cents,
                     vendor_name: bundle.vendor_name,
                     vendor_id: bundle.vendor_id,
+                    bundle_vendor_code: bundle.bundle_vendor_code,
                     assemblable_qty: assemblableQty,
                     limiting_component: limitingChild ? limitingChild.child_item_name : null,
                     days_of_bundle_stock: daysOfBundleStock,
