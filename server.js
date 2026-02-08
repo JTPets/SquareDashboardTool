@@ -74,6 +74,7 @@ const merchantsRoutes = require('./routes/merchants');
 const settingsRoutes = require('./routes/settings');
 const logsRoutes = require('./routes/logs');
 const cartActivityRoutes = require('./routes/cart-activity');
+const labelsRoutes = require('./routes/labels');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -365,6 +366,10 @@ app.use('/api', merchantsRoutes);
 app.use('/api', settingsRoutes);
 app.use('/api', logsRoutes);
 
+// ==================== LABEL PRINTING ROUTES ====================
+// ZPL label generation for Zebra printers via Browser Print
+app.use('/api', labelsRoutes);
+
 // ==================== API VERSIONING (v1) ====================
 // Versioned routes for future API changes - currently aliases to unversioned routes
 // New integrations should use /api/v1/*, existing clients can continue using /api/*
@@ -391,6 +396,7 @@ app.use('/api/v1/bundles', bundlesRoutes);
 app.use('/api/v1', merchantsRoutes);
 app.use('/api/v1', settingsRoutes);
 app.use('/api/v1', logsRoutes);
+app.use('/api/v1', labelsRoutes);
 
 // ==================== HEALTH & STATUS ====================
 
