@@ -234,8 +234,13 @@ function renderBundleRows() {
         const costStr = child.individual_cost_cents
           ? '$' + (child.individual_cost_cents / 100).toFixed(2) : '-';
 
+        const deletedClass = child.is_deleted ? ' bundle-child-deleted' : '';
+        const deletedAlert = child.is_deleted
+          ? '<br><span class="bundle-deleted-alert">DELETED VARIATION — Update bundle in Bundle Manager</span>'
+          : '';
+
         return `
-          <tr class="bundle-child-row" data-bundle-id="${bundle.bundle_id}">
+          <tr class="bundle-child-row${deletedClass}" data-bundle-id="${bundle.bundle_id}">
             <td></td>
             <td></td>
             <td></td>
@@ -243,10 +248,11 @@ function renderBundleRows() {
               <span class="bundle-child-label">|--</span>
               ${escapeHtml(child.child_item_name || '')}
               ${child.child_variation_name ? '<br><small style="color:#6b7280;">' + escapeHtml(child.child_variation_name) + '</small>' : ''}
+              ${deletedAlert}
             </td>
             <td class="sku">${escapeHtml(child.child_sku || '-')}</td>
             <td class="text-right">${child.stock}</td>
-            <td class="text-right">${child.stock_alert_min || '-'}</td>
+            <td class="text-right">${child.stock_alert_min != null && child.stock_alert_min > 0 ? child.stock_alert_min : '-'}</td>
             <td class="text-right">-</td>
             <td class="text-right ${daysClass}">${daysStr}</td>
             <td class="text-right">-</td>

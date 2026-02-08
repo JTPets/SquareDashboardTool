@@ -576,21 +576,32 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             }
             invQuery += ` GROUP BY catalog_object_id`;
 
-            // Fetch stock_alert_min for children
-            const minStockQuery = `
-                SELECT id, COALESCE(stock_alert_min, 0) as stock_alert_min
-                FROM variations WHERE id = ANY($1) AND merchant_id = $2
+            // Fetch stock_alert_min (with location override) and is_deleted for children
+            let minStockQuery = `
+                SELECT v.id,
+                    COALESCE(vls.stock_alert_min, v.stock_alert_min, 0) as stock_alert_min,
+                    COALESCE(v.is_deleted, FALSE) as is_deleted
+                FROM variations v
+                LEFT JOIN variation_location_settings vls
+                    ON v.id = vls.variation_id AND vls.merchant_id = $2
             `;
+            const minStockParams = [childVarIds, merchantId];
+            if (location_id) {
+                minStockQuery += ` AND vls.location_id = $3`;
+                minStockParams.push(location_id);
+            }
+            minStockQuery += ` WHERE v.id = ANY($1) AND v.merchant_id = $2`;
 
             const [velResult, invResult, minResult] = await Promise.all([
                 db.query(velocityQuery, velocityParams),
                 db.query(invQuery, invParams),
-                db.query(minStockQuery, [childVarIds, merchantId])
+                db.query(minStockQuery, minStockParams)
             ]);
 
             const velMap = new Map(velResult.rows.map(r => [r.variation_id, parseFloat(r.daily_avg_quantity) || 0]));
             const invMap = new Map(invResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
             const minMap = new Map(minResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
+            const deletedMap = new Map(minResult.rows.map(r => [r.id, r.is_deleted === true]));
 
             // Group by bundle
             const bundleGroups = new Map();
@@ -663,7 +674,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                         pct_from_bundles: totalDailyVelocity > 0
                             ? Math.round((bundleDrivenDaily / totalDailyVelocity) * 1000) / 10
                             : 0,
-                        days_of_stock: daysOfStock
+                        days_of_stock: daysOfStock,
+                        is_deleted: deletedMap.get(child.child_variation_id) || false
                     };
                 });
 
