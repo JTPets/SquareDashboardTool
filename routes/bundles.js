@@ -144,22 +144,39 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
         velocityParams.push(location_id);
     }
 
-    // Fetch stock_alert_min for children
-    const minStockQuery = `
-        SELECT id, COALESCE(stock_alert_min, 0) as stock_alert_min
-        FROM variations
-        WHERE id = ANY($1) AND merchant_id = $2
+    // Fetch stock_alert_min (with location override), is_deleted, and vendor_code for children
+    let minStockQuery = `
+        SELECT v.id,
+            COALESCE(vls.stock_alert_min, v.stock_alert_min, 0) as stock_alert_min,
+            COALESCE(v.is_deleted, FALSE) as is_deleted,
+            vv.vendor_code
+        FROM variations v
+        LEFT JOIN variation_location_settings vls
+            ON v.id = vls.variation_id AND vls.merchant_id = $2
     `;
+    const minStockParams = [childVariationIds, merchantId];
+    if (location_id) {
+        minStockQuery += ` AND vls.location_id = $3`;
+        minStockParams.push(location_id);
+    }
+    minStockQuery += `
+        LEFT JOIN variation_vendors vv
+            ON v.id = vv.variation_id AND vv.merchant_id = $2
+    `;
+    // If bundle has a vendor, prefer that vendor's code; otherwise take any
+    minStockQuery += ` WHERE v.id = ANY($1) AND v.merchant_id = $2`;
 
     const [inventoryResult, velocityResult, minStockResult] = await Promise.all([
         db.query(inventoryQuery, inventoryParams),
         db.query(velocityQuery, velocityParams),
-        db.query(minStockQuery, [childVariationIds, merchantId])
+        db.query(minStockQuery, minStockParams)
     ]);
 
     const stockMap = new Map(inventoryResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
     const velocityMap = new Map(velocityResult.rows.map(r => [r.variation_id, parseFloat(r.daily_avg_quantity) || 0]));
     const minStockMap = new Map(minStockResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
+    const deletedMap = new Map(minStockResult.rows.map(r => [r.id, r.is_deleted === true]));
+    const vendorCodeMap = new Map(minStockResult.rows.map(r => [r.id, r.vendor_code || null]));
 
     // Group rows by bundle
     const bundleMap = new Map();
@@ -231,7 +248,9 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
                 pct_from_bundles: totalDailyVelocity > 0
                     ? Math.round((bundleDrivenDaily / totalDailyVelocity) * 1000) / 10
                     : 0,
-                days_of_stock: childDaysOfStock
+                days_of_stock: childDaysOfStock,
+                is_deleted: deletedMap.get(child.child_variation_id) || false,
+                vendor_code: vendorCodeMap.get(child.child_variation_id) || null
             };
         });
 

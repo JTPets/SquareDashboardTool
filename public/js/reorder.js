@@ -268,7 +268,11 @@ function renderBundleRows() {
             <td class="text-right">${child.individual_need}</td>
             <td class="text-right">x${child.quantity_in_bundle}/bundle</td>
             <td class="text-right">${costStr}</td>
-            <td colspan="5"></td>
+            <td class="text-right">-</td>
+            <td class="text-right">-</td>
+            <td class="text-right">-</td>
+            <td>-</td>
+            <td class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(child.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(child.vendor_code || '-')}</td>
           </tr>`;
       }).join('');
 
