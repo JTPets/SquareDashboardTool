@@ -96,7 +96,15 @@ const getPurchaseOrder = [
  */
 const updatePurchaseOrder = [
     validateIntId('id'),
-    validateOptionalPositiveInt('supply_days_override', { min: 1, max: 365 }),
+    body('supply_days_override')
+        .optional({ values: 'null' })
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1 || num > 365) {
+                throw new Error('supply_days_override must be an integer between 1 and 365');
+            }
+            return true;
+        }),
     validateOptionalString('notes', { maxLength: 2000 }),
     body('items')
         .optional()
