@@ -37,7 +37,7 @@
 | Priority | Status | Items |
 |----------|--------|-------|
 | P0 Security | 7/7 | All P0 items complete (P0-5,6,7 fixed 2026-01-26) |
-| P1 Architecture | 9/9 | P1-1 in progress; P1-2,3,4,5 complete; P1-6,7,8,9 fixed 2026-01-26 |
+| P1 Architecture | 9/9 | All P1 items complete; P1-1 monolith eliminated (2026-02-05); P1-6,7,8,9 fixed 2026-01-26 |
 | P2 Testing | 6/6 | Tests comprehensive (P2-4 implementation gap closed by P0-6) |
 | **API Optimization** | 4/4 | All P0-API items fixed (2026-01-27). ~1,000+ API calls/day saved |
 | P3 Scalability | Optional | Multi-instance deployment prep |
@@ -789,10 +789,10 @@ See [EVENT_DELEGATION.md - API Response Data Wrapper Mismatch](./archive/EVENT_D
 | Component | Status | Location |
 |-----------|--------|----------|
 | `loyalty_customers` table | ✅ Exists | `database/schema.sql` |
-| `birthday` column | ❌ Missing | Needs migration |
+| `birthday` column | ✅ Added | `database/migrations/032_seniors_day.sql` |
 | `customer.updated` webhook | ✅ Exists | `services/webhook-handlers/catalog-handler.js:88-147` |
-| `cacheCustomerDetails()` | ✅ Exists | `services/loyalty-admin/loyalty-service.js:265-299` |
-| Customer group CRUD | ✅ Exists | `services/loyalty-admin/loyalty-service.js:3488-3761` |
+| `cacheCustomerDetails()` | ✅ Exists | `services/loyalty-admin/customer-cache-service.js` |
+| Customer group CRUD | ✅ Exists | `services/loyalty-admin/square-discount-service.js` |
 | Bulk customer sync cron | ❌ Not needed | Only capture on change |
 
 **Square Customer Object** (birthday field):
@@ -815,7 +815,7 @@ CREATE INDEX idx_loyalty_customers_birthday
   ON loyalty_customers(merchant_id, birthday);
 ```
 
-**2. Extend `cacheCustomerDetails()`** (`services/loyalty-admin/loyalty-service.js:265-299`):
+**2. Extend `cacheCustomerDetails()`** (`services/loyalty-admin/customer-cache-service.js`):
 - Add `birthday` to INSERT columns and ON CONFLICT UPDATE
 - Extract from Square customer object
 
@@ -832,20 +832,19 @@ CREATE INDEX idx_loyalty_customers_birthday
 
 | File | Change |
 |------|--------|
-| `database/migrations/0XX_add_customer_birthday.sql` | New file - add column + index |
-| `services/loyalty-admin/loyalty-service.js` | Update `cacheCustomerDetails()` |
+| `database/migrations/032_seniors_day.sql` | ✅ Done - birthday column + index added |
+| `services/loyalty-admin/customer-cache-service.js` | Update `cacheCustomerDetails()` |
 | `services/webhook-handlers/catalog-handler.js` | Fetch customer, cache birthday |
 
 #### Existing Code to Leverage
 
 | Function | Location | Purpose |
 |----------|----------|---------|
-| `cacheCustomerDetails()` | `loyalty-service.js:265-299` | Upsert customer to cache |
-| `getCustomerDetails()` | `loyalty-service.js:454-526` | Fetch from Square API |
-| `createCustomerGroup()` | `loyalty-service.js:3488-3567` | Create Square group |
-| `addCustomerToGroup()` | `loyalty-service.js:3578-3633` | Add customer to group |
-| `removeCustomerFromGroup()` | `loyalty-service.js:3645-3700` | Remove from group |
-| `handleCustomerUpdated()` | `catalog-handler.js:88-147` | Webhook handler |
+| `cacheCustomerDetails()` | `services/loyalty-admin/customer-cache-service.js` | Upsert customer to cache |
+| `getCustomerDetails()` | `services/loyalty-admin/customer-admin-service.js` | Fetch from Square API |
+| `addCustomerToGroup()` | `services/loyalty-admin/square-discount-service.js` | Add customer to group |
+| `removeCustomerFromGroup()` | `services/loyalty-admin/square-discount-service.js` | Remove from group |
+| `handleCustomerUpdated()` | `services/webhook-handlers/catalog-handler.js:88-147` | Webhook handler |
 
 ---
 

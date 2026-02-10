@@ -91,25 +91,25 @@ SqTools transforms Square POS from a point-of-sale system into a complete invent
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
 │  │  Dashboard  │  │  Inventory  │  │   Loyalty   │  │  Delivery   │    │
-│  │   30 pages  │  │ Management  │  │   Rewards   │  │ Management  │    │
+│  │   33 pages  │  │ Management  │  │   Rewards   │  │ Management  │    │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
 │         │                │                │                │            │
 │  ┌──────┴────────────────┴────────────────┴────────────────┴──────┐    │
 │  │                     Express.js API Layer                        │    │
-│  │              238 endpoints across 20 route modules              │    │
+│  │              257 endpoints across 24 route modules              │    │
 │  └─────────────────────────────┬───────────────────────────────────┘    │
 │                                │                                         │
 │  ┌─────────────────────────────┴───────────────────────────────────┐    │
 │  │                    Service & Middleware Layer                    │    │
 │  │  • Authentication & Authorization (role-based)                   │    │
 │  │  • Multi-tenant isolation (merchant_id filtering)                │    │
-│  │  • Input validation (19 validator modules)                       │    │
+│  │  • Input validation (24 validator modules)                       │    │
 │  │  • Rate limiting & security headers                              │    │
 │  └─────────────────────────────┬───────────────────────────────────┘    │
 │                                │                                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │
 │  │  PostgreSQL  │  │  Square API  │  │  Google API  │                   │
-│  │   35+ tables │  │   Webhooks   │  │    Sheets    │                   │
+│  │   51 tables  │  │   Webhooks   │  │    Sheets    │                   │
 │  └──────────────┘  └──────────────┘  └──────────────┘                   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -119,7 +119,7 @@ SqTools transforms Square POS from a point-of-sale system into a complete invent
 | Layer | Technology |
 |-------|------------|
 | **Runtime** | Node.js 18+ with Express.js |
-| **Database** | PostgreSQL 14+ with 35+ tables and 40+ indexes |
+| **Database** | PostgreSQL 14+ with 51 tables and 40+ indexes |
 | **Authentication** | Session-based with bcrypt (12 rounds), AES-256-GCM token encryption |
 | **External APIs** | Square SDK v43.2.1 (API v2024-10-17), Google APIs v144 |
 | **Process Management** | PM2 with clustering support |
@@ -129,11 +129,11 @@ SqTools transforms Square POS from a point-of-sale system into a complete invent
 
 | Metric | Value |
 |--------|-------|
-| API Endpoints | 238 across 20 route modules |
-| Frontend Pages | 30 HTML interfaces |
-| Database Tables | 35+ with proper indexing |
-| Input Validators | 19 modules covering all endpoints |
-| Test Coverage | 194 tests on security-critical functions |
+| API Endpoints | 257 across 24 route modules |
+| Frontend Pages | 33 HTML interfaces |
+| Database Tables | 51 with proper indexing |
+| Input Validators | 24 modules covering all endpoints |
+| Test Coverage | 195 tests on security-critical functions |
 
 ---
 
@@ -176,7 +176,7 @@ SqTools is built with defense-in-depth security. Every layer is hardened against
 | Control | Implementation |
 |---------|----------------|
 | **Authentication Required** | All endpoints require valid session (except public driver API) |
-| **Input Validation** | express-validator on all 238 endpoints |
+| **Input Validation** | express-validator on all 257 endpoints |
 | **Security Headers** | Helmet.js with CSP, X-Frame-Options, X-Content-Type-Options |
 | **CORS Enforcement** | Strict origin validation in production |
 | **Webhook Verification** | HMAC-SHA256 signature validation on Square webhooks |
@@ -190,7 +190,7 @@ SqTools is built with defense-in-depth security. Every layer is hardened against
 | Auth middleware | 38 | ~85% |
 | Multi-tenant isolation | 27 | ~30% |
 | File validation | 30 | 100% |
-| **Total** | **194** | Security-critical paths |
+| **Total** | **195** | Security-critical paths |
 
 **Vulnerability Status:** 0 npm vulnerabilities (dependencies audited regularly)
 
@@ -256,7 +256,7 @@ All webhooks are verified using HMAC-SHA256 signature validation. Duplicate even
 
 ```
 SquareDashboardTool/
-├── routes/                    # 20 route modules (233 endpoints)
+├── routes/                    # 24 route modules (257 endpoints)
 │   ├── auth.js               # Authentication (12 endpoints)
 │   ├── loyalty.js            # Loyalty program (40 endpoints)
 │   ├── delivery.js           # Delivery management (23 endpoints)
@@ -267,20 +267,20 @@ SquareDashboardTool/
 │   ├── merchant.js           # Multi-tenant context
 │   ├── security.js           # Headers, CORS, rate limiting
 │   ├── subscription-check.js # Subscription validation
-│   └── validators/           # 19 input validation modules
+│   └── validators/           # 24 input validation modules
 ├── services/
-│   └── loyalty/              # Modular loyalty service layer (8 modules)
+│   ├── loyalty/              # Loyalty event processing (8 modules)
+│   └── loyalty-admin/        # Loyalty program admin (15 modules, 53 exports)
 ├── utils/
-│   ├── square-api.js         # Square API integration (135KB)
-│   ├── database.js           # Connection pool, queries (122KB)
-│   ├── loyalty-service.js    # Core loyalty logic (204KB)
+│   ├── square-api.js         # Square API integration
+│   ├── database.js           # Connection pool, queries
 │   ├── token-encryption.js   # AES-256-GCM encryption
 │   └── ...                   # Additional utilities
-├── public/                   # 30 HTML frontend pages
+├── public/                   # 33 HTML frontend pages
 ├── database/
-│   ├── schema.sql            # Complete PostgreSQL schema
-│   └── migrations/           # Schema migrations
-├── __tests__/                # Jest test suite (194 tests)
+│   ├── schema.sql            # Complete PostgreSQL schema (51 tables)
+│   └── migrations/           # Schema migrations (003-046)
+├── __tests__/                # Jest test suite (195+ security tests)
 ├── server.js                 # Main Express application
 └── ecosystem.config.js       # PM2 configuration
 ```
@@ -329,5 +329,5 @@ This software is provided as open source for transparency and security review. C
 ---
 
 **Version:** 2.0.0
-**Last Updated:** January 2026
+**Last Updated:** February 2026
 **Platform:** Hosted SaaS (sqtools.ca)
