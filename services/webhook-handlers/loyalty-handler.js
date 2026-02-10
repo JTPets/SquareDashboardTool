@@ -370,18 +370,25 @@ class LoyaltyHandler {
                 merchantId
             });
         } else {
-            // Log that we received REDEEM_REWARD but couldn't find a matching reward
-            // This is expected for Square-native loyalty redemptions (not our custom system)
-            logger.info('REDEEM_REWARD is a Square-native loyalty redemption (not our custom system)', {
+            // Could be Square-native loyalty, a manual discount, or a bug in our system
+            // Log the actual discount details so we can distinguish
+            const discountSummary = (order.discounts || []).map(d => ({
+                name: d.name,
+                type: d.type,
+                catalogObjectId: d.catalog_object_id || null,
+                amountCents: d.applied_money?.amount || d.amount_money?.amount || null
+            }));
+            logger.info('REDEEM_REWARD event - no matching custom loyalty reward found', {
                 orderId,
                 loyaltyAccountId,
                 merchantId,
-                discountsInOrder: order.discounts?.length || 0
+                discounts: discountSummary
             });
             result.loyaltyRedemptionNotFound = {
                 orderId,
                 loyaltyAccountId,
-                reason: 'square_native_redemption'
+                reason: 'no_matching_reward',
+                discounts: discountSummary
             };
         }
     }
