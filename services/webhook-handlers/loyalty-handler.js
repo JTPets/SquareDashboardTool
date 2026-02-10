@@ -370,18 +370,39 @@ class LoyaltyHandler {
                 merchantId
             });
         } else {
-            // Log that we received REDEEM_REWARD but couldn't find a matching reward
-            // This could happen if the reward was already processed or doesn't exist in our system
-            logger.warn('REDEEM_REWARD event received but no matching reward found', {
-                orderId,
-                loyaltyAccountId,
-                merchantId,
-                discountsInOrder: order.discounts?.length || 0
-            });
+            // Classify: do any discounts have catalog_object_ids that should have matched?
+            const discounts = order.discounts || [];
+            const discountSummary = discounts.map(d => ({
+                name: d.name,
+                type: d.type,
+                catalogObjectId: d.catalog_object_id || null,
+                amountCents: d.applied_money?.amount || d.amount_money?.amount || null
+            }));
+            const hasCatalogDiscounts = discounts.some(d => d.catalog_object_id);
+
+            if (hasCatalogDiscounts) {
+                // Discounts with catalog IDs exist but didn't match our rewards — this is unexpected
+                logger.error('REDEEM_REWARD has catalog discounts that did not match any custom loyalty reward', {
+                    orderId,
+                    loyaltyAccountId,
+                    merchantId,
+                    discounts: discountSummary
+                });
+            } else {
+                // No catalog-linked discounts — Square-native loyalty or manual discount
+                logger.info('REDEEM_REWARD event — Square-native or manual discount (no catalog discount IDs)', {
+                    orderId,
+                    loyaltyAccountId,
+                    merchantId,
+                    discounts: discountSummary
+                });
+            }
+
             result.loyaltyRedemptionNotFound = {
                 orderId,
                 loyaltyAccountId,
-                reason: 'no_matching_reward'
+                reason: hasCatalogDiscounts ? 'unmatched_catalog_discount' : 'no_catalog_discounts',
+                discounts: discountSummary
             };
         }
     }
