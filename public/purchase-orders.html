@@ -416,7 +416,8 @@
       min-height: 80px;
     }
 
-    .item-qty-input {
+    .item-qty-input,
+    .item-cost-input {
       width: 80px;
       padding: 6px 8px;
       border: 1px solid #d1d5db;
@@ -425,13 +426,15 @@
       text-align: right;
     }
 
-    .item-qty-input:focus {
+    .item-qty-input:focus,
+    .item-cost-input:focus {
       outline: none;
       border-color: #2563eb;
       box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
     }
 
-    .item-qty-input.changed {
+    .item-qty-input.changed,
+    .item-cost-input.changed {
       border-color: #f59e0b;
       background: #fffbeb;
     }
