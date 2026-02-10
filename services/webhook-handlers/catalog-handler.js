@@ -250,37 +250,65 @@ class CatalogHandler {
         });
 
         // Sync the specific vendor using upsert
-        // First try to update by ID, then by normalized name (handles ID changes),
-        // finally insert if neither exists
+        // Handles three cases: match by ID, match by name (with ID migration), or insert new
         const contactName = vendor.contacts?.[0]?.name || null;
         const contactEmail = vendor.contacts?.[0]?.email_address || null;
         const contactPhone = vendor.contacts?.[0]?.phone_number || null;
 
-        await db.query(`
-            WITH updated AS (
-                UPDATE vendors SET
-                    id = $1,
-                    name = $2,
-                    status = $3,
-                    contact_name = $4,
-                    contact_email = $5,
-                    contact_phone = $6,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE merchant_id = $7 AND (id = $1 OR vendor_name_normalized(name) = vendor_name_normalized($2))
-                RETURNING id
-            )
-            INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-            SELECT $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP
-            WHERE NOT EXISTS (SELECT 1 FROM updated)
-        `, [
-            vendorId,
-            vendor.name,
-            vendor.status,
-            contactName,
-            contactEmail,
-            contactPhone,
-            merchantId
-        ]);
+        await db.transaction(async (client) => {
+            // Check if vendor exists by ID or normalized name
+            const existing = await client.query(
+                `SELECT id FROM vendors
+                 WHERE merchant_id = $1 AND (id = $2 OR vendor_name_normalized(name) = vendor_name_normalized($3))
+                 LIMIT 1`,
+                [merchantId, vendorId, vendor.name]
+            );
+
+            if (existing.rows.length > 0) {
+                const existingId = existing.rows[0].id;
+
+                if (existingId !== vendorId) {
+                    // Matched by name with different ID — migrate FK references first
+                    logger.info('Vendor ID change detected, migrating references', {
+                        oldId: existingId, newId: vendorId, merchantId
+                    });
+                    await client.query(
+                        'UPDATE variation_vendors SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                        [vendorId, existingId, merchantId]
+                    );
+                    await client.query(
+                        'UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                        [vendorId, existingId, merchantId]
+                    );
+                    await client.query(
+                        'UPDATE vendor_catalog_items SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                        [vendorId, existingId, merchantId]
+                    );
+                    await client.query(
+                        'UPDATE bundle_definitions SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                        [vendorId, existingId, merchantId]
+                    );
+                }
+
+                // Update the vendor record (including ID if it changed)
+                await client.query(
+                    `UPDATE vendors SET
+                        id = $1, name = $2, status = $3,
+                        contact_name = $4, contact_email = $5, contact_phone = $6,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $7 AND merchant_id = $8`,
+                    [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone,
+                     existing.rows[0].id, merchantId]
+                );
+            } else {
+                // No existing vendor — insert new
+                await client.query(
+                    `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+                    [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone, merchantId]
+                );
+            }
+        });
 
         result.vendor = {
             id: vendorId,
