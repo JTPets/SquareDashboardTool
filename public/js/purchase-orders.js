@@ -355,8 +355,8 @@ function renderItemRow(item, index) {
            class="item-qty-input"
            data-index="${index}"
            value="${item.quantity_ordered}"
-           min="0"
-           step="any"
+           min="1"
+           step="1"
            data-change="updateItemQuantity">
   ` : item.quantity_ordered;
 
@@ -396,7 +396,7 @@ function calculateTotal() {
 // Update item quantity
 function updateItemQuantity(element, event, param) {
   const index = parseInt(element.dataset.index);
-  const qty = parseFloat(element.value) || 0;
+  const qty = parseInt(element.value) || 1;
 
   currentPO.items[index].quantity_ordered = qty;
 
@@ -506,7 +506,8 @@ async function saveChanges() {
     const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(result.message || result.error || 'Failed to update purchase order');
+      const detail = result.details?.[0]?.message;
+      throw new Error(detail || result.message || result.error || 'Failed to update purchase order');
     }
 
     showToast('Purchase order updated successfully', 'success');
