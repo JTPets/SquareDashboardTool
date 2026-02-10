@@ -371,8 +371,8 @@ class LoyaltyHandler {
             });
         } else {
             // Log that we received REDEEM_REWARD but couldn't find a matching reward
-            // This could happen if the reward was already processed or doesn't exist in our system
-            logger.warn('REDEEM_REWARD event received but no matching reward found', {
+            // This is expected for Square-native loyalty redemptions (not our custom system)
+            logger.info('REDEEM_REWARD is a Square-native loyalty redemption (not our custom system)', {
                 orderId,
                 loyaltyAccountId,
                 merchantId,
@@ -381,7 +381,7 @@ class LoyaltyHandler {
             result.loyaltyRedemptionNotFound = {
                 orderId,
                 loyaltyAccountId,
-                reason: 'no_matching_reward'
+                reason: 'square_native_redemption'
             };
         }
     }
