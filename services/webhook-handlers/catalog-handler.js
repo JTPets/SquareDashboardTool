@@ -268,10 +268,20 @@ class CatalogHandler {
                 const existingId = existing.rows[0].id;
 
                 if (existingId !== vendorId) {
-                    // Matched by name with different ID — migrate FK references first
+                    // Matched by name with different ID — need to migrate
+                    // 1. Insert new vendor row with new ID (so FK targets exist)
+                    // 2. Migrate all FK references from old ID to new ID
+                    // 3. Delete old vendor row
                     logger.info('Vendor ID change detected, migrating references', {
                         oldId: existingId, newId: vendorId, merchantId
                     });
+
+                    await client.query(
+                        `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+                        [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone, merchantId]
+                    );
+
                     await client.query(
                         'UPDATE variation_vendors SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
                         [vendorId, existingId, merchantId]
@@ -288,18 +298,23 @@ class CatalogHandler {
                         'UPDATE bundle_definitions SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
                         [vendorId, existingId, merchantId]
                     );
-                }
 
-                // Update the vendor record (including ID if it changed)
-                await client.query(
-                    `UPDATE vendors SET
-                        id = $1, name = $2, status = $3,
-                        contact_name = $4, contact_email = $5, contact_phone = $6,
-                        updated_at = CURRENT_TIMESTAMP
-                     WHERE id = $7 AND merchant_id = $8`,
-                    [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone,
-                     existing.rows[0].id, merchantId]
-                );
+                    await client.query(
+                        'DELETE FROM vendors WHERE id = $1 AND merchant_id = $2',
+                        [existingId, merchantId]
+                    );
+                } else {
+                    // Matched by ID — just update fields
+                    await client.query(
+                        `UPDATE vendors SET
+                            name = $1, status = $2,
+                            contact_name = $3, contact_email = $4, contact_phone = $5,
+                            updated_at = CURRENT_TIMESTAMP
+                         WHERE id = $6 AND merchant_id = $7`,
+                        [vendor.name, vendor.status, contactName, contactEmail, contactPhone,
+                         vendorId, merchantId]
+                    );
+                }
             } else {
                 // No existing vendor — insert new
                 await client.query(
