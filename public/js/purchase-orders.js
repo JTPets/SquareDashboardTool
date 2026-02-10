@@ -360,6 +360,16 @@ function renderItemRow(item, index) {
            data-change="updateItemQuantity">
   ` : item.quantity_ordered;
 
+  const costInput = isEditMode ? `
+    <input type="number"
+           class="item-cost-input"
+           data-index="${index}"
+           value="${(item.unit_cost_cents / 100).toFixed(2)}"
+           min="0"
+           step="0.01"
+           data-change="updateItemCost">
+  ` : `$${(item.unit_cost_cents / 100).toFixed(2)}`;
+
   const deleteBtn = isEditMode ? `
     <button class="btn-icon delete"
             data-action="removeItem" data-action-param="${index}"
@@ -378,7 +388,7 @@ function renderItemRow(item, index) {
       <td>${escapeHtml(item.vendor_code || '-')}</td>
       <td>${escapeHtml(item.gtin || '-')}</td>
       <td class="text-right">${qtyInput}</td>
-      <td class="text-right">$${(item.unit_cost_cents / 100).toFixed(2)}</td>
+      <td class="text-right">${costInput}</td>
       <td class="text-right item-total" data-index="${index}">$${((item.quantity_ordered * item.unit_cost_cents) / 100).toFixed(2)}</td>
       ${isEditMode ? `<td class="text-center">${deleteBtn}</td>` : ''}
     </tr>
@@ -393,26 +403,35 @@ function calculateTotal() {
   }, 0);
 }
 
-// Update item quantity
-function updateItemQuantity(element, event, param) {
-  const index = parseInt(element.dataset.index);
-  const qty = parseInt(element.value) || 1;
-
-  currentPO.items[index].quantity_ordered = qty;
-
-  // Update item total
-  const itemTotal = (qty * currentPO.items[index].unit_cost_cents) / 100;
+// Recalculate and update item total and grand total displays
+function recalcItemAndGrandTotal(index) {
+  const item = currentPO.items[index];
+  const itemTotal = (item.quantity_ordered * item.unit_cost_cents) / 100;
   const itemTotalElem = document.querySelector(`.item-total[data-index="${index}"]`);
   if (itemTotalElem) {
     itemTotalElem.textContent = `$${itemTotal.toFixed(2)}`;
   }
-
-  // Update grand total
   const grandTotal = calculateTotal();
   const grandTotalElem = document.getElementById('grand-total');
   if (grandTotalElem) {
     grandTotalElem.textContent = `$${grandTotal.toFixed(2)}`;
   }
+}
+
+// Update item quantity
+function updateItemQuantity(element, event, param) {
+  const index = parseInt(element.dataset.index);
+  const qty = parseInt(element.value) || 1;
+  currentPO.items[index].quantity_ordered = qty;
+  recalcItemAndGrandTotal(index);
+}
+
+// Update item unit cost (input is dollars, stored as cents)
+function updateItemCost(element, event, param) {
+  const index = parseInt(element.dataset.index);
+  const dollars = parseFloat(element.value) || 0;
+  currentPO.items[index].unit_cost_cents = Math.round(dollars * 100);
+  recalcItemAndGrandTotal(index);
 }
 
 // Remove item
@@ -686,3 +705,4 @@ window.showSubmitConfirmation = showSubmitConfirmation;
 window.dismissToast = dismissToast;
 window.removeItem = removeItem;
 window.updateItemQuantity = updateItemQuantity;
+window.updateItemCost = updateItemCost;
