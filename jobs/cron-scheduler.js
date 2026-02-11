@@ -108,9 +108,9 @@ function initializeCronJobs() {
     logger.info('Cart activity cleanup cron job scheduled', { schedule: cartActivityCleanupSchedule, timezone: 'America/Toronto' });
 
     // 11. Seniors Day discount management
-    // Runs daily at 6 AM to check if pricing rule should be enabled/disabled
-    // 1st of month: age sweep + enable, 2nd: disable, other days: verify state
-    const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '0 6 * * *';
+    // Runs daily at 12:30 AM to manage pricing rule before store opens
+    // 1st of month: enable + local age sweep, 2nd: disable, other days: verify state
+    const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '30 0 * * *';
     cronTasks.push(cron.schedule(seniorsSchedule, runScheduledSeniorsDiscount, {
         timezone: 'America/Toronto'
     }));

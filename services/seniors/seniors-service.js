@@ -401,6 +401,95 @@ class SeniorsService {
     }
 
     // ========================================================================
+    // Local-Only Senior Status (no Square API calls)
+    // ========================================================================
+
+    /**
+     * Upsert senior status in local DB only (no Square API calls)
+     * Used by sweepLocalAges and can be called independently
+     * @param {string} squareCustomerId - Square customer ID
+     * @param {string} birthday - Birthday in YYYY-MM-DD format
+     * @returns {Promise<Object>} Status with isSenior flag and whether it changed
+     */
+    async upsertSeniorStatus(squareCustomerId, birthday) {
+        const minAge = this.config?.min_age || SENIORS_DISCOUNT.MIN_AGE;
+        const age = calculateAge(birthday);
+        const eligible = isSenior(birthday, minAge);
+
+        const existing = await this.getMembership(squareCustomerId);
+        const wasMember = existing?.is_active === true;
+        const changed = eligible !== wasMember;
+
+        if (eligible && !wasMember) {
+            await db.query(
+                `INSERT INTO seniors_group_members (
+                    merchant_id, square_customer_id, birthday, age_at_last_check, is_active
+                ) VALUES ($1, $2, $3, $4, TRUE)
+                ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
+                    birthday = EXCLUDED.birthday,
+                    age_at_last_check = EXCLUDED.age_at_last_check,
+                    is_active = TRUE,
+                    added_to_group_at = NOW(),
+                    removed_from_group_at = NULL`,
+                [this.merchantId, squareCustomerId, birthday, age]
+            );
+        } else if (!eligible && wasMember) {
+            await db.query(
+                `UPDATE seniors_group_members
+                 SET is_active = FALSE, removed_from_group_at = NOW(), age_at_last_check = $3
+                 WHERE square_customer_id = $1 AND merchant_id = $2`,
+                [squareCustomerId, this.merchantId, age]
+            );
+        } else if (existing) {
+            await db.query(
+                `UPDATE seniors_group_members
+                 SET age_at_last_check = $3, birthday = $4
+                 WHERE square_customer_id = $1 AND merchant_id = $2`,
+                [squareCustomerId, this.merchantId, age, birthday]
+            );
+        }
+
+        return { squareCustomerId, birthday, age, isSenior: eligible, changed };
+    }
+
+    /**
+     * Sweep all locally-stored birthdays and re-evaluate senior status
+     * Local DB only — no Square API calls. Updates seniors_group_members flags.
+     * @returns {Promise<Object>} Sweep results
+     */
+    async sweepLocalAges() {
+        const results = { customersChecked: 0, customersAdded: 0, customersRemoved: 0 };
+
+        const rows = await db.query(
+            `SELECT lc.square_customer_id, lc.birthday
+             FROM loyalty_customers lc
+             WHERE lc.merchant_id = $1 AND lc.birthday IS NOT NULL
+             ORDER BY lc.square_customer_id`,
+            [this.merchantId]
+        );
+
+        for (const row of rows.rows) {
+            results.customersChecked++;
+            const status = await this.upsertSeniorStatus(row.square_customer_id, row.birthday);
+
+            if (status.changed && status.isSenior) {
+                results.customersAdded++;
+            } else if (status.changed && !status.isSenior) {
+                results.customersRemoved++;
+            }
+        }
+
+        if (results.customersAdded > 0 || results.customersRemoved > 0) {
+            await this.logAudit('AGE_SWEEP', null, results, 'CRON');
+            logger.info('Seniors age sweep completed', {
+                merchantId: this.merchantId, ...results,
+            });
+        }
+
+        return results;
+    }
+
+    // ========================================================================
     // Customer Birthday Handling (called by webhook handler)
     // ========================================================================
 

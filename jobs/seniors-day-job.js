@@ -2,7 +2,7 @@
  * Seniors Day Discount Job
  *
  * Daily cron job that manages the seniors discount pricing rule:
- * - 1st of month: Run age sweep, then enable pricing rule
+ * - 1st of month: Enable pricing rule, then run local-only age sweep
  * - 2nd of month: Disable pricing rule
  * - All other days: Verify state matches expectations, auto-correct if needed
  *
@@ -15,8 +15,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
 const { SeniorsService } = require('../services/seniors');
-const { isSenior, calculateAge } = require('../services/seniors/age-calculator');
-const { SENIORS_DISCOUNT, SYNC } = require('../config/constants');
+const { SENIORS_DISCOUNT } = require('../config/constants');
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
@@ -127,73 +126,6 @@ async function disableWithRetry(service, merchantId) {
 }
 
 /**
- * Run monthly age sweep — find customers who newly qualify as seniors
- * Processes in batches with rate-limit throttling
- * @param {SeniorsService} service - Initialized seniors service
- * @param {number} merchantId
- * @returns {Promise<Object>} Sweep results
- */
-async function runAgeSweep(service, merchantId) {
-    const config = service.getConfig();
-    const minAge = config?.min_age || SENIORS_DISCOUNT.MIN_AGE;
-    const batchSize = 100;
-    let offset = 0;
-    let customersAdded = 0;
-    let customersRemoved = 0;
-    let customersChecked = 0;
-
-    while (true) {
-        const batch = await db.query(
-            `SELECT lc.square_customer_id, lc.birthday
-             FROM loyalty_customers lc
-             WHERE lc.merchant_id = $1 AND lc.birthday IS NOT NULL
-             ORDER BY lc.square_customer_id
-             LIMIT $2 OFFSET $3`,
-            [merchantId, batchSize, offset]
-        );
-
-        if (batch.rows.length === 0) break;
-
-        for (const row of batch.rows) {
-            customersChecked++;
-            const eligible = isSenior(row.birthday, minAge);
-            const membership = await service.getMembership(row.square_customer_id);
-            const isCurrentlyMember = membership?.is_active === true;
-
-            if (eligible && !isCurrentlyMember) {
-                const age = calculateAge(row.birthday);
-                await service.addCustomerToSeniorsGroup(
-                    row.square_customer_id, row.birthday, age
-                );
-                customersAdded++;
-            } else if (!eligible && isCurrentlyMember) {
-                await service.removeCustomerFromSeniorsGroup(row.square_customer_id);
-                customersRemoved++;
-            }
-        }
-
-        offset += batchSize;
-
-        // Throttle between batches to avoid rate limits
-        if (batch.rows.length === batchSize) {
-            await sleep(SYNC.BATCH_DELAY_MS);
-        }
-    }
-
-    if (customersAdded > 0 || customersRemoved > 0) {
-        await service.logAudit('AGE_SWEEP', null, {
-            customersChecked, customersAdded, customersRemoved,
-        }, 'CRON');
-
-        logger.info('Seniors age sweep completed', {
-            merchantId, customersChecked, customersAdded, customersRemoved,
-        });
-    }
-
-    return { customersChecked, customersAdded, customersRemoved };
-}
-
-/**
  * Run seniors discount check for a single merchant
  * @param {number} merchantId
  * @param {string} businessName
@@ -214,9 +146,9 @@ async function runSeniorsDiscountForMerchant(merchantId, businessName) {
     };
 
     if (dayOfMonth === seniorsDayOfMonth) {
-        // 1st of month: sweep then enable
-        result.ageSweep = await runAgeSweep(service, merchantId);
+        // 1st of month: enable pricing rule, then sweep local DB for age changes
         await enableWithRetry(service, merchantId);
+        result.ageSweep = await service.sweepLocalAges();
         result.action = 'enabled';
 
         await service.logAudit('PRICING_RULE_ENABLED', null, {
