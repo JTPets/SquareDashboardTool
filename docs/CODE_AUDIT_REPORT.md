@@ -43,7 +43,7 @@
 ### CRIT-1: Cross-Tenant Cart Data Deletion
 
 **Severity**: CRITICAL
-**Status**: FIXED (2026-02-05)
+**Status**: FIXED (2026-02-05) — Verified 2026-02-11
 **Files**:
 - `services/cart/cart-activity-service.js` (lines 273-348)
 - `jobs/cart-activity-cleanup-job.js` (lines 30, 33)
@@ -69,15 +69,7 @@ async markAbandoned(merchantId = null, daysThreshold = 7) {
 
 **Impact**: Data integrity violation, loss of active shopping carts for all tenants, potential revenue loss.
 
-**Recommended Fix**:
-```javascript
-async markAbandoned(merchantId, daysThreshold = 7) {
-    if (!merchantId) {
-        throw new Error('merchantId is required for markAbandoned');
-    }
-    // ... proceed with merchant-scoped query
-}
-```
+**Fix Applied**: `merchantId` is now mandatory (throws if missing). WHERE clause unconditionally includes `merchant_id = $1`. Cleanup job iterates per-merchant. All 8 cart functions enforce merchant_id.
 
 ---
 
@@ -158,32 +150,14 @@ function escapeHtml(text) {
 ### CRIT-4: Client-Side API Key Storage in localStorage
 
 **Severity**: CRITICAL
-**Status**: FIXED (2026-02-05)
+**Status**: FIXED (2026-02-05) — Verified 2026-02-11
 **File**: `public/js/catalog-workflow.js` (lines 17-60)
 
 **Vulnerability Description**:
 
-Claude API keys are stored in plaintext in browser localStorage:
+Claude API keys were stored in plaintext in browser localStorage.
 
-```javascript
-const STORAGE_API_KEY = 'claude_api_key';
-
-function saveApiKey() {
-    const apiKey = document.getElementById('api-key').value.trim();
-    localStorage.setItem(STORAGE_API_KEY, apiKey);  // ❌ Plaintext, accessible to XSS
-}
-```
-
-**Issues**:
-1. localStorage is accessible to ANY JavaScript on the domain (including XSS vectors)
-2. localStorage persists across browser sessions and is NOT cleared on logout
-3. API keys should never be stored client-side
-
-**Recommended Fix**:
-- Remove localStorage storage of API keys entirely
-- Store API key server-side in encrypted form
-- Client requests server to make API calls on its behalf
-- Or use short-lived tokens with proper invalidation
+**Fix Applied**: API keys moved to server-side AES-256-GCM encrypted storage in `merchant_settings.claude_api_key_encrypted` (migration 039). localStorage now only stores non-sensitive config (context, keywords, tone). Key never returned to frontend — only a boolean `hasKey` status endpoint exists.
 
 ---
 
@@ -291,44 +265,38 @@ return crypto.timingSafeEqual(
 ### HIGH-4: In-Memory Global State Won't Scale
 
 **Severity**: HIGH
+**Status**: OPEN — Tracked as BACKLOG-9 in TECHNICAL_DEBT.md
 **Files**:
-- `services/sync-queue.js:26-37` - In-memory Map for sync coordination
-- `services/webhook-handlers/order-handler.js:43-68` - Debounce state
+- `services/sync-queue.js:26-37` - In-memory Map for sync coordination (partially persisted to DB)
+- `services/webhook-handlers/order-handler.js:43-68` - Debounce state + metrics (entirely in-memory)
 
-**Issue**: Each instance has its own state - no coordination across instances.
+**Issue**: Each instance has its own state - no coordination across instances. On PM2 restart, active debounce timers and metrics are lost. Acceptable for single-instance but blocks multi-instance scaling.
 
-**Fix**: Use Redis for shared state or database-backed coordination.
+**Planned Fix**: Add startup recovery for committed inventory sync; flush stats on SIGTERM; document design decision. Full Redis migration deferred to pre-franchise. See BACKLOG-9.
 
 ---
 
 ### HIGH-5: Missing Permissions-Policy Header
 
 **Severity**: HIGH
-**File**: `middleware/security.js`
+**Status**: FIXED (2026-02-05) — Verified 2026-02-11
+**File**: `middleware/security.js` (lines 287-304)
 
 **Issue**: Permissions-Policy header not configured, allowing access to sensitive browser features.
 
-**Fix**: Add to Helmet configuration:
-```javascript
-permissionsPolicy: {
-    features: {
-        geolocation: ["'none'"],
-        camera: ["'none'"],
-        microphone: ["'none'"],
-    }
-}
-```
+**Fix Applied**: Custom `configurePermissionsPolicy()` middleware sets header restricting geolocation, camera, microphone, payment, and usb. Applied in `server.js:118` alongside Helmet.
 
 ---
 
 ### HIGH-6: webhook_events Table Wrong merchant_id Type
 
 **Severity**: HIGH
-**File**: Schema definition for `webhook_events`
+**Status**: FIXED (2026-02-05) — Verified 2026-02-11
+**File**: Schema definition for `webhook_events`, migration 041
 
-**Issue**: `merchant_id` is `TEXT` instead of `INTEGER` with foreign key constraint.
+**Issue**: `merchant_id` was `TEXT` instead of `INTEGER` with foreign key constraint.
 
-**Fix**: Migration to change column type and add FK constraint.
+**Fix Applied**: Migration 041 renamed old column to `square_merchant_id` (TEXT), added new `merchant_id INTEGER REFERENCES merchants(id)` with FK constraint and index. Existing data backfilled. Webhook processor now resolves Square merchant ID to internal integer ID before storing.
 
 ---
 
@@ -513,6 +481,7 @@ The codebase demonstrates many security best practices:
 | Date | Version | Changes |
 |------|---------|---------|
 | 2026-02-05 | 1.0 | Initial comprehensive audit |
+| 2026-02-11 | 1.1 | Verified CRIT-1, CRIT-4, HIGH-5, HIGH-6 fixes; updated HIGH-4 status to OPEN with BACKLOG-9 tracking |
 
 ---
 

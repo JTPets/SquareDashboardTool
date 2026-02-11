@@ -266,6 +266,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
 | Low | BACKLOG-7 | Loyalty audit job per-event Square API calls |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
+| Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) |
 
 #### BACKLOG-6: Consolidate Square Discount Cleanup Code
 

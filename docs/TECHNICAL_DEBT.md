@@ -895,6 +895,45 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 
 ---
 
+### BACKLOG-9: In-Memory Global State — PM2 Restart Recovery
+**Identified**: 2026-02-11 (from CODE_AUDIT_REPORT HIGH-4)
+**Priority**: Low (single instance), High (pre-franchise)
+**Status**: Plan approved, ready to implement
+**Target**: TBD
+
+**Problem**: Three in-memory state objects in `order-handler.js` and two in `sync-queue.js` are lost on PM2 restart. The debounce Map (`pendingCommittedSyncs`) holds active setTimeout timers for committed inventory sync batching — if PM2 restarts during the 60-second debounce window, the scheduled sync never fires.
+
+**Current impact**: Minimal for single-instance. Next webhook re-triggers within minutes, and smart sync cron catches it within 1 hour. No data corruption, just a skipped sync.
+
+**Scaling impact**: Multi-instance PM2 (franchise) breaks debounce entirely — each instance debounces independently, losing deduplication benefit.
+
+**State inventory**:
+
+| State | File:Line | Persisted? | Lost on Restart? |
+|-------|-----------|-----------|-----------------|
+| `pendingCommittedSyncs` Map | `order-handler.js:58` | No | Yes — active timers lost |
+| `webhookOrderStats` | `order-handler.js:43-47` | No | Yes — metrics reset (informational) |
+| `committedSyncStats` | `order-handler.js:63-68` | No | Yes — metrics reset (informational) |
+| `catalogPending` | `sync-queue.js:30` | No | Yes — webhooks re-trigger naturally |
+| `inventoryPending` | `sync-queue.js:34` | No | Yes — webhooks re-trigger naturally |
+
+**Planned fix (single-instance)**:
+1. **Startup recovery**: After PM2 restart, trigger one committed inventory sync per active merchant to catch anything missed during the debounce window
+2. **SIGTERM handler**: Flush metrics to log on graceful shutdown so stats aren't silently lost
+3. **Design decision comment**: Document in `order-handler.js` why in-memory is acceptable for single-instance
+
+**Future fix (pre-franchise)**:
+- Move debounce state to Redis for cross-instance coordination
+- Or use PostgreSQL advisory locks for sync deduplication
+
+**Files to modify**:
+- `services/webhook-handlers/order-handler.js` — startup recovery, SIGTERM handler, comments
+- `server.js` — call recovery function after startup
+
+**Audit date**: 2026-02-11
+
+---
+
 ## Previous Achievements
 
 These items are COMPLETE and should not regress:
