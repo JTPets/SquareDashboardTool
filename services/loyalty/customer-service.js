@@ -524,8 +524,9 @@ class LoyaltyCustomerService {
     });
 
     // Collect catalog_object_ids from order discounts
+    // Handle both snake_case (webhook) and camelCase (SDK) field names
     const catalogObjectIds = discounts
-      .map(d => d.catalog_object_id)
+      .map(d => d.catalog_object_id || d.catalogObjectId)
       .filter(Boolean);
 
     if (catalogObjectIds.length === 0) {

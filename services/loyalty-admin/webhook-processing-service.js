@@ -215,7 +215,8 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
     // derive the customer from the reward record (local DB, no API calls)
     if (!squareCustomerId) {
         const discounts = order.discounts || [];
-        const catalogObjectIds = discounts.map(d => d.catalog_object_id).filter(Boolean);
+        // Handle both snake_case (webhook) and camelCase (SDK) field names
+        const catalogObjectIds = discounts.map(d => d.catalog_object_id || d.catalogObjectId).filter(Boolean);
 
         if (catalogObjectIds.length > 0) {
             loyaltyLogger.customer({

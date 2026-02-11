@@ -429,8 +429,8 @@ class LoyaltyWebhookService {
    */
   async processLineItem(lineItem, order, customerId, qualifyingVariationIds, traceId, redemptionContext = null) {
     // Prefer catalog_object_id (Square's standard field for catalog items)
-    // Fall back to variation_id only if catalog_object_id is not available
-    const variationId = lineItem.catalog_object_id || lineItem.variation_id;
+    // Handle both snake_case (webhook) and camelCase (SDK v43+) field names
+    const variationId = lineItem.catalog_object_id || lineItem.catalogObjectId || lineItem.variation_id;
     const quantity = parseInt(lineItem.quantity, 10) || 0;
 
     // Log if we had to use fallback (might indicate API version mismatch)
