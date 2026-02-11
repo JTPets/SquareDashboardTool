@@ -32,6 +32,7 @@ const CatalogHandler = require('./catalog-handler');
 const InventoryHandler = require('./inventory-handler');
 const OrderHandler = require('./order-handler');
 const LoyaltyHandler = require('./loyalty-handler');
+const CustomerHandler = require('./customer-handler');
 
 // Import shared dependencies
 const syncQueue = require('../sync-queue');
@@ -43,6 +44,7 @@ const catalogHandler = new CatalogHandler(syncQueue);
 const inventoryHandler = new InventoryHandler(syncQueue);
 const orderHandler = new OrderHandler();
 const loyaltyHandler = new LoyaltyHandler();
+const customerHandler = new CustomerHandler();
 
 /**
  * Handler registry mapping event types to handler methods.
@@ -55,9 +57,10 @@ const handlers = {
     'invoice.payment_made': (ctx) => subscriptionHandler.handleInvoicePaymentMade(ctx),
     'invoice.payment_failed': (ctx) => subscriptionHandler.handleInvoicePaymentFailed(ctx),
 
-    // Customer events (subscription-related)
+    // Customer events
     'customer.deleted': (ctx) => subscriptionHandler.handleCustomerDeleted(ctx),
-    'customer.updated': (ctx) => catalogHandler.handleCustomerUpdated(ctx),
+    'customer.created': (ctx) => customerHandler.handleCustomerChange(ctx),
+    'customer.updated': (ctx) => customerHandler.handleCustomerChange(ctx),
 
     // Catalog events
     'catalog.version.updated': (ctx) => catalogHandler.handleCatalogVersionUpdated(ctx),
@@ -159,5 +162,6 @@ module.exports = {
     catalogHandler,
     inventoryHandler,
     orderHandler,
-    loyaltyHandler
+    loyaltyHandler,
+    customerHandler
 };

@@ -19,6 +19,7 @@ const { runScheduledExpiryDiscount } = require('./expiry-discount-job');
 const { runScheduledLoyaltyCatchup } = require('./loyalty-catchup-job');
 const { runScheduledLoyaltyAudit } = require('./loyalty-audit-job');
 const { runScheduledCartActivityCleanup } = require('./cart-activity-cleanup-job');
+const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors-day-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -106,6 +107,15 @@ function initializeCronJobs() {
     }));
     logger.info('Cart activity cleanup cron job scheduled', { schedule: cartActivityCleanupSchedule, timezone: 'America/Toronto' });
 
+    // 11. Seniors Day discount management
+    // Runs daily at 6 AM to check if pricing rule should be enabled/disabled
+    // 1st of month: age sweep + enable, 2nd: disable, other days: verify state
+    const seniorsSchedule = process.env.SENIORS_DISCOUNT_CRON || '0 6 * * *';
+    cronTasks.push(cron.schedule(seniorsSchedule, runScheduledSeniorsDiscount, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Seniors discount cron job scheduled', { schedule: seniorsSchedule, timezone: 'America/Toronto' });
+
     return cronTasks;
 }
 
@@ -144,6 +154,12 @@ async function runStartupTasks() {
     // Run startup batch check asynchronously (don't block server startup)
     setImmediate(async () => {
         await runStartupBatchCheck();
+    });
+
+    // Verify seniors pricing rule state on startup
+    // Corrects if server was offline during a scheduled enable/disable
+    setImmediate(async () => {
+        await verifyStateOnStartup();
     });
 }
 

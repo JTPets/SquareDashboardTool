@@ -1,0 +1,401 @@
+/**
+ * Seniors Day Discount Job
+ *
+ * Daily cron job that manages the seniors discount pricing rule:
+ * - 1st of month: Run age sweep, then enable pricing rule
+ * - 2nd of month: Disable pricing rule
+ * - All other days: Verify state matches expectations, auto-correct if needed
+ *
+ * Uses America/Toronto timezone for all date calculations.
+ *
+ * @module jobs/seniors-day-job
+ */
+
+const db = require('../utils/database');
+const logger = require('../utils/logger');
+const emailNotifier = require('../utils/email-notifier');
+const { SeniorsService } = require('../services/seniors');
+const { isSenior, calculateAge } = require('../services/seniors/age-calculator');
+const { SENIORS_DISCOUNT, SYNC } = require('../config/constants');
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+
+/**
+ * Get today's date components in America/Toronto timezone
+ * @returns {{ dayOfMonth: number, dateStr: string }}
+ */
+function getTodayToronto() {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+    const dayOfMonth = parseInt(dateStr.split('-')[2], 10);
+    return { dayOfMonth, dateStr };
+}
+
+/**
+ * Sleep for a given number of milliseconds
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Get merchants with seniors discount configured and enabled
+ * @returns {Promise<Array<{id: number, business_name: string}>>}
+ */
+async function getMerchantsWithSeniorsConfig() {
+    const result = await db.query(
+        `SELECT m.id, m.business_name
+         FROM merchants m
+         JOIN seniors_discount_config sdc ON sdc.merchant_id = m.id
+         WHERE m.is_active = TRUE
+           AND m.square_access_token IS NOT NULL
+           AND sdc.is_enabled = TRUE
+           AND sdc.square_pricing_rule_id IS NOT NULL`
+    );
+    return result.rows;
+}
+
+/**
+ * Enable pricing rule with retry logic
+ * @param {SeniorsService} service - Initialized seniors service
+ * @param {number} merchantId
+ * @returns {Promise<Object>} Enable result
+ */
+async function enableWithRetry(service, merchantId) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const result = await service.enablePricingRule();
+
+            // Verify it actually took effect
+            const verification = await service.verifyPricingRuleState(true);
+            if (!verification.verified) {
+                throw new Error(
+                    `Enable verification failed: expected enabled, got ${verification.actual}`
+                );
+            }
+
+            return result;
+        } catch (error) {
+            logger.warn('Seniors pricing rule enable attempt failed', {
+                merchantId, attempt, maxRetries: MAX_RETRIES,
+                error: error.message,
+            });
+
+            if (attempt === MAX_RETRIES) {
+                throw error;
+            }
+            await sleep(RETRY_DELAY_MS * attempt);
+        }
+    }
+}
+
+/**
+ * Disable pricing rule with retry logic
+ * @param {SeniorsService} service - Initialized seniors service
+ * @param {number} merchantId
+ * @returns {Promise<Object>} Disable result
+ */
+async function disableWithRetry(service, merchantId) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const result = await service.disablePricingRule();
+
+            // Verify it actually took effect
+            const verification = await service.verifyPricingRuleState(false);
+            if (!verification.verified) {
+                throw new Error(
+                    `Disable verification failed: expected disabled, got ${verification.actual}`
+                );
+            }
+
+            return result;
+        } catch (error) {
+            logger.warn('Seniors pricing rule disable attempt failed', {
+                merchantId, attempt, maxRetries: MAX_RETRIES,
+                error: error.message,
+            });
+
+            if (attempt === MAX_RETRIES) {
+                throw error;
+            }
+            await sleep(RETRY_DELAY_MS * attempt);
+        }
+    }
+}
+
+/**
+ * Run monthly age sweep — find customers who newly qualify as seniors
+ * Processes in batches with rate-limit throttling
+ * @param {SeniorsService} service - Initialized seniors service
+ * @param {number} merchantId
+ * @returns {Promise<Object>} Sweep results
+ */
+async function runAgeSweep(service, merchantId) {
+    const config = service.getConfig();
+    const minAge = config?.min_age || SENIORS_DISCOUNT.MIN_AGE;
+    const batchSize = 100;
+    let offset = 0;
+    let customersAdded = 0;
+    let customersRemoved = 0;
+    let customersChecked = 0;
+
+    while (true) {
+        const batch = await db.query(
+            `SELECT lc.square_customer_id, lc.birthday
+             FROM loyalty_customers lc
+             WHERE lc.merchant_id = $1 AND lc.birthday IS NOT NULL
+             ORDER BY lc.square_customer_id
+             LIMIT $2 OFFSET $3`,
+            [merchantId, batchSize, offset]
+        );
+
+        if (batch.rows.length === 0) break;
+
+        for (const row of batch.rows) {
+            customersChecked++;
+            const eligible = isSenior(row.birthday, minAge);
+            const membership = await service.getMembership(row.square_customer_id);
+            const isCurrentlyMember = membership?.is_active === true;
+
+            if (eligible && !isCurrentlyMember) {
+                const age = calculateAge(row.birthday);
+                await service.addCustomerToSeniorsGroup(
+                    row.square_customer_id, row.birthday, age
+                );
+                customersAdded++;
+            } else if (!eligible && isCurrentlyMember) {
+                await service.removeCustomerFromSeniorsGroup(row.square_customer_id);
+                customersRemoved++;
+            }
+        }
+
+        offset += batchSize;
+
+        // Throttle between batches to avoid rate limits
+        if (batch.rows.length === batchSize) {
+            await sleep(SYNC.BATCH_DELAY_MS);
+        }
+    }
+
+    if (customersAdded > 0 || customersRemoved > 0) {
+        await service.logAudit('AGE_SWEEP', null, {
+            customersChecked, customersAdded, customersRemoved,
+        }, 'CRON');
+
+        logger.info('Seniors age sweep completed', {
+            merchantId, customersChecked, customersAdded, customersRemoved,
+        });
+    }
+
+    return { customersChecked, customersAdded, customersRemoved };
+}
+
+/**
+ * Run seniors discount check for a single merchant
+ * @param {number} merchantId
+ * @param {string} businessName
+ * @returns {Promise<Object>} Result for this merchant
+ */
+async function runSeniorsDiscountForMerchant(merchantId, businessName) {
+    const { dayOfMonth } = getTodayToronto();
+    const seniorsDayOfMonth = SENIORS_DISCOUNT.DAY_OF_MONTH;
+
+    const service = new SeniorsService(merchantId);
+    await service.initialize();
+
+    const result = {
+        merchantId,
+        businessName,
+        dayOfMonth,
+        action: 'none',
+    };
+
+    if (dayOfMonth === seniorsDayOfMonth) {
+        // 1st of month: sweep then enable
+        result.ageSweep = await runAgeSweep(service, merchantId);
+        await enableWithRetry(service, merchantId);
+        result.action = 'enabled';
+
+        await service.logAudit('PRICING_RULE_ENABLED', null, {
+            date: getTodayToronto().dateStr,
+            ageSweep: result.ageSweep,
+        }, 'CRON');
+
+    } else if (dayOfMonth === seniorsDayOfMonth + 1) {
+        // 2nd of month: disable
+        await disableWithRetry(service, merchantId);
+        result.action = 'disabled';
+
+        await service.logAudit('PRICING_RULE_DISABLED', null, {
+            date: getTodayToronto().dateStr,
+        }, 'CRON');
+
+    } else {
+        // All other days: verify state is correct (should be disabled)
+        const verification = await service.verifyPricingRuleState(false);
+        if (!verification.verified) {
+            logger.warn('Seniors pricing rule state mismatch, auto-correcting', {
+                merchantId, ...verification,
+            });
+            await disableWithRetry(service, merchantId);
+            result.action = 'auto_corrected';
+
+            await service.logAudit('PRICING_RULE_DISABLED', null, {
+                date: getTodayToronto().dateStr,
+                reason: 'auto_correction',
+                previousState: verification.actual,
+            }, 'CRON');
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Run seniors discount check for all configured merchants
+ * @returns {Promise<Object>} Results for all merchants
+ */
+async function runSeniorsDiscountForAllMerchants() {
+    const merchants = await getMerchantsWithSeniorsConfig();
+
+    if (merchants.length === 0) {
+        logger.info('No merchants configured for seniors discount');
+        return { merchantCount: 0, results: [] };
+    }
+
+    logger.info('Running seniors discount check', {
+        merchantCount: merchants.length,
+        dayOfMonth: getTodayToronto().dayOfMonth,
+    });
+
+    const results = [];
+    for (const merchant of merchants) {
+        try {
+            const result = await runSeniorsDiscountForMerchant(
+                merchant.id, merchant.business_name
+            );
+            results.push(result);
+        } catch (error) {
+            logger.error('Seniors discount check failed for merchant', {
+                merchantId: merchant.id,
+                businessName: merchant.business_name,
+                error: error.message,
+                stack: error.stack,
+            });
+
+            // Alert on final failure (retries exhausted)
+            try {
+                await emailNotifier.sendAlert(
+                    `Seniors Discount Failed - ${merchant.business_name}`,
+                    `Failed to manage seniors pricing rule:\n\n` +
+                    `Merchant: ${merchant.business_name} (${merchant.id})\n` +
+                    `Day: ${getTodayToronto().dateStr}\n` +
+                    `Error: ${error.message}\n\n` +
+                    `Stack: ${error.stack}`
+                );
+            } catch (emailError) {
+                logger.error('Failed to send seniors discount alert email', {
+                    error: emailError.message,
+                });
+            }
+
+            results.push({
+                merchantId: merchant.id,
+                businessName: merchant.business_name,
+                error: error.message,
+            });
+        }
+    }
+
+    return { merchantCount: merchants.length, results };
+}
+
+/**
+ * Verify pricing rule state on startup — auto-correct if mismatched
+ * Called during cron initialization to handle cases where
+ * the server was offline during a scheduled enable/disable
+ * @returns {Promise<void>}
+ */
+async function verifyStateOnStartup() {
+    try {
+        const merchants = await getMerchantsWithSeniorsConfig();
+        if (merchants.length === 0) return;
+
+        const { dayOfMonth } = getTodayToronto();
+        const seniorsDayOfMonth = SENIORS_DISCOUNT.DAY_OF_MONTH;
+
+        // Expected state: enabled only on seniors day, disabled otherwise
+        const expectedEnabled = dayOfMonth === seniorsDayOfMonth;
+
+        for (const merchant of merchants) {
+            try {
+                const service = new SeniorsService(merchant.id);
+                await service.initialize();
+
+                const verification = await service.verifyPricingRuleState(expectedEnabled);
+                if (!verification.verified) {
+                    logger.warn('Seniors pricing rule state mismatch on startup, correcting', {
+                        merchantId: merchant.id, ...verification,
+                    });
+
+                    if (expectedEnabled) {
+                        await enableWithRetry(service, merchant.id);
+                    } else {
+                        await disableWithRetry(service, merchant.id);
+                    }
+
+                    await service.logAudit(
+                        expectedEnabled ? 'PRICING_RULE_ENABLED' : 'PRICING_RULE_DISABLED',
+                        null,
+                        { reason: 'startup_correction', previousState: verification.actual },
+                        'CRON'
+                    );
+                }
+            } catch (error) {
+                logger.error('Seniors startup state check failed for merchant', {
+                    merchantId: merchant.id, error: error.message,
+                });
+            }
+        }
+    } catch (error) {
+        logger.error('Seniors startup state verification failed', {
+            error: error.message,
+        });
+    }
+}
+
+/**
+ * Cron job entry point — wraps with error handling
+ * @returns {Promise<void>}
+ */
+async function runScheduledSeniorsDiscount() {
+    try {
+        await runSeniorsDiscountForAllMerchants();
+    } catch (error) {
+        logger.error('Scheduled seniors discount check failed', {
+            error: error.message, stack: error.stack,
+        });
+        try {
+            await emailNotifier.sendAlert(
+                'Seniors Discount Automation Failed',
+                `Failed to run scheduled seniors discount check:\n\n` +
+                `${error.message}\n\nStack: ${error.stack}`
+            );
+        } catch (emailError) {
+            logger.error('Failed to send seniors discount failure alert', {
+                error: emailError.message,
+            });
+        }
+    }
+}
+
+module.exports = {
+    runSeniorsDiscountForMerchant,
+    runSeniorsDiscountForAllMerchants,
+    runScheduledSeniorsDiscount,
+    verifyStateOnStartup,
+    getMerchantsWithSeniorsConfig,
+};

@@ -1,8 +1,7 @@
 /**
  * Catalog Webhook Handler
  *
- * Handles Square webhook events related to catalog, vendors, locations,
- * and customer updates (delivery note sync).
+ * Handles Square webhook events related to catalog, vendors, and locations.
  *
  * Event types handled:
  * - catalog.version.updated
@@ -10,7 +9,8 @@
  * - vendor.updated
  * - location.created
  * - location.updated
- * - customer.updated
+ *
+ * Note: customer.created/updated events are handled by customer-handler.js
  *
  * @module services/webhook-handlers/catalog-handler
  */
@@ -18,7 +18,6 @@
 const logger = require('../../utils/logger');
 const db = require('../../utils/database');
 const squareApi = require('../../utils/square-api');
-const loyaltyService = require('../../utils/loyalty-service');
 
 class CatalogHandler {
     /**
@@ -124,68 +123,6 @@ class CatalogHandler {
             } catch (error) {
                 logger.warn('Failed to update catalog version', { error: error.message });
             }
-        }
-
-        return result;
-    }
-
-    /**
-     * Handle customer.updated event
-     * Syncs customer notes to delivery orders and runs loyalty catchup
-     *
-     * @param {Object} context - Webhook context
-     * @returns {Promise<Object>} Result with sync details
-     */
-    async handleCustomerUpdated(context) {
-        const { data, merchantId, entityId } = context;
-        const result = { handled: true };
-
-        if (!data.customer || !merchantId) {
-            return result;
-        }
-
-        // Use entityId (canonical) with fallback to nested object
-        const customerId = entityId || data.customer.id;
-        const customerNote = data.customer.note || null;
-
-        // Update customer_note on all delivery orders for this customer
-        const updateResult = await db.query(
-            `UPDATE delivery_orders
-             SET customer_note = $1, updated_at = NOW()
-             WHERE merchant_id = $2 AND square_customer_id = $3`,
-            [customerNote, merchantId, customerId]
-        );
-
-        if (updateResult.rowCount > 0) {
-            logger.info('Customer notes synced via webhook', {
-                merchantId,
-                customerId,
-                ordersUpdated: updateResult.rowCount
-            });
-            result.customerNotes = {
-                customerId,
-                ordersUpdated: updateResult.rowCount
-            };
-        }
-
-        // Run loyalty catchup - customer phone/email might have changed,
-        // allowing us to link previously untracked orders
-        const catchupResult = await loyaltyService.runLoyaltyCatchup({
-            merchantId,
-            customerIds: [customerId],
-            periodDays: 1, // 24 hours - loyalty events happen same-day
-            maxCustomers: 1
-        });
-
-        if (catchupResult.ordersNewlyTracked > 0) {
-            logger.info('Loyalty catchup found untracked orders via customer.updated', {
-                customerId,
-                ordersNewlyTracked: catchupResult.ordersNewlyTracked
-            });
-            result.loyaltyCatchup = {
-                customerId,
-                ordersNewlyTracked: catchupResult.ordersNewlyTracked
-            };
         }
 
         return result;
