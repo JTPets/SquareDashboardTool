@@ -2147,8 +2147,8 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
                         weekly_avg_quantity, monthly_avg_quantity,
                         merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, NOW(),
-                            $4::decimal / $3, $5::decimal / $3,
+                    VALUES ($1, $2, $3::integer, $4, $5, $6, NOW(),
+                            $4::decimal / $3::decimal, $5::decimal / $3::decimal,
                             $4::decimal / ($3::decimal / 7),
                             $4::decimal / ($3::decimal / 30),
                             $7, NOW())
@@ -2156,10 +2156,10 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
                     DO UPDATE SET
                         total_quantity_sold = sales_velocity.total_quantity_sold + $4,
                         total_revenue_cents = sales_velocity.total_revenue_cents + $5,
-                        daily_avg_quantity = (sales_velocity.total_quantity_sold + $4) / $3,
-                        daily_avg_revenue_cents = (sales_velocity.total_revenue_cents + $5) / $3,
-                        weekly_avg_quantity = (sales_velocity.total_quantity_sold + $4) / ($3::decimal / 7),
-                        monthly_avg_quantity = (sales_velocity.total_quantity_sold + $4) / ($3::decimal / 30),
+                        daily_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / $3::decimal,
+                        daily_avg_revenue_cents = (sales_velocity.total_revenue_cents + $5)::decimal / $3::decimal,
+                        weekly_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / ($3::decimal / 7),
+                        monthly_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / ($3::decimal / 30),
                         period_end_date = NOW(),
                         updated_at = NOW()
                 `, [variationId, locationId, periodDays, quantity, revenue, periodStart, merchantId]);
