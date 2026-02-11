@@ -84,11 +84,9 @@ POST /v2/customers/groups
 // Response: { "group": { "id": "GROUP_ID", "name": "Seniors (60+)" } }
 ```
 
-**Existing functions to leverage** (`services/loyalty-admin/loyalty-service.js`):
-- `createRewardCustomerGroup()` → lines 3500-3567
-- `addCustomerToGroup()` → lines 3590-3633
-- `removeCustomerFromGroup()` → lines 3657-3700
-- `deleteCustomerGroup()` → lines 3723-3766
+**Existing functions to leverage** (`services/loyalty-admin/square-discount-service.js`):
+- `addCustomerToGroup()` → Square Customer Group management
+- `removeCustomerFromGroup()` → Square Customer Group management
 
 **Modern equivalents** (`services/loyalty/square-client.js`):
 - `createCustomerGroup()` → line 355
@@ -800,7 +798,7 @@ if (customersAdded > 0 || customersRemoved > 0 || pricingRuleChanged) {
 
 ## References
 
-- Existing customer group pattern: `services/loyalty-admin/loyalty-service.js:3500-3766`
+- Existing customer group pattern: `services/loyalty-admin/square-discount-service.js`
 - Existing pricing rule pattern: `services/expiry/discount-service.js:948-1107`
 - Existing webhook handler: `services/webhook-handlers/catalog-handler.js:94-147`
 - Existing cron job pattern: `jobs/expiry-discount-job.js`

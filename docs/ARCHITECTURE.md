@@ -11,14 +11,14 @@
 ├── server.js                 # ~1,000 lines - route setup, middleware
 ├── config/constants.js       # Centralized configuration
 ├── database/
-│   ├── schema.sql            # 33+ tables
-│   └── migrations/           # 003-043
-├── routes/                   # 23 route modules (~250+ routes total)
+│   ├── schema.sql            # 51 tables
+│   └── migrations/           # 003-046
+├── routes/                   # 24 route modules (~257 routes total)
 ├── middleware/
 │   ├── auth.js               # Authentication middleware
 │   ├── merchant.js           # Multi-tenant context
 │   ├── security.js           # Rate limiting, CORS, CSP
-│   └── validators/           # 20 validator modules
+│   └── validators/           # 24 validator modules
 ├── services/
 │   ├── webhook-processor.js  # Webhook routing
 │   ├── sync-queue.js         # Sync state (persisted to DB)
@@ -185,7 +185,7 @@ services/                     # Business logic services
 │   ├── loyalty-tracer.js     # Request tracing
 │   └── __tests__/            # 2,931 lines of tests
 │
-├── loyalty-admin/            # Modular loyalty admin (15 modules, 47 exports)
+├── loyalty-admin/            # Modular loyalty admin (15 modules, 53 exports)
 │   ├── index.js              # Public API (re-exports all modules)
 │   ├── constants.js          # RewardStatus, AuditActions, RedemptionTypes
 │   ├── shared-utils.js       # fetchWithTimeout, getSquareAccessToken
@@ -249,7 +249,7 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 15 modular services (47 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 15 modular services (53 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript

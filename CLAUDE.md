@@ -77,7 +77,7 @@ jobs/            → Background jobs and cron tasks
 #### Approved Violations
 | Date | File | Rule Broken | Reason |
 |------|------|-------------|--------|
-| 2026-01-29 | utils/database.js | 2,093 line function | SQL schema definition, not logic |
+| 2026-01-29 | utils/database.js | 2,397 line function | SQL schema definition, not logic |
 | 2026-01-29 | server.js | 1,006 lines | Express entry point, already reduced 66% |
 | 2026-01-29 | All LOW severity files | >300 lines | Stable code, refactor-on-touch policy |
 
@@ -174,7 +174,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 /home/user/SquareDashboardTool/
 ├── server.js            # Route setup, middleware (~1,000 lines)
 ├── config/constants.js  # Centralized configuration
-├── routes/              # 23 modules, ~250+ routes
+├── routes/              # 24 modules, ~257 routes
 ├── middleware/          # auth, merchant, security, validators/
 ├── services/            # Business logic
 │   ├── webhook-processor.js
@@ -191,7 +191,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Loyalty-Admin Module Structure
 
-The `services/loyalty-admin/` directory contains 15 modular services (47 exports). The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 15 modular services (53 exports). The legacy monolith has been fully eliminated.
 
 **Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
 
@@ -275,7 +275,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 - Reorder path uses DB-only with deferred rebuild
 
 **Files involved**:
-- `services/loyalty-admin/square-discount-service.js:deleteRewardDiscountObjects()` (lines 519-600)
+- `services/loyalty-admin/square-discount-service.js:deleteRewardDiscountObjects()` (lines 509-590)
 - `services/expiry/discount-service.js:upsertPricingRule()` (lines 948-1107)
 - `services/expiry/discount-service.js:clearExpiryDiscountForReorder()` (lines 1716-1823)
 
