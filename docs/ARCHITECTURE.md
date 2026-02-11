@@ -103,15 +103,47 @@ POST /api/webhooks/square
 ├─► Check idempotency (webhook_events table)
 ├─► Resolve merchant_id from square_merchant_id
 └─► Route to handler by event.type:
-    ├─► subscription-handler.js (subscription.*, invoice.*)
-    ├─► catalog-handler.js (catalog.*, vendor.*, location.*)
-    ├─► inventory-handler.js (inventory.count.updated)
+    ├─► subscription-handler.js (subscription.*, invoice.payment_made/failed)
+    ├─► catalog-handler.js (catalog.*, vendor.*, location.*, customer.created/updated)
+    ├─► inventory-handler.js (inventory.count.updated, invoice.* for committed inventory)
     ├─► order-handler.js (order.*, payment.*, refund.*)
     ├─► loyalty-handler.js (loyalty.*, gift_card.*)
     └─► oauth-handler.js (oauth.authorization.revoked)
 ```
 
 Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_SYNC`
+
+### Webhook Subscription Configuration
+
+Managed in `utils/square-webhooks.js`. Full audit completed 2026-02-11.
+
+**Currently subscribed**: 24 events across 6 categories (essential, loyalty, refunds, vendors, locations, subscriptions).
+
+**Planned additions** (BACKLOG-10/11):
+- 7 invoice lifecycle events for committed inventory (`invoice.created/updated/published/canceled/deleted/refunded/scheduled_charge_failed`)
+- `customer.created` for loyalty catchup gap
+
+**Not subscribed** (100+ events): No matching features for bookings, labor, terminals, disputes, payouts, bank accounts, cards, transfer orders, custom attributes, etc.
+
+See [TECHNICAL_DEBT.md — Square Webhook Subscription Audit](./TECHNICAL_DEBT.md#square-webhook-subscription-audit-2026-02-11) for the full audit.
+
+### Committed Inventory Architecture (Planned — BACKLOG-10)
+
+**Current**: Order webhooks → debounced full invoice resync via Square API (~11 API calls per sync)
+
+**Planned**: Invoice webhooks → per-invoice tracking table → local DB aggregate rebuild (0-1 API calls per event)
+
+```
+CURRENT FLOW (wasteful):
+order.created/updated → debouncedSyncCommittedInventory() → Square Invoice Search API
+                        → GET each invoice → GET each order → DELETE + INSERT all RESERVED_FOR_SALE
+
+PLANNED FLOW (efficient):
+invoice.created/updated → fetch order (1 API call) → upsert committed_inventory → rebuild aggregate
+invoice.canceled/deleted → delete from committed_inventory → rebuild aggregate (0 API calls)
+invoice.payment_made → check if fully paid → delete if PAID → rebuild aggregate (0 API calls)
+Daily 4 AM cron → full reconciliation (safety net, ~11 API calls once/day)
+```
 
 ---
 
@@ -360,3 +392,4 @@ Scheduled in `jobs/cron-scheduler.js`:
 | `cycle-count-job.js` | Daily 6 AM | Generate count batches |
 | `webhook-retry-job.js` | Every 5 min | Retry failed webhooks |
 | `expiry-discount-job.js` | Daily 5 AM | Apply expiry discounts |
+| *Planned: committed inventory reconciliation* | *Daily 4 AM* | *Safety net for BACKLOG-10* |

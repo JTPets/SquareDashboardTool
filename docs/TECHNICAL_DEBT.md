@@ -934,6 +934,203 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 
 ---
 
+### BACKLOG-10: Invoice-Driven Committed Inventory (Replace Order-Triggered Full Resync)
+**Identified**: 2026-02-11
+**Priority**: High (API optimization — eliminates ~100-200 Square API calls/day)
+**Status**: Plan complete, ready to implement
+**Target**: TBD
+
+**Problem**: Every `order.created`, `order.updated`, and `order.fulfillment.updated` webhook triggers `syncCommittedInventory()`, which:
+1. **DELETEs** all `RESERVED_FOR_SALE` rows for the merchant
+2. **Searches** all invoices via Square API (paginated, `POST /v2/invoices/search`)
+3. For each open invoice: **GETs** full invoice (1 API call) + **GETs** linked order (1 API call) for line items
+4. Rebuilds `RESERVED_FOR_SALE` from scratch
+
+With 5 open invoices = **~11 API calls per sync**. The 60-second debounce (P0-API-4) batches rapid webhooks, but a customer buying dog food at the register has zero bearing on which invoices are open — every order webhook wastes API calls on a full invoice resync.
+
+**Root cause**: Committed inventory is triggered by order webhooks instead of invoice lifecycle events.
+
+**Planned fix — 6 phases**:
+
+**Phase 1: Subscribe to invoice webhooks** (`utils/square-webhooks.js`)
+Add to `WEBHOOK_EVENT_TYPES.essential`:
+- `invoice.created` — new commitment
+- `invoice.updated` — line items or status changed
+- `invoice.published` — DRAFT becomes active
+- `invoice.canceled` — remove commitment
+- `invoice.deleted` — remove commitment (DRAFT only)
+- `invoice.refunded` — partial/full refund adjustments
+- `invoice.scheduled_charge_failed` — charge failed, commitment stays, alert merchant
+
+Also add `customer.created` to `WEBHOOK_EVENT_TYPES.loyalty` (closes loyalty tracking gap — see BACKLOG-11).
+
+**Phase 2: Create invoice webhook handlers** (`services/webhook-handlers/inventory-handler.js`)
+- `handleInvoiceChanged(ctx)` — for `invoice.created`, `invoice.updated`, `invoice.published`
+  - Extract `order_id` from webhook payload
+  - If status in `[DRAFT, UNPAID, SCHEDULED, PARTIALLY_PAID]`: fetch order (1 API call) for line items, upsert committed quantities
+  - If terminal status (`PAID`, `CANCELED`, `REFUNDED`): remove committed quantities for that invoice
+- `handleInvoiceClosed(ctx)` — for `invoice.canceled`, `invoice.deleted`
+  - Remove committed quantities for that invoice (0 API calls)
+- `handleInvoicePaymentMade(ctx)` — for `invoice.payment_made`
+  - Check if fully paid → remove commitment (0 API calls)
+
+**Phase 3: Per-invoice tracking table** (`database/migrations/0XX_committed_inventory.sql`)
+```sql
+CREATE TABLE committed_inventory (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    square_invoice_id TEXT NOT NULL,
+    square_order_id TEXT NOT NULL,
+    catalog_object_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    invoice_status TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id, square_invoice_id, catalog_object_id, location_id)
+);
+CREATE INDEX idx_committed_inv_merchant ON committed_inventory(merchant_id);
+```
+
+After any `committed_inventory` change, rebuild `RESERVED_FOR_SALE` aggregates from local DB (zero API calls):
+```sql
+DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE' AND merchant_id = $1;
+INSERT INTO inventory_counts (catalog_object_id, location_id, state, quantity, merchant_id)
+SELECT catalog_object_id, location_id, 'RESERVED_FOR_SALE', SUM(quantity), merchant_id
+FROM committed_inventory
+WHERE merchant_id = $1 AND invoice_status IN ('DRAFT','UNPAID','SCHEDULED','PARTIALLY_PAID')
+GROUP BY catalog_object_id, location_id, merchant_id;
+```
+
+**Phase 4: Remove order webhook trigger** (`services/webhook-handlers/order-handler.js`)
+- Remove `debouncedSyncCommittedInventory(merchantId)` calls from `handleOrderCreatedOrUpdated()` and `handleFulfillmentUpdated()`
+- Committed inventory now entirely invoice-webhook-driven
+
+**Phase 5: Daily reconciliation safety net** (`jobs/`)
+- Keep `syncCommittedInventory()` as daily cron (e.g., 4 AM)
+- Catches `FAILED` status (Square sends no webhook for this transition)
+- Catches any missed webhooks
+- 11 API calls once/day instead of every minute during business hours
+
+**Phase 6: Wire up handler registry** (`services/webhook-handlers/index.js`)
+- Register new invoice events → inventory handler methods
+- Update `invoice.payment_made` to call both subscription handler AND inventory handler
+
+**API call impact**:
+
+| Scenario | Current | After |
+|----------|---------|-------|
+| Regular order webhook (~20/day) | 11 calls per debounce fire | **0 calls** |
+| Invoice created (few/week) | N/A | **1 call** (fetch order) |
+| Invoice paid/canceled | N/A | **0 calls** (local DB) |
+| Daily reconciliation | N/A | **~11 calls** (safety net) |
+| **Daily total (typical)** | **~100-200 calls** | **~12-15 calls** |
+
+**Edge cases**:
+
+| Edge Case | Handled By |
+|-----------|------------|
+| Invoice → `FAILED` (no webhook) | Daily reconciliation |
+| Line items modified after creation | `invoice.updated` webhook |
+| Multiple invoices for same variation | Per-invoice tracking, aggregate SUM |
+| Webhook missed | Daily reconciliation |
+| First deploy (empty committed_inventory) | Run `syncCommittedInventory()` once to seed |
+
+**Files to modify**:
+
+| File | Change |
+|------|--------|
+| `database/migrations/0XX_committed_inventory.sql` | New table |
+| `utils/square-webhooks.js` | Add 7 invoice event types + `customer.created` |
+| `services/webhook-handlers/index.js` | Register invoice → inventory handlers |
+| `services/webhook-handlers/inventory-handler.js` | New invoice handler methods |
+| `services/webhook-handlers/order-handler.js` | Remove `debouncedSyncCommittedInventory()` calls |
+| `jobs/cron-scheduler.js` | Add daily committed inventory reconciliation |
+
+**Relationship to BACKLOG-9**: Once implemented, BACKLOG-9's `pendingCommittedSyncs` debounce Map becomes obsolete — the in-memory timer problem goes away entirely because order webhooks no longer trigger committed inventory sync.
+
+**Audit date**: 2026-02-11
+
+---
+
+### BACKLOG-11: Subscribe to `customer.created` Webhook (Loyalty Gap)
+**Identified**: 2026-02-11
+**Priority**: Medium (closes loyalty tracking gap)
+**Status**: Ready to implement (trivial change)
+**Target**: Implement alongside BACKLOG-10
+
+**Problem**: The app subscribes to `customer.updated` and `customer.deleted` but NOT `customer.created`. When a new customer is created and immediately places an order, the loyalty catchup logic that runs on `customer.updated` never fires for that first interaction. The customer's first order may not be attributed until a subsequent update event.
+
+**Fix**: Add `customer.created` to `WEBHOOK_EVENT_TYPES.loyalty` in `utils/square-webhooks.js` and wire to the existing `catalogHandler.handleCustomerUpdated(ctx)` handler (same catchup logic applies).
+
+**Files to modify**:
+- `utils/square-webhooks.js` — add `customer.created` to loyalty array
+- `services/webhook-handlers/index.js` — add `'customer.created': (ctx) => catalogHandler.handleCustomerUpdated(ctx)`
+
+**Audit date**: 2026-02-11
+
+---
+
+### Square Webhook Subscription Audit (2026-02-11)
+
+Full audit of all 140+ Square webhook event types against app features. Categorized into: already subscribed, should subscribe, and not needed.
+
+#### Currently Subscribed (24 events)
+
+| Category | Events | Handler |
+|----------|--------|---------|
+| Essential (6) | `order.created`, `order.updated`, `order.fulfillment.updated`, `catalog.version.updated`, `inventory.count.updated`, `oauth.authorization.revoked` | order, catalog, inventory, oauth |
+| Loyalty (7) | `loyalty.event.created`, `loyalty.account.created`, `loyalty.account.updated`, `payment.created`, `payment.updated`, `customer.updated`, `gift_card.customer_linked` | loyalty, order, catalog |
+| Refunds (2) | `refund.created`, `refund.updated` | order |
+| Vendors (2) | `vendor.created`, `vendor.updated` | catalog |
+| Locations (2) | `location.created`, `location.updated` | catalog |
+| Subscriptions (5) | `subscription.created`, `subscription.updated`, `invoice.payment_made`, `invoice.payment_failed`, `customer.deleted` | subscription |
+
+#### Should Subscribe — High Priority (8 events)
+
+| Event | Reason | Related Backlog |
+|-------|--------|----------------|
+| `invoice.created` | Committed inventory: new commitment | BACKLOG-10 |
+| `invoice.updated` | Committed inventory: status/line item changes | BACKLOG-10 |
+| `invoice.published` | Committed inventory: DRAFT → active | BACKLOG-10 |
+| `invoice.canceled` | Committed inventory: remove commitment | BACKLOG-10 |
+| `invoice.deleted` | Committed inventory: remove commitment (DRAFT) | BACKLOG-10 |
+| `invoice.refunded` | Committed inventory: refund adjustments | BACKLOG-10 |
+| `invoice.scheduled_charge_failed` | Commitment stays, merchant alerting | BACKLOG-10 |
+| `customer.created` | Loyalty catchup gap — first order missed | BACKLOG-11 |
+
+#### Should Subscribe — Medium Priority (5 events)
+
+| Event | Reason | Impact |
+|-------|--------|--------|
+| `loyalty.promotion.created` | Detect conflicts with custom reward system | Alerting |
+| `loyalty.promotion.updated` | Detect promotion activation/deactivation | Alerting |
+| `loyalty.account.deleted` | Clean up orphaned loyalty_customer_summary data | Data hygiene |
+| `gift_card.activity.created` | Better loyalty attribution for gift card purchases | Coverage |
+| `gift_card.created` | Inventory/catalog awareness of new gift cards | Minor |
+
+#### Not Needed — No Matching Feature (100+ events)
+
+| Category | Count | Reason |
+|----------|-------|--------|
+| Bookings (`booking.*`) | 15 | No booking/appointment feature |
+| Labor (`labor.*`) | 9 | No team scheduling |
+| Team Members (`team_member.*`) | 3 | No HR/team management |
+| Terminals (`terminal.*`) | 6 | No terminal device management |
+| Disputes (`dispute.*`) | 6 | No chargeback handling |
+| Payouts (`payout.*`) | 3 | No financial reporting |
+| Bank Accounts (`bank_account.*`) | 3 | No banking feature |
+| Cards (`card.*`) | 5 | Cards only for subscriptions, no lifecycle tracking needed |
+| Transfer Orders (`transfer_order.*`) | 3 | No multi-location transfers |
+| Online Checkout (`online_checkout.*`) | 2 | No checkout settings management |
+| Custom Attributes (`*.custom_attribute*`) | 40+ | Only reads brand from catalog (read-only) |
+| Jobs (`job.*`) | 2 | No Square Jobs feature |
+| Device Codes (`device.code.paired`) | 1 | No device management |
+| Gift Card misc (`gift_card.customer_unlinked`, `gift_card.updated`) | 2 | Extremely rare edge cases |
+
+**Summary**: Add 8 high-priority events (BACKLOG-10 + BACKLOG-11), consider 5 medium-priority events later. Skip 100+ events — no matching features exist.
+
+---
+
 ## Previous Achievements
 
 These items are COMPLETE and should not regress:
