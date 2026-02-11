@@ -7,6 +7,7 @@
  * 3. Loyalty API - Lookup via loyalty events by order_id
  * 4. Order Rewards - Lookup via Square Loyalty rewards on order
  * 5. Fulfillment Recipient - Search by phone/email from fulfillment
+ * 6. Loyalty Discount - Reverse-lookup from order discount catalog_object_id to loyalty_rewards
  */
 
 const db = require('../../utils/database');
@@ -101,6 +102,14 @@ class LoyaltyCustomerService {
       return fulfillmentResult;
     }
 
+    // Method 6: Reverse-lookup from loyalty discount on order
+    // If the order has a discount matching our loyalty_rewards catalog objects,
+    // we can derive the customer from the reward record (local DB, no API calls)
+    const discountResult = await this.identifyFromLoyaltyDiscount(order);
+    if (discountResult.success) {
+      return discountResult;
+    }
+
     // No customer found
     this.tracer?.span('CUSTOMER_NOT_IDENTIFIED');
     loyaltyLogger.customer({
@@ -112,6 +121,7 @@ class LoyaltyCustomerService {
         'LOYALTY_API',
         'ORDER_REWARDS',
         'FULFILLMENT_RECIPIENT',
+        'LOYALTY_DISCOUNT',
       ],
       merchantId: this.merchantId,
     });
@@ -481,6 +491,105 @@ class LoyaltyCustomerService {
         merchantId: this.merchantId,
       });
       return { customerId: null, method: 'FULFILLMENT_RECIPIENT', success: false };
+    }
+  }
+
+  /**
+   * Method 6: Identify customer from loyalty discount on order
+   * If order has a discount with catalog_object_id matching our loyalty_rewards,
+   * derive the customer from the reward record. Local DB query only.
+   * @private
+   */
+  async identifyFromLoyaltyDiscount(order) {
+    const orderId = order.id;
+    const discounts = order.discounts || [];
+
+    if (discounts.length === 0) {
+      loyaltyLogger.customer({
+        action: 'CUSTOMER_LOOKUP_SKIPPED',
+        orderId,
+        method: 'LOYALTY_DISCOUNT',
+        reason: 'no_discounts_on_order',
+        merchantId: this.merchantId,
+      });
+      return { customerId: null, method: 'LOYALTY_DISCOUNT', success: false };
+    }
+
+    loyaltyLogger.customer({
+      action: 'CUSTOMER_LOOKUP_ATTEMPT',
+      orderId,
+      method: 'LOYALTY_DISCOUNT',
+      discountCount: discounts.length,
+      merchantId: this.merchantId,
+    });
+
+    // Collect catalog_object_ids from order discounts
+    // Handle both snake_case (webhook) and camelCase (SDK) field names
+    const catalogObjectIds = discounts
+      .map(d => d.catalog_object_id || d.catalogObjectId)
+      .filter(Boolean);
+
+    if (catalogObjectIds.length === 0) {
+      loyaltyLogger.customer({
+        action: 'CUSTOMER_LOOKUP_FAILED',
+        orderId,
+        method: 'LOYALTY_DISCOUNT',
+        reason: 'no_catalog_discount_ids',
+        merchantId: this.merchantId,
+      });
+      return { customerId: null, method: 'LOYALTY_DISCOUNT', success: false };
+    }
+
+    try {
+      // Check if any discount matches our loyalty rewards
+      const rewardResult = await db.query(`
+        SELECT r.square_customer_id, r.id as reward_id, o.offer_name
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1
+          AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
+          AND r.status = 'earned'
+        LIMIT 1
+      `, [this.merchantId, catalogObjectIds]);
+
+      if (rewardResult.rows.length > 0) {
+        const { square_customer_id, reward_id, offer_name } = rewardResult.rows[0];
+        this.tracer?.span('CUSTOMER_IDENTIFIED', { method: 'LOYALTY_DISCOUNT' });
+        loyaltyLogger.customer({
+          action: 'CUSTOMER_LOOKUP_SUCCESS',
+          orderId,
+          method: 'LOYALTY_DISCOUNT',
+          customerId: square_customer_id,
+          rewardId: reward_id,
+          offerName: offer_name,
+          merchantId: this.merchantId,
+        });
+        return {
+          customerId: square_customer_id,
+          method: 'LOYALTY_DISCOUNT',
+          success: true,
+        };
+      }
+
+      loyaltyLogger.customer({
+        action: 'CUSTOMER_LOOKUP_FAILED',
+        orderId,
+        method: 'LOYALTY_DISCOUNT',
+        reason: 'no_matching_reward',
+        catalogObjectIds,
+        merchantId: this.merchantId,
+      });
+      return { customerId: null, method: 'LOYALTY_DISCOUNT', success: false };
+
+    } catch (error) {
+      loyaltyLogger.error({
+        action: 'CUSTOMER_LOOKUP_ERROR',
+        orderId,
+        method: 'LOYALTY_DISCOUNT',
+        error: error.message,
+        merchantId: this.merchantId,
+      });
+      return { customerId: null, method: 'LOYALTY_DISCOUNT', success: false };
     }
   }
 

@@ -210,12 +210,76 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
         }
     }
 
+    // Fallback 5: Reverse-lookup from loyalty discount on order
+    // If order has a discount matching our loyalty_rewards catalog objects,
+    // derive the customer from the reward record (local DB, no API calls)
+    if (!squareCustomerId) {
+        const discounts = order.discounts || [];
+        // Handle both snake_case (webhook) and camelCase (SDK) field names
+        const catalogObjectIds = discounts.map(d => d.catalog_object_id || d.catalogObjectId).filter(Boolean);
+
+        if (catalogObjectIds.length > 0) {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_ATTEMPT',
+                orderId: order.id,
+                method: 'LOYALTY_DISCOUNT',
+                discountCount: catalogObjectIds.length,
+                merchantId,
+            });
+
+            const rewardResult = await db.query(`
+                SELECT r.square_customer_id, r.id as reward_id, o.offer_name
+                FROM loyalty_rewards r
+                JOIN loyalty_offers o ON r.offer_id = o.id
+                WHERE r.merchant_id = $1
+                  AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
+                  AND r.status = 'earned'
+                LIMIT 1
+            `, [merchantId, catalogObjectIds]);
+
+            if (rewardResult.rows.length > 0) {
+                squareCustomerId = rewardResult.rows[0].square_customer_id;
+                customerSource = 'loyalty_discount';
+                loyaltyLogger.customer({
+                    action: 'CUSTOMER_LOOKUP_SUCCESS',
+                    orderId: order.id,
+                    method: 'LOYALTY_DISCOUNT',
+                    customerId: squareCustomerId,
+                    rewardId: rewardResult.rows[0].reward_id,
+                    offerName: rewardResult.rows[0].offer_name,
+                    merchantId,
+                });
+                logger.info('Found customer via loyalty discount reverse-lookup', {
+                    orderId: order.id,
+                    customerId: squareCustomerId,
+                    rewardId: rewardResult.rows[0].reward_id,
+                });
+            } else {
+                loyaltyLogger.customer({
+                    action: 'CUSTOMER_LOOKUP_FAILED',
+                    orderId: order.id,
+                    method: 'LOYALTY_DISCOUNT',
+                    reason: 'no_matching_reward',
+                    merchantId,
+                });
+            }
+        } else {
+            loyaltyLogger.customer({
+                action: 'CUSTOMER_LOOKUP_SKIPPED',
+                orderId: order.id,
+                method: 'LOYALTY_DISCOUNT',
+                reason: 'no_catalog_discount_ids',
+                merchantId,
+            });
+        }
+    }
+
     // No customer found through any method
     if (!squareCustomerId) {
         loyaltyLogger.customer({
             action: 'CUSTOMER_NOT_IDENTIFIED',
             orderId: order.id,
-            attemptedMethods: ['ORDER_CUSTOMER_ID', 'TENDER_CUSTOMER_ID', 'LOYALTY_API', 'ORDER_REWARDS', 'FULFILLMENT_RECIPIENT'],
+            attemptedMethods: ['ORDER_CUSTOMER_ID', 'TENDER_CUSTOMER_ID', 'LOYALTY_API', 'ORDER_REWARDS', 'FULFILLMENT_RECIPIENT', 'LOYALTY_DISCOUNT'],
             merchantId,
         });
         logger.debug('Order has no reliable customer identifier after all lookups', { orderId: order.id });

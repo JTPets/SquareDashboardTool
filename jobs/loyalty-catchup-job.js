@@ -18,6 +18,12 @@ const { FEATURE_FLAGS } = require('../config/constants');
 // Modern loyalty service
 const { LoyaltyWebhookService } = require('../services/loyalty');
 
+// Loyalty admin service (for redemption detection)
+const loyaltyService = require('../utils/loyalty-service');
+
+// SDK order normalization (camelCase → snake_case)
+const { normalizeSquareOrder } = require('../services/webhook-handlers/order-handler');
+
 /**
  * Get all merchants with active loyalty offers
  *
@@ -125,7 +131,8 @@ async function fetchRecentCompletedOrders(merchantId, hoursBack = 6) {
         });
 
         if (response.orders) {
-            orders.push(...response.orders);
+            // SDK v43+ returns camelCase — normalize to snake_case
+            orders.push(...response.orders.map(normalizeSquareOrder));
         }
 
         cursor = response.cursor;
@@ -200,6 +207,28 @@ async function processMerchantCatchup(merchant, hoursBack) {
                             merchantId
                         });
                     }
+
+                    // Check for reward redemption regardless of purchase processing result.
+                    // The webhook handler does this too (_processLoyalty line 873), but the
+                    // catchup job was missing it — orders with auto-applied loyalty discounts
+                    // but no customer_id would never get their redemption detected.
+                    try {
+                        const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+                        if (redemptionResult.detected) {
+                            logger.info('Loyalty catchup detected reward redemption', {
+                                orderId: order.id,
+                                rewardId: redemptionResult.rewardId,
+                                offerName: redemptionResult.offerName,
+                                merchantId
+                            });
+                        }
+                    } catch (redemptionError) {
+                        logger.error('Loyalty catchup redemption detection failed', {
+                            orderId: order.id,
+                            error: redemptionError.message,
+                            merchantId
+                        });
+                    }
                 } catch (orderError) {
                     results.ordersFailed++;
                     results.errors.push({
@@ -215,12 +244,30 @@ async function processMerchantCatchup(merchant, hoursBack) {
             }
         } else {
             // Legacy service path
-            const loyaltyService = require('../utils/loyalty-service');
+            const legacyLoyaltyService = require('../utils/loyalty-service');
             for (const order of unprocessedOrders) {
                 try {
-                    const result = await loyaltyService.processOrderForLoyalty(order, merchantId);
+                    const result = await legacyLoyaltyService.processOrderForLoyalty(order, merchantId);
                     if (result.processed) {
                         results.ordersProcessed++;
+                    }
+
+                    // Check for reward redemption (same gap as modern path)
+                    try {
+                        const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+                        if (redemptionResult.detected) {
+                            logger.info('Loyalty catchup detected reward redemption (legacy)', {
+                                orderId: order.id,
+                                rewardId: redemptionResult.rewardId,
+                                merchantId
+                            });
+                        }
+                    } catch (redemptionError) {
+                        logger.error('Loyalty catchup redemption detection failed (legacy)', {
+                            orderId: order.id,
+                            error: redemptionError.message,
+                            merchantId
+                        });
                     }
                 } catch (orderError) {
                     results.ordersFailed++;
