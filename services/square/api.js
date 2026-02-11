@@ -2147,19 +2147,19 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
                         weekly_avg_quantity, monthly_avg_quantity,
                         merchant_id, updated_at
                     )
-                    VALUES ($1, $2, $3::integer, $4, $5, $6, NOW(),
+                    VALUES ($1, $2, $3::integer, $4::decimal, $5::integer, $6, NOW(),
                             $4::decimal / $3::decimal, $5::decimal / $3::decimal,
                             $4::decimal / ($3::decimal / 7),
                             $4::decimal / ($3::decimal / 30),
                             $7, NOW())
                     ON CONFLICT (variation_id, location_id, period_days, merchant_id)
                     DO UPDATE SET
-                        total_quantity_sold = sales_velocity.total_quantity_sold + $4,
-                        total_revenue_cents = sales_velocity.total_revenue_cents + $5,
-                        daily_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / $3::decimal,
-                        daily_avg_revenue_cents = (sales_velocity.total_revenue_cents + $5)::decimal / $3::decimal,
-                        weekly_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / ($3::decimal / 7),
-                        monthly_avg_quantity = (sales_velocity.total_quantity_sold + $4)::decimal / ($3::decimal / 30),
+                        total_quantity_sold = sales_velocity.total_quantity_sold + $4::decimal,
+                        total_revenue_cents = sales_velocity.total_revenue_cents + $5::integer,
+                        daily_avg_quantity = (sales_velocity.total_quantity_sold + $4::decimal) / $3::decimal,
+                        daily_avg_revenue_cents = (sales_velocity.total_revenue_cents + $5::integer)::decimal / $3::decimal,
+                        weekly_avg_quantity = (sales_velocity.total_quantity_sold + $4::decimal) / ($3::decimal / 7),
+                        monthly_avg_quantity = (sales_velocity.total_quantity_sold + $4::decimal) / ($3::decimal / 30),
                         period_end_date = NOW(),
                         updated_at = NOW()
                 `, [variationId, locationId, periodDays, quantity, revenue, periodStart, merchantId]);
