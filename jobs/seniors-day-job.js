@@ -45,16 +45,24 @@ function sleep(ms) {
  * @returns {Promise<Array<{id: number, business_name: string}>>}
  */
 async function getMerchantsWithSeniorsConfig() {
-    const result = await db.query(
-        `SELECT m.id, m.business_name
-         FROM merchants m
-         JOIN seniors_discount_config sdc ON sdc.merchant_id = m.id
-         WHERE m.is_active = TRUE
-           AND m.square_access_token IS NOT NULL
-           AND sdc.is_enabled = TRUE
-           AND sdc.square_pricing_rule_id IS NOT NULL`
-    );
-    return result.rows;
+    try {
+        const result = await db.query(
+            `SELECT m.id, m.business_name
+             FROM merchants m
+             JOIN seniors_discount_config sdc ON sdc.merchant_id = m.id
+             WHERE m.is_active = TRUE
+               AND m.square_access_token IS NOT NULL
+               AND sdc.is_enabled = TRUE
+               AND sdc.square_pricing_rule_id IS NOT NULL`
+        );
+        return result.rows;
+    } catch (error) {
+        // Table doesn't exist yet — migration not run
+        if (error.message?.includes('does not exist')) {
+            return [];
+        }
+        throw error;
+    }
 }
 
 /**
@@ -293,6 +301,11 @@ async function verifyStateOnStartup() {
             }
         }
     } catch (error) {
+        // Don't log error-level if tables simply don't exist yet
+        if (error.message?.includes('does not exist')) {
+            logger.info('Seniors discount tables not created yet — skipping startup check');
+            return;
+        }
         logger.error('Seniors startup state verification failed', {
             error: error.message,
         });
