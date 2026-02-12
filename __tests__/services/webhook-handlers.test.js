@@ -132,7 +132,7 @@ describe('Webhook Handlers Index', () => {
             const eventTypes = getRegisteredEventTypes();
 
             expect(Array.isArray(eventTypes)).toBe(true);
-            expect(eventTypes.length).toBe(25); // Total handlers registered
+            expect(eventTypes.length).toBe(26); // Total handlers registered
             expect(eventTypes).toContain('subscription.created');
             expect(eventTypes).toContain('order.created');
             expect(eventTypes).toContain('oauth.authorization.revoked');
