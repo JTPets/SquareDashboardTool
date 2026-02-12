@@ -33,7 +33,8 @@ const WEBHOOK_EVENT_TYPES = {
         'loyalty.account.updated',    // Loyalty account changed - catchup for customer's orders
         'payment.created',            // Payment tracking for loyalty
         'payment.updated',            // Payment completion for loyalty processing
-        'customer.updated',           // Customer info changed - catchup for linkable orders
+        'customer.created',           // New customer - catchup + seniors birthday check (BACKLOG-11)
+        'customer.updated',           // Customer info changed - catchup + seniors birthday check
         'gift_card.customer_linked'   // Gift card linked - catchup for gift card purchases
     ],
 

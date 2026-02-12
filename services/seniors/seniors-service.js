@@ -8,12 +8,20 @@
  * - Manages group membership based on age eligibility
  */
 
-const crypto = require('crypto');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { SENIORS_DISCOUNT } = require('../../config/constants');
 const { LoyaltySquareClient } = require('../loyalty/square-client');
 const { calculateAge, isSenior, parseBirthday, formatBirthday } = require('./age-calculator');
+
+/**
+ * Get today's date in YYYY-MM-DD format in America/Toronto timezone
+ * Uses en-CA locale which formats as YYYY-MM-DD natively
+ * @returns {string} Date string like "2026-02-11"
+ */
+function getTodayDateToronto() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+}
 
 /**
  * SeniorsService - Manages seniors discount for a merchant
@@ -262,6 +270,228 @@ class SeniorsService {
 
         this.config = result.rows[0];
     }
+
+    // ========================================================================
+    // Pricing Rule Management (called by cron job)
+    // ========================================================================
+
+    /**
+     * Enable the seniors pricing rule for today's date
+     * Sets valid_from_date and valid_until_date to today (America/Toronto)
+     * @returns {Promise<Object>} Result with date and verified flag
+     */
+    async enablePricingRule() {
+        const pricingRuleId = this.config?.square_pricing_rule_id;
+        if (!pricingRuleId) {
+            throw new Error('Seniors discount not configured — no pricing rule ID');
+        }
+
+        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+        if (!currentObject) {
+            throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
+        }
+
+        const today = getTodayDateToronto();
+
+        const updatedObject = {
+            type: 'PRICING_RULE',
+            id: pricingRuleId,
+            version: currentObject.version,
+            pricing_rule_data: {
+                ...currentObject.pricing_rule_data,
+                valid_from_date: today,
+                valid_until_date: today,
+            },
+        };
+
+        const idempotencyKey = `seniors-enable-${this.merchantId}-${Date.now()}`;
+        await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+
+        await db.query(
+            `UPDATE seniors_discount_config
+             SET last_enabled_at = NOW(), updated_at = NOW()
+             WHERE merchant_id = $1`,
+            [this.merchantId]
+        );
+        await this.loadConfig();
+
+        logger.info('Seniors pricing rule enabled', {
+            merchantId: this.merchantId,
+            date: today,
+            pricingRuleId,
+        });
+
+        return { enabled: true, date: today, pricingRuleId };
+    }
+
+    /**
+     * Disable the seniors pricing rule by setting dates to a past date
+     * @returns {Promise<Object>} Result with verified flag
+     */
+    async disablePricingRule() {
+        const pricingRuleId = this.config?.square_pricing_rule_id;
+        if (!pricingRuleId) {
+            throw new Error('Seniors discount not configured — no pricing rule ID');
+        }
+
+        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+        if (!currentObject) {
+            throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
+        }
+
+        const pastDate = '2020-01-01';
+
+        const updatedObject = {
+            type: 'PRICING_RULE',
+            id: pricingRuleId,
+            version: currentObject.version,
+            pricing_rule_data: {
+                ...currentObject.pricing_rule_data,
+                valid_from_date: pastDate,
+                valid_until_date: pastDate,
+            },
+        };
+
+        const idempotencyKey = `seniors-disable-${this.merchantId}-${Date.now()}`;
+        await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+
+        await db.query(
+            `UPDATE seniors_discount_config
+             SET last_disabled_at = NOW(), updated_at = NOW()
+             WHERE merchant_id = $1`,
+            [this.merchantId]
+        );
+        await this.loadConfig();
+
+        logger.info('Seniors pricing rule disabled', {
+            merchantId: this.merchantId,
+            pricingRuleId,
+        });
+
+        return { enabled: false, pricingRuleId };
+    }
+
+    /**
+     * Verify the pricing rule state in Square matches expected state
+     * @param {boolean} expectedEnabled - True if rule should be active today
+     * @returns {Promise<Object>} Verification result with match flag
+     */
+    async verifyPricingRuleState(expectedEnabled) {
+        const pricingRuleId = this.config?.square_pricing_rule_id;
+        if (!pricingRuleId) {
+            return { verified: false, reason: 'not_configured' };
+        }
+
+        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+        if (!currentObject) {
+            return { verified: false, reason: 'not_found_in_square' };
+        }
+
+        const today = getTodayDateToronto();
+        const validUntil = currentObject.pricing_rule_data?.valid_until_date;
+        const isCurrentlyEnabled = validUntil >= today;
+
+        return {
+            verified: isCurrentlyEnabled === expectedEnabled,
+            expected: expectedEnabled ? 'enabled' : 'disabled',
+            actual: isCurrentlyEnabled ? 'enabled' : 'disabled',
+            validFromDate: currentObject.pricing_rule_data?.valid_from_date,
+            validUntilDate: validUntil,
+        };
+    }
+
+    // ========================================================================
+    // Local-Only Senior Status (no Square API calls)
+    // ========================================================================
+
+    /**
+     * Upsert senior status in local DB only (no Square API calls)
+     * Used by sweepLocalAges and can be called independently
+     * @param {string} squareCustomerId - Square customer ID
+     * @param {string} birthday - Birthday in YYYY-MM-DD format
+     * @returns {Promise<Object>} Status with isSenior flag and whether it changed
+     */
+    async upsertSeniorStatus(squareCustomerId, birthday) {
+        const minAge = this.config?.min_age || SENIORS_DISCOUNT.MIN_AGE;
+        const age = calculateAge(birthday);
+        const eligible = isSenior(birthday, minAge);
+
+        const existing = await this.getMembership(squareCustomerId);
+        const wasMember = existing?.is_active === true;
+        const changed = eligible !== wasMember;
+
+        if (eligible && !wasMember) {
+            await db.query(
+                `INSERT INTO seniors_group_members (
+                    merchant_id, square_customer_id, birthday, age_at_last_check, is_active
+                ) VALUES ($1, $2, $3, $4, TRUE)
+                ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
+                    birthday = EXCLUDED.birthday,
+                    age_at_last_check = EXCLUDED.age_at_last_check,
+                    is_active = TRUE,
+                    added_to_group_at = NOW(),
+                    removed_from_group_at = NULL`,
+                [this.merchantId, squareCustomerId, birthday, age]
+            );
+        } else if (!eligible && wasMember) {
+            await db.query(
+                `UPDATE seniors_group_members
+                 SET is_active = FALSE, removed_from_group_at = NOW(), age_at_last_check = $3
+                 WHERE square_customer_id = $1 AND merchant_id = $2`,
+                [squareCustomerId, this.merchantId, age]
+            );
+        } else if (existing) {
+            await db.query(
+                `UPDATE seniors_group_members
+                 SET age_at_last_check = $3, birthday = $4
+                 WHERE square_customer_id = $1 AND merchant_id = $2`,
+                [squareCustomerId, this.merchantId, age, birthday]
+            );
+        }
+
+        return { squareCustomerId, birthday, age, isSenior: eligible, changed };
+    }
+
+    /**
+     * Sweep all locally-stored birthdays and re-evaluate senior status
+     * Local DB only — no Square API calls. Updates seniors_group_members flags.
+     * @returns {Promise<Object>} Sweep results
+     */
+    async sweepLocalAges() {
+        const results = { customersChecked: 0, customersAdded: 0, customersRemoved: 0 };
+
+        const rows = await db.query(
+            `SELECT lc.square_customer_id, lc.birthday
+             FROM loyalty_customers lc
+             WHERE lc.merchant_id = $1 AND lc.birthday IS NOT NULL
+             ORDER BY lc.square_customer_id`,
+            [this.merchantId]
+        );
+
+        for (const row of rows.rows) {
+            results.customersChecked++;
+            const status = await this.upsertSeniorStatus(row.square_customer_id, row.birthday);
+
+            if (status.changed && status.isSenior) {
+                results.customersAdded++;
+            } else if (status.changed && !status.isSenior) {
+                results.customersRemoved++;
+            }
+        }
+
+        if (results.customersAdded > 0 || results.customersRemoved > 0) {
+            await this.logAudit('AGE_SWEEP', null, results, 'CRON');
+            logger.info('Seniors age sweep completed', {
+                merchantId: this.merchantId, ...results,
+            });
+        }
+
+        return results;
+    }
+
+    // ========================================================================
+    // Customer Birthday Handling (called by webhook handler)
+    // ========================================================================
 
     /**
      * Handle a customer birthday update (from webhook)

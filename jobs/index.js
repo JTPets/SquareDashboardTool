@@ -12,6 +12,7 @@ const webhookRetryJob = require('./webhook-retry-job');
 const syncJob = require('./sync-job');
 const expiryDiscountJob = require('./expiry-discount-job');
 const loyaltyCatchupJob = require('./loyalty-catchup-job');
+const seniorsDayJob = require('./seniors-day-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -46,6 +47,12 @@ module.exports = {
     runScheduledLoyaltyCatchup: loyaltyCatchupJob.runScheduledLoyaltyCatchup,
     processMerchantCatchup: loyaltyCatchupJob.processMerchantCatchup,
     getMerchantsWithLoyalty: loyaltyCatchupJob.getMerchantsWithLoyalty,
+
+    // Seniors day job
+    runSeniorsDiscountForMerchant: seniorsDayJob.runSeniorsDiscountForMerchant,
+    runSeniorsDiscountForAllMerchants: seniorsDayJob.runSeniorsDiscountForAllMerchants,
+    runScheduledSeniorsDiscount: seniorsDayJob.runScheduledSeniorsDiscount,
+    verifyStateOnStartup: seniorsDayJob.verifyStateOnStartup,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,
