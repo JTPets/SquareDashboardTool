@@ -46,7 +46,8 @@ function pruneInvoicesScopeCache() {
 }
 
 // Run cache pruning every hour
-setInterval(pruneInvoicesScopeCache, INVOICES_SCOPE_CACHE_TTL);
+// .unref() allows the process to exit even if this timer is still active
+setInterval(pruneInvoicesScopeCache, INVOICES_SCOPE_CACHE_TTL).unref();
 
 /**
  * Get decrypted access token for a merchant
