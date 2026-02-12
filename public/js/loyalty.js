@@ -1753,15 +1753,17 @@ async function loadSeniorsMembers() {
 
     const rows = data.members.map(m => {
       const name = [m.given_name, m.family_name].filter(Boolean).join(' ') || m.square_customer_id.substring(0, 10) + '...';
+      const phone = m.phone_number || '--';
       const age = m.age_at_last_check || '--';
       const date = m.added_to_group_at ? new Date(m.added_to_group_at).toLocaleDateString('en-US') : '--';
-      return `<tr><td>${escapeHtml(name)}</td><td>${age}</td><td>${date}</td></tr>`;
+      return `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${age}</td><td>${date}</td></tr>`;
     });
 
     container.innerHTML = `
       <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
         <thead><tr style="border-bottom: 1px solid #e5e7eb;">
           <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Name</th>
+          <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Phone</th>
           <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Age</th>
           <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Enrolled</th>
         </tr></thead>

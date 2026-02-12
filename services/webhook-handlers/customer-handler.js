@@ -19,6 +19,7 @@ const db = require('../../utils/database');
 const loyaltyService = require('../../utils/loyalty-service');
 const { SeniorsService } = require('../seniors');
 const { LoyaltySquareClient } = require('../loyalty/square-client');
+const { cacheCustomerDetails } = require('../loyalty-admin/customer-cache-service');
 
 class CustomerHandler {
     /**
@@ -136,6 +137,9 @@ class CustomerHandler {
             if (!customer?.birthday) {
                 return null;
             }
+
+            // Cache customer details so name/phone appear in members list
+            await cacheCustomerDetails(customer, merchantId);
 
             // Evaluate seniors eligibility
             const service = new SeniorsService(merchantId);
