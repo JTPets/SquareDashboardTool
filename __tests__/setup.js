@@ -49,5 +49,4 @@ jest.setTimeout(10000);
 afterAll(async () => {
     // Allow time for any pending async operations to complete
     await new Promise(resolve => setTimeout(resolve, 100));
-    jest.clearAllTimers();
 });

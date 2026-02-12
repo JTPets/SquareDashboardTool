@@ -56,8 +56,13 @@ router.get('/seniors/status', requireAuth, requireMerchant, asyncHandler(async (
         try {
             const service = new SeniorsService(merchantId);
             await service.initialize();
-            const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
-            const dayOfMonth = parseInt(today.split('-')[2], 10);
+            const todayParts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Toronto',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).formatToParts(new Date());
+            const dayOfMonth = parseInt(todayParts.find(p => p.type === 'day').value, 10);
             const expectedEnabled = dayOfMonth === (cfg.day_of_month || 1);
             pricingRuleState = await service.verifyPricingRuleState(expectedEnabled);
         } catch (error) {
