@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS committed_inventory (
     UNIQUE(merchant_id, square_invoice_id, catalog_object_id, location_id)
 );
 
-CREATE INDEX idx_committed_inv_merchant ON committed_inventory(merchant_id);
-CREATE INDEX idx_committed_inv_status ON committed_inventory(merchant_id, invoice_status);
-CREATE INDEX idx_committed_inv_variation ON committed_inventory(merchant_id, catalog_object_id);
+CREATE INDEX IF NOT EXISTS idx_committed_inv_merchant ON committed_inventory(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_committed_inv_status ON committed_inventory(merchant_id, invoice_status);
+CREATE INDEX IF NOT EXISTS idx_committed_inv_variation ON committed_inventory(merchant_id, catalog_object_id);
 
 COMMIT;
