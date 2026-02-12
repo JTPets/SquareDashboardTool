@@ -58,6 +58,11 @@ jest.mock('../../jobs/cart-activity-cleanup-job', () => ({
     runScheduledCartActivityCleanup: jest.fn()
 }));
 
+jest.mock('../../jobs/committed-inventory-reconciliation-job', () => ({
+    runCommittedInventoryReconciliation: jest.fn(),
+    runScheduledReconciliation: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -78,10 +83,11 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 10 jobs (without GMC which is optional)
+            // Should schedule 11 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
-            // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup, seniors discount
-            expect(cron.schedule).toHaveBeenCalledTimes(10);
+            // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
+            // seniors discount, committed inventory reconciliation
+            expect(cron.schedule).toHaveBeenCalledTimes(11);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -99,8 +105,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 11 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(11);
+            // Should schedule 12 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(12);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
@@ -199,6 +205,11 @@ describe('Jobs Index', () => {
         expect(jobs.runScheduledLoyaltyCatchup).toBeDefined();
         expect(jobs.processMerchantCatchup).toBeDefined();
         expect(jobs.getMerchantsWithLoyalty).toBeDefined();
+    });
+
+    it('should export committed inventory reconciliation job functions', () => {
+        expect(jobs.runCommittedInventoryReconciliation).toBeDefined();
+        expect(jobs.runScheduledReconciliation).toBeDefined();
     });
 
     it('should export cron scheduler functions', () => {

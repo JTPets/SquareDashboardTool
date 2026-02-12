@@ -27,6 +27,15 @@ jest.mock('../../utils/loyalty-service', () => ({
     runLoyaltyCatchup: jest.fn().mockResolvedValue()
 }));
 
+jest.mock('../../middleware/merchant', () => ({
+    getSquareClientForMerchant: jest.fn().mockResolvedValue({
+        orders: { get: jest.fn().mockResolvedValue({ order: null }) },
+        invoices: { get: jest.fn().mockResolvedValue({ invoice: null }) }
+    }),
+    loadMerchantContext: jest.fn(),
+    requireMerchant: jest.fn()
+}));
+
 jest.mock('../../services/loyalty/webhook-service', () => ({
     processOrderForLoyalty: jest.fn().mockResolvedValue(),
     detectRewardRedemptionFromOrder: jest.fn().mockResolvedValue(),
@@ -94,6 +103,7 @@ describe('Webhook Handlers Index', () => {
                 'invoice.payment_made',
                 'invoice.payment_failed',
                 'customer.deleted',
+                'customer.created',
                 'customer.updated',
                 'catalog.version.updated',
                 'vendor.created',
@@ -101,6 +111,14 @@ describe('Webhook Handlers Index', () => {
                 'location.created',
                 'location.updated',
                 'inventory.count.updated',
+                // Invoice events (BACKLOG-10)
+                'invoice.created',
+                'invoice.updated',
+                'invoice.published',
+                'invoice.canceled',
+                'invoice.deleted',
+                'invoice.refunded',
+                'invoice.scheduled_charge_failed',
                 'order.created',
                 'order.updated',
                 'order.fulfillment.updated',
@@ -132,7 +150,7 @@ describe('Webhook Handlers Index', () => {
             const eventTypes = getRegisteredEventTypes();
 
             expect(Array.isArray(eventTypes)).toBe(true);
-            expect(eventTypes.length).toBe(26); // Total handlers registered
+            expect(eventTypes.length).toBe(33); // Total handlers registered (26 + 7 invoice events)
             expect(eventTypes).toContain('subscription.created');
             expect(eventTypes).toContain('order.created');
             expect(eventTypes).toContain('oauth.authorization.revoked');

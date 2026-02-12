@@ -107,116 +107,9 @@ const webhookOrderStats = {
     lastReset: Date.now()
 };
 
-/**
- * P0-API-4: Debounced committed inventory sync
- *
- * Instead of syncing on every webhook, we wait for a quiet period.
- * This prevents redundant syncs when multiple webhooks arrive in quick succession.
- *
- * Example: 4 webhooks in 10 seconds → 1 sync instead of 4 syncs
- */
-const COMMITTED_SYNC_DEBOUNCE_MS = 60000; // 1 minute debounce window
-const pendingCommittedSyncs = new Map(); // merchantId → { timer, requestCount, firstRequestAt }
-
-/**
- * Metrics for tracking debounce effectiveness
- */
-const committedSyncStats = {
-    requested: 0,
-    executed: 0,
-    debounced: 0,
-    lastReset: Date.now()
-};
-
-/**
- * Request a debounced committed inventory sync for a merchant.
- * Multiple requests within the debounce window result in a single sync.
- *
- * @param {number} merchantId - Merchant ID
- * @returns {Promise<Object>} Result with sync status
- */
-async function debouncedSyncCommittedInventory(merchantId) {
-    committedSyncStats.requested++;
-
-    const existing = pendingCommittedSyncs.get(merchantId);
-
-    if (existing) {
-        // Already have a pending sync - increment counter but don't reset timer
-        // (We use trailing-edge debounce: execute after quiet period from FIRST request)
-        existing.requestCount++;
-        committedSyncStats.debounced++;
-
-        logger.debug('Committed inventory sync debounced (P0-API-4)', {
-            merchantId,
-            pendingRequests: existing.requestCount,
-            waitingFor: `${Math.ceil((existing.executeAt - Date.now()) / 1000)}s`
-        });
-
-        return {
-            debounced: true,
-            pendingRequests: existing.requestCount,
-            executeAt: new Date(existing.executeAt).toISOString()
-        };
-    }
-
-    // No pending sync - schedule a new one
-    const executeAt = Date.now() + COMMITTED_SYNC_DEBOUNCE_MS;
-
-    const syncState = {
-        requestCount: 1,
-        firstRequestAt: Date.now(),
-        executeAt,
-        timer: setTimeout(async () => {
-            pendingCommittedSyncs.delete(merchantId);
-            committedSyncStats.executed++;
-
-            const state = syncState; // Capture for logging
-            logger.info('Executing debounced committed inventory sync (P0-API-4)', {
-                merchantId,
-                requestsBatched: state.requestCount,
-                apiCallsSaved: state.requestCount - 1,
-                delayMs: Date.now() - state.firstRequestAt
-            });
-
-            try {
-                const result = await squareApi.syncCommittedInventory(merchantId);
-                logger.info('Debounced committed inventory sync complete', {
-                    merchantId,
-                    result: result?.skipped ? 'skipped' : result
-                });
-            } catch (error) {
-                logger.error('Debounced committed inventory sync failed', {
-                    merchantId,
-                    error: error.message
-                });
-            }
-
-            // Log stats periodically
-            if (committedSyncStats.executed % 50 === 0) {
-                const savedPct = ((committedSyncStats.debounced / committedSyncStats.requested) * 100).toFixed(1);
-                logger.info('P0-API-4 Debounce stats', {
-                    requested: committedSyncStats.requested,
-                    executed: committedSyncStats.executed,
-                    debounced: committedSyncStats.debounced,
-                    savingsRate: `${savedPct}%`
-                });
-            }
-        }, COMMITTED_SYNC_DEBOUNCE_MS)
-    };
-
-    pendingCommittedSyncs.set(merchantId, syncState);
-
-    logger.debug('Scheduled committed inventory sync (P0-API-4)', {
-        merchantId,
-        executeAt: new Date(executeAt).toISOString(),
-        debounceMs: COMMITTED_SYNC_DEBOUNCE_MS
-    });
-
-    return {
-        scheduled: true,
-        executeAt: new Date(executeAt).toISOString()
-    };
-}
+// BACKLOG-10: Committed inventory sync is now handled by invoice webhooks
+// (see inventory-handler.js). The debounced order-triggered sync has been removed.
+// A daily reconciliation job provides a safety net (see committed-inventory-reconciliation-job.js).
 
 /**
  * Process order for loyalty using either modern or legacy service
@@ -322,19 +215,8 @@ class OrderHandler {
             hasFulfillments: webhookOrder?.fulfillments?.length > 0
         });
 
-        // P0-API-4 OPTIMIZATION: Debounce committed inventory sync
-        // Multiple webhooks in quick succession will batch into a single sync
-        const committedResult = await debouncedSyncCommittedInventory(merchantId);
-        result.committedInventory = committedResult;
-        if (committedResult?.debounced) {
-            logger.debug('Committed inventory sync debounced via webhook', {
-                pendingRequests: committedResult.pendingRequests
-            });
-        } else if (committedResult?.scheduled) {
-            logger.debug('Committed inventory sync scheduled via webhook', {
-                executeAt: committedResult.executeAt
-            });
-        }
+        // BACKLOG-10: Committed inventory sync is now handled by invoice webhooks.
+        // No committed inventory sync needed here — invoice.created/updated/etc. handle it.
 
         // Check if webhook has complete order data (with line_items for velocity calculation)
         const hasCompleteData = webhookOrder?.id && webhookOrder?.state &&
@@ -1000,14 +882,7 @@ class OrderHandler {
             merchantId
         });
 
-        // P0-API-4 OPTIMIZATION: Debounce committed inventory sync
-        const committedResult = await debouncedSyncCommittedInventory(merchantId);
-        result.committedInventory = committedResult;
-        if (committedResult?.debounced) {
-            logger.debug('Committed inventory sync debounced via fulfillment webhook', {
-                pendingRequests: committedResult.pendingRequests
-            });
-        }
+        // BACKLOG-10: Committed inventory sync now handled by invoice webhooks.
 
         // P0-API-2 OPTIMIZATION: Update sales velocity incrementally if completed
         // Fulfillment webhooks don't include line_items, so we fetch THIS order (1 API call)

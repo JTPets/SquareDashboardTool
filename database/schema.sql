@@ -292,6 +292,27 @@ CREATE TABLE inventory_counts (
     UNIQUE(catalog_object_id, location_id, state, merchant_id)
 );
 
+-- 9b. Committed inventory per-invoice tracking (BACKLOG-10)
+-- Tracks line items from open invoices for incremental committed inventory updates.
+-- The RESERVED_FOR_SALE aggregate in inventory_counts is rebuilt from this table.
+CREATE TABLE committed_inventory (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    square_invoice_id TEXT NOT NULL,
+    square_order_id TEXT,
+    catalog_object_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    invoice_status TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id, square_invoice_id, catalog_object_id, location_id)
+);
+
+CREATE INDEX idx_committed_inv_merchant ON committed_inventory(merchant_id);
+CREATE INDEX idx_committed_inv_status ON committed_inventory(merchant_id, invoice_status);
+CREATE INDEX idx_committed_inv_variation ON committed_inventory(merchant_id, catalog_object_id);
+
 -- 10. Sales velocity calculations for demand forecasting
 CREATE TABLE sales_velocity (
     id SERIAL PRIMARY KEY,

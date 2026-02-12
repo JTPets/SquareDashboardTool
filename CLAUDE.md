@@ -178,7 +178,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 ├── middleware/          # auth, merchant, security, validators/
 ├── services/            # Business logic
 │   ├── webhook-processor.js
-│   ├── webhook-handlers/ (6 handlers)
+│   ├── webhook-handlers/ (7 handlers)
 │   ├── loyalty/         # Loyalty event logging
 │   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
 │   ├── catalog/         # Catalog data management
@@ -258,9 +258,9 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 | Priority | Item | Description |
 |----------|------|-------------|
-| **High** | **BACKLOG-10** | **Invoice-driven committed inventory (replace order-triggered full resync, ~100-200 API calls/day saved)** |
+| ~~High~~ | ~~BACKLOG-10~~ | ~~Invoice-driven committed inventory~~ **COMPLETE** (invoice webhooks + daily reconciliation) |
 | Medium-High | BACKLOG-2 | Delivery routing webhook sync |
-| Medium | BACKLOG-11 | Subscribe to `customer.created` webhook (loyalty catchup gap) |
+| ~~Medium~~ | ~~BACKLOG-11~~ | ~~Subscribe to `customer.created` webhook~~ **COMPLETE** (handler + config already wired) |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
 | Medium | BACKLOG-6 | Consolidate Square discount/pricing rule deletion code |

@@ -76,6 +76,15 @@ const handlers = {
     // Inventory events
     'inventory.count.updated': (ctx) => inventoryHandler.handleInventoryCountUpdated(ctx),
 
+    // Invoice events (BACKLOG-10: committed inventory tracking)
+    'invoice.created': (ctx) => inventoryHandler.handleInvoiceChanged(ctx),
+    'invoice.updated': (ctx) => inventoryHandler.handleInvoiceChanged(ctx),
+    'invoice.published': (ctx) => inventoryHandler.handleInvoiceChanged(ctx),
+    'invoice.canceled': (ctx) => inventoryHandler.handleInvoiceClosed(ctx),
+    'invoice.deleted': (ctx) => inventoryHandler.handleInvoiceClosed(ctx),
+    'invoice.refunded': (ctx) => inventoryHandler.handleInvoiceChanged(ctx),
+    'invoice.scheduled_charge_failed': (ctx) => inventoryHandler.handleInvoiceChanged(ctx),
+
     // Order events
     'order.created': (ctx) => orderHandler.handleOrderCreatedOrUpdated(ctx),
     'order.updated': (ctx) => orderHandler.handleOrderCreatedOrUpdated(ctx),
