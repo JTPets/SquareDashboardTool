@@ -910,39 +910,105 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 ### BACKLOG-9: In-Memory Global State — PM2 Restart Recovery
 **Identified**: 2026-02-11 (from CODE_AUDIT_REPORT HIGH-4)
 **Priority**: Low (single instance), High (pre-franchise)
-**Status**: Plan approved, ready to implement
+**Status**: Comprehensive investigation complete (2026-02-12)
 **Target**: TBD
 
-**Problem**: Three in-memory state objects in `order-handler.js` and two in `sync-queue.js` are lost on PM2 restart. The debounce Map (`pendingCommittedSyncs`) holds active setTimeout timers for committed inventory sync batching — if PM2 restarts during the 60-second debounce window, the scheduled sync never fires.
+> **Note**: Previous audit (2026-02-11) referenced `pendingCommittedSyncs` and `committedSyncStats`
+> which were removed when BACKLOG-10 (invoice-driven committed inventory) was completed.
+> This updated inventory reflects the current codebase.
 
-**Current impact**: Minimal for single-instance. Next webhook re-triggers within minutes, and smart sync cron catches it within 1 hour. No data corruption, just a skipped sync.
+#### Complete In-Memory State Inventory
 
-**Scaling impact**: Multi-instance PM2 (franchise) breaks debounce entirely — each instance debounces independently, losing deduplication benefit.
+**12 stateful items found across 8 files. 0 data corruption risks. 0 HIGH-risk items requiring immediate fix.**
 
-**State inventory**:
+| # | State | File:Line | What It Stores | Populated | Persisted? | Lost on Restart? | Risk |
+|---|-------|-----------|---------------|-----------|-----------|-----------------|------|
+| 1 | `catalogInProgress` Map | `services/sync-queue.js:29` | Merchants with active catalog sync | During sync | Yes (sync_history) | Restored on startup | **LOW** |
+| 2 | `catalogPending` Map | `services/sync-queue.js:30` | Merchants needing follow-up catalog sync | Webhook during active sync | No | Yes | **MEDIUM** |
+| 3 | `inventoryInProgress` Map | `services/sync-queue.js:33` | Merchants with active inventory sync | During sync | Yes (sync_history) | Restored on startup | **LOW** |
+| 4 | `inventoryPending` Map | `services/sync-queue.js:34` | Merchants needing follow-up inventory sync | Webhook during active sync | No | Yes | **MEDIUM** |
+| 5 | `clientCache` Map | `middleware/merchant.js:19` | Authenticated Square SDK clients per merchant | On first request | No (5-min TTL cache) | Yes — recreated on demand | **LOW** |
+| 6 | `merchantsWithoutInvoicesScope` Map | `services/square/api.js:35` | Merchants lacking INVOICES_READ scope | On API call failure | No (1-hour TTL cache) | Yes — re-detected on next call | **LOW** |
+| 7 | `traceStore` Map | `services/loyalty/loyalty-tracer.js:146` | Active trace contexts for debugging | During order processing | No | Yes — in-flight traces lost | **LOW** |
+| 8 | `webhookOrderStats` Object | `services/webhook-handlers/order-handler.js:104` | Direct-use vs API-fallback counters | On each order webhook | No | Yes — metrics reset | **LOW** |
+| 9 | `upsertProductState` Object | `services/gmc/merchant-service.js:253` | GMC product sync debug counters | During GMC sync cycle | No | Yes — reset each cycle anyway | **LOW** |
+| 10 | `localInventoryState` Object | `services/gmc/merchant-service.js:666` | GMC local inventory debug counters | During GMC sync cycle | No | Yes — reset each cycle anyway | **LOW** |
+| 11 | Rate limiter stores (7 instances) | `middleware/security.js:80-285` | Request counts per IP/user/key | On each request | No (in-memory MemoryStore) | Yes — all counters reset | **MEDIUM** |
+| 12 | `lastErrorEmail` timestamp | `utils/email-notifier.js:8` | Last critical alert email time | On email send | No | Yes — throttle resets | **LOW** |
 
-| State | File:Line | Persisted? | Lost on Restart? |
-|-------|-----------|-----------|-----------------|
-| `pendingCommittedSyncs` Map | `order-handler.js:58` | No | Yes — active timers lost |
-| `webhookOrderStats` | `order-handler.js:43-47` | No | Yes — metrics reset (informational) |
-| `committedSyncStats` | `order-handler.js:63-68` | No | Yes — metrics reset (informational) |
-| `catalogPending` | `sync-queue.js:30` | No | Yes — webhooks re-trigger naturally |
-| `inventoryPending` | `sync-queue.js:34` | No | Yes — webhooks re-trigger naturally |
+#### Items NOT In-Memory State (Confirmed Safe)
 
-**Planned fix (single-instance)**:
-1. **Startup recovery**: After PM2 restart, trigger one committed inventory sync per active merchant to catch anything missed during the debounce window
-2. **SIGTERM handler**: Flush metrics to log on graceful shutdown so stats aren't silently lost
-3. **Design decision comment**: Document in `order-handler.js` why in-memory is acceptable for single-instance
+| Item | File | Why Safe |
+|------|------|----------|
+| Session data | `server.js:149` | PostgreSQL-backed via `PgSession` — survives restart |
+| Webhook events | `webhook-processor.js` | Stateless class — all state in `webhook_events` DB table |
+| Cron job tasks | `jobs/cron-scheduler.js:27` | References lost but re-initialized on startup |
+| DB pool | `utils/database.js:14` | New pool created on startup — connections are transient |
+| `isShuttingDown` / `activeQueries` | `utils/database.js:10-11` | Shutdown-only state — irrelevant after restart |
+| Lazy module refs (`let x = null`) | 4 files | Circular dependency avoidance — re-required on first use |
+| `developmentSecret` | `server.js:167` | Only in dev mode; production requires SESSION_SECRET env var |
+| `httpServer` / `cronTasks` | `server.js:21-22` | Recreated on startup |
+| `tracerInstances` WeakMap | `services/loyalty/loyalty-tracer.js:19` | WeakMap — GC'd with keys, no accumulation |
 
-**Future fix (pre-franchise)**:
-- Move debounce state to Redis for cross-instance coordination
-- Or use PostgreSQL advisory locks for sync deduplication
+#### Existing Startup Recovery (Already Working)
 
-**Files to modify**:
-- `services/webhook-handlers/order-handler.js` — startup recovery, SIGTERM handler, comments
-- `server.js` — call recovery function after startup
+The application already has robust recovery for most scenarios:
 
-**Audit date**: 2026-02-11
+| Recovery Mechanism | File | What It Does |
+|-------------------|------|-------------|
+| Stale sync cleanup | `services/sync-queue.js:52-60` | Marks syncs "running" > 30 min as "interrupted" |
+| In-progress restoration | `services/sync-queue.js:70-92` | Restores recent running syncs from sync_history table |
+| Smart sync on stale data | `server.js:894-978` | Detects stale data per merchant and runs sync on startup |
+| Cycle count batch check | `jobs/cycle-count-job.js:95-154` | Generates today's batch if missed |
+| Seniors rule verification | `jobs/seniors-day-job.js:275-340` | Auto-corrects pricing rule state after missed schedule |
+| Webhook retry processor | `jobs/webhook-retry-job.js` | Retries failed webhooks every minute (exponential backoff, max 5) |
+| Committed inventory reconciliation | `jobs/committed-inventory-reconciliation-job.js` | Daily 4 AM full rebuild from Square Invoice API |
+| Loyalty catchup job | `jobs/loyalty-catchup-job.js` | Hourly — catches orders missed by webhook race conditions |
+| Graceful shutdown | `server.js:1000-1058` | Drains active syncs (30s timeout), closes DB pool cleanly |
+| Schema initialization | `utils/database.js:265+` | Ensures all tables/columns exist on every startup |
+
+#### Gap Analysis
+
+**MEDIUM risk — No recovery, but self-healing:**
+
+1. **Sync queue pending state** (`catalogPending`, `inventoryPending`):
+   - **Gap**: If a webhook arrives during an active sync and the server restarts before the follow-up sync runs, that pending sync is lost.
+   - **Mitigation already in place**: Smart sync cron runs hourly and catches stale data. Webhook retry processor re-sends failed events. The window of exposure is at most ~1 hour.
+   - **Data corruption risk**: None. Worst case is a delayed sync.
+
+2. **Rate limiter stores** (7 instances in `middleware/security.js`):
+   - **Gap**: All rate limit counters reset to zero on restart. Brief window where limits are unenforced.
+   - **Mitigation already in place**: PM2 restarts are infrequent (deploy or crash). Rate limit windows are short (1-15 min for most). The actual risk in the current threat model (single-tenant, Cloudflare-protected) is minimal.
+   - **Data corruption risk**: None. Security-only concern.
+
+**LOW risk — Acceptable loss:**
+
+3. **Square client cache** — Recreated transparently on next request. No thundering herd risk for single-tenant (1 merchant at a time).
+4. **Invoices scope cache** — Re-detected on next API call. Extra API call, but within rate limits.
+5. **Trace store** — Debug-only. In-flight traces logged up to point of crash.
+6. **Webhook order stats** — Informational metrics. No business impact.
+7. **GMC debug counters** — Reset each sync cycle anyway.
+8. **Email throttle** — Worst case: one duplicate alert email after restart.
+
+#### Recommendations
+
+**No immediate action required.** All gaps are covered by existing recovery mechanisms or self-heal within acceptable windows. No data corruption risks found.
+
+**If implementing improvements (ordered by value):**
+
+| Priority | Fix | Complexity | Benefit |
+|----------|-----|-----------|---------|
+| 1 | **SIGTERM handler**: Flush `webhookOrderStats` to log on graceful shutdown | Low (10 lines) | Metrics not silently lost |
+| 2 | **Design decision comments**: Document why in-memory pending state is acceptable in `sync-queue.js` | Low (5 lines) | Future developer clarity |
+| 3 | **Startup pending sync**: After restart, set `catalogPending`/`inventoryPending` = true for all active merchants to force one catch-up sync | Low (15 lines) | Eliminates the 1-hour window for missed pending syncs |
+| 4 | **Rate limiter persistence**: Move security-critical rate limiters (login, password reset) to PostgreSQL-backed store | Medium (50 lines) | Survives restart; required pre-franchise |
+
+**Pre-franchise (P3 scope, not needed now):**
+- Move all rate limiters to shared store (Redis or PostgreSQL)
+- Move sync queue state to PostgreSQL advisory locks (see P3-1)
+- Add cross-instance cron coordination (see P3-2)
+
+**Audit date**: 2026-02-12
 
 ---
 
