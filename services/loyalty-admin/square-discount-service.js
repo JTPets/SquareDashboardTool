@@ -234,6 +234,12 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
 /**
  * Remove a customer from a Square Customer Group
  *
+ * Uses makeSquareRequest directly (not deleteCustomerGroupWithMembers) because
+ * this needs to remove membership WITHOUT deleting the group — used in error
+ * cleanup paths where the group may still be needed. For the combined
+ * remove-members-then-delete-group operation, see deleteCustomerGroupWithMembers
+ * in utils/square-catalog-cleanup.js.
+ *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
  * @param {string} params.squareCustomerId - Square customer ID
@@ -263,6 +269,12 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
 
 /**
  * Delete a Customer Group from Square
+ *
+ * Uses makeSquareRequest directly (not deleteCustomerGroupWithMembers) because
+ * this needs to delete the group WITHOUT removing members first — used in error
+ * cleanup paths where the customer was never added. For the combined
+ * remove-members-then-delete-group operation, see deleteCustomerGroupWithMembers
+ * in utils/square-catalog-cleanup.js.
  *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID

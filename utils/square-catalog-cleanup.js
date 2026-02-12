@@ -5,10 +5,16 @@
  * product sets) and cleaning up customer groups. Consolidates three previously
  * separate deletion code paths into one with consistent behavior.
  *
- * Uses makeSquareRequest for retry logic, rate-limit handling, and centralized
+ * Uses makeSquareRequest (services/square/api.js:116) for retry logic,
+ * rate-limit handling (429 → retry-after backoff, line 148), and centralized
  * Square API versioning.
  *
  * See docs/BACKLOG-6-INVESTIGATION.md for full context.
+ *
+ * TODO: If the server restarts during a batch-delete call, objects may be
+ * orphaned in Square. Risk is low because batch-delete is a single atomic API
+ * call. A reconciliation job could be added in the future to compare local DB
+ * state against Square catalog objects.
  */
 
 const logger = require('./logger');
