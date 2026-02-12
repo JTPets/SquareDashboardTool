@@ -19,6 +19,7 @@ const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../loyalty/loyalty-logger');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
+const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../utils/square-catalog-cleanup');
 
 /**
  * Get Square Loyalty Program for a merchant
@@ -233,6 +234,12 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
 /**
  * Remove a customer from a Square Customer Group
  *
+ * Uses makeSquareRequest directly (not deleteCustomerGroupWithMembers) because
+ * this needs to remove membership WITHOUT deleting the group — used in error
+ * cleanup paths where the group may still be needed. For the combined
+ * remove-members-then-delete-group operation, see deleteCustomerGroupWithMembers
+ * in utils/square-catalog-cleanup.js.
+ *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
  * @param {string} params.squareCustomerId - Square customer ID
@@ -241,62 +248,33 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
  */
 async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }) {
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
-
-        const removeFromGroupStart = Date.now();
-        const response = await fetch(
-            `https://connect.squareup.com/v2/customers/${squareCustomerId}/groups/${groupId}`,
-            {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
-                }
-            }
+        const api = require('./shared-utils').getSquareApi();
+        const accessToken = await api.getMerchantToken(merchantId);
+        await api.makeSquareRequest(
+            `/v2/customers/${squareCustomerId}/groups/${groupId}`,
+            { method: 'DELETE', accessToken }
         );
-        const removeFromGroupDuration = Date.now() - removeFromGroupStart;
-
-        loyaltyLogger.squareApi({
-            endpoint: `/customers/${squareCustomerId}/groups/${groupId}`,
-            method: 'DELETE',
-            status: response.status,
-            duration: removeFromGroupDuration,
-            success: response.ok || response.status === 404,
-            merchantId,
-            context: 'removeCustomerFromGroup',
-        });
-
-        if (!response.ok && response.status !== 404) {
-            const errorData = await response.json();
-            logger.error('Failed to remove customer from group', {
-                merchantId,
-                squareCustomerId,
-                groupId,
-                error: errorData
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
-
-        logger.info('Removed customer from group', {
-            merchantId,
-            squareCustomerId,
-            groupId
-        });
-
+        logger.info('Removed customer from group', { merchantId, squareCustomerId, groupId });
         return { success: true };
-
     } catch (error) {
-        logger.error('Error removing customer from group', { error: error.message, stack: error.stack, merchantId });
+        if (error.message && error.message.includes('404')) {
+            return { success: true }; // Already removed
+        }
+        logger.error('Failed to remove customer from group', {
+            merchantId, squareCustomerId, groupId, error: error.message,
+        });
         return { success: false, error: error.message };
     }
 }
 
 /**
  * Delete a Customer Group from Square
+ *
+ * Uses makeSquareRequest directly (not deleteCustomerGroupWithMembers) because
+ * this needs to delete the group WITHOUT removing members first — used in error
+ * cleanup paths where the customer was never added. For the combined
+ * remove-members-then-delete-group operation, see deleteCustomerGroupWithMembers
+ * in utils/square-catalog-cleanup.js.
  *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
@@ -305,54 +283,21 @@ async function removeCustomerFromGroup({ merchantId, squareCustomerId, groupId }
  */
 async function deleteCustomerGroup({ merchantId, groupId }) {
     try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
-
-        const deleteGroupStart = Date.now();
-        const response = await fetch(
-            `https://connect.squareup.com/v2/customers/groups/${groupId}`,
-            {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
-                }
-            }
+        const api = require('./shared-utils').getSquareApi();
+        const accessToken = await api.getMerchantToken(merchantId);
+        await api.makeSquareRequest(
+            `/v2/customers/groups/${groupId}`,
+            { method: 'DELETE', accessToken }
         );
-        const deleteGroupDuration = Date.now() - deleteGroupStart;
-
-        loyaltyLogger.squareApi({
-            endpoint: `/customers/groups/${groupId}`,
-            method: 'DELETE',
-            status: response.status,
-            duration: deleteGroupDuration,
-            success: response.ok || response.status === 404,
-            merchantId,
-            context: 'deleteCustomerGroup',
-        });
-
-        if (!response.ok && response.status !== 404) {
-            const errorData = await response.json();
-            logger.error('Failed to delete customer group', {
-                merchantId,
-                groupId,
-                error: errorData
-            });
-            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
-        }
-
-        logger.info('Deleted customer group', {
-            merchantId,
-            groupId
-        });
-
+        logger.info('Deleted customer group', { merchantId, groupId });
         return { success: true };
-
     } catch (error) {
-        logger.error('Error deleting customer group', { error: error.message, stack: error.stack, merchantId });
+        if (error.message && error.message.includes('404')) {
+            return { success: true }; // Already deleted
+        }
+        logger.error('Failed to delete customer group', {
+            merchantId, groupId, error: error.message,
+        });
         return { success: false, error: error.message };
     }
 }
@@ -506,86 +451,14 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
  * @returns {Promise<Object>} Result
  */
 async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
-    try {
-        const accessToken = await getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return { success: false, error: 'No access token available' };
-        }
-
-        if (!objectIds || objectIds.length === 0) {
-            return { success: true, deleted: 0 };
-        }
-
-        // Filter out null/undefined IDs
-        const validIds = objectIds.filter(id => id != null);
-        if (validIds.length === 0) {
-            return { success: true, deleted: 0 };
-        }
-
-        let deletedCount = 0;
-        const errors = [];
-
-        // Delete each object individually (batch delete has restrictions)
-        for (const objectId of validIds) {
-            try {
-                const deleteStart = Date.now();
-                const response = await fetch(
-                    `https://connect.squareup.com/v2/catalog/object/${objectId}`,
-                    {
-                        method: 'DELETE',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json',
-                            'Square-Version': '2025-01-16'
-                        }
-                    }
-                );
-                const deleteDuration = Date.now() - deleteStart;
-
-                loyaltyLogger.squareApi({
-                    endpoint: `/catalog/object/${objectId}`,
-                    method: 'DELETE',
-                    status: response.status,
-                    duration: deleteDuration,
-                    success: response.ok || response.status === 404,
-                    merchantId,
-                    context: 'deleteRewardDiscountObjects',
-                });
-
-                if (response.ok || response.status === 404) {
-                    deletedCount++;
-                } else {
-                    const errorData = await response.json();
-                    errors.push({ objectId, error: errorData });
-                }
-            } catch (err) {
-                errors.push({ objectId, error: err.message });
-            }
-        }
-
-        if (errors.length > 0) {
-            logger.warn('Some discount objects failed to delete', {
-                merchantId,
-                deletedCount,
-                errors
-            });
-        } else {
-            logger.info('Deleted discount objects', {
-                merchantId,
-                deletedCount
-            });
-        }
-
-        return {
-            success: errors.length === 0,
-            deleted: deletedCount,
-            errors: errors.length > 0 ? errors : undefined
-        };
-
-    } catch (error) {
-        logger.error('Error deleting discount objects', { error: error.message, stack: error.stack, merchantId });
-        return { success: false, error: error.message };
-    }
+    const result = await deleteCatalogObjects(merchantId, objectIds, {
+        auditContext: 'loyalty-reward-cleanup',
+    });
+    return {
+        success: result.success,
+        deleted: result.deleted.length,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+    };
 }
 
 /**
@@ -741,39 +614,29 @@ async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId
             discountsDeleted: false
         };
 
-        // Step 1: Remove customer from group (if group exists)
-        if (reward.square_group_id && squareCustomerId) {
-            const removeResult = await removeCustomerFromGroup({
+        // Step 1+3: Remove customer from group, then delete the group
+        if (reward.square_group_id) {
+            const customerIds = squareCustomerId ? [squareCustomerId] : [];
+            const groupResult = await deleteCustomerGroupWithMembers(
                 merchantId,
-                squareCustomerId,
-                groupId: reward.square_group_id
-            });
-            cleanupResults.customerRemoved = removeResult.success;
+                reward.square_group_id,
+                customerIds
+            );
+            cleanupResults.customerRemoved = groupResult.customersRemoved;
+            cleanupResults.groupDeleted = groupResult.groupDeleted;
         }
 
-        // Step 2: Delete catalog objects (discount, product set, pricing rule)
+        // Step 2: Delete catalog objects (discount, product set, pricing rule) in one batch
         const objectsToDelete = [
-            reward.square_pricing_rule_id,  // Delete rule first (depends on others)
+            reward.square_pricing_rule_id,
             reward.square_product_set_id,
             reward.square_discount_id
-        ].filter(id => id != null);
+        ];
 
-        if (objectsToDelete.length > 0) {
-            const deleteResult = await deleteRewardDiscountObjects({
-                merchantId,
-                objectIds: objectsToDelete
-            });
-            cleanupResults.discountsDeleted = deleteResult.success;
-        }
-
-        // Step 3: Delete the customer group
-        if (reward.square_group_id) {
-            const deleteGroupResult = await deleteCustomerGroup({
-                merchantId,
-                groupId: reward.square_group_id
-            });
-            cleanupResults.groupDeleted = deleteGroupResult.success;
-        }
+        const catalogResult = await deleteCatalogObjects(merchantId, objectsToDelete, {
+            auditContext: 'loyalty-reward-cleanup',
+        });
+        cleanupResults.discountsDeleted = catalogResult.success;
 
         // Step 4: Clear the Square IDs from our record
         await db.query(`
