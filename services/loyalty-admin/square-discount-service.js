@@ -394,7 +394,6 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `Loyalty: ${offerName} (Reward ${internalRewardId})`,
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100',
-                    application_method: 'AUTOMATICALLY_APPLIED',
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
