@@ -263,33 +263,14 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | ~~Medium~~ | ~~BACKLOG-11~~ | ~~Subscribe to `customer.created` webhook~~ **COMPLETE** (handler + config already wired) |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
-| Medium | BACKLOG-6 | Consolidate Square discount/pricing rule deletion code |
+| ~~Medium~~ | ~~BACKLOG-6~~ | ~~Consolidate Square discount/pricing rule deletion code~~ **COMPLETE** (shared `utils/square-catalog-cleanup.js`, 21 tests) |
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
 | Low | BACKLOG-7 | Loyalty audit job per-event Square API calls |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) |
 | Low | BACKLOG-12 | Driver share link validation failure |
-
-#### BACKLOG-6: Consolidate Square Discount Cleanup Code
-
-**Context**: Three separate code paths delete Square catalog objects (pricing rules, discounts, product sets) with different approaches:
-- Loyalty path uses individual DELETE calls in a loop
-- Expiry path uses batch DELETE
-- Reorder path uses DB-only with deferred rebuild
-
-**Files involved**:
-- `services/loyalty-admin/square-discount-service.js:deleteRewardDiscountObjects()` (lines 509-590)
-- `services/expiry/discount-service.js:upsertPricingRule()` (lines 948-1107)
-- `services/expiry/discount-service.js:clearExpiryDiscountForReorder()` (lines 1716-1823)
-
-**Proposed solution**: Extract shared `utils/square-catalog-cleanup.js` with:
-- `deleteCatalogObjects(merchantId, objectIds, options)` - unified deletion with batch/individual support
-- `removeExpiryDiscount(merchantId, variationId, options)` - expiry-specific cleanup
-
-**Audit date**: 2026-02-02
-
-See [TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md#backlog--future-investigation) for details.
+| Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 

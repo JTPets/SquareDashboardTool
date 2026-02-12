@@ -436,26 +436,6 @@ class LoyaltySquareClient {
   }
 
   /**
-   * Delete a catalog object
-   * @param {string} objectId - Catalog object ID
-   * @returns {Promise<boolean>} True if deleted
-   */
-  async deleteCatalogObject(objectId) {
-    try {
-      await this.delete(`/catalog/object/${objectId}`, {
-        context: 'deleteCatalogObject',
-        timeout: 10000,
-      });
-      return true;
-    } catch (error) {
-      if (error.status === 404) {
-        return true; // Already deleted
-      }
-      throw error;
-    }
-  }
-
-  /**
    * Get a catalog object
    * @param {string} objectId - Catalog object ID
    * @returns {Promise<Object|null>} Catalog object or null if not found

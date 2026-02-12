@@ -11,6 +11,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
+const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
 
 // Lazy-load square-api to avoid circular dependency
 let squareApi = null;
@@ -1009,20 +1010,15 @@ async function upsertPricingRule(tier, variationIds) {
                 if (existingProductSet?.id) objectsToDelete.push(existingProductSet.id);
 
                 if (objectsToDelete.length > 0) {
-                    try {
-                        await squareApiModule.makeSquareRequest('/v2/catalog/batch-delete', {
-                            method: 'POST',
-                            accessToken,
-                            body: JSON.stringify({ object_ids: objectsToDelete })
-                        });
-                        logger.info('Deleted pricing rule objects for empty tier', {
-                            tierCode: tier.tier_code,
-                            deletedIds: objectsToDelete
-                        });
-                    } catch (deleteError) {
+                    const deleteResult = await deleteCatalogObjects(
+                        tier.merchant_id,
+                        objectsToDelete,
+                        { auditContext: `expiry-tier-clear-${tier.tier_code}` }
+                    );
+                    if (!deleteResult.success) {
                         logger.warn('Failed to delete pricing rule objects', {
                             tierCode: tier.tier_code,
-                            error: deleteError.message
+                            errors: deleteResult.errors,
                         });
                     }
                 }

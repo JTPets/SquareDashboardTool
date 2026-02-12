@@ -1,8 +1,18 @@
 # BACKLOG-6 Investigation: Consolidate Square Discount/Pricing Rule Deletion
 
-> **Status**: Investigation complete, plan ready for review
+> **Status**: COMPLETE — implemented and tested
 > **Date**: 2026-02-12
-> **Scope**: Research only — no code changes made
+> **Scope**: Full consolidation implemented
+>
+> **Implementation summary**:
+> - Created `utils/square-catalog-cleanup.js` with `deleteCatalogObjects()` and `deleteCustomerGroupWithMembers()`
+> - Refactored Path A (loyalty): `deleteRewardDiscountObjects()` and `cleanupSquareCustomerGroupDiscount()` now use shared utility
+> - Refactored Path B (expiry): `upsertPricingRule()` deletion branch now uses shared utility
+> - Deleted unused Path D: `square-client.js:deleteCatalogObject()` removed
+> - Path C (reorder, DB-only) unchanged — no Square interaction
+> - `removeCustomerFromGroup()` and `deleteCustomerGroup()` now use `makeSquareRequest` (retry + rate-limit handling)
+> - 21 unit tests added (`__tests__/utils/square-catalog-cleanup.test.js`)
+> - All existing tests pass (660/660)
 
 ---
 

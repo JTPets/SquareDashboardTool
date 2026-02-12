@@ -1103,6 +1103,30 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 **Audit date**: 2026-02-12
 
+### BACKLOG-13: Custom Attribute Initialization on Startup
+
+**Identified**: 2026-02-12
+**Priority**: Medium (performance, franchise-blocking)
+**Status**: Not started
+**Target**: Pre-franchise deployment
+
+**Problem**: Custom attribute initialization runs on every server startup, making 12 Square API calls to update attributes that already exist. These are `ensureCustomAttribute()` / `upsertCustomAttribute()` calls that check-and-create attributes like `expiration_date`, `cost_price`, `vendor_name`, etc. For a single store this adds ~3-5 seconds to boot time. For franchise deployment (N tenants), this becomes 12 × N API calls on every PM2 restart.
+
+**Areas to investigate**:
+- `server.js` or startup initialization code that calls custom attribute setup
+- `services/square/api.js` — likely where `ensureCustomAttribute()` lives
+- Whether attributes can be checked once and cached, or moved to onboarding flow
+
+**Proposed solution**:
+- Move custom attribute initialization to tenant onboarding (first-time setup)
+- On startup, skip if attributes already exist (check DB flag or cache)
+- Fall back to lazy initialization on first use if needed
+- Remove the per-boot API calls entirely for existing tenants
+
+**Impact**: Currently acceptable for single-store. Required before franchise deployment — 12 calls × tenant count per restart is unsustainable.
+
+**Audit date**: 2026-02-12
+
 ---
 
 ### Square Webhook Subscription Audit (2026-02-11)
