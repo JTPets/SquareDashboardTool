@@ -551,87 +551,7 @@
       font-size: 12px;
       margin-right: 4px;
     }
-    .bundle-options-row {
-      background: #fefce8 !important;
-      border-left: 4px solid #facc15;
-    }
-    .bundle-options-row td {
-      padding: 12px 16px;
-    }
-    .order-options {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .order-option {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 4px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .order-option:hover { background: rgba(0,0,0,0.03); }
-    .order-option.best {
-      background: #d1fae5;
-      border: 1px solid #059669;
-      font-weight: 500;
-    }
-    .order-option input[type="radio"] { margin: 0; }
-    .bundle-qty-control {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .bundle-qty-input {
-      width: 55px;
-      padding: 4px 6px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
-      text-align: center;
-      font-weight: 600;
-    }
-    .bundle-qty-input:focus {
-      outline: none;
-      border-color: #2563eb;
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
-    }
-    .bundle-cost-summary {
-      font-weight: 400;
-      color: #374151;
-      font-size: 13px;
-    }
-    .bundle-presets {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      padding-left: 10px;
-    }
-    .order-option-sm {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      cursor: pointer;
-      color: #6b7280;
-      background: rgba(0,0,0,0.03);
-      border: 1px solid transparent;
-    }
-    .order-option-sm:hover { background: rgba(0,0,0,0.06); }
-    .order-option-sm.active {
-      background: #d1fae5;
-      border-color: #059669;
-      color: #065f46;
-      font-weight: 500;
-    }
-    .order-option-sm input[type="radio"] { margin: 0; width: 12px; height: 12px; }
+    /* Legacy bundle options styles removed — consolidated into per-child rows */
     .bundle-badge {
       display: inline-block;
       background: #dbeafe;
@@ -654,6 +574,35 @@
     }
     .bundle-velocity-split .bundle-pct {
       color: #2563eb;
+      font-weight: 600;
+    }
+    .bundle-header-meta {
+      font-weight: 400;
+      font-size: 13px;
+      color: #374151;
+    }
+    .bundle-child-header {
+      background: #f1f5f9 !important;
+      border-left: 4px solid #93c5fd;
+    }
+    .bundle-child-header td {
+      padding: 4px 12px !important;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .bundle-summary-row {
+      background: #f0fdf4 !important;
+      border-left: 4px solid #059669;
+    }
+    .bundle-summary-row td {
+      padding: 8px 12px;
+      border-top: 2px solid #059669;
+    }
+    .bundle-recommended {
+      color: #6b7280;
+      font-style: italic;
+    }
+    .bundle-child-qty-input {
+      width: 65px;
       font-weight: 600;
     }
 

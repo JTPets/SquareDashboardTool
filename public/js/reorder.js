@@ -14,10 +14,10 @@ let bundleAnalysis = [];
 let bundleAffiliations = {};
 // Track which bundles are expanded
 const expandedBundles = new Set();
-// Track selected bundle options: { bundleId: 'optimized'|'all_bundles'|'all_individual' }
-const selectedBundleOptions = new Map();
-// Track user-edited bundle quantities: bundleId -> qty
-const editedBundleQtys = new Map();
+// Track user-edited bundle child order quantities: variation_id -> units
+const editedBundleChildQtys = new Map();
+// Set of variation_ids that belong to a bundle (filtered from main table)
+let bundleChildVariationIds = new Set();
 
 // Load configuration from server
 async function loadConfig() {
@@ -121,21 +121,35 @@ async function getSuggestions() {
     allSuggestions = data.suggestions || [];
     bundleAnalysis = data.bundle_analysis || [];
     bundleAffiliations = data.bundle_affiliations || {};
-    // Default all items to selected, clear any edited quantities
+
+    // Enrich bundle children with fields from allSuggestions
+    enrichBundleChildren();
+
+    // Build set of bundle-affiliated variation_ids for filtering
+    bundleChildVariationIds = new Set();
+    for (const bundle of bundleAnalysis) {
+      for (const child of (bundle.children || [])) {
+        bundleChildVariationIds.add(child.variation_id);
+      }
+    }
+
+    // Default all items to selected (excluding bundle children), clear edits
     selectedItems.clear();
     editedOrderQtys.clear();
-    allSuggestions.forEach(item => selectedItems.add(item.variation_id));
+    editedBundleChildQtys.clear();
+    allSuggestions.forEach(item => {
+      if (!bundleChildVariationIds.has(item.variation_id)) {
+        selectedItems.add(item.variation_id);
+      }
+    });
     document.getElementById('select-all').checked = true;
-    // Default all bundles to expanded, default option to optimized
+    // Default all bundles to expanded
     expandedBundles.clear();
-    selectedBundleOptions.clear();
-    editedBundleQtys.clear();
     bundleAnalysis.forEach(b => {
       expandedBundles.add(b.bundle_id);
-      selectedBundleOptions.set(b.bundle_id, 'optimized');
     });
 
-    if (allSuggestions.length === 0) {
+    if (allSuggestions.length === 0 && bundleAnalysis.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="19" class="empty-state">
@@ -196,146 +210,216 @@ function sortSuggestions() {
   }
 }
 
+/**
+ * Enrich bundle children with fields from allSuggestions that the backend
+ * bundle query doesn't provide (stock_alert_max, case_pack_quantity, expiration_date, etc.)
+ */
+function enrichBundleChildren() {
+  const suggestionsMap = new Map();
+  for (const item of allSuggestions) {
+    suggestionsMap.set(item.variation_id, item);
+  }
+
+  for (const bundle of bundleAnalysis) {
+    for (const child of (bundle.children || [])) {
+      const suggestion = suggestionsMap.get(child.variation_id);
+      if (!suggestion) continue;
+
+      // Copy over fields the bundle query doesn't provide
+      child.stock_alert_max = suggestion.stock_alert_max;
+      child.case_pack_quantity = suggestion.case_pack_quantity;
+      child.expiration_date = suggestion.expiration_date;
+      child.does_not_expire = suggestion.does_not_expire;
+      child.days_until_expiry = suggestion.days_until_expiry;
+      child.unit_cost_cents = suggestion.unit_cost_cents;
+      child.retail_price_cents = suggestion.retail_price_cents;
+      child.gross_margin_percent = suggestion.gross_margin_percent;
+      child.image_urls = suggestion.image_urls;
+      child.current_stock = suggestion.current_stock;
+      child.pending_po_quantity = suggestion.pending_po_quantity;
+      child.committed_quantity = suggestion.committed_quantity;
+      child.available_quantity = suggestion.available_quantity;
+    }
+  }
+}
+
+/**
+ * Build recommendation text for a bundle child based on the optimized order option.
+ * The backend's optimized option tells us how many vendor cases + individual topups.
+ */
+function getBundleChildRecommendation(bundle, child) {
+  const opt = bundle.order_options || {};
+  const optimized = opt.optimized || {};
+  const bundleQty = optimized.bundle_qty || 0;
+  const unitsFromCases = bundleQty * child.quantity_in_bundle;
+  const topup = (optimized.individual_topups || [])
+    .find(t => t.variation_id === child.variation_id);
+  const topupQty = topup ? topup.qty : 0;
+  const totalUnits = unitsFromCases + topupQty;
+
+  if (totalUnits === 0) return '-';
+
+  const parts = [];
+  if (bundleQty > 0 && unitsFromCases > 0) {
+    parts.push(`${unitsFromCases} from ${bundleQty} case${bundleQty > 1 ? 's' : ''}`);
+  }
+  if (topupQty > 0) {
+    parts.push(`${topupQty} singles`);
+  }
+  return parts.join(' + ') + ` = ${totalUnits}`;
+}
+
+/**
+ * Get the effective order quantity for a bundle child (user-edited or recommended).
+ */
+function getEffectiveBundleChildQty(child) {
+  if (editedBundleChildQtys.has(child.variation_id)) {
+    return editedBundleChildQtys.get(child.variation_id);
+  }
+  return child.individual_need || 0;
+}
+
 function renderBundleRows() {
   if (bundleAnalysis.length === 0) return '';
 
   return bundleAnalysis.map(bundle => {
     const isExpanded = expandedBundles.has(bundle.bundle_id);
     const toggle = isExpanded ? '&#9660;' : '&#9654;';
-    const selectedOption = selectedBundleOptions.get(bundle.bundle_id) || 'optimized';
-    const opt = bundle.order_options || {};
-    const optResult = opt.optimized || {};
-    const daysText = bundle.days_of_bundle_stock < 999
-      ? bundle.days_of_bundle_stock + 'd stock'
-      : 'N/A';
-    const bestCost = optResult.total_cost_cents
-      ? '$' + (optResult.total_cost_cents / 100).toFixed(2)
-      : '$0.00';
+    const children = bundle.children || [];
+    const caseCost = bundle.bundle_cost_cents
+      ? '$' + (bundle.bundle_cost_cents / 100).toFixed(2)
+      : '-';
+    // Count how many units per case (sum of all child quantities)
+    const unitsPerCase = children.reduce((sum, c) => sum + c.quantity_in_bundle, 0);
 
-    // Parent row
+    // Calculate bundle group total cost from child order quantities
+    let bundleGroupCost = 0;
+    for (const child of children) {
+      const qty = getEffectiveBundleChildQty(child);
+      bundleGroupCost += qty * (child.individual_cost_cents || 0);
+    }
+
+    // Get optimized savings info from backend
+    const opt = bundle.order_options || {};
+    const optimized = opt.optimized || {};
+    const savingsPct = parseFloat(optimized.savings_pct) || 0;
+    const savingsHtml = savingsPct > 0
+      ? ` | <span style="color:#059669;font-weight:600;">Optimized saves ${savingsPct}%</span>`
+      : '';
+
+    // Parent header row
     let html = `
       <tr class="bundle-parent-row" data-bundle-id="${bundle.bundle_id}">
         <td colspan="19" data-action="toggleBundleExpand" data-action-param="${bundle.bundle_id}">
           <span class="bundle-toggle">${toggle}</span>
-          Bundle: ${escapeHtml(bundle.bundle_item_name)}
-          | Assemblable: ${bundle.assemblable_qty}
-          | ${daysText}
-          | Best: ${bestCost}
-          ${optResult.savings_pct > 0 ? ' (saves ' + optResult.savings_pct + '%)' : ''}
-          | ${bundle.vendor_name ? escapeHtml(bundle.vendor_name) : 'No vendor'}
-          ${bundle.bundle_vendor_code ? ' | <span class="clickable" data-action="copyToClipboard" data-action-param="' + escapeJsString(bundle.bundle_vendor_code) + '" data-copy-label="Bundle Vendor Code" title="Click to copy Bundle Vendor Code" style="font-family:monospace;background:rgba(255,255,255,0.3);padding:1px 6px;border-radius:3px;">Case: ' + escapeHtml(bundle.bundle_vendor_code) + '</span>' : ''}
+          <strong>Bundle: ${escapeHtml(bundle.bundle_item_name)}</strong>
+          <span class="bundle-header-meta">
+            | Case: ${caseCost} (${unitsPerCase} units/case)
+            | ${bundle.vendor_name ? escapeHtml(bundle.vendor_name) : 'No vendor'}
+            ${bundle.bundle_vendor_code ? ' | <span class="clickable" data-action="copyToClipboard" data-action-param="' + escapeJsString(bundle.bundle_vendor_code) + '" data-copy-label="Case Vendor Code" title="Click to copy Case Vendor Code" style="font-family:monospace;background:rgba(255,255,255,0.3);padding:1px 6px;border-radius:3px;">Case SKU: ' + escapeHtml(bundle.bundle_vendor_code) + '</span>' : ''}
+            ${savingsHtml}
+            | Group Total: <strong>$${(bundleGroupCost / 100).toFixed(2)}</strong>
+          </span>
         </td>
       </tr>`;
 
     if (isExpanded) {
-      // Child rows
-      const children = bundle.children || [];
+      // Column headers for bundle children
+      html += `
+        <tr class="bundle-child-header">
+          <td colspan="4" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;padding-left:24px;">Component</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Stock</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Min</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Days</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Velocity</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Need</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Recommended</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Order Qty</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Unit Cost</td>
+          <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Line Total</td>
+          <td colspan="5" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Vendor Code</td>
+          <td></td>
+        </tr>`;
+
+      // Child component rows with editable order qty
       html += children.map(child => {
         const daysClass = child.days_of_stock === 0 ? 'days-critical' :
           child.days_of_stock < 7 ? 'days-critical' :
           child.days_of_stock < 14 ? 'days-warning' : 'days-ok';
         const daysStr = child.days_of_stock < 999 ? child.days_of_stock.toFixed(1) : '-';
-        const costStr = child.individual_cost_cents
-          ? '$' + (child.individual_cost_cents / 100).toFixed(2) : '-';
+        const unitCost = child.individual_cost_cents || 0;
+        const costStr = unitCost ? '$' + (unitCost / 100).toFixed(2) : '-';
 
         const deletedClass = child.is_deleted ? ' bundle-child-deleted' : '';
         const deletedAlert = child.is_deleted
-          ? '<br><span class="bundle-deleted-alert">DELETED VARIATION — Update bundle in Bundle Manager</span>'
+          ? '<br><span class="bundle-deleted-alert">DELETED — Update in Bundle Manager</span>'
           : '';
 
+        // Build recommendation from backend optimized option
+        const recommendedText = getBundleChildRecommendation(bundle, child);
+
+        const orderQty = getEffectiveBundleChildQty(child);
+        const lineTotalCents = orderQty * unitCost;
+        const isEdited = editedBundleChildQtys.has(child.variation_id);
+
         return `
-          <tr class="bundle-child-row${deletedClass}" data-bundle-id="${bundle.bundle_id}">
-            <td></td>
-            <td></td>
-            <td></td>
-            <td>
+          <tr class="bundle-child-row${deletedClass}" data-bundle-id="${bundle.bundle_id}" data-variation-id="${child.variation_id}">
+            <td colspan="4" style="padding-left:24px;">
               <span class="bundle-child-label">|--</span>
               ${escapeHtml(child.child_item_name || '')}
-              ${child.child_variation_name ? '<br><small style="color:#6b7280;">' + escapeHtml(child.child_variation_name) + '</small>' : ''}
+              ${child.child_variation_name ? '<br><small style="color:#6b7280;padding-left:24px;">' + escapeHtml(child.child_variation_name) + '</small>' : ''}
+              <small style="color:#9ca3af;margin-left:6px;">${escapeHtml(child.child_sku || '')}</small>
               ${deletedAlert}
             </td>
-            <td class="sku">${escapeHtml(child.child_sku || '-')}</td>
-            <td class="text-right">${child.stock}</td>
-            <td class="text-right">${child.stock_alert_min != null && child.stock_alert_min > 0 ? child.stock_alert_min : '-'}</td>
-            <td class="text-right">-</td>
+            <td class="text-right">${child.stock}${child.committed_quantity > 0 ? '<br><small style="color:#92400e;">(' + child.available_quantity + ' avail)</small>' : ''}</td>
+            <td class="text-right">${child.stock_alert_min > 0 ? child.stock_alert_min : '-'}</td>
             <td class="text-right ${daysClass}">${daysStr}</td>
-            <td class="text-right">-</td>
             <td class="text-right">
               <small>
                 ${child.total_daily_velocity.toFixed(2)}/day
                 <div class="bundle-velocity-split">
                   Ind: ${child.individual_daily_velocity.toFixed(2)} |
-                  <span class="bundle-pct">Bundle: ${child.pct_from_bundles}%</span>
+                  <span class="bundle-pct">Bndl: ${child.pct_from_bundles}%</span>
                 </div>
               </small>
             </td>
             <td class="text-right">${child.individual_need}</td>
-            <td class="text-right">x${child.quantity_in_bundle}/bundle</td>
+            <td class="text-right">
+              <small class="bundle-recommended">${escapeHtml(recommendedText)}</small>
+            </td>
+            <td class="text-right editable-cell">
+              <input type="number"
+                     class="editable-input order-qty-input bundle-child-qty-input"
+                     value="${orderQty}"
+                     placeholder="${child.individual_need}"
+                     min="0"
+                     data-field="bundle_child_qty"
+                     data-variation-id="${child.variation_id}"
+                     data-bundle-id="${bundle.bundle_id}"
+                     data-suggested="${child.individual_need}"
+                     data-change="updateBundleChildQty"
+                     data-blur="updateBundleChildQty"
+                     data-keydown="blurOnEnter">
+              ${isEdited ? '<br><small style="color:#059669;font-weight:600;">edited</small>' : ''}
+              ${child.pending_po_quantity > 0 ? '<br><small style="color:#3b82f6;" title="' + child.pending_po_quantity + ' units pending in unreceived POs">📦 ' + child.pending_po_quantity + ' on order</small>' : ''}
+            </td>
             <td class="text-right">${costStr}</td>
-            <td class="text-right">-</td>
-            <td class="text-right">-</td>
-            <td class="text-right">-</td>
-            <td>-</td>
-            <td class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(child.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(child.vendor_code || '-')}</td>
+            <td class="text-right"><strong>$${(lineTotalCents / 100).toFixed(2)}</strong></td>
+            <td colspan="5" class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(child.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(child.vendor_code || '-')}</td>
+            <td></td>
           </tr>`;
       }).join('');
 
-      // Options row
-      const allInd = opt.all_individual || {};
-      const allBun = opt.all_bundles || {};
-      const optimized = opt.optimized || {};
-
-      // Effective bundle qty (user-edited or preset)
-      const effectiveQty = getEffectiveBundleQty(bundle);
-      const effectiveCost = calculateBundleOptionClient(bundle, effectiveQty);
-      const effectiveTotalSurplus = effectiveCost.surplus ? Object.values(effectiveCost.surplus).reduce((s, v) => s + v, 0) : 0;
-
-      // Determine if current qty matches a preset
-      const isOptimized = selectedOption === 'optimized' && effectiveQty === (optimized.bundle_qty || 0);
-      const isAllBundles = selectedOption === 'all_bundles' && effectiveQty === (allBun.bundle_qty || 0);
-      const isIndividual = selectedOption === 'all_individual' && effectiveQty === 0;
-
+      // Summary row
       html += `
-        <tr class="bundle-options-row" data-bundle-id="${bundle.bundle_id}">
-          <td colspan="19">
-            <div class="order-options">
-              <div class="bundle-qty-control">
-                <label>Order:</label>
-                <input type="number" class="bundle-qty-input" min="0" max="99"
-                       value="${effectiveQty}"
-                       data-change="updateBundleQty" data-blur="updateBundleQty"
-                       data-bundle-id="${bundle.bundle_id}"
-                       data-keydown="blurOnEnter">
-                <span>bundle(s)</span>
-                <span class="bundle-cost-summary">
-                  &mdash; <strong>$${(effectiveCost.total_cost_cents / 100).toFixed(2)}</strong>
-                  ${effectiveCost.topup_cost_cents > 0 ? ' (incl. $' + (effectiveCost.topup_cost_cents / 100).toFixed(2) + ' top-ups)' : ''}
-                  ${effectiveTotalSurplus > 0 ? ' | surplus: ' + effectiveTotalSurplus + ' units' : ''}
-                </span>
-              </div>
-              <div class="bundle-presets">
-                <label class="order-option-sm ${isOptimized ? 'active' : ''}">
-                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="optimized"
-                         ${selectedOption === 'optimized' ? 'checked' : ''}
-                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                  Optimized (${optimized.bundle_qty || 0} + top-up) $${((optimized.total_cost_cents || 0) / 100).toFixed(2)}
-                  ${optimized.savings_pct > 0 ? '<strong>(saves ' + optimized.savings_pct + '%)</strong>' : ''}
-                </label>
-                <label class="order-option-sm ${isAllBundles ? 'active' : ''}">
-                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_bundles"
-                         ${selectedOption === 'all_bundles' ? 'checked' : ''}
-                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                  All bundles (${allBun.bundle_qty || 0}) $${((allBun.total_cost_cents || 0) / 100).toFixed(2)}
-                </label>
-                <label class="order-option-sm ${isIndividual ? 'active' : ''}">
-                  <input type="radio" name="bundle-${bundle.bundle_id}-opt" value="all_individual"
-                         ${selectedOption === 'all_individual' ? 'checked' : ''}
-                         data-change="selectBundleOption" data-bundle-id="${bundle.bundle_id}">
-                  Individual $${((allInd.total_cost_cents || 0) / 100).toFixed(2)}
-                </label>
-              </div>
-            </div>
+        <tr class="bundle-summary-row" data-bundle-id="${bundle.bundle_id}">
+          <td colspan="12" style="text-align:right;font-weight:600;color:#374151;padding-right:12px;">
+            Bundle Group Total:
           </td>
+          <td class="text-right" style="font-weight:700;color:#059669;font-size:15px;">
+            $${(bundleGroupCost / 100).toFixed(2)}
+          </td>
+          <td colspan="6"></td>
         </tr>`;
     }
 
@@ -356,83 +440,24 @@ function toggleBundleExpand(element, event, bundleId) {
   renderTable();
 }
 
-function selectBundleOption(element) {
-  const bundleId = parseInt(element.dataset.bundleId);
-  const value = element.value;
-  selectedBundleOptions.set(bundleId, value);
-
-  // Sync editable qty to match the preset
-  const bundle = bundleAnalysis.find(b => b.bundle_id === bundleId);
-  if (bundle) {
-    const opt = bundle.order_options || {};
-    const presetQty = value === 'all_individual' ? 0 : (opt[value]?.bundle_qty || 0);
-    editedBundleQtys.set(bundleId, presetQty);
-  }
-
-  renderTable();
-  updateFooter();
-}
-
 /**
- * Client-side bundle cost calculation (mirrors services/bundle-calculator.js)
+ * Update bundle child order quantity when user edits
  */
-function calculateBundleOptionClient(bundle, bundleQty) {
-  const children = bundle.children || [];
-  const bundleCostPerUnit = bundle.cost_cents || 0;
-  const bundleCost = bundleQty * bundleCostPerUnit;
-  let topupCost = 0;
-  const surplus = {};
+function updateBundleChildQty(input) {
+  const variationId = input.dataset.variationId;
+  const value = input.value.trim();
+  const suggested = parseInt(input.dataset.suggested, 10) || 0;
 
-  for (const child of children) {
-    const unitsFromBundles = bundleQty * child.quantity_in_bundle;
-    const remainingNeed = Math.max(0, child.individual_need - unitsFromBundles);
-
-    if (remainingNeed > 0) {
-      topupCost += Math.ceil(remainingNeed) * (child.individual_cost_cents || 0);
+  if (value === '' || parseInt(value, 10) === suggested) {
+    editedBundleChildQtys.delete(variationId);
+    input.value = suggested;
+  } else {
+    const newQty = parseInt(value, 10);
+    if (isNaN(newQty) || newQty < 0) {
+      input.value = editedBundleChildQtys.get(variationId) || suggested;
+      return;
     }
-
-    if (unitsFromBundles > child.individual_need) {
-      surplus[child.child_item_name] = unitsFromBundles - child.individual_need;
-    }
-  }
-
-  return {
-    bundle_qty: bundleQty,
-    bundle_cost_cents: bundleCost,
-    topup_cost_cents: topupCost,
-    total_cost_cents: bundleCost + topupCost,
-    surplus
-  };
-}
-
-function getEffectiveBundleQty(bundle) {
-  if (editedBundleQtys.has(bundle.bundle_id)) {
-    return editedBundleQtys.get(bundle.bundle_id);
-  }
-  const selectedOption = selectedBundleOptions.get(bundle.bundle_id) || 'optimized';
-  const opt = bundle.order_options || {};
-  if (selectedOption === 'all_individual') return 0;
-  return opt[selectedOption]?.bundle_qty || 0;
-}
-
-function updateBundleQty(input) {
-  const bundleId = parseInt(input.dataset.bundleId);
-  const qty = Math.max(0, parseInt(input.value) || 0);
-  editedBundleQtys.set(bundleId, qty);
-
-  // Auto-select matching preset radio
-  const bundle = bundleAnalysis.find(b => b.bundle_id === bundleId);
-  if (bundle) {
-    const opt = bundle.order_options || {};
-    if (qty === (opt.optimized?.bundle_qty || 0)) {
-      selectedBundleOptions.set(bundleId, 'optimized');
-    } else if (qty === (opt.all_bundles?.bundle_qty || 0)) {
-      selectedBundleOptions.set(bundleId, 'all_bundles');
-    } else if (qty === 0) {
-      selectedBundleOptions.set(bundleId, 'all_individual');
-    } else {
-      selectedBundleOptions.set(bundleId, 'custom');
-    }
+    editedBundleChildQtys.set(variationId, newQty);
   }
 
   renderTable();
@@ -445,7 +470,10 @@ function renderTable() {
   // Render bundle groups first, then standalone items
   const bundleHtml = renderBundleRows();
 
-  const itemsHtml = allSuggestions.map((item, index) => {
+  // Filter out bundle-affiliated items from the main table
+  const standaloneItems = allSuggestions.filter(item => !bundleChildVariationIds.has(item.variation_id));
+
+  const itemsHtml = standaloneItems.map((item, index) => {
     const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
                      item.days_until_stockout < 7 ? 'days-critical' :
                      item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
@@ -710,7 +738,12 @@ function renderTable() {
 function toggleSelectAll(checked) {
   selectedItems.clear();
   if (checked) {
-    allSuggestions.forEach(item => selectedItems.add(item.variation_id));
+    // Only select standalone items, not bundle children
+    allSuggestions.forEach(item => {
+      if (!bundleChildVariationIds.has(item.variation_id)) {
+        selectedItems.add(item.variation_id);
+      }
+    });
   }
   renderTable();
   updateFooter();
@@ -819,9 +852,10 @@ function toggleItem(variationId, checked) {
     selectedItems.delete(variationId);
   }
 
-  // Update select-all checkbox
+  // Update select-all checkbox (only considers standalone items)
+  const standaloneCount = allSuggestions.filter(s => !bundleChildVariationIds.has(s.variation_id)).length;
   document.getElementById('select-all').checked =
-    selectedItems.size === allSuggestions.length && allSuggestions.length > 0;
+    selectedItems.size === standaloneCount && standaloneCount > 0;
 
   // Update row styling
   const row = document.querySelector(`tr[data-id="${variationId}"]`);
@@ -834,17 +868,17 @@ function toggleItem(variationId, checked) {
 }
 
 function updateFooter() {
-  const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
-  // Calculate total cost based on cases (respecting stock max and user edits)
-  const totalCost = selectedSuggestions.reduce((sum, item) => {
+  // Standalone items cost (non-bundle)
+  const standaloneItems = allSuggestions.filter(s =>
+    selectedItems.has(s.variation_id) && !bundleChildVariationIds.has(s.variation_id)
+  );
+  const standaloneCost = standaloneItems.reduce((sum, item) => {
     const casePack = item.case_pack_quantity || 1;
     let casesToOrder;
 
-    // Check if user has edited this quantity
     if (editedOrderQtys.has(item.variation_id)) {
       casesToOrder = editedOrderQtys.get(item.variation_id);
     } else {
-      // Apply stock maximum logic for suggested qty
       let suggestedQty = item.final_suggested_qty;
       if (item.stock_alert_max && item.stock_alert_max > 0) {
         const projectedStock = item.current_stock + suggestedQty;
@@ -859,23 +893,61 @@ function updateFooter() {
     return sum + (actualUnits * item.unit_cost_cents / 100);
   }, 0);
 
-  // Add bundle costs based on selected/edited bundle quantities
+  // Bundle child items cost
   let bundleCost = 0;
+  let bundleChildCount = 0;
   for (const bundle of bundleAnalysis) {
-    const qty = getEffectiveBundleQty(bundle);
-    const cost = calculateBundleOptionClient(bundle, qty);
-    bundleCost += cost.total_cost_cents / 100;
+    for (const child of (bundle.children || [])) {
+      const qty = getEffectiveBundleChildQty(child);
+      if (qty > 0) {
+        bundleCost += (qty * (child.individual_cost_cents || 0)) / 100;
+        bundleChildCount++;
+      }
+    }
   }
 
-  document.getElementById('selected-count').textContent = selectedSuggestions.length;
-  document.getElementById('total-cost').textContent = '$' + (totalCost + bundleCost).toFixed(2);
-  document.getElementById('create-po-btn').disabled = selectedSuggestions.length === 0;
+  const totalItems = standaloneItems.length + bundleChildCount;
+  document.getElementById('selected-count').textContent = totalItems;
+  document.getElementById('total-cost').textContent = '$' + (standaloneCost + bundleCost).toFixed(2);
+  document.getElementById('create-po-btn').disabled = totalItems === 0;
 }
 
 async function createPurchaseOrder() {
-  const selectedSuggestions = allSuggestions.filter(s => selectedItems.has(s.variation_id));
+  // Standalone items (non-bundle)
+  const standaloneItems = allSuggestions.filter(s =>
+    selectedItems.has(s.variation_id) && !bundleChildVariationIds.has(s.variation_id)
+  );
 
-  if (selectedSuggestions.length === 0) {
+  // Bundle child items - collect from all bundles
+  const bundleChildItems = [];
+  for (const bundle of bundleAnalysis) {
+    for (const child of (bundle.children || [])) {
+      const qty = getEffectiveBundleChildQty(child);
+      if (qty > 0) {
+        bundleChildItems.push({
+          variation_id: child.variation_id,
+          quantity_ordered: qty,
+          unit_cost_cents: child.individual_cost_cents || 0
+        });
+      }
+    }
+  }
+
+  // Aggregate bundle children that appear in multiple bundles
+  const bundleItemMap = new Map();
+  for (const item of bundleChildItems) {
+    if (bundleItemMap.has(item.variation_id)) {
+      const existing = bundleItemMap.get(item.variation_id);
+      existing.quantity_ordered += item.quantity_ordered;
+    } else {
+      bundleItemMap.set(item.variation_id, { ...item });
+    }
+  }
+
+  const hasBundleItems = bundleItemMap.size > 0;
+  const hasStandaloneItems = standaloneItems.length > 0;
+
+  if (!hasBundleItems && !hasStandaloneItems) {
     alert('Please select at least one item to create a purchase order.');
     return;
   }
@@ -886,15 +958,17 @@ async function createPurchaseOrder() {
     return;
   }
 
-  // Check if all selected items are from the same vendor
-  const vendors = new Set(selectedSuggestions.map(s => s.vendor_name));
-  if (vendors.size > 1) {
-    alert('Selected items are from multiple vendors. Please select items from a single vendor or filter by vendor first.');
-    return;
+  // Check if all selected standalone items are from the same vendor
+  if (hasStandaloneItems) {
+    const vendors = new Set(standaloneItems.map(s => s.vendor_name));
+    if (vendors.size > 1) {
+      alert('Selected items are from multiple vendors. Please select items from a single vendor or filter by vendor first.');
+      return;
+    }
   }
 
-  // Check for expiring items and warn
-  const expiringItems = selectedSuggestions.filter(item => {
+  // Check for expiring items (standalone) and warn
+  const expiringItems = standaloneItems.filter(item => {
     const daysLeft = item.days_until_expiry;
     return daysLeft !== null && daysLeft <= 89;
   });
@@ -926,15 +1000,14 @@ async function createPurchaseOrder() {
 
   const supplyDays = parseInt(document.getElementById('supply-days').value);
 
-  const items = selectedSuggestions.map(item => {
+  // Build standalone item entries
+  const standaloneEntries = standaloneItems.map(item => {
     const casePack = item.case_pack_quantity || 1;
     let casesToOrder;
 
-    // Check if user has edited this quantity
     if (editedOrderQtys.has(item.variation_id)) {
       casesToOrder = editedOrderQtys.get(item.variation_id);
     } else {
-      // Apply stock maximum logic for suggested qty
       let suggestedQty = item.final_suggested_qty;
       if (item.stock_alert_max && item.stock_alert_max > 0) {
         const projectedStock = item.current_stock + suggestedQty;
@@ -945,28 +1018,47 @@ async function createPurchaseOrder() {
       casesToOrder = suggestedQty > 0 ? Math.ceil(suggestedQty / casePack) : 0;
     }
 
-    // Calculate actual units to order (cases × case pack)
     const actualUnits = casesToOrder * casePack;
 
     return {
       variation_id: item.variation_id,
-      quantity_ordered: actualUnits, // Order in full cases
+      quantity_ordered: actualUnits,
       unit_cost_cents: item.unit_cost_cents
     };
-  }).filter(item => item.quantity_ordered > 0); // Exclude zero-quantity items
+  }).filter(item => item.quantity_ordered > 0);
 
-  // Check if any items remain after filtering
+  // Merge standalone + bundle items, aggregating duplicates
+  const mergedMap = new Map();
+  for (const item of standaloneEntries) {
+    mergedMap.set(item.variation_id, { ...item });
+  }
+  for (const [vid, item] of bundleItemMap) {
+    if (mergedMap.has(vid)) {
+      mergedMap.get(vid).quantity_ordered += item.quantity_ordered;
+    } else {
+      mergedMap.set(vid, { ...item });
+    }
+  }
+
+  const items = Array.from(mergedMap.values()).filter(item => item.quantity_ordered > 0);
+
   if (items.length === 0) {
-    alert('No items to order. All selected items have zero quantity.');
+    alert('No items to order. All items have zero quantity.');
     return;
   }
+
+  const bundleCount = bundleItemMap.size;
+  const standaloneCount = standaloneEntries.filter(i => i.quantity_ordered > 0).length;
+  const noteParts = [];
+  if (standaloneCount > 0) noteParts.push(`${standaloneCount} standalone`);
+  if (bundleCount > 0) noteParts.push(`${bundleCount} bundle components`);
 
   const poData = {
     vendor_id: vendorId,
     location_id: locationId,
     supply_days_override: supplyDays,
     items: items,
-    notes: `Auto-generated from reorder suggestions (${items.length} items)`,
+    notes: `Auto-generated from reorder suggestions (${noteParts.join(' + ')}, ${items.length} total lines)`,
     created_by: 'Reorder System'
   };
 
@@ -1010,6 +1102,7 @@ async function createPurchaseOrder() {
     // Reset selections and edited quantities
     selectedItems.clear();
     editedOrderQtys.clear();
+    editedBundleChildQtys.clear();
     document.getElementById('select-all').checked = false;
     renderTable();
     updateFooter();
@@ -1565,5 +1658,4 @@ window.toggleSelectAllFromCheckbox = toggleSelectAllFromCheckbox;
 window.toggleItemFromCheckbox = toggleItemFromCheckbox;
 // Bundle functions
 window.toggleBundleExpand = toggleBundleExpand;
-window.selectBundleOption = selectBundleOption;
-window.updateBundleQty = updateBundleQty;
+window.updateBundleChildQty = updateBundleChildQty;
