@@ -714,6 +714,12 @@
                 <div style="font-size: 12px;">Pricing Rule</div>
               </div>
             </div>
+            <div id="seniors-retry-setup-btn" style="display: none; margin-bottom: 15px;">
+              <div class="alert alert-info" style="margin-bottom: 10px; padding: 10px 15px;">
+                <strong>Setup Incomplete</strong> — Square objects need to be created.
+              </div>
+              <button class="btn-primary" data-action="setupSeniorsDiscount" id="seniors-retry-btn">Retry Setup</button>
+            </div>
 
             <!-- Configuration Form -->
             <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
@@ -732,11 +738,11 @@
                   <input type="number" id="seniors-day-of-month" min="1" max="28" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
-                  <label style="display: block; margin-bottom: 5px; font-weight: 500;">Enabled</label>
-                  <label style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
-                    <input type="checkbox" id="seniors-is-enabled">
-                    <span>Active</span>
-                  </label>
+                  <label for="seniors-is-enabled" style="display: block; margin-bottom: 5px; font-weight: 500;">Enabled</label>
+                  <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
+                    <input type="checkbox" id="seniors-is-enabled" data-change="updateSeniorsEnabledLabel">
+                    <span id="seniors-enabled-label" style="font-size: 14px; color: #6b7280;">Inactive</span>
+                  </div>
                 </div>
               </div>
               <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">

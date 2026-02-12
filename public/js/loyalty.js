@@ -1595,8 +1595,17 @@ async function loadSettings() {
 }
 
 // Seniors Day Discount
-async function setupSeniorsDiscount() {
-  const btn = document.getElementById('seniors-setup-btn');
+function updateSeniorsEnabledLabel() {
+  const checkbox = document.getElementById('seniors-is-enabled');
+  const label = document.getElementById('seniors-enabled-label');
+  if (checkbox && label) {
+    label.textContent = checkbox.checked ? 'Active' : 'Inactive';
+    label.style.color = checkbox.checked ? '#166534' : '#6b7280';
+  }
+}
+
+async function setupSeniorsDiscount(element) {
+  const btn = element instanceof HTMLElement ? element : document.getElementById('seniors-setup-btn');
   const originalText = btn.textContent;
 
   if (!confirm('Set up Seniors Day Discount? This will create objects in your Square account.')) return;
@@ -1652,21 +1661,26 @@ async function loadSeniorsConfig() {
     // Pricing rule status card
     const statusCard = document.getElementById('seniors-rule-status-card');
     const statusText = document.getElementById('seniors-rule-status');
-    if (data.pricingRuleState && data.pricingRuleState.verified) {
-      statusText.textContent = data.pricingRuleState.expected ? 'ACTIVE' : 'Disabled';
-      statusCard.style.background = data.pricingRuleState.expected ? '#f0fdf4' : '#f9fafb';
-      statusCard.style.border = '1px solid ' + (data.pricingRuleState.expected ? '#bbf7d0' : '#e5e7eb');
-      statusText.style.color = data.pricingRuleState.expected ? '#166534' : '#6b7280';
+    const retryBtn = document.getElementById('seniors-retry-setup-btn');
+    if (data.pricingRuleState && data.pricingRuleState.actual) {
+      const isActive = data.pricingRuleState.actual === 'enabled';
+      statusText.textContent = isActive ? 'ACTIVE' : 'Disabled';
+      statusCard.style.background = isActive ? '#f0fdf4' : '#f9fafb';
+      statusCard.style.border = '1px solid ' + (isActive ? '#bbf7d0' : '#e5e7eb');
+      statusText.style.color = isActive ? '#166534' : '#6b7280';
+      if (retryBtn) retryBtn.style.display = 'none';
     } else if (data.pricingRuleState && data.pricingRuleState.error) {
       statusText.textContent = 'Error';
       statusCard.style.background = '#fef2f2';
       statusCard.style.border = '1px solid #fecaca';
       statusText.style.color = '#991b1b';
+      if (retryBtn) retryBtn.style.display = 'inline-block';
     } else {
-      statusText.textContent = 'Unknown';
-      statusCard.style.background = '#f9fafb';
-      statusCard.style.border = '1px solid #e5e7eb';
-      statusText.style.color = '#6b7280';
+      statusText.textContent = 'Not Created';
+      statusCard.style.background = '#fef2f2';
+      statusCard.style.border = '1px solid #fecaca';
+      statusText.style.color = '#991b1b';
+      if (retryBtn) retryBtn.style.display = 'inline-block';
     }
 
     // Config form
@@ -1674,6 +1688,7 @@ async function loadSeniorsConfig() {
     document.getElementById('seniors-min-age').value = data.config.minAge;
     document.getElementById('seniors-day-of-month').value = data.config.dayOfMonth || 1;
     document.getElementById('seniors-is-enabled').checked = data.config.isEnabled;
+    updateSeniorsEnabledLabel();
 
     // Load recent members
     loadSeniorsMembers();
@@ -2027,6 +2042,7 @@ window.processExpired = processExpired;
 window.validateDiscounts = validateDiscounts;
 window.saveSeniorsConfig = saveSeniorsConfig;
 window.setupSeniorsDiscount = setupSeniorsDiscount;
+window.updateSeniorsEnabledLabel = updateSeniorsEnabledLabel;
 window.closeModal = closeModal;
 window.saveOffer = saveOffer;
 window.showVariationsModal = showVariationsModal;
