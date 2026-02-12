@@ -47,7 +47,7 @@ function sleep(ms) {
 async function getMerchantsWithSeniorsConfig() {
     try {
         const result = await db.query(
-            `SELECT m.id, m.business_name
+            `SELECT m.id, m.business_name, sdc.day_of_month
              FROM merchants m
              JOIN seniors_discount_config sdc ON sdc.merchant_id = m.id
              WHERE m.is_active = TRUE
@@ -137,11 +137,12 @@ async function disableWithRetry(service, merchantId) {
  * Run seniors discount check for a single merchant
  * @param {number} merchantId
  * @param {string} businessName
+ * @param {number} [configDayOfMonth] - Per-tenant day of month (from DB)
  * @returns {Promise<Object>} Result for this merchant
  */
-async function runSeniorsDiscountForMerchant(merchantId, businessName) {
+async function runSeniorsDiscountForMerchant(merchantId, businessName, configDayOfMonth) {
     const { dayOfMonth } = getTodayToronto();
-    const seniorsDayOfMonth = SENIORS_DISCOUNT.DAY_OF_MONTH;
+    const seniorsDayOfMonth = configDayOfMonth || SENIORS_DISCOUNT.DAY_OF_MONTH;
 
     const service = new SeniorsService(merchantId);
     await service.initialize();
@@ -150,6 +151,7 @@ async function runSeniorsDiscountForMerchant(merchantId, businessName) {
         merchantId,
         businessName,
         dayOfMonth,
+        seniorsDayOfMonth,
         action: 'none',
     };
 
@@ -215,7 +217,7 @@ async function runSeniorsDiscountForAllMerchants() {
     for (const merchant of merchants) {
         try {
             const result = await runSeniorsDiscountForMerchant(
-                merchant.id, merchant.business_name
+                merchant.id, merchant.business_name, merchant.day_of_month
             );
             results.push(result);
         } catch (error) {
@@ -265,13 +267,12 @@ async function verifyStateOnStartup() {
         if (merchants.length === 0) return;
 
         const { dayOfMonth } = getTodayToronto();
-        const seniorsDayOfMonth = SENIORS_DISCOUNT.DAY_OF_MONTH;
-
-        // Expected state: enabled only on seniors day, disabled otherwise
-        const expectedEnabled = dayOfMonth === seniorsDayOfMonth;
 
         for (const merchant of merchants) {
             try {
+                const seniorsDayOfMonth = merchant.day_of_month || SENIORS_DISCOUNT.DAY_OF_MONTH;
+                const expectedEnabled = dayOfMonth === seniorsDayOfMonth;
+
                 const service = new SeniorsService(merchant.id);
                 await service.initialize();
 

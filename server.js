@@ -75,6 +75,7 @@ const settingsRoutes = require('./routes/settings');
 const logsRoutes = require('./routes/logs');
 const cartActivityRoutes = require('./routes/cart-activity');
 const labelsRoutes = require('./routes/labels');
+const seniorsRoutes = require('./routes/seniors');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -369,6 +370,10 @@ app.use('/api', logsRoutes);
 // ==================== LABEL PRINTING ROUTES ====================
 // ZPL label generation for Zebra printers via Browser Print
 app.use('/api', labelsRoutes);
+
+// ==================== SENIORS DISCOUNT ROUTES ====================
+// Monitoring and configuration for monthly seniors day discount
+app.use('/api', seniorsRoutes);
 
 // ==================== API VERSIONING (v1) ====================
 // Versioned routes for future API changes - currently aliases to unversioned routes
