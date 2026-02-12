@@ -1595,6 +1595,38 @@ async function loadSettings() {
 }
 
 // Seniors Day Discount
+async function setupSeniorsDiscount() {
+  const btn = document.getElementById('seniors-setup-btn');
+  const originalText = btn.textContent;
+
+  if (!confirm('Set up Seniors Day Discount? This will create objects in your Square account.')) return;
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Setting up...';
+
+    const response = await fetch('/api/seniors/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Setup failed');
+    }
+
+    alert('Seniors discount set up successfully!');
+    loadSeniorsConfig();
+  } catch (error) {
+    console.error('Seniors setup failed:', error);
+    alert('Setup failed: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
 async function loadSeniorsConfig() {
   try {
     const response = await fetch('/api/seniors/status');
@@ -1994,6 +2026,7 @@ window.syncRewardsToPOS = syncRewardsToPOS;
 window.processExpired = processExpired;
 window.validateDiscounts = validateDiscounts;
 window.saveSeniorsConfig = saveSeniorsConfig;
+window.setupSeniorsDiscount = setupSeniorsDiscount;
 window.closeModal = closeModal;
 window.saveOffer = saveOffer;
 window.showVariationsModal = showVariationsModal;

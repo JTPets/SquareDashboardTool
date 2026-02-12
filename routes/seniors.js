@@ -89,6 +89,51 @@ router.get('/seniors/status', requireAuth, requireMerchant, asyncHandler(async (
     });
 }));
 
+// ==================== SETUP ====================
+
+/**
+ * POST /api/seniors/setup
+ * Create Square objects for seniors discount (one-time per tenant)
+ */
+router.post('/seniors/setup', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+
+    // Check if already configured
+    const existing = await db.query(
+        'SELECT square_pricing_rule_id FROM seniors_discount_config WHERE merchant_id = $1',
+        [merchantId]
+    );
+
+    if (existing.rows.length > 0 && existing.rows[0].square_pricing_rule_id) {
+        return res.status(409).json({
+            error: 'Seniors discount already configured for this merchant'
+        });
+    }
+
+    const service = new SeniorsService(merchantId);
+    await service.initialize();
+    const config = await service.setupSquareObjects();
+
+    logger.info('Seniors discount setup completed via UI', {
+        merchantId,
+        userId: req.session.user.id,
+        squareGroupId: config.square_group_id,
+        squarePricingRuleId: config.square_pricing_rule_id,
+    });
+
+    res.json({
+        success: true,
+        config: {
+            squareGroupId: config.square_group_id,
+            squareDiscountId: config.square_discount_id,
+            squareProductSetId: config.square_product_set_id,
+            squarePricingRuleId: config.square_pricing_rule_id,
+            discountPercent: config.discount_percent,
+            minAge: config.min_age,
+        }
+    });
+}));
+
 // ==================== CONFIGURATION ====================
 
 /**
