@@ -22,12 +22,21 @@ const RETRY_DELAY_MS = 2000;
 
 /**
  * Get today's date components in America/Toronto timezone
+ * Uses formatToParts to build YYYY-MM-DD reliably regardless of ICU/locale support
  * @returns {{ dayOfMonth: number, dateStr: string }}
  */
 function getTodayToronto() {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
-    const dayOfMonth = parseInt(dateStr.split('-')[2], 10);
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Toronto',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find(p => p.type === 'year').value;
+    const month = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    const dateStr = `${year}-${month}-${day}`;
+    const dayOfMonth = parseInt(day, 10);
     return { dayOfMonth, dateStr };
 }
 
