@@ -854,6 +854,10 @@ CREATE INDEX idx_loyalty_customers_birthday
 | `removeCustomerFromGroup()` | `services/loyalty-admin/square-discount-service.js` | Remove from group |
 | `handleCustomerUpdated()` | `services/webhook-handlers/catalog-handler.js:88-147` | Webhook handler |
 
+#### Known Gap: Birthday Removal Ignored
+
+COALESCE in `cacheCustomerDetails()` preserves old birthday when null is received — intentional removal from Square is ignored. Fix requires changes across cache, seniors service, and cron sweep.
+
 ---
 
 ### BACKLOG-5: Rapid-Fire Webhook Duplicate Processing
