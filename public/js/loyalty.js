@@ -1586,12 +1586,12 @@ async function loadSettings() {
 
     // Check for pending rewards that need to be synced to POS
     loadPendingSyncCount();
-
-    // Load seniors day config
-    loadSeniorsConfig();
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
+
+  // Load seniors day config (independent of loyalty settings)
+  loadSeniorsConfig();
 }
 
 // Seniors Day Discount
