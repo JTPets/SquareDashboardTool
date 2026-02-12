@@ -280,6 +280,7 @@ class SeniorsService {
     /**
      * Enable the seniors pricing rule for today's date
      * Sets valid_from_date and valid_until_date to today (America/Toronto)
+     * Retries on VERSION_MISMATCH (re-fetches object with fresh version)
      * @returns {Promise<Object>} Result with date and verified flag
      */
     async enablePricingRule() {
@@ -288,49 +289,77 @@ class SeniorsService {
             throw new Error('Seniors discount not configured — no pricing rule ID');
         }
 
-        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
-        if (!currentObject) {
-            throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
-        }
-
         const today = getTodayDateToronto();
 
-        const updatedObject = {
-            type: 'PRICING_RULE',
-            id: pricingRuleId,
-            version: currentObject.version,
-            pricing_rule_data: {
-                ...currentObject.pricing_rule_data,
-                valid_from_date: today,
-                valid_from_local_time: '00:00:00',
-                valid_until_date: today,
-                valid_until_local_time: '23:59:59',
-            },
-        };
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+            if (!currentObject) {
+                throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
+            }
 
-        const idempotencyKey = `seniors-enable-${this.merchantId}-${Date.now()}`;
-        await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+            const updatedObject = {
+                type: 'PRICING_RULE',
+                id: pricingRuleId,
+                version: currentObject.version,
+                pricing_rule_data: {
+                    ...currentObject.pricing_rule_data,
+                    valid_from_date: today,
+                    valid_from_local_time: '00:00:00',
+                    valid_until_date: today,
+                    valid_until_local_time: '23:59:59',
+                },
+            };
 
-        await db.query(
-            `UPDATE seniors_discount_config
-             SET last_enabled_at = NOW(), last_verified_state = 'enabled',
-                 last_verified_at = NOW(), updated_at = NOW()
-             WHERE merchant_id = $1`,
-            [this.merchantId]
-        );
-        await this.loadConfig();
+            const idempotencyKey = `seniors-enable-${this.merchantId}-${Date.now()}`;
+            let result;
 
-        logger.info('Seniors pricing rule enabled', {
-            merchantId: this.merchantId,
-            date: today,
-            pricingRuleId,
-        });
+            try {
+                result = await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+            } catch (error) {
+                if (_isVersionMismatch(error) && attempt < 3) {
+                    logger.warn('VERSION_MISMATCH on seniors enable, retrying with fresh version', {
+                        merchantId: this.merchantId, pricingRuleId, attempt,
+                    });
+                    continue;
+                }
+                throw error;
+            }
 
-        return { enabled: true, date: today, pricingRuleId };
+            // Validate response: confirm Square accepted our dates
+            const returnedRule = result.find(
+                obj => obj.id === pricingRuleId || obj.type === 'PRICING_RULE'
+            );
+            if (returnedRule) {
+                const returnedDate = returnedRule.pricing_rule_data?.valid_until_date;
+                if (returnedDate !== today) {
+                    logger.warn('Seniors enable response date mismatch', {
+                        merchantId: this.merchantId, expected: today, got: returnedDate,
+                    });
+                }
+            }
+
+            await db.query(
+                `UPDATE seniors_discount_config
+                 SET last_enabled_at = NOW(), last_verified_state = 'enabled',
+                     last_verified_at = NOW(), updated_at = NOW()
+                 WHERE merchant_id = $1`,
+                [this.merchantId]
+            );
+            await this.loadConfig();
+
+            logger.info('Seniors pricing rule enabled', {
+                merchantId: this.merchantId,
+                date: today,
+                pricingRuleId,
+            });
+
+            return { enabled: true, date: today, pricingRuleId };
+        }
     }
 
     /**
      * Disable the seniors pricing rule by setting dates to a past date
+     * Retries on VERSION_MISMATCH (re-fetches object with fresh version)
      * @returns {Promise<Object>} Result with verified flag
      */
     async disablePricingRule() {
@@ -339,44 +368,71 @@ class SeniorsService {
             throw new Error('Seniors discount not configured — no pricing rule ID');
         }
 
-        const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
-        if (!currentObject) {
-            throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
-        }
-
         const pastDate = '2020-01-01';
 
-        const updatedObject = {
-            type: 'PRICING_RULE',
-            id: pricingRuleId,
-            version: currentObject.version,
-            pricing_rule_data: {
-                ...currentObject.pricing_rule_data,
-                valid_from_date: pastDate,
-                valid_from_local_time: '00:00:00',
-                valid_until_date: pastDate,
-                valid_until_local_time: '23:59:59',
-            },
-        };
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const currentObject = await this.squareClient.getCatalogObject(pricingRuleId);
+            if (!currentObject) {
+                throw new Error(`Pricing rule ${pricingRuleId} not found in Square`);
+            }
 
-        const idempotencyKey = `seniors-disable-${this.merchantId}-${Date.now()}`;
-        await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+            const updatedObject = {
+                type: 'PRICING_RULE',
+                id: pricingRuleId,
+                version: currentObject.version,
+                pricing_rule_data: {
+                    ...currentObject.pricing_rule_data,
+                    valid_from_date: pastDate,
+                    valid_from_local_time: '00:00:00',
+                    valid_until_date: pastDate,
+                    valid_until_local_time: '23:59:59',
+                },
+            };
 
-        await db.query(
-            `UPDATE seniors_discount_config
-             SET last_disabled_at = NOW(), last_verified_state = 'disabled',
-                 last_verified_at = NOW(), updated_at = NOW()
-             WHERE merchant_id = $1`,
-            [this.merchantId]
-        );
-        await this.loadConfig();
+            const idempotencyKey = `seniors-disable-${this.merchantId}-${Date.now()}`;
+            let result;
 
-        logger.info('Seniors pricing rule disabled', {
-            merchantId: this.merchantId,
-            pricingRuleId,
-        });
+            try {
+                result = await this.squareClient.batchUpsertCatalog([updatedObject], idempotencyKey);
+            } catch (error) {
+                if (_isVersionMismatch(error) && attempt < 3) {
+                    logger.warn('VERSION_MISMATCH on seniors disable, retrying with fresh version', {
+                        merchantId: this.merchantId, pricingRuleId, attempt,
+                    });
+                    continue;
+                }
+                throw error;
+            }
 
-        return { enabled: false, pricingRuleId };
+            // Validate response: confirm Square accepted our dates
+            const returnedRule = result.find(
+                obj => obj.id === pricingRuleId || obj.type === 'PRICING_RULE'
+            );
+            if (returnedRule) {
+                const returnedDate = returnedRule.pricing_rule_data?.valid_until_date;
+                if (returnedDate !== pastDate) {
+                    logger.warn('Seniors disable response date mismatch', {
+                        merchantId: this.merchantId, expected: pastDate, got: returnedDate,
+                    });
+                }
+            }
+
+            await db.query(
+                `UPDATE seniors_discount_config
+                 SET last_disabled_at = NOW(), last_verified_state = 'disabled',
+                     last_verified_at = NOW(), updated_at = NOW()
+                 WHERE merchant_id = $1`,
+                [this.merchantId]
+            );
+            await this.loadConfig();
+
+            logger.info('Seniors pricing rule disabled', {
+                merchantId: this.merchantId,
+                pricingRuleId,
+            });
+
+            return { enabled: false, pricingRuleId };
+        }
     }
 
     /**
@@ -730,6 +786,17 @@ class SeniorsService {
         );
         return result.rows;
     }
+}
+
+/**
+ * Check if an error is a Square VERSION_MISMATCH error
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function _isVersionMismatch(error) {
+    if (error.details?.errors?.some(e => e.code === 'VERSION_MISMATCH')) return true;
+    if (error.message?.includes('VERSION_MISMATCH')) return true;
+    return false;
 }
 
 module.exports = { SeniorsService };

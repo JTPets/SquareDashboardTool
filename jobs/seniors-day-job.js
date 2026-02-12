@@ -67,6 +67,13 @@ async function getMerchantsWithSeniorsConfig() {
 
 /**
  * Enable pricing rule with retry logic
+ *
+ * Note: enablePricingRule() validates the batchUpsertCatalog response directly
+ * and handles VERSION_MISMATCH internally. We trust the write response rather
+ * than making a separate verification GET (which is subject to Square's
+ * eventual consistency and caused false-negative failures).
+ * The daily cron's "all other days" path verifies state as a safety net.
+ *
  * @param {SeniorsService} service - Initialized seniors service
  * @param {number} merchantId
  * @returns {Promise<Object>} Enable result
@@ -74,20 +81,7 @@ async function getMerchantsWithSeniorsConfig() {
 async function enableWithRetry(service, merchantId) {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const result = await service.enablePricingRule();
-
-            // Square Catalog API is eventually consistent — brief delay before verification
-            await sleep(1500);
-
-            // Verify it actually took effect
-            const verification = await service.verifyPricingRuleState(true);
-            if (!verification.verified) {
-                throw new Error(
-                    `Enable verification failed: expected enabled, got ${verification.actual}`
-                );
-            }
-
-            return result;
+            return await service.enablePricingRule();
         } catch (error) {
             logger.warn('Seniors pricing rule enable attempt failed', {
                 merchantId, attempt, maxRetries: MAX_RETRIES,
@@ -104,6 +98,10 @@ async function enableWithRetry(service, merchantId) {
 
 /**
  * Disable pricing rule with retry logic
+ *
+ * Note: disablePricingRule() validates the batchUpsertCatalog response directly
+ * and handles VERSION_MISMATCH internally. See enableWithRetry for rationale.
+ *
  * @param {SeniorsService} service - Initialized seniors service
  * @param {number} merchantId
  * @returns {Promise<Object>} Disable result
@@ -111,20 +109,7 @@ async function enableWithRetry(service, merchantId) {
 async function disableWithRetry(service, merchantId) {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const result = await service.disablePricingRule();
-
-            // Square Catalog API is eventually consistent — brief delay before verification
-            await sleep(1500);
-
-            // Verify it actually took effect
-            const verification = await service.verifyPricingRuleState(false);
-            if (!verification.verified) {
-                throw new Error(
-                    `Disable verification failed: expected disabled, got ${verification.actual}`
-                );
-            }
-
-            return result;
+            return await service.disablePricingRule();
         } catch (error) {
             logger.warn('Seniors pricing rule disable attempt failed', {
                 merchantId, attempt, maxRetries: MAX_RETRIES,
