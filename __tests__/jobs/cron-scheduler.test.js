@@ -78,10 +78,10 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 9 jobs (without GMC which is optional)
+            // Should schedule 10 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
-            // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup
-            expect(cron.schedule).toHaveBeenCalledTimes(9);
+            // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup, seniors discount
+            expect(cron.schedule).toHaveBeenCalledTimes(10);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -99,8 +99,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 10 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(10);
+            // Should schedule 11 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(11);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
