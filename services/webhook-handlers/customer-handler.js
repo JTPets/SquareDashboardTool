@@ -75,7 +75,10 @@ class CustomerHandler {
         //    Cache customer details for ALL merchants — not gated on seniors config
         const customer = await this._fetchAndCacheCustomer(merchantId, customerId);
 
-        // 4. Seniors birthday check — only runs if seniors is configured and customer has birthday
+        // 4. Seniors birthday check — only runs if customer has birthday
+        //    Safe to skip null-birthday: handleCustomerBirthdayUpdate() also returns early
+        //    for null birthday, and sweepLocalAges() cron re-evaluates cached birthdays monthly.
+        //    Birthday removal from Square is a no-op in the seniors flow by design.
         if (customer?.birthday) {
             const seniorsResult = await this._checkSeniorsBirthday(merchantId, customerId, customer);
             if (seniorsResult) {
