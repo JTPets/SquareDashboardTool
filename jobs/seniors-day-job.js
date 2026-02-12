@@ -76,6 +76,9 @@ async function enableWithRetry(service, merchantId) {
         try {
             const result = await service.enablePricingRule();
 
+            // Square Catalog API is eventually consistent — brief delay before verification
+            await sleep(1500);
+
             // Verify it actually took effect
             const verification = await service.verifyPricingRuleState(true);
             if (!verification.verified) {
@@ -109,6 +112,9 @@ async function disableWithRetry(service, merchantId) {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             const result = await service.disablePricingRule();
+
+            // Square Catalog API is eventually consistent — brief delay before verification
+            await sleep(1500);
 
             // Verify it actually took effect
             const verification = await service.verifyPricingRuleState(false);
