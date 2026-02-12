@@ -228,6 +228,16 @@ describe('SeniorsService', () => {
     });
 
     describe('verifyPricingRuleState', () => {
+        // Pin date so getTodayDateToronto() returns a consistent value
+        // regardless of locale or system date
+        beforeEach(() => {
+            jest.useFakeTimers({ now: new Date('2026-02-12T12:00:00-05:00') });
+        });
+
+        afterEach(() => {
+            jest.useRealTimers();
+        });
+
         it('should return verified:true when state matches expected (disabled)', async () => {
             mockSquareClient.getCatalogObject.mockResolvedValue({
                 id: pricingRuleId, type: 'PRICING_RULE', version: 100,
