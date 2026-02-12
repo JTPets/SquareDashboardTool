@@ -206,7 +206,9 @@ class SeniorsService {
                     // Start disabled - cron job will enable on 1st of month
                     // Using a past date to effectively disable
                     valid_from_date: '2020-01-01',
+                    valid_from_local_time: '00:00:00',
                     valid_until_date: '2020-01-01',
+                    valid_until_local_time: '23:59:59',
                 },
             },
         ];
@@ -300,7 +302,9 @@ class SeniorsService {
             pricing_rule_data: {
                 ...currentObject.pricing_rule_data,
                 valid_from_date: today,
+                valid_from_local_time: '00:00:00',
                 valid_until_date: today,
+                valid_until_local_time: '23:59:59',
             },
         };
 
@@ -348,7 +352,9 @@ class SeniorsService {
             pricing_rule_data: {
                 ...currentObject.pricing_rule_data,
                 valid_from_date: pastDate,
+                valid_from_local_time: '00:00:00',
                 valid_until_date: pastDate,
+                valid_until_local_time: '23:59:59',
             },
         };
 
