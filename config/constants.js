@@ -85,8 +85,8 @@ module.exports = {
     SENIORS_DISCOUNT: {
         MIN_AGE: 60,
         DISCOUNT_PERCENT: 10,
-        GROUP_NAME: 'Seniors (60+)',
-        DISCOUNT_NAME: 'Seniors Day (10% Off)',
+        GROUP_NAME: 'Seniors 60 Plus',
+        DISCOUNT_NAME: 'Seniors Day 10 Percent Off',
         DAY_OF_MONTH: 1,  // 1st of every month
     },
 };
