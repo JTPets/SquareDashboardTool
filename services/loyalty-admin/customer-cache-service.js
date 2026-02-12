@@ -20,6 +20,7 @@ const logger = require('../../utils/logger');
  * @param {string} [customer.phone] - Phone number
  * @param {string} [customer.email] - Email address
  * @param {string} [customer.companyName] - Company name
+ * @param {string} [customer.birthday] - Birthday in YYYY-MM-DD format
  * @param {number} merchantId - Merchant ID
  * @returns {Promise<void>}
  */
@@ -31,8 +32,8 @@ async function cacheCustomerDetails(customer, merchantId) {
             INSERT INTO loyalty_customers (
                 merchant_id, square_customer_id, given_name, family_name,
                 display_name, phone_number, email_address, company_name,
-                last_updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                birthday, last_updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
                 given_name = COALESCE(EXCLUDED.given_name, loyalty_customers.given_name),
                 family_name = COALESCE(EXCLUDED.family_name, loyalty_customers.family_name),
@@ -40,6 +41,7 @@ async function cacheCustomerDetails(customer, merchantId) {
                 phone_number = COALESCE(EXCLUDED.phone_number, loyalty_customers.phone_number),
                 email_address = COALESCE(EXCLUDED.email_address, loyalty_customers.email_address),
                 company_name = COALESCE(EXCLUDED.company_name, loyalty_customers.company_name),
+                birthday = COALESCE(EXCLUDED.birthday, loyalty_customers.birthday),
                 last_updated_at = NOW()
         `, [
             merchantId,
@@ -49,7 +51,8 @@ async function cacheCustomerDetails(customer, merchantId) {
             customer.displayName || customer.display_name || null,
             customer.phone || customer.phone_number || null,
             customer.email || customer.email_address || null,
-            customer.companyName || customer.company_name || null
+            customer.companyName || customer.company_name || null,
+            customer.birthday || null
         ]);
 
         logger.debug('Cached customer details', { customerId: customer.id, merchantId });
