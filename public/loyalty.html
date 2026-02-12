@@ -687,10 +687,11 @@
         <h3 style="margin-bottom: 20px;">Seniors Day Discount</h3>
         <div id="seniors-section">
           <div id="seniors-not-configured" style="display: none;">
-            <div class="alert alert-info">
+            <div class="alert alert-info" style="margin-bottom: 15px;">
               <strong>Not Configured</strong><br>
-              <span style="color: #1e40af;">Seniors discount has not been set up yet. Run the setup script to create Square objects.</span>
+              <span style="color: #1e40af;">Seniors discount has not been set up yet. This will create a customer group, discount, and pricing rule in Square.</span>
             </div>
+            <button class="btn-primary" data-action="setupSeniorsDiscount" id="seniors-setup-btn">Set Up Seniors Discount</button>
           </div>
 
           <div id="seniors-configured" style="display: none;">
