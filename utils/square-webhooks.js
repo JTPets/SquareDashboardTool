@@ -56,6 +56,17 @@ const WEBHOOK_EVENT_TYPES = {
         'location.updated'            // Location changes
     ],
 
+    // Invoice-driven committed inventory (BACKLOG-10)
+    invoices: [
+        'invoice.created',
+        'invoice.updated',
+        'invoice.published',
+        'invoice.canceled',
+        'invoice.deleted',
+        'invoice.refunded',
+        'invoice.scheduled_charge_failed'
+    ],
+
     // Subscription management (if using paid subscriptions)
     subscriptions: [
         'subscription.created',
@@ -84,7 +95,8 @@ function getRecommendedEventTypes() {
         ...WEBHOOK_EVENT_TYPES.loyalty,
         ...WEBHOOK_EVENT_TYPES.refunds,
         ...WEBHOOK_EVENT_TYPES.vendors,
-        ...WEBHOOK_EVENT_TYPES.locations
+        ...WEBHOOK_EVENT_TYPES.locations,
+        ...WEBHOOK_EVENT_TYPES.invoices
     ];
 }
 

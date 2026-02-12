@@ -26,6 +26,13 @@ jest.mock('../utils/logger', () => ({
 // Individual tests can override this mock as needed
 jest.mock('../utils/database', () => ({
     query: jest.fn().mockResolvedValue({ rows: [] }),
+    transaction: jest.fn().mockImplementation(async (fn) => {
+        const mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+            release: jest.fn()
+        };
+        return fn(mockClient);
+    }),
     getClient: jest.fn().mockResolvedValue({
         query: jest.fn().mockResolvedValue({ rows: [] }),
         release: jest.fn()

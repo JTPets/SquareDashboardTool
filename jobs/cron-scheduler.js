@@ -20,6 +20,7 @@ const { runScheduledLoyaltyCatchup } = require('./loyalty-catchup-job');
 const { runScheduledLoyaltyAudit } = require('./loyalty-audit-job');
 const { runScheduledCartActivityCleanup } = require('./cart-activity-cleanup-job');
 const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors-day-job');
+const { runScheduledReconciliation } = require('./committed-inventory-reconciliation-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -115,6 +116,15 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Seniors discount cron job scheduled', { schedule: seniorsSchedule, timezone: 'America/Toronto' });
+
+    // 12. Committed inventory reconciliation (BACKLOG-10)
+    // Runs daily at 4:00 AM as a safety net for invoice-driven committed inventory
+    // Catches missed webhooks, FAILED status transitions, and data drift
+    const committedInvSchedule = process.env.COMMITTED_INVENTORY_RECONCILIATION_CRON || '0 4 * * *';
+    cronTasks.push(cron.schedule(committedInvSchedule, runScheduledReconciliation, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Committed inventory reconciliation cron job scheduled', { schedule: committedInvSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
