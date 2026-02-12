@@ -177,19 +177,30 @@ async function runSeniorsDiscountForMerchant(merchantId, businessName, configDay
 
     } else {
         // All other days: verify state is correct (should be disabled)
-        const verification = await service.verifyPricingRuleState(false);
-        if (!verification.verified) {
-            logger.warn('Seniors pricing rule state mismatch, auto-correcting', {
-                merchantId, ...verification,
-            });
-            await disableWithRetry(service, merchantId);
-            result.action = 'auto_corrected';
+        // Trust local DB if we already verified disabled after last cycle
+        const config = service.config;
+        const alreadyVerifiedDisabled = config.last_verified_state === 'disabled'
+            && config.last_verified_at
+            && config.last_disabled_at
+            && new Date(config.last_verified_at) >= new Date(config.last_disabled_at);
 
-            await service.logAudit('PRICING_RULE_DISABLED', null, {
-                date: getTodayToronto().dateStr,
-                reason: 'auto_correction',
-                previousState: verification.actual,
-            }, 'CRON');
+        if (alreadyVerifiedDisabled) {
+            result.action = 'skipped_verified';
+        } else {
+            const verification = await service.verifyPricingRuleState(false);
+            if (!verification.verified) {
+                logger.warn('Seniors pricing rule state mismatch, auto-correcting', {
+                    merchantId, ...verification,
+                });
+                await disableWithRetry(service, merchantId);
+                result.action = 'auto_corrected';
+
+                await service.logAudit('PRICING_RULE_DISABLED', null, {
+                    date: getTodayToronto().dateStr,
+                    reason: 'auto_correction',
+                    previousState: verification.actual,
+                }, 'CRON');
+            }
         }
     }
 
@@ -275,6 +286,22 @@ async function verifyStateOnStartup() {
 
                 const service = new SeniorsService(merchant.id);
                 await service.initialize();
+
+                // On non-seniors days, trust local state if already verified disabled
+                if (!expectedEnabled) {
+                    const cfg = service.config;
+                    const alreadyVerifiedDisabled = cfg.last_verified_state === 'disabled'
+                        && cfg.last_verified_at
+                        && cfg.last_disabled_at
+                        && new Date(cfg.last_verified_at) >= new Date(cfg.last_disabled_at);
+
+                    if (alreadyVerifiedDisabled) {
+                        logger.info('Seniors startup check: local state trusted (disabled)', {
+                            merchantId: merchant.id,
+                        });
+                        continue;
+                    }
+                }
 
                 const verification = await service.verifyPricingRuleState(expectedEnabled);
                 if (!verification.verified) {

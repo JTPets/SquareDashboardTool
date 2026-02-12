@@ -313,7 +313,8 @@ class SeniorsService {
 
         await db.query(
             `UPDATE seniors_discount_config
-             SET last_enabled_at = NOW(), updated_at = NOW()
+             SET last_enabled_at = NOW(), last_verified_state = 'enabled',
+                 last_verified_at = NOW(), updated_at = NOW()
              WHERE merchant_id = $1`,
             [this.merchantId]
         );
@@ -363,7 +364,8 @@ class SeniorsService {
 
         await db.query(
             `UPDATE seniors_discount_config
-             SET last_disabled_at = NOW(), updated_at = NOW()
+             SET last_disabled_at = NOW(), last_verified_state = 'disabled',
+                 last_verified_at = NOW(), updated_at = NOW()
              WHERE merchant_id = $1`,
             [this.merchantId]
         );
@@ -396,11 +398,20 @@ class SeniorsService {
         const today = getTodayDateToronto();
         const validUntil = currentObject.pricing_rule_data?.valid_until_date;
         const isCurrentlyEnabled = validUntil >= today;
+        const actualState = isCurrentlyEnabled ? 'enabled' : 'disabled';
+
+        // Persist verified state so cron can skip future API calls
+        await db.query(
+            `UPDATE seniors_discount_config
+             SET last_verified_state = $1, last_verified_at = NOW(), updated_at = NOW()
+             WHERE merchant_id = $2`,
+            [actualState, this.merchantId]
+        );
 
         return {
             verified: isCurrentlyEnabled === expectedEnabled,
             expected: expectedEnabled ? 'enabled' : 'disabled',
-            actual: isCurrentlyEnabled ? 'enabled' : 'disabled',
+            actual: actualState,
             validFromDate: currentObject.pricing_rule_data?.valid_from_date,
             validUntilDate: validUntil,
         };
