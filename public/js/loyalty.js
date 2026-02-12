@@ -1586,8 +1586,145 @@ async function loadSettings() {
 
     // Check for pending rewards that need to be synced to POS
     loadPendingSyncCount();
+
+    // Load seniors day config
+    loadSeniorsConfig();
   } catch (error) {
     console.error('Failed to load settings:', error);
+  }
+}
+
+// Seniors Day Discount
+async function loadSeniorsConfig() {
+  try {
+    const response = await fetch('/api/seniors/status');
+    const data = await response.json();
+
+    if (!data.configured) {
+      document.getElementById('seniors-not-configured').style.display = 'block';
+      document.getElementById('seniors-configured').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('seniors-not-configured').style.display = 'none';
+    document.getElementById('seniors-configured').style.display = 'block';
+
+    // Status cards
+    document.getElementById('seniors-enrolled-count').textContent = data.enrolledCount || 0;
+    document.getElementById('seniors-discount-display').textContent = data.config.discountPercent + '%';
+
+    const day = data.config.dayOfMonth || 1;
+    const suffix = day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th';
+    document.getElementById('seniors-day-display').textContent = day + suffix;
+
+    // Pricing rule status card
+    const statusCard = document.getElementById('seniors-rule-status-card');
+    const statusText = document.getElementById('seniors-rule-status');
+    if (data.pricingRuleState && data.pricingRuleState.verified) {
+      statusText.textContent = data.pricingRuleState.expected ? 'ACTIVE' : 'Disabled';
+      statusCard.style.background = data.pricingRuleState.expected ? '#f0fdf4' : '#f9fafb';
+      statusCard.style.border = '1px solid ' + (data.pricingRuleState.expected ? '#bbf7d0' : '#e5e7eb');
+      statusText.style.color = data.pricingRuleState.expected ? '#166534' : '#6b7280';
+    } else if (data.pricingRuleState && data.pricingRuleState.error) {
+      statusText.textContent = 'Error';
+      statusCard.style.background = '#fef2f2';
+      statusCard.style.border = '1px solid #fecaca';
+      statusText.style.color = '#991b1b';
+    } else {
+      statusText.textContent = 'Unknown';
+      statusCard.style.background = '#f9fafb';
+      statusCard.style.border = '1px solid #e5e7eb';
+      statusText.style.color = '#6b7280';
+    }
+
+    // Config form
+    document.getElementById('seniors-discount-percent').value = data.config.discountPercent;
+    document.getElementById('seniors-min-age').value = data.config.minAge;
+    document.getElementById('seniors-day-of-month').value = data.config.dayOfMonth || 1;
+    document.getElementById('seniors-is-enabled').checked = data.config.isEnabled;
+
+    // Load recent members
+    loadSeniorsMembers();
+  } catch (error) {
+    console.error('Failed to load seniors config:', error);
+    document.getElementById('seniors-not-configured').style.display = 'block';
+    document.getElementById('seniors-configured').style.display = 'none';
+  }
+}
+
+async function saveSeniorsConfig() {
+  const btn = document.getElementById('seniors-save-btn');
+  const statusEl = document.getElementById('seniors-save-status');
+  const originalText = btn.textContent;
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const body = {
+      discount_percent: parseInt(document.getElementById('seniors-discount-percent').value, 10),
+      min_age: parseInt(document.getElementById('seniors-min-age').value, 10),
+      day_of_month: parseInt(document.getElementById('seniors-day-of-month').value, 10),
+      is_enabled: document.getElementById('seniors-is-enabled').checked
+    };
+
+    const response = await fetch('/api/seniors/config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to save');
+    }
+
+    statusEl.style.display = 'inline';
+    setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+
+    // Refresh status cards
+    loadSeniorsConfig();
+  } catch (error) {
+    console.error('Failed to save seniors config:', error);
+    alert('Failed to save seniors config: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+async function loadSeniorsMembers() {
+  try {
+    const response = await fetch('/api/seniors/members?limit=5');
+    const data = await response.json();
+
+    const container = document.getElementById('seniors-members-list');
+    if (!data.members || data.members.length === 0) {
+      container.textContent = 'No seniors enrolled yet.';
+      return;
+    }
+
+    const rows = data.members.map(m => {
+      const name = [m.given_name, m.family_name].filter(Boolean).join(' ') || m.square_customer_id.substring(0, 10) + '...';
+      const age = m.age_at_last_check || '--';
+      const date = m.added_to_group_at ? new Date(m.added_to_group_at).toLocaleDateString('en-US') : '--';
+      return `<tr><td>${escapeHtml(name)}</td><td>${age}</td><td>${date}</td></tr>`;
+    });
+
+    container.innerHTML = `
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+        <thead><tr style="border-bottom: 1px solid #e5e7eb;">
+          <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Name</th>
+          <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Age</th>
+          <th style="text-align: left; padding: 6px 8px; color: #6b7280;">Enrolled</th>
+        </tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+      ${data.total > 5 ? `<p style="margin: 8px 0 0 0; font-size: 12px; color: #9ca3af;">${data.total} total enrolled</p>` : ''}
+    `;
+  } catch (error) {
+    console.error('Failed to load seniors members:', error);
+    document.getElementById('seniors-members-list').textContent = 'Failed to load members.';
   }
 }
 
@@ -1856,6 +1993,7 @@ window.saveSettings = saveSettings;
 window.syncRewardsToPOS = syncRewardsToPOS;
 window.processExpired = processExpired;
 window.validateDiscounts = validateDiscounts;
+window.saveSeniorsConfig = saveSeniorsConfig;
 window.closeModal = closeModal;
 window.saveOffer = saveOffer;
 window.showVariationsModal = showVariationsModal;
