@@ -85,6 +85,7 @@ async function getCustomerDetails(customerId, merchantId) {
             email: customer.email_address || null,
             phone: customer.phone_number || null,
             companyName: customer.company_name || null,
+            birthday: customer.birthday || null,
             createdAt: customer.created_at,
             updatedAt: customer.updated_at
         };

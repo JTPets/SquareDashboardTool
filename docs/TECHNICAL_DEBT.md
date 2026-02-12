@@ -1078,6 +1078,29 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
+### BACKLOG-12: Driver Share Link Validation Failure
+**Identified**: 2026-02-12
+**Priority**: Low (intermittent issue)
+**Status**: Not investigated yet
+**Target**: TBD
+
+**Problem**: Validation fails when generating or accessing driver delivery share links. Root cause unknown — reported as intermittent. Needs investigation of the share link generation flow in the delivery routing system for input validation errors.
+
+**Areas to investigate**:
+- Share link generation endpoint and URL construction
+- Input validation on share link parameters (delivery ID, route ID, token)
+- Whether expired or invalid tokens cause the validation failure
+- Edge cases: missing delivery data, incomplete route, unassigned driver
+
+**Files likely involved**:
+- `routes/delivery.js` — share link generation and access endpoints
+- `middleware/validators/` — delivery-related validators
+- `services/delivery/delivery-service.js` — underlying delivery data lookups
+
+**Audit date**: 2026-02-12
+
+---
+
 ### Square Webhook Subscription Audit (2026-02-11)
 
 Full audit of all 140+ Square webhook event types against app features. Categorized into: already subscribed, should subscribe, and not needed.
