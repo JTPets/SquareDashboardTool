@@ -71,12 +71,16 @@ class CustomerHandler {
             };
         }
 
-        // 3. Seniors birthday check — re-fetch customer from Square
-        //    Birthday is NOT included in webhook payload; must call API
-        //    Only fetch if seniors feature is configured for this merchant
-        const seniorsResult = await this._checkSeniorsBirthday(merchantId, customerId);
-        if (seniorsResult) {
-            result.seniorsDiscount = seniorsResult;
+        // 3. Re-fetch customer from Square to get full profile (birthday not in webhook payload)
+        //    Cache customer details for ALL merchants — not gated on seniors config
+        const customer = await this._fetchAndCacheCustomer(merchantId, customerId);
+
+        // 4. Seniors birthday check — only runs if seniors is configured and customer has birthday
+        if (customer?.birthday) {
+            const seniorsResult = await this._checkSeniorsBirthday(merchantId, customerId, customer);
+            if (seniorsResult) {
+                result.seniorsDiscount = seniorsResult;
+            }
         }
 
         return result;
@@ -109,16 +113,44 @@ class CustomerHandler {
     }
 
     /**
-     * Check if customer qualifies for seniors discount by fetching birthday
+     * Fetch customer from Square API and cache details locally
      * Non-blocking — errors are logged but never fail the webhook
      * @private
      * @param {number} merchantId
      * @param {string} customerId - Square customer ID
+     * @returns {Promise<Object|null>} Square customer object or null
+     */
+    async _fetchAndCacheCustomer(merchantId, customerId) {
+        try {
+            const squareClient = new LoyaltySquareClient(merchantId);
+            await squareClient.initialize();
+            const customer = await squareClient.getCustomer(customerId);
+
+            if (customer) {
+                await cacheCustomerDetails(customer, merchantId);
+            }
+
+            return customer;
+        } catch (error) {
+            logger.warn('Failed to fetch/cache customer details', {
+                merchantId, customerId, error: error.message,
+            });
+            return null;
+        }
+    }
+
+    /**
+     * Check if customer qualifies for seniors discount
+     * Non-blocking — errors are logged but never fail the webhook
+     * @private
+     * @param {number} merchantId
+     * @param {string} customerId - Square customer ID
+     * @param {Object} customer - Square customer object (already fetched)
      * @returns {Promise<Object|null>} Seniors result or null
      */
-    async _checkSeniorsBirthday(merchantId, customerId) {
+    async _checkSeniorsBirthday(merchantId, customerId, customer) {
         try {
-            // Guard: only re-fetch if seniors feature is configured
+            // Guard: only evaluate if seniors feature is configured
             const configCheck = await db.query(
                 `SELECT id FROM seniors_discount_config
                  WHERE merchant_id = $1 AND is_enabled = TRUE AND square_group_id IS NOT NULL`,
@@ -128,18 +160,6 @@ class CustomerHandler {
             if (configCheck.rows.length === 0) {
                 return null;
             }
-
-            // Re-fetch customer from Square to get birthday
-            const squareClient = new LoyaltySquareClient(merchantId);
-            await squareClient.initialize();
-            const customer = await squareClient.getCustomer(customerId);
-
-            if (!customer?.birthday) {
-                return null;
-            }
-
-            // Cache customer details so name/phone appear in members list
-            await cacheCustomerDetails(customer, merchantId);
 
             // Evaluate seniors eligibility
             const service = new SeniorsService(merchantId);
