@@ -953,12 +953,11 @@ function renderAuditOrders(data) {
       }
     }
 
-    // Count free/skipped items
+    // Count free/skipped items (includes both detected free items and redemption records)
     for (const item of order.nonQualifyingItems || []) {
-      if (item.skipReason === 'free_item') {
+      if (item.skipReason === 'free_item' || item.skipReason === 'redeemed_reward') {
         totalFreeSkipped += item.quantity;
-        // Try to match to an offer by checking if there's a matching variation
-        const offerName = item.offer?.name || 'Free Items (No Credit)';
+        const offerName = item.offerName || item.offer?.name || 'Free Items (No Credit)';
         if (!offerBreakdown[offerName]) {
           offerBreakdown[offerName] = { earned: 0, canAdd: 0, freeSkipped: 0 };
         }
@@ -1122,13 +1121,23 @@ function renderAuditOrders(data) {
         ).join(' ')
       : '<span style="color: #9ca3af;">None</span>';
 
-    // Build free/skipped items list
+    // Build free/skipped items list (includes both detected free items and redemption records)
     const freeItems = (order.nonQualifyingItems || []).filter(i => i.skipReason === 'free_item');
-    const freeList = freeItems.length > 0
-      ? freeItems.map(item =>
-          `<span style="display: inline-block; background: #fee2e2; padding: 2px 6px; border-radius: 3px; margin: 1px;" title="100% discounted - no loyalty credit">🎁 ${escapeHtml(item.name)} (${item.quantity})</span>`
-        ).join(' ')
-      : '<span style="color: #9ca3af;">-</span>';
+    const redeemedItems = (order.nonQualifyingItems || []).filter(i => i.skipReason === 'redeemed_reward');
+    const allFreeItems = [...freeItems, ...redeemedItems];
+    let freeList = '';
+    if (freeItems.length > 0 || redeemedItems.length > 0) {
+      const parts = [];
+      for (const item of freeItems) {
+        parts.push(`<span style="display: inline-block; background: #fee2e2; padding: 2px 6px; border-radius: 3px; margin: 1px;" title="100% discounted - no loyalty credit">\u{1F381} ${escapeHtml(item.name)} (${item.quantity})</span>`);
+      }
+      for (const item of redeemedItems) {
+        parts.push(`<span style="display: inline-block; background: #ede9fe; padding: 2px 6px; border-radius: 3px; margin: 1px;" title="Loyalty reward redeemed - ${escapeHtml(item.offerName || '')}">\u{1F389} ${escapeHtml(item.name)} (${item.quantity})</span>`);
+      }
+      freeList = parts.join(' ');
+    } else {
+      freeList = '<span style="color: #9ca3af;">-</span>';
+    }
 
     // Check customer ID match
     const expectedCustomerId = document.getElementById('audit-customer-id').value;
@@ -1141,8 +1150,8 @@ function renderAuditOrders(data) {
       statusBadge = '<span class="status-badge earned" style="font-size: 10px;">✓ Tracked</span>';
     } else if (canAdd) {
       statusBadge = '<span class="status-badge in_progress" style="font-size: 10px;">+ Can Add</span>';
-    } else if (freeItems.length > 0) {
-      statusBadge = '<span class="status-badge" style="font-size: 10px; background: #fee2e2; color: #dc2626;">🎁 Free Only</span>';
+    } else if (allFreeItems.length > 0) {
+      statusBadge = '<span class="status-badge" style="font-size: 10px; background: #fee2e2; color: #dc2626;">\u{1F381} Free Only</span>';
     } else {
       statusBadge = '<span class="status-badge inactive" style="font-size: 10px;">No Items</span>';
     }
