@@ -90,8 +90,12 @@ const LabelPrinter = (function () {
             printerList = [];
 
             // data.printer is the default printer (if any)
+            // Some ZBP versions return a string, others return an object
             if (data.printer) {
-                printerList.push(parsePrinter(data.printer, true));
+                const defaultDevice = typeof data.printer === 'string'
+                    ? { name: data.printer, uid: data.printer }
+                    : data.printer;
+                printerList.push(parsePrinter(defaultDevice, true));
             }
 
             // data.deviceList contains additional printers
@@ -153,7 +157,7 @@ const LabelPrinter = (function () {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({
-                device: { uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version },
+                device: { name: target.name, uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version },
                 data: zpl
             })
         }, 30000);
@@ -184,7 +188,7 @@ const LabelPrinter = (function () {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
                 body: JSON.stringify({
-                    device: { uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version }
+                    device: { name: target.name, uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version }
                 })
             }, 5000);
 
