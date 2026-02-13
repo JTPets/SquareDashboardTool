@@ -18,7 +18,7 @@ SET template_zpl = '^XA
 ^FO15,8^A0N,24,24^FB426,2,0,L^FD{{itemName}}^FS
 ^FO15,62^A0N,18,18^FB200,1,0,L^FD{{variationName}}^FS
 ^FO15,88^A0N,48,48^FD${{price}}^FS
-^FO240,82^BY2^BCN,55,Y,N,N^FD{{barcode}}^FS
+^FO215,82^BY2^BCN,55,Y,N,N^FD{{barcode}}^FS
 ^XZ',
     updated_at = CURRENT_TIMESTAMP
 WHERE name LIKE 'Standard Price Tag%';
