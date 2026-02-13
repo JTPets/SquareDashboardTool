@@ -25,9 +25,11 @@ const LabelPrinter = (function () {
     let isAvailable = null; // null = unchecked, true/false after check
 
     /**
-     * Check if Zebra Browser Print agent is running
+     * Check if Zebra Browser Print agent is running.
+     * Tries HTTP (9100) first, then HTTPS (9101).
      */
     async function checkAvailability() {
+        // Try HTTP first
         try {
             const resp = await fetchWithTimeout(
                 `${BROWSER_PRINT_HTTP}/available`,
@@ -37,26 +39,32 @@ const LabelPrinter = (function () {
             if (resp.ok) {
                 baseUrl = BROWSER_PRINT_HTTP;
                 isAvailable = true;
+                console.log('[LabelPrinter] Zebra Browser Print detected on HTTP :9100');
                 return true;
             }
-        } catch (_) {
-            // Try HTTPS endpoint
-            try {
-                const resp = await fetchWithTimeout(
-                    `${BROWSER_PRINT_HTTPS}/available`,
-                    { method: 'GET' },
-                    3000
-                );
-                if (resp.ok) {
-                    baseUrl = BROWSER_PRINT_HTTPS;
-                    isAvailable = true;
-                    return true;
-                }
-            } catch (_) {
-                // Not available
-            }
+        } catch (httpErr) {
+            console.warn('[LabelPrinter] HTTP :9100 failed:', httpErr.message);
         }
+
+        // Fall back to HTTPS
+        try {
+            const resp = await fetchWithTimeout(
+                `${BROWSER_PRINT_HTTPS}/available`,
+                { method: 'GET' },
+                3000
+            );
+            if (resp.ok) {
+                baseUrl = BROWSER_PRINT_HTTPS;
+                isAvailable = true;
+                console.log('[LabelPrinter] Zebra Browser Print detected on HTTPS :9101');
+                return true;
+            }
+        } catch (httpsErr) {
+            console.warn('[LabelPrinter] HTTPS :9101 failed:', httpsErr.message);
+        }
+
         isAvailable = false;
+        console.warn('[LabelPrinter] Zebra Browser Print not detected. Ensure the app is running on this PC.');
         return false;
     }
 
@@ -308,14 +316,38 @@ const LabelPrinter = (function () {
     }
 
     /**
-     * Render a printer selector dropdown
+     * Render a printer selector dropdown.
+     * If not yet detected, shows a retry button so the user can re-check
+     * after starting Zebra Browser Print.
      */
-    function renderPrinterSelector(containerId) {
+    async function renderPrinterSelector(containerId) {
         const container = document.getElementById(containerId);
         if (!container) return;
 
+        // Re-check availability each time we render (ZBP may have started after page load)
         if (!isAvailable) {
-            container.innerHTML = '<span style="color: #dc2626; font-size: 12px;">Zebra Browser Print not detected</span>';
+            await checkAvailability();
+            if (isAvailable) {
+                await discoverPrinters();
+            }
+        }
+
+        if (!isAvailable) {
+            container.innerHTML =
+                '<span style="color: #dc2626; font-size: 12px;">Zebra Browser Print not detected</span> ' +
+                '<button id="retry-zbp-btn" style="padding: 2px 8px; font-size: 11px; border: 1px solid #d1d5db; border-radius: 3px; background: white; cursor: pointer; color: #4b5563;" title="Click after starting Zebra Browser Print on this PC">Retry</button>';
+            const retryBtn = document.getElementById('retry-zbp-btn');
+            if (retryBtn) {
+                retryBtn.addEventListener('click', async function () {
+                    retryBtn.disabled = true;
+                    retryBtn.textContent = 'Checking...';
+                    await checkAvailability();
+                    if (isAvailable) {
+                        await discoverPrinters();
+                    }
+                    await renderPrinterSelector(containerId);
+                });
+            }
             return;
         }
 
