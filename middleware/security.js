@@ -43,7 +43,10 @@ function configureHelmet() {
                     "https://connect.squareup.com",
                     "https://connect.squareupsandbox.com",
                     // Cloudflare analytics beacons
-                    "https://*.cloudflareinsights.com"
+                    "https://*.cloudflareinsights.com",
+                    // Zebra Browser Print agent (runs on user's local machine)
+                    "http://127.0.0.1:9100",
+                    "https://127.0.0.1:9101"
                 ],
                 // Allow Cloudflare challenge iframes (CAPTCHA, etc.)
                 // Note: 'none' cannot be combined with other values in CSP
