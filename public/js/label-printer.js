@@ -86,6 +86,7 @@ const LabelPrinter = (function () {
                 5000
             );
             const data = await resp.json();
+            console.log('[LabelPrinter] ZBP /available response:', JSON.stringify(data));
 
             printerList = [];
 
@@ -95,21 +96,29 @@ const LabelPrinter = (function () {
                 const defaultDevice = typeof data.printer === 'string'
                     ? { name: data.printer, uid: data.printer }
                     : data.printer;
-                printerList.push(parsePrinter(defaultDevice, true));
+                const parsed = parsePrinter(defaultDevice, true);
+                if (parsed) {
+                    printerList.push(parsed);
+                }
             }
 
             // data.deviceList contains additional printers
             if (data.deviceList && Array.isArray(data.deviceList)) {
                 for (const device of data.deviceList) {
-                    if (device.name) {
-                        printerList.push(parsePrinter(device, false));
+                    const parsed = parsePrinter(device, false);
+                    if (parsed) {
+                        printerList.push(parsed);
                     }
                 }
             }
 
-            // Auto-select first printer if none selected
-            if (!selectedPrinter && printerList.length > 0) {
-                selectedPrinter = printerList[0];
+            // Auto-select first printer, or clear stale selection
+            if (printerList.length > 0) {
+                if (!selectedPrinter || !printerList.find(p => p.uid === selectedPrinter.uid)) {
+                    selectedPrinter = printerList[0];
+                }
+            } else {
+                selectedPrinter = null;
             }
 
             return printerList;
@@ -120,12 +129,22 @@ const LabelPrinter = (function () {
     }
 
     /**
-     * Parse a printer object from Browser Print response
+     * Parse a printer object from Browser Print response.
+     * Returns null if the device lacks required fields (name/uid).
      */
     function parsePrinter(device, isDefault) {
+        // ZBP versions may use different field names
+        const name = device.name || device.deviceName || device.printer_name;
+        const uid = device.uid || device.id || device.deviceId || name;
+
+        if (!name && !uid) {
+            console.warn('[LabelPrinter] Skipping device with no name or uid:', device);
+            return null;
+        }
+
         return {
-            name: device.name || 'Unknown Printer',
-            uid: device.uid || device.name,
+            name: name || uid,
+            uid: uid || name,
             connection: device.connection || 'unknown',
             deviceType: device.deviceType || 'printer',
             provider: device.provider || '',
