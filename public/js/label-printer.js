@@ -69,7 +69,9 @@ const LabelPrinter = (function () {
     }
 
     /**
-     * Discover locally connected Zebra printers
+     * Discover locally connected Zebra printers.
+     * Uses /default?type=printer (full device details) as primary source,
+     * then /available for additional printers.
      */
     async function discoverPrinters() {
         if (isAvailable === null) {
@@ -79,6 +81,31 @@ const LabelPrinter = (function () {
             return [];
         }
 
+        printerList = [];
+
+        // 1. Get default printer via /default?type=printer (returns full device object)
+        try {
+            const resp = await fetchWithTimeout(
+                `${baseUrl}/default?type=printer`,
+                { method: 'GET' },
+                5000
+            );
+            if (resp.ok) {
+                const text = await resp.text();
+                console.log('[LabelPrinter] ZBP /default response:', text);
+                if (text && text.trim()) {
+                    const device = JSON.parse(text);
+                    const parsed = parsePrinter(device, true);
+                    if (parsed) {
+                        printerList.push(parsed);
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[LabelPrinter] /default?type=printer failed:', err.message);
+        }
+
+        // 2. Also check /available for additional printers
         try {
             const resp = await fetchWithTimeout(
                 `${baseUrl}/available`,
@@ -88,11 +115,8 @@ const LabelPrinter = (function () {
             const data = await resp.json();
             console.log('[LabelPrinter] ZBP /available response:', JSON.stringify(data));
 
-            printerList = [];
-
-            // data.printer is the default printer (if any)
-            // Some ZBP versions return a string, others return an object
-            if (data.printer) {
+            // data.printer is the default printer (may be string or object)
+            if (data.printer && printerList.length === 0) {
                 const defaultDevice = typeof data.printer === 'string'
                     ? { name: data.printer, uid: data.printer }
                     : data.printer;
@@ -106,26 +130,25 @@ const LabelPrinter = (function () {
             if (data.deviceList && Array.isArray(data.deviceList)) {
                 for (const device of data.deviceList) {
                     const parsed = parsePrinter(device, false);
-                    if (parsed) {
+                    if (parsed && !printerList.find(p => p.uid === parsed.uid)) {
                         printerList.push(parsed);
                     }
                 }
             }
-
-            // Auto-select first printer, or clear stale selection
-            if (printerList.length > 0) {
-                if (!selectedPrinter || !printerList.find(p => p.uid === selectedPrinter.uid)) {
-                    selectedPrinter = printerList[0];
-                }
-            } else {
-                selectedPrinter = null;
-            }
-
-            return printerList;
         } catch (err) {
-            console.error('Failed to discover printers:', err);
-            return [];
+            console.warn('[LabelPrinter] /available discovery failed:', err.message);
         }
+
+        // Auto-select first printer, or clear stale selection
+        if (printerList.length > 0) {
+            if (!selectedPrinter || !printerList.find(p => p.uid === selectedPrinter.uid)) {
+                selectedPrinter = printerList[0];
+            }
+        } else {
+            selectedPrinter = null;
+        }
+
+        return printerList;
     }
 
     /**
@@ -174,7 +197,7 @@ const LabelPrinter = (function () {
         const url = `${baseUrl}/write`;
         const resp = await fetchWithTimeout(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 device: { name: target.name, uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version },
                 data: zpl
@@ -205,7 +228,7 @@ const LabelPrinter = (function () {
 
             const resp = await fetchWithTimeout(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device: { name: target.name, uid: target.uid, connection: target.connection, deviceType: target.deviceType, provider: target.provider, manufacturer: target.manufacturer, version: target.version }
                 })
