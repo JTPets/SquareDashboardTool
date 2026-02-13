@@ -358,6 +358,33 @@ async function getCustomerOrderHistoryForAudit({
     const trackedOrderIds = new Set(trackedOrdersResult.rows.map(r => r.square_order_id));
     const trackedOrderSources = new Map(trackedOrdersResult.rows.map(r => [r.square_order_id, r.customer_source]));
 
+    // Get redemption records for this customer to cross-reference with orders
+    // This catches cases where the free item isn't visible in Square order data
+    // (e.g., discount removed during manual fix, hiccup with discount application)
+    const redemptionsResult = await db.query(`
+        SELECT lr.square_order_id, lr.redeemed_item_name, lr.redeemed_variation_id,
+               lr.redeemed_variation_name, lr.redeemed_value_cents, lo.offer_name
+        FROM loyalty_redemptions lr
+        JOIN loyalty_offers lo ON lr.offer_id = lo.id
+        WHERE lr.merchant_id = $1 AND lr.square_customer_id = $2
+          AND lr.square_order_id IS NOT NULL
+    `, [merchantId, squareCustomerId]);
+
+    // Build order_id -> redemptions lookup
+    const orderRedemptionsMap = new Map();
+    for (const row of redemptionsResult.rows) {
+        if (!orderRedemptionsMap.has(row.square_order_id)) {
+            orderRedemptionsMap.set(row.square_order_id, []);
+        }
+        orderRedemptionsMap.get(row.square_order_id).push({
+            itemName: row.redeemed_item_name,
+            variationId: row.redeemed_variation_id,
+            variationName: row.redeemed_variation_name,
+            valueCents: row.redeemed_value_cents,
+            offerName: row.offer_name
+        });
+    }
+
     // Get customer's current loyalty status (only needed for first chunk or legacy mode)
     // In chunked mode, frontend caches this from first request
     const rewardsResult = await db.query(`
@@ -501,6 +528,29 @@ async function getCustomerOrderHistoryForAudit({
                 nonQualifyingItems.push({
                     ...itemInfo,
                     skipReason: isFree ? 'free_item' : (variationId ? 'no_matching_offer' : 'no_variation_id')
+                });
+            }
+        }
+
+        // Cross-reference with redemption records
+        // If this order has a redemption but the redeemed item wasn't detected as free
+        // in the line items (e.g., discount removed, hiccup with application), add it
+        const orderRedemptions = orderRedemptionsMap.get(order.id) || [];
+        for (const redemption of orderRedemptions) {
+            const alreadyDetectedFree = nonQualifyingItems.some(
+                ni => ni.skipReason === 'free_item' && ni.variationId === redemption.variationId
+            );
+            if (!alreadyDetectedFree) {
+                nonQualifyingItems.push({
+                    uid: null,
+                    variationId: redemption.variationId,
+                    name: redemption.itemName || redemption.variationName || 'Redeemed Item',
+                    quantity: 1,
+                    unitPriceCents: redemption.valueCents || 0,
+                    totalMoneyCents: 0,
+                    isFree: true,
+                    skipReason: 'redeemed_reward',
+                    offerName: redemption.offerName
                 });
             }
         }
