@@ -11,14 +11,14 @@
 --   Small 32x25mm    = ~256x200 dots
 
 -- Fix Standard template (57x32mm)
--- Name wraps to 2 lines (full width), variation below, price+barcode side by side
+-- Stacked layout: name (2-line), variation, price, barcode below price
 UPDATE label_templates
 SET template_zpl = '^XA
 ^CI28
-^FO15,8^A0N,24,24^FB426,2,0,L^FD{{itemName}}^FS
-^FO15,62^A0N,18,18^FB200,1,0,L^FD{{variationName}}^FS
-^FO15,88^A0N,48,48^FD${{price}}^FS
-^FO215,82^BY2^BCN,55,Y,N,N^FD{{barcode}}^FS
+^FO15,5^A0N,22,22^FB426,2,0,L^FD{{itemName}}^FS
+^FO15,53^A0N,16,16^FB300,1,0,L^FD{{variationName}}^FS
+^FO15,74^A0N,48,48^FD${{price}}^FS
+^FO15,130^BY2^BCN,50,Y,N,N^FD{{barcode}}^FS
 ^XZ',
     updated_at = CURRENT_TIMESTAMP
 WHERE name LIKE 'Standard Price Tag%';
