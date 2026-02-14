@@ -206,12 +206,18 @@ class CatalogHandler {
 
                 if (existingId !== vendorId) {
                     // Matched by name with different ID — need to migrate
-                    // 1. Insert new vendor row with new ID (so FK targets exist)
-                    // 2. Migrate all FK references from old ID to new ID
-                    // 3. Delete old vendor row
+                    // 1. Rename old vendor to avoid unique name constraint during migration
+                    // 2. Insert new vendor row with new ID (so FK targets exist)
+                    // 3. Migrate all FK references from old ID to new ID
+                    // 4. Delete old vendor row
                     logger.info('Vendor ID change detected, migrating references', {
                         oldId: existingId, newId: vendorId, merchantId
                     });
+
+                    await client.query(
+                        `UPDATE vendors SET name = name || '__migrating' WHERE id = $1 AND merchant_id = $2`,
+                        [existingId, merchantId]
+                    );
 
                     await client.query(
                         `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
