@@ -491,17 +491,13 @@ async function generateVendorReceipt(rewardId, merchantId) {
     let redemptionOrderRows = '';
     if (data.square_order_id) {
         try {
-            // Fetch vendor code for the redeemed variation (same pattern as contributing purchases)
-            let redeemedVendorCode = null;
-            if (data.redeemed_variation_id) {
-                const vendorCodeResult = await db.query(`
-                    SELECT COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number
-                    FROM variations v
-                    LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
-                    WHERE v.id = $1
-                `, [data.redeemed_variation_id]);
-                redeemedVendorCode = vendorCodeResult.rows[0]?.vendor_item_number || null;
-            }
+            // Fetch qualifying variation IDs for this offer to identify the free item
+            const qualifyingVarsResult = await db.query(`
+                SELECT variation_id
+                FROM loyalty_qualifying_variations
+                WHERE offer_id = $1 AND merchant_id = $2 AND is_active = true
+            `, [data.offer_id, merchantId]);
+            const qualifyingVariationIds = new Set(qualifyingVarsResult.rows.map(r => r.variation_id));
 
             const squareClient = await getSquareClientForMerchant(merchantId);
             const redemptionOrderResponse = await squareClient.orders.get({
@@ -515,14 +511,44 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 const freeQuantity = 1; // Standard: buy X get 1 free
                 const redemptionItems = [];
 
+                // Identify the free item by matching against qualifying variations for this offer
+                // (customer may redeem with a different flavor than what they purchased)
+                let freeItemFound = false;
+                let freeItemVariationId = null;
+                for (const item of redemptionOrder.lineItems) {
+                    if (!freeItemFound && qualifyingVariationIds.has(item.catalogObjectId)) {
+                        freeItemVariationId = item.catalogObjectId;
+                        break;
+                    }
+                }
+
+                // Fetch vendor code AND wholesale cost for the free item's actual variation
+                let redeemedVendorCode = null;
+                let redeemedWholesaleCostCents = null;
+                if (freeItemVariationId) {
+                    const vendorResult = await db.query(`
+                        SELECT
+                            COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number,
+                            v.last_cost_cents as wholesale_cost_cents,
+                            vv.unit_cost_money as vendor_unit_cost
+                        FROM variations v
+                        LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
+                        WHERE v.id = $1
+                    `, [freeItemVariationId]);
+                    redeemedVendorCode = vendorResult.rows[0]?.vendor_item_number || null;
+                    redeemedWholesaleCostCents = vendorResult.rows[0]?.wholesale_cost_cents
+                        || vendorResult.rows[0]?.vendor_unit_cost || null;
+                }
+
                 for (const item of redemptionOrder.lineItems) {
                     const basePriceCents = item.basePriceMoney?.amount
                         ? parseInt(item.basePriceMoney.amount)
                         : null;
                     const itemQty = parseInt(item.quantity) || 1;
-                    const isRedeemedVariation = item.catalogObjectId === data.redeemed_variation_id;
+                    const isQualifyingVariation = !freeItemFound && qualifyingVariationIds.has(item.catalogObjectId);
 
-                    if (isRedeemedVariation && itemQty > freeQuantity) {
+                    if (isQualifyingVariation && itemQty > freeQuantity) {
+                        freeItemFound = true;
                         // Split: 1 free item + (qty-1) paid items
                         redemptionItems.push({
                             name: item.name,
@@ -530,7 +556,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             quantity: freeQuantity,
                             unitPriceCents: 0,
                             isFreeItem: true,
-                            vendorItemNumber: redeemedVendorCode
+                            vendorItemNumber: redeemedVendorCode,
+                            wholesaleCostCents: redeemedWholesaleCostCents
                         });
                         redemptionItems.push({
                             name: item.name,
@@ -538,9 +565,11 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             quantity: itemQty - freeQuantity,
                             unitPriceCents: basePriceCents,
                             isFreeItem: false,
-                            vendorItemNumber: null
+                            vendorItemNumber: null,
+                            wholesaleCostCents: null
                         });
-                    } else if (isRedeemedVariation) {
+                    } else if (isQualifyingVariation) {
+                        freeItemFound = true;
                         // Single free item (qty === 1)
                         redemptionItems.push({
                             name: item.name,
@@ -548,7 +577,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             quantity: itemQty,
                             unitPriceCents: 0,
                             isFreeItem: true,
-                            vendorItemNumber: redeemedVendorCode
+                            vendorItemNumber: redeemedVendorCode,
+                            wholesaleCostCents: redeemedWholesaleCostCents
                         });
                     } else {
                         // Regular item (not the redeemed variation)
@@ -558,7 +588,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             quantity: itemQty,
                             unitPriceCents: basePriceCents,
                             isFreeItem: false,
-                            vendorItemNumber: null
+                            vendorItemNumber: null,
+                            wholesaleCostCents: null
                         });
                     }
                 }
@@ -588,7 +619,7 @@ async function generateVendorReceipt(rewardId, merchantId) {
                         <td>${item.isFreeItem ? escapeHtml(item.vendorItemNumber || '') : ''}</td>
                         <td class="quantity">${item.quantity}</td>
                         <td class="currency">${item.isFreeItem ? '$0.00' : formatCents(item.unitPriceCents)}</td>
-                        <td class="currency"></td>
+                        <td class="currency">${item.isFreeItem ? formatCents(item.wholesaleCostCents) : ''}</td>
                         ${isFirst ? `<td rowspan="${redemptionItems.length}">${escapeHtml(redemptionPaymentType)}</td>` : ''}
                         ${isFirst ? `<td rowspan="${redemptionItems.length}" style="font-size: 8px; word-break: break-all;">${escapeHtml(data.square_order_id || 'N/A')}</td>` : ''}
                         ${isFirst ? `<td rowspan="${redemptionItems.length}" class="currency">${formatCents(redemptionTotalCents)}</td>` : ''}
