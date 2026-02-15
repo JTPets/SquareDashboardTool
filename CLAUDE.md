@@ -271,6 +271,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — **investigated 2026-02-12**, no immediate action needed (see TECHNICAL_DEBT.md) |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
+| Medium | BACKLOG-14 | Reorder formula duplication between analytics.js and vendor-dashboard.js |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 
