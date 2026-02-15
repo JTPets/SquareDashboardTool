@@ -69,6 +69,9 @@ function formatVendorRow(row, defaultSupplyDays) {
         reorder_value: parseInt(row.reorder_value) || 0,
         costed_reorder_count: parseInt(row.costed_reorder_count) || 0,
         pending_po_value: parseInt(row.pending_po_value) || 0,
+        // Debug: temp fields to diagnose cost data issue
+        _debug_total_cost: parseInt(row.debug_total_cost) || 0,
+        _debug_costed_items: parseInt(row.debug_costed_items) || 0,
         last_ordered_at: row.last_ordered_at || null,
         status: computeStatus(row)
     };

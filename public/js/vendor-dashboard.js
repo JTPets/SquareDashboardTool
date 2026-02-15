@@ -237,6 +237,12 @@
               '<h4>Notes</h4>' +
               '<textarea class="detail-notes" readonly>' + escapeHtml(v.notes || '') + '</textarea>' +
             '</div>' +
+            (v._debug_total_cost !== undefined ? '<div class="detail-section" style="font-size:11px;color:#9ca3af">' +
+              'Debug: all_items_cost=' + formatCurrency(v._debug_total_cost) +
+              ' costed_items=' + v._debug_costed_items +
+              ' reorder_value=' + formatCurrency(v.reorder_value) +
+              ' costed_reorder=' + v.costed_reorder_count +
+            '</div>' : '') +
           '</div>' +
           '<div class="action-buttons">' +
             '<a href="reorder.html?vendor_id=' + encodeURIComponent(v.id) + '" class="btn btn-primary">View Reorder Suggestions</a>' +
