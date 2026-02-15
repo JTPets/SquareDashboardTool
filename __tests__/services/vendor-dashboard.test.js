@@ -118,21 +118,25 @@ describe('Vendor Dashboard Service', () => {
             });
         });
 
-        test('returns vendors with computed status', async () => {
+        // Helper: mock both queries (vendors + unassigned)
+        function mockDashboardQueries(vendorRows, unassignedRow) {
+            db.query.mockResolvedValueOnce({ rows: vendorRows });
             db.query.mockResolvedValueOnce({
-                rows: [
-                    {
-                        id: 'V1', name: 'Test Vendor', schedule_type: 'fixed',
-                        order_day: 'Tuesday', receive_day: 'Thursday',
-                        lead_time_days: 2, minimum_order_amount: 50000,
-                        payment_method: 'Invoice', payment_terms: 'Net 14',
-                        contact_email: 'test@vendor.com', order_method: 'Email',
-                        notes: 'Test notes', default_supply_days: 45,
-                        total_items: 87, oos_count: 0, reorder_count: 3,
-                        pending_po_value: 60000, last_ordered_at: '2026-02-07'
-                    }
-                ]
+                rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
             });
+        }
+
+        test('returns vendors with computed status', async () => {
+            mockDashboardQueries([{
+                id: 'V1', name: 'Test Vendor', schedule_type: 'fixed',
+                order_day: 'Tuesday', receive_day: 'Thursday',
+                lead_time_days: 2, minimum_order_amount: 50000,
+                payment_method: 'Invoice', payment_terms: 'Net 14',
+                contact_email: 'test@vendor.com', order_method: 'Email',
+                notes: 'Test notes', default_supply_days: 45,
+                total_items: 87, oos_count: 0, reorder_count: 3,
+                pending_po_value: 60000, last_ordered_at: '2026-02-07'
+            }]);
 
             const result = await getVendorDashboard(merchantId);
 
@@ -144,26 +148,30 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('loads merchant settings for reorder threshold', async () => {
-            db.query.mockResolvedValueOnce({ rows: [] });
+            mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
 
             expect(db.getMerchantSettings).toHaveBeenCalledWith(merchantId);
         });
 
-        test('passes reorder threshold to query', async () => {
-            db.query.mockResolvedValueOnce({ rows: [] });
+        test('passes reorder threshold to both queries', async () => {
+            mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
 
             // supply_days (45) + safety_days (7) = 52
-            const queryCall = db.query.mock.calls[0];
-            expect(queryCall[1]).toContain(52); // reorderThreshold
-            expect(queryCall[1]).toContain(merchantId);
+            const vendorQueryCall = db.query.mock.calls[0];
+            expect(vendorQueryCall[1]).toContain(52);
+            expect(vendorQueryCall[1]).toContain(merchantId);
+
+            const unassignedQueryCall = db.query.mock.calls[1];
+            expect(unassignedQueryCall[1]).toContain(52);
+            expect(unassignedQueryCall[1]).toContain(merchantId);
         });
 
-        test('handles empty vendor list', async () => {
-            db.query.mockResolvedValueOnce({ rows: [] });
+        test('handles empty vendor list with no unassigned items', async () => {
+            mockDashboardQueries([]);
 
             const result = await getVendorDashboard(merchantId);
 
@@ -172,13 +180,94 @@ describe('Vendor Dashboard Service', () => {
 
         test('uses environment defaults when merchant settings missing', async () => {
             db.getMerchantSettings.mockResolvedValue({});
-            db.query.mockResolvedValueOnce({ rows: [] });
+            mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
 
             // 45 (default) + 7 (default) = 52
             const queryCall = db.query.mock.calls[0];
             expect(queryCall[1]).toContain(52);
+        });
+
+        test('appends unassigned vendor row when unassigned items exist', async () => {
+            mockDashboardQueries(
+                [{ id: 'V1', name: 'Real Vendor', schedule_type: 'anytime',
+                   order_day: null, receive_day: null, lead_time_days: null,
+                   minimum_order_amount: 0, payment_method: null, payment_terms: null,
+                   contact_email: null, order_method: null, notes: null,
+                   default_supply_days: null, total_items: 10, oos_count: 0,
+                   reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                { total_items: 25, oos_count: 3, reorder_count: 5 }
+            );
+
+            const result = await getVendorDashboard(merchantId);
+
+            expect(result).toHaveLength(2);
+            const unassigned = result.find(v => v.id === '__unassigned__');
+            expect(unassigned).toBeTruthy();
+            expect(unassigned.name).toBe('No Vendor Assigned');
+            expect(unassigned.total_items).toBe(25);
+            expect(unassigned.oos_count).toBe(3);
+            expect(unassigned.reorder_count).toBe(5);
+            expect(unassigned.status).toBe('has_oos');
+        });
+
+        test('does not append unassigned row when no unassigned items', async () => {
+            mockDashboardQueries(
+                [{ id: 'V1', name: 'Vendor', schedule_type: null,
+                   order_day: null, receive_day: null, lead_time_days: null,
+                   minimum_order_amount: 0, payment_method: null, payment_terms: null,
+                   contact_email: null, order_method: null, notes: null,
+                   default_supply_days: null, total_items: 10, oos_count: 0,
+                   reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                { total_items: 0, oos_count: 0, reorder_count: 0 }
+            );
+
+            const result = await getVendorDashboard(merchantId);
+
+            expect(result).toHaveLength(1);
+            expect(result[0].id).toBe('V1');
+        });
+
+        test('unassigned row uses NOT EXISTS to find vendor-less items', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const unassignedQueryCall = db.query.mock.calls[1];
+            expect(unassignedQueryCall[0]).toContain('NOT EXISTS');
+            expect(unassignedQueryCall[0]).toContain('variation_vendors');
+        });
+
+        test('OOS query uses raw quantity = 0 (no velocity filter)', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const vendorQuery = db.query.mock.calls[0][0];
+            // Should match quantity = 0 for OOS
+            expect(vendorQuery).toContain('COALESCE(ic.quantity, 0) = 0');
+            // Should NOT contain the old velocity filter in OOS context
+            expect(vendorQuery).not.toContain('0.08');
+        });
+
+        test('reorder count excludes items at/above stock_alert_max', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const vendorQuery = db.query.mock.calls[0][0];
+            expect(vendorQuery).toContain('stock_alert_max');
+        });
+
+        test('reorder count considers pending PO quantities', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const vendorQuery = db.query.mock.calls[0][0];
+            expect(vendorQuery).toContain('purchase_order_items');
+            expect(vendorQuery).toContain('quantity_ordered');
         });
     });
 
@@ -286,7 +375,7 @@ describe('Vendor Dashboard Service', () => {
     describe('Validation edge cases (via computeStatus)', () => {
 
         test('below_min requires both pending PO and minimum to be > 0', () => {
-            // Has reorder, has pending PO, but no minimum set → needs_order
+            // Has reorder, has pending PO, but no minimum set -> needs_order
             expect(computeStatus({ oos_count: 0, reorder_count: 5, pending_po_value: 2000, minimum_order_amount: 0 }))
                 .toBe('needs_order');
         });

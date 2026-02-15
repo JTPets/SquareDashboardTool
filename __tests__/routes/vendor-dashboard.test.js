@@ -24,6 +24,14 @@ describe('Vendor Dashboard Routes', () => {
         jest.clearAllMocks();
     });
 
+    // Helper: mock both queries (vendors + unassigned)
+    function mockDashboardQueries(vendorRows, unassignedRow) {
+        db.query.mockResolvedValueOnce({ rows: vendorRows });
+        db.query.mockResolvedValueOnce({
+            rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
+        });
+    }
+
     describe('GET /api/vendor-dashboard', () => {
 
         describe('Query structure', () => {
@@ -31,7 +39,7 @@ describe('Vendor Dashboard Routes', () => {
             test('uses merchant_id filter in query', async () => {
                 const merchantId = 1;
                 db.getMerchantSettings.mockResolvedValue({ default_supply_days: 45, reorder_safety_days: 7 });
-                db.query.mockResolvedValueOnce({ rows: [] });
+                mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(merchantId);
@@ -43,7 +51,7 @@ describe('Vendor Dashboard Routes', () => {
 
             test('filters only ACTIVE vendors', async () => {
                 db.getMerchantSettings.mockResolvedValue({});
-                db.query.mockResolvedValueOnce({ rows: [] });
+                mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
@@ -54,7 +62,7 @@ describe('Vendor Dashboard Routes', () => {
 
             test('excludes deleted and discontinued items from counts', async () => {
                 db.getMerchantSettings.mockResolvedValue({});
-                db.query.mockResolvedValueOnce({ rows: [] });
+                mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
@@ -64,15 +72,28 @@ describe('Vendor Dashboard Routes', () => {
                 expect(queryCall[0]).toContain('discontinued');
             });
 
-            test('uses weekly velocity > 0.08 threshold for OOS', async () => {
+            test('OOS uses raw quantity = 0, no velocity filter', async () => {
                 db.getMerchantSettings.mockResolvedValue({});
-                db.query.mockResolvedValueOnce({ rows: [] });
+                mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
 
                 const queryCall = db.query.mock.calls[0];
-                expect(queryCall[0]).toContain('0.08');
+                expect(queryCall[0]).toContain('COALESCE(ic.quantity, 0) = 0');
+                expect(queryCall[0]).not.toContain('0.08');
+            });
+
+            test('runs unassigned items query with NOT EXISTS', async () => {
+                db.getMerchantSettings.mockResolvedValue({});
+                mockDashboardQueries([]);
+
+                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                await getVendorDashboard(1);
+
+                expect(db.query).toHaveBeenCalledTimes(2);
+                const unassignedQuery = db.query.mock.calls[1][0];
+                expect(unassignedQuery).toContain('NOT EXISTS');
             });
         });
 
@@ -80,18 +101,16 @@ describe('Vendor Dashboard Routes', () => {
 
             test('returns all required vendor fields', async () => {
                 db.getMerchantSettings.mockResolvedValue({ default_supply_days: 30 });
-                db.query.mockResolvedValueOnce({
-                    rows: [{
-                        id: 'V1', name: 'Vendor A', schedule_type: 'anytime',
-                        order_day: null, receive_day: null, lead_time_days: 5,
-                        minimum_order_amount: 10000, payment_method: 'Credit Card',
-                        payment_terms: 'Net 7', contact_email: 'a@test.com',
-                        order_method: 'Portal', notes: 'Fast shipping',
-                        default_supply_days: 30, total_items: 50, oos_count: 2,
-                        reorder_count: 10, pending_po_value: 15000,
-                        last_ordered_at: '2026-02-10'
-                    }]
-                });
+                mockDashboardQueries([{
+                    id: 'V1', name: 'Vendor A', schedule_type: 'anytime',
+                    order_day: null, receive_day: null, lead_time_days: 5,
+                    minimum_order_amount: 10000, payment_method: 'Credit Card',
+                    payment_terms: 'Net 7', contact_email: 'a@test.com',
+                    order_method: 'Portal', notes: 'Fast shipping',
+                    default_supply_days: 30, total_items: 50, oos_count: 2,
+                    reorder_count: 10, pending_po_value: 15000,
+                    last_ordered_at: '2026-02-10'
+                }]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);
@@ -113,17 +132,15 @@ describe('Vendor Dashboard Routes', () => {
 
             test('numeric fields are integers, not strings', async () => {
                 db.getMerchantSettings.mockResolvedValue({});
-                db.query.mockResolvedValueOnce({
-                    rows: [{
-                        id: 'V1', name: 'Test', schedule_type: 'anytime',
-                        order_day: null, receive_day: null, lead_time_days: '7',
-                        minimum_order_amount: '50000', payment_method: null,
-                        payment_terms: null, contact_email: null,
-                        order_method: null, notes: null, default_supply_days: '45',
-                        total_items: '100', oos_count: '5', reorder_count: '20',
-                        pending_po_value: '75000', last_ordered_at: null
-                    }]
-                });
+                mockDashboardQueries([{
+                    id: 'V1', name: 'Test', schedule_type: 'anytime',
+                    order_day: null, receive_day: null, lead_time_days: '7',
+                    minimum_order_amount: '50000', payment_method: null,
+                    payment_terms: null, contact_email: null,
+                    order_method: null, notes: null, default_supply_days: '45',
+                    total_items: '100', oos_count: '5', reorder_count: '20',
+                    pending_po_value: '75000', last_ordered_at: null
+                }]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);
