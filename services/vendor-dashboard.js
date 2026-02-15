@@ -69,9 +69,6 @@ function formatVendorRow(row, defaultSupplyDays) {
         reorder_value: parseInt(row.reorder_value) || 0,
         costed_reorder_count: parseInt(row.costed_reorder_count) || 0,
         pending_po_value: parseInt(row.pending_po_value) || 0,
-        // Debug: temp fields to diagnose cost data issue
-        _debug_total_cost: parseInt(row.debug_total_cost) || 0,
-        _debug_costed_items: parseInt(row.debug_costed_items) || 0,
         last_ordered_at: row.last_ordered_at || null,
         status: computeStatus(row)
     };
@@ -118,9 +115,6 @@ async function getVendorDashboard(merchantId) {
             COALESCE(item_stats.reorder_value, 0) AS reorder_value,
             -- How many reorder items have cost data
             COALESCE(item_stats.costed_reorder_count, 0) AS costed_reorder_count,
-            -- Debug fields
-            COALESCE(item_stats.debug_total_cost, 0) AS debug_total_cost,
-            COALESCE(item_stats.debug_costed_items, 0) AS debug_costed_items,
             -- Pending PO value: sum of draft/submitted PO totals
             COALESCE(po_stats.pending_po_value, 0) AS pending_po_value,
             -- Last ordered: most recent submitted/completed PO
@@ -242,11 +236,7 @@ async function getVendorDashboard(merchantId) {
                     AND vv.unit_cost_money IS NOT NULL
                     AND vv.unit_cost_money > 0
                     THEN vv.variation_id
-                END) AS costed_reorder_count,
-
-                -- Debug: total cost across ALL items for this vendor (no conditions)
-                COALESCE(SUM(COALESCE(vv.unit_cost_money, 0)), 0) AS debug_total_cost,
-                COUNT(*) FILTER (WHERE vv.unit_cost_money IS NOT NULL AND vv.unit_cost_money > 0) AS debug_costed_items
+                END) AS costed_reorder_count
             FROM variation_vendors vv
             JOIN variations var ON vv.variation_id = var.id AND var.merchant_id = $1
             JOIN items i ON var.item_id = i.id AND i.merchant_id = $1
@@ -278,21 +268,6 @@ async function getVendorDashboard(merchantId) {
           AND ve.status = 'ACTIVE'
         ORDER BY ve.name
     `, [merchantId, reorderThreshold]);
-
-    // Debug: log cost data availability per vendor
-    for (const row of result.rows) {
-        if (parseInt(row.reorder_count) > 0) {
-            logger.info('Vendor reorder cost debug', {
-                merchantId,
-                vendor: row.name,
-                reorder_count: parseInt(row.reorder_count) || 0,
-                reorder_value: parseInt(row.reorder_value) || 0,
-                costed_reorder_count: parseInt(row.costed_reorder_count) || 0,
-                debug_total_cost: parseInt(row.debug_total_cost) || 0,
-                debug_costed_items: parseInt(row.debug_costed_items) || 0
-            });
-        }
-    }
 
     const vendors = result.rows.map(row => formatVendorRow(row, defaultSupplyDays));
 
