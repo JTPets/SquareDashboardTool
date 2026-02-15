@@ -682,8 +682,10 @@ class OrderHandler {
      * were recorded first, linking them to the old reward being redeemed. Now we
      * detect redemption first so new purchases can start a fresh reward window.
      *
-     * Matches order discounts against loyalty_rewards.square_discount_id or
-     * square_pricing_rule_id (NOT discount name strings - those are fragile).
+     * Detection strategy (in priority order):
+     * 1. Match discount catalog_object_id to stored square_discount_id/pricing_rule_id
+     * 2. Fallback: match 100% discounted line items to earned rewards via qualifying variations
+     *    (catches manual discounts, re-applied discounts, migrated discount objects)
      *
      * @private
      * @param {Object} order - Square order object
@@ -691,18 +693,14 @@ class OrderHandler {
      * @returns {Promise<Object>} Redemption info or { isRedemptionOrder: false }
      */
     async _checkOrderForRedemption(order, merchantId) {
-        const discounts = order.discounts || [];
-        if (discounts.length === 0) {
-            return { isRedemptionOrder: false };
-        }
-
         const db = require('../../utils/database');
 
+        // Strategy 1: Match by catalog_object_id (exact discount ID match)
+        const discounts = order.discounts || [];
         for (const discount of discounts) {
             const catalogObjectId = discount.catalog_object_id;
             if (!catalogObjectId) continue;
 
-            // Check if this discount matches any of our earned rewards
             // Match on square_discount_id OR square_pricing_rule_id (Square may use either)
             const rewardResult = await db.query(`
                 SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name
@@ -722,6 +720,7 @@ class OrderHandler {
                     rewardId: reward.id,
                     offerId: reward.offer_id,
                     discountCatalogId: catalogObjectId,
+                    detectionMethod: 'catalog_object_id',
                     merchantId
                 });
 
@@ -734,6 +733,28 @@ class OrderHandler {
                     discountCatalogId: catalogObjectId
                 };
             }
+        }
+
+        // Strategy 2: Fallback — match free items to earned rewards
+        const freeItemMatch = await loyaltyService.matchEarnedRewardByFreeItem(order, merchantId);
+        if (freeItemMatch) {
+            logger.info('Pre-detected reward redemption via free item fallback', {
+                action: 'REDEMPTION_PRE_CHECK_FREE_ITEM',
+                orderId: order.id,
+                rewardId: freeItemMatch.reward_id,
+                offerId: freeItemMatch.offer_id,
+                matchedVariationId: freeItemMatch.matched_variation_id,
+                merchantId
+            });
+
+            return {
+                isRedemptionOrder: true,
+                rewardId: freeItemMatch.reward_id,
+                offerId: freeItemMatch.offer_id,
+                offerName: freeItemMatch.offer_name,
+                squareCustomerId: freeItemMatch.square_customer_id,
+                discountCatalogId: null
+            };
         }
 
         return { isRedemptionOrder: false };
