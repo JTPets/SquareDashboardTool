@@ -194,8 +194,10 @@ class CatalogHandler {
 
         await db.transaction(async (client) => {
             // Check if vendor exists by ID or normalized name
+            // Fetch local-only fields so they survive ID migrations
             const existing = await client.query(
-                `SELECT id FROM vendors
+                `SELECT id, lead_time_days, default_supply_days, minimum_order_amount, payment_terms, notes
+                 FROM vendors
                  WHERE merchant_id = $1 AND (id = $2 OR vendor_name_normalized(name) = vendor_name_normalized($3))
                  LIMIT 1`,
                 [merchantId, vendorId, vendor.name]
@@ -219,10 +221,15 @@ class CatalogHandler {
                         [existingId, merchantId]
                     );
 
+                    const old = existing.rows[0];
                     await client.query(
-                        `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
-                        [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone, merchantId]
+                        `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone,
+                            lead_time_days, default_supply_days, minimum_order_amount, payment_terms, notes,
+                            merchant_id, updated_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)`,
+                        [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone,
+                         old.lead_time_days, old.default_supply_days, old.minimum_order_amount,
+                         old.payment_terms, old.notes, merchantId]
                     );
 
                     await client.query(
