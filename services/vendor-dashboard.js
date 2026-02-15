@@ -33,12 +33,12 @@ const STATUS_PRIORITY = {
 function computeStatus(vendor) {
     const oosCount = parseInt(vendor.oos_count) || 0;
     const reorderCount = parseInt(vendor.reorder_count) || 0;
-    const pendingPoValue = parseInt(vendor.pending_po_value) || 0;
+    const reorderValue = parseInt(vendor.reorder_value) || 0;
     const minimumOrderAmount = parseInt(vendor.minimum_order_amount) || 0;
 
     if (oosCount > 0) return 'has_oos';
-    if (reorderCount > 0 && pendingPoValue > 0 && minimumOrderAmount > 0 && pendingPoValue < minimumOrderAmount) return 'below_min';
-    if (reorderCount > 0 && minimumOrderAmount > 0 && pendingPoValue >= minimumOrderAmount) return 'ready';
+    if (reorderCount > 0 && minimumOrderAmount > 0 && reorderValue < minimumOrderAmount) return 'below_min';
+    if (reorderCount > 0 && minimumOrderAmount > 0 && reorderValue >= minimumOrderAmount) return 'ready';
     if (reorderCount > 0) return 'needs_order';
     return 'ok';
 }
@@ -64,6 +64,7 @@ function formatVendorRow(row, defaultSupplyDays) {
         total_items: parseInt(row.total_items) || 0,
         oos_count: parseInt(row.oos_count) || 0,
         reorder_count: parseInt(row.reorder_count) || 0,
+        reorder_value: parseInt(row.reorder_value) || 0,
         pending_po_value: parseInt(row.pending_po_value) || 0,
         last_ordered_at: row.last_ordered_at || null,
         status: computeStatus(row)
@@ -107,6 +108,8 @@ async function getVendorDashboard(merchantId) {
             COALESCE(item_stats.oos_count, 0) AS oos_count,
             -- Reorder count: excludes items covered by pending POs or at/above max
             COALESCE(item_stats.reorder_count, 0) AS reorder_count,
+            -- Reorder value: estimated cost of items needing reorder (unit cost sum)
+            COALESCE(item_stats.reorder_value, 0) AS reorder_value,
             -- Pending PO value: sum of draft/submitted PO totals
             COALESCE(po_stats.pending_po_value, 0) AS pending_po_value,
             -- Last ordered: most recent submitted/completed PO
@@ -159,7 +162,40 @@ async function getVendorDashboard(merchantId) {
                     AND COALESCE(var.is_deleted, FALSE) = FALSE
                     AND var.discontinued = FALSE
                     THEN vv.variation_id
-                END) AS reorder_count
+                END) AS reorder_count,
+
+                -- Reorder value: sum of unit cost for items needing reorder
+                COALESCE(SUM(CASE
+                    WHEN (
+                        (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
+                        OR (COALESCE(vls.stock_alert_min, var.stock_alert_min) IS NOT NULL
+                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                                <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
+                        OR (sv.daily_avg_quantity > 0
+                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                                / sv.daily_avg_quantity < $2)
+                    )
+                    AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
+                         OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                            < COALESCE(vls.stock_alert_max, var.stock_alert_max))
+                    AND (
+                        COALESCE((
+                            SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
+                            FROM purchase_order_items poi
+                            JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                                AND po.merchant_id = $1
+                            WHERE poi.variation_id = var.id
+                              AND poi.merchant_id = $1
+                              AND po.status NOT IN ('RECEIVED', 'CANCELLED')
+                              AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
+                        ), 0) = 0
+                        OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
+                    )
+                    AND COALESCE(var.is_deleted, FALSE) = FALSE
+                    AND var.discontinued = FALSE
+                    THEN COALESCE(vv.unit_cost_money, 0)
+                    ELSE 0
+                END), 0) AS reorder_value
             FROM variation_vendors vv
             JOIN variations var ON vv.variation_id = var.id AND var.merchant_id = $1
             JOIN items i ON var.item_id = i.id AND i.merchant_id = $1
@@ -262,6 +298,7 @@ async function getVendorDashboard(merchantId) {
             total_items: ua.total_items,
             oos_count: ua.oos_count,
             reorder_count: ua.reorder_count,
+            reorder_value: 0,
             pending_po_value: 0,
             last_ordered_at: null
         }, defaultSupplyDays));

@@ -155,16 +155,18 @@
 
   function renderPoProgress(v) {
     var min = v.minimum_order_amount;
-    var pending = v.pending_po_value;
+    var need = v.reorder_value || 0;
 
     if (!min || min === 0) {
-      return '<span style="color:#9ca3af">No min</span>';
+      return need > 0
+        ? '<span style="color:#6b7280">' + formatCurrency(need) + '</span>'
+        : '<span style="color:#9ca3af">No min</span>';
     }
 
-    var pct = Math.min(100, Math.round((pending / min) * 100));
-    var met = pending >= min;
+    var pct = Math.min(100, Math.round((need / min) * 100));
+    var met = need >= min;
     return '<div class="po-progress">' +
-      '<div class="po-progress-text">' + formatCurrency(pending) + ' / ' + formatCurrency(min) + '</div>' +
+      '<div class="po-progress-text">' + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
       '<div class="po-progress-bar"><div class="po-progress-fill ' + (met ? 'met' : 'unmet') + '" style="width:' + pct + '%"></div></div>' +
     '</div>';
   }
