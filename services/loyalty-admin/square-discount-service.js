@@ -384,7 +384,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 'Square-Version': '2025-01-16'
             },
             body: JSON.stringify({
-                idempotency_key: `loyalty-discount-batch-${internalRewardId}`,
+                idempotency_key: `loyalty-discount-batch-${internalRewardId}-${Date.now()}`,
                 batches: [{
                     objects: catalogObjects
                 }]
