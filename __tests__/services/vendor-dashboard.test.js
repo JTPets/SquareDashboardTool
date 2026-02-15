@@ -185,14 +185,26 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('uses environment defaults when merchant settings missing', async () => {
-            db.getMerchantSettings.mockResolvedValue({});
-            mockDashboardQueries([]);
+            const origSupply = process.env.DEFAULT_SUPPLY_DAYS;
+            const origSafety = process.env.REORDER_SAFETY_DAYS;
+            process.env.DEFAULT_SUPPLY_DAYS = '45';
+            process.env.REORDER_SAFETY_DAYS = '7';
 
-            await getVendorDashboard(merchantId);
+            try {
+                db.getMerchantSettings.mockResolvedValue({});
+                mockDashboardQueries([]);
 
-            // 45 (default) + 7 (default) = 52
-            const queryCall = db.query.mock.calls[0];
-            expect(queryCall[1]).toContain(52);
+                await getVendorDashboard(merchantId);
+
+                // 45 (default) + 7 (default) = 52
+                const queryCall = db.query.mock.calls[0];
+                expect(queryCall[1]).toContain(52);
+            } finally {
+                if (origSupply === undefined) delete process.env.DEFAULT_SUPPLY_DAYS;
+                else process.env.DEFAULT_SUPPLY_DAYS = origSupply;
+                if (origSafety === undefined) delete process.env.REORDER_SAFETY_DAYS;
+                else process.env.REORDER_SAFETY_DAYS = origSafety;
+            }
         });
 
         test('appends unassigned vendor row when unassigned items exist', async () => {

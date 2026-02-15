@@ -179,11 +179,16 @@ async function loadStats() {
   try {
     console.log('Loading dashboard stats...');
 
+    // Load merchant config for supply days (avoid hardcoded values)
+    var configRes = await fetch('/api/config');
+    var config = configRes.ok ? await configRes.json() : {};
+    var supplyDays = config.defaultSupplyDays || 45;
+
     // Fetch all data in parallel
     const [inventoryResponse, expiryResponse, reorderResponse, cycleResponse] = await Promise.all([
       fetch('/api/inventory'),
       fetch('/api/expirations'),
-      fetch('/api/reorder-suggestions?supply_days=45'),
+      fetch('/api/reorder-suggestions?supply_days=' + supplyDays),
       fetch('/api/cycle-counts/pending')
     ]);
 
