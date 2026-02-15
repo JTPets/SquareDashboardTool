@@ -11,6 +11,8 @@
  *
  * Reorder count aligned to reorder suggestions (analytics.js):
  *   Excludes items where pending PO covers the need or available >= stock_alert_max.
+ *
+ * NOTE: Reorder qty formula duplicated in routes/analytics.js — keep in sync (BACKLOG-14).
  */
 
 const db = require('../utils/database');

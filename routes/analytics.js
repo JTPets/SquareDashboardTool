@@ -378,6 +378,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 
                 // Calculate quantity needed to reach (supply_days + safety_days) worth of stock
                 // Safety days adds buffer inventory to protect against demand variability
+                // NOTE: Reorder qty formula duplicated in services/vendor-dashboard.js — keep in sync (BACKLOG-14)
                 let targetQty;
 
                 // For items with no sales velocity, use minimum reorder quantities

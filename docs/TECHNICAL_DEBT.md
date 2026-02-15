@@ -1195,6 +1195,29 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
+### BACKLOG-14: Reorder Formula Duplication
+
+**Identified**: 2026-02-15
+**Priority**: Medium — no current divergence but high risk on next reorder logic change
+**Status**: Documented, not fixed
+**Target**: Next reorder logic change
+
+**Problem**: The reorder quantity calculation exists in two places:
+- `routes/analytics.js` — JS post-processing (lines ~379-443)
+- `services/vendor-dashboard.js` — SQL LATERAL subquery (reorder_value CASE)
+
+Both compute: velocity × threshold → case pack rounding → subtract pending POs → cap at stock_alert_max. If either changes without updating the other, vendor dashboard "Need vs Min" values will diverge from reorder.html quantities.
+
+**Consolidation options:**
+- SQL function (`CREATE FUNCTION calc_reorder_qty`) called by both
+- Shared JS service both routes call (fetch raw data, compute in JS)
+
+**Impact**: Currently both are in sync. Risk materializes on next reorder formula change — developer must remember to update both locations.
+
+**Audit date**: 2026-02-15
+
+---
+
 ### Square Webhook Subscription Audit (2026-02-11)
 
 Full audit of all 140+ Square webhook event types against app features. Categorized into: already subscribed, should subscribe, and not needed.
