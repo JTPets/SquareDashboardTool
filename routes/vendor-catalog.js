@@ -2,7 +2,8 @@
  * Vendor Catalog Routes
  *
  * Handles vendor management and vendor catalog import/matching:
- * - Vendor listing
+ * - Vendor listing and dashboard
+ * - Vendor settings management
  * - CSV/XLSX file import with column mapping
  * - UPC lookup and matching
  * - Import batch management
@@ -10,6 +11,8 @@
  *
  * Endpoints:
  * - GET    /api/vendors                                  - List vendors
+ * - GET    /api/vendor-dashboard                         - Vendor dashboard with stats
+ * - PATCH  /api/vendors/:id/settings                     - Update vendor settings
  * - POST   /api/vendor-catalog/import                    - Import vendor catalog
  * - POST   /api/vendor-catalog/preview                   - Preview file and get mappings
  * - POST   /api/vendor-catalog/import-mapped             - Import with column mappings
@@ -31,6 +34,7 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const vendorCatalog = require('../utils/vendor-catalog');
 const squareApi = require('../utils/square-api');
+const vendorDashboard = require('../services/vendor-dashboard');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/vendor-catalog');
@@ -58,6 +62,36 @@ router.get('/vendors', requireAuth, requireMerchant, validators.getVendors, asyn
         count: result.rows.length,
         vendors: result.rows
     });
+}));
+
+/**
+ * GET /api/vendor-dashboard
+ * Returns all vendors with computed stats for the vendor dashboard
+ */
+router.get('/vendor-dashboard', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const vendors = await vendorDashboard.getVendorDashboard(merchantId);
+    res.json({ vendors });
+}));
+
+/**
+ * PATCH /api/vendors/:id/settings
+ * Update local-only vendor settings (schedule, payment, contact, etc.)
+ */
+router.patch('/vendors/:id/settings', requireAuth, requireMerchant, validators.updateVendorSettings, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const vendorId = req.params.id;
+
+    const updated = await vendorDashboard.updateVendorSettings(vendorId, merchantId, req.body);
+
+    if (!updated) {
+        return res.status(404).json({
+            success: false,
+            error: 'Vendor not found or does not belong to this merchant'
+        });
+    }
+
+    res.json({ success: true, vendor: updated });
 }));
 
 /**
