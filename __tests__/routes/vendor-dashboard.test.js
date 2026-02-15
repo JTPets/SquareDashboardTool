@@ -134,7 +134,7 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: 'Net 7', contact_email: 'a@test.com',
                     order_method: 'Portal', notes: 'Fast shipping',
                     default_supply_days: 30, total_items: 50, oos_count: 2,
-                    reorder_count: 10, reorder_value: 12000, pending_po_value: 15000,
+                    reorder_count: 10, reorder_value: 12000, costed_reorder_count: 10, pending_po_value: 15000,
                     last_ordered_at: '2026-02-10'
                 }], null, 73);
 
@@ -167,7 +167,7 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: null, contact_email: null,
                     order_method: null, notes: null, default_supply_days: '45',
                     total_items: '100', oos_count: '5', reorder_count: '20',
-                    reorder_value: '45000', pending_po_value: '75000', last_ordered_at: null
+                    reorder_value: '45000', costed_reorder_count: '20', pending_po_value: '75000', last_ordered_at: null
                 }]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');

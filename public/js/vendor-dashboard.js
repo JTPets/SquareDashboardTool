@@ -156,17 +156,30 @@
   function renderPoProgress(v) {
     var min = v.minimum_order_amount;
     var need = v.reorder_value || 0;
+    var costed = v.costed_reorder_count || 0;
+    var reorderCount = v.reorder_count || 0;
 
+    // No minimum set
     if (!min || min === 0) {
-      return need > 0
-        ? '<span style="color:#6b7280">' + formatCurrency(need) + '</span>'
-        : '<span style="color:#9ca3af">No min</span>';
+      if (need > 0) return '<span style="color:#6b7280">' + formatCurrency(need) + '</span>';
+      if (reorderCount > 0) return '<span style="color:#9ca3af">' + reorderCount + ' items</span>';
+      return '<span style="color:#9ca3af">No min</span>';
+    }
+
+    // Has items to reorder but no cost data available
+    if (reorderCount > 0 && costed === 0) {
+      return '<div class="po-progress">' +
+        '<div class="po-progress-text" style="color:#9ca3af">' + reorderCount + ' items / ' + formatCurrency(min) + '</div>' +
+        '<div class="po-progress-bar"><div class="po-progress-fill unmet" style="width:0%"></div></div>' +
+      '</div>';
     }
 
     var pct = Math.min(100, Math.round((need / min) * 100));
     var met = need >= min;
+    // Partial cost data — show estimate indicator
+    var partial = costed > 0 && costed < reorderCount ? ' ~' : '';
     return '<div class="po-progress">' +
-      '<div class="po-progress-text">' + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
+      '<div class="po-progress-text">' + partial + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
       '<div class="po-progress-bar"><div class="po-progress-fill ' + (met ? 'met' : 'unmet') + '" style="width:' + pct + '%"></div></div>' +
     '</div>';
   }
@@ -224,6 +237,12 @@
               '<h4>Notes</h4>' +
               '<textarea class="detail-notes" readonly>' + escapeHtml(v.notes || '') + '</textarea>' +
             '</div>' +
+            (v._debug_total_cost !== undefined ? '<div class="detail-section" style="font-size:11px;color:#9ca3af">' +
+              'Debug: all_items_cost=' + formatCurrency(v._debug_total_cost) +
+              ' costed_items=' + v._debug_costed_items +
+              ' reorder_value=' + formatCurrency(v.reorder_value) +
+              ' costed_reorder=' + v.costed_reorder_count +
+            '</div>' : '') +
           '</div>' +
           '<div class="action-buttons">' +
             '<a href="reorder.html?vendor_id=' + encodeURIComponent(v.id) + '" class="btn btn-primary">View Reorder Suggestions</a>' +
