@@ -186,6 +186,83 @@ const batchAction = [
 ];
 
 /**
+ * PATCH /api/vendors/:id/settings
+ */
+const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const VALID_PAYMENT_METHODS = ['Credit Card', 'Invoice', 'E-Transfer', 'COD', 'N/A'];
+
+const updateVendorSettings = [
+    param('id')
+        .trim()
+        .notEmpty()
+        .withMessage('Vendor ID is required'),
+    body('schedule_type')
+        .optional()
+        .isIn(['fixed', 'anytime'])
+        .withMessage('schedule_type must be fixed or anytime'),
+    body('order_day')
+        .optional({ values: 'null' })
+        .isIn(VALID_DAYS)
+        .withMessage(`order_day must be one of: ${VALID_DAYS.join(', ')}`),
+    body('receive_day')
+        .optional({ values: 'null' })
+        .isIn(VALID_DAYS)
+        .withMessage(`receive_day must be one of: ${VALID_DAYS.join(', ')}`),
+    body('lead_time_days')
+        .optional()
+        .custom((value) => isNonNegativeInt(value, 'lead_time_days')),
+    body('minimum_order_amount')
+        .optional()
+        .custom((value) => isNonNegativeInt(value, 'minimum_order_amount')),
+    body('payment_method')
+        .optional({ values: 'null' })
+        .isIn(VALID_PAYMENT_METHODS)
+        .withMessage(`payment_method must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`),
+    body('payment_terms')
+        .optional({ values: 'null' })
+        .trim()
+        .isLength({ max: 100 })
+        .withMessage('payment_terms cannot exceed 100 characters'),
+    body('contact_email')
+        .optional({ values: 'null' })
+        .trim()
+        .isLength({ max: 255 })
+        .withMessage('contact_email cannot exceed 255 characters'),
+    body('order_method')
+        .optional({ values: 'null' })
+        .trim()
+        .isLength({ max: 50 })
+        .withMessage('order_method cannot exceed 50 characters'),
+    body('default_supply_days')
+        .optional()
+        .custom((value) => {
+            const num = Number(value);
+            if (!Number.isInteger(num) || num < 1) {
+                throw new Error('default_supply_days must be a positive integer');
+            }
+            return true;
+        }),
+    body('notes')
+        .optional({ values: 'null' })
+        .trim()
+        .isLength({ max: 2000 })
+        .withMessage('notes cannot exceed 2000 characters'),
+    // Cross-field validation: if schedule_type = 'fixed', order_day and receive_day are required
+    body().custom((value) => {
+        if (value.schedule_type === 'fixed') {
+            if (!value.order_day) {
+                throw new Error('order_day is required when schedule_type is fixed');
+            }
+            if (!value.receive_day) {
+                throw new Error('receive_day is required when schedule_type is fixed');
+            }
+        }
+        return true;
+    }),
+    handleValidationErrors
+];
+
+/**
  * POST /api/vendor-catalog/push-price-changes
  */
 const pushPriceChanges = [
@@ -213,5 +290,6 @@ module.exports = {
     lookupUpc,
     getBatches,
     batchAction,
-    pushPriceChanges
+    pushPriceChanges,
+    updateVendorSettings
 };
