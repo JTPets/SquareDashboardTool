@@ -304,8 +304,12 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
 
 /**
  * Create a Discount + Pricing Rule in Square for a reward
- * This creates a FIXED_AMOUNT 100% discount (free item) that applies
+ * This creates a FIXED_AMOUNT discount capped at one item's value that applies
  * to specific variations when a customer in the group checks out.
+ *
+ * Uses FIXED_AMOUNT (not FIXED_PERCENTAGE) so that even if Square matches multiple
+ * qualifying items in the cart, the total discount is capped at the dollar amount
+ * we set — preventing the "everything free" bug from FIXED_PERCENTAGE: 100%.
  *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
@@ -313,9 +317,10 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
  * @param {string} params.groupId - Square customer group ID
  * @param {string} params.offerName - Name of the offer for display
  * @param {Array<string>} params.variationIds - Square variation IDs this discount applies to
+ * @param {number} params.maxDiscountAmountCents - Maximum discount in cents (from purchase history)
  * @returns {Promise<Object>} Result with discount and pricing rule IDs
  */
-async function createRewardDiscount({ merchantId, internalRewardId, groupId, offerName, variationIds }) {
+async function createRewardDiscount({ merchantId, internalRewardId, groupId, offerName, variationIds, maxDiscountAmountCents }) {
     try {
         const accessToken = await getSquareAccessToken(merchantId);
         if (!accessToken) {
@@ -328,7 +333,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#loyalty-pricingrule-${internalRewardId}`;
 
         // Build catalog objects for batch upsert:
-        // 1. DISCOUNT - 100% off (free item)
+        // 1. DISCOUNT - FIXED_AMOUNT capped at one item's value
         // 2. PRODUCT_SET - defines which variations qualify
         // 3. PRICING_RULE - links discount to product set with customer group condition
         const catalogObjects = [
@@ -337,8 +342,12 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 id: discountId,
                 discount_data: {
                     name: `Loyalty: ${offerName} (Reward ${internalRewardId})`,
-                    discount_type: 'FIXED_PERCENTAGE',
-                    percentage: '100',
+                    discount_type: 'FIXED_AMOUNT',
+                    // TODO: BACKLOG - currency hardcoded to CAD for JTPets; for multi-tenant SaaS, pull from merchant config
+                    amount_money: {
+                        amount: maxDiscountAmountCents,
+                        currency: 'CAD'
+                    },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
             },
@@ -466,6 +475,11 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
  * This is the main entry point - orchestrates group creation, customer assignment, and discount creation.
  * Once created, the discount will auto-apply at Square POS.
  *
+ * Discount amount is calculated from purchase history:
+ * - Primary: MAX(unit_price_cents) from purchases linked to this specific reward
+ * - Fallback: MAX(unit_price_cents) from any qualifying purchase for this offer
+ * - Fail-safe: refuses to create discount if no price data exists ($0)
+ *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
  * @param {string} params.squareCustomerId - Square customer ID
@@ -527,13 +541,49 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
             return addResult;
         }
 
-        // Step 3: Create discount + pricing rule
+        // Step 3: Calculate max discount from purchase history
+        // Uses the highest unit price from purchases linked to this reward.
+        // Falls back to highest price from ANY qualifying purchase for this offer.
+        // Refuses to create a discount if no price data exists ($0 fail-safe).
+        const priceResult = await db.query(`
+            SELECT COALESCE(
+                (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
+                 WHERE reward_id = $1 AND merchant_id = $2 AND unit_price_cents > 0),
+                (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
+                 WHERE offer_id = $3 AND merchant_id = $2 AND unit_price_cents > 0),
+                0
+            ) as max_price_cents
+        `, [internalRewardId, merchantId, offerId]);
+
+        const maxDiscountAmountCents = parseInt(priceResult.rows[0].max_price_cents, 10) || 0;
+
+        if (maxDiscountAmountCents <= 0) {
+            logger.error('Cannot determine discount amount for reward - no purchase price data', {
+                merchantId, internalRewardId, offerId
+            });
+            // Cleanup group since we can't create the discount
+            await removeCustomerFromGroup({ merchantId, squareCustomerId, groupId: groupResult.groupId });
+            await deleteCustomerGroup({ merchantId, groupId: groupResult.groupId });
+            return {
+                success: false,
+                error: 'Cannot determine discount amount - no purchase price data available'
+            };
+        }
+
+        logger.info('Calculated max discount amount for reward', {
+            merchantId, internalRewardId, offerId,
+            maxDiscountAmountCents,
+            maxDiscountFormatted: `$${(maxDiscountAmountCents / 100).toFixed(2)}`
+        });
+
+        // Step 4: Create discount + pricing rule
         const discountResult = await createRewardDiscount({
             merchantId,
             internalRewardId,
             groupId: groupResult.groupId,
             offerName: offer.offer_name,
-            variationIds
+            variationIds,
+            maxDiscountAmountCents
         });
 
         if (!discountResult.success) {
@@ -543,7 +593,7 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
             return discountResult;
         }
 
-        // Step 4: Store Square object IDs in our reward record for cleanup later
+        // Step 5: Store Square object IDs in our reward record for cleanup later
         await db.query(`
             UPDATE loyalty_rewards SET
                 square_group_id = $1,
