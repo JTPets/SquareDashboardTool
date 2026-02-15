@@ -118,15 +118,18 @@ describe('Vendor Dashboard Service', () => {
             });
         });
 
-        // Helper: mock both queries (vendors + unassigned)
-        function mockDashboardQueries(vendorRows, unassignedRow) {
+        // Helper: mock all 3 queries (vendors, unassigned, global OOS)
+        function mockDashboardQueries(vendorRows, unassignedRow, globalOos) {
             db.query.mockResolvedValueOnce({ rows: vendorRows });
             db.query.mockResolvedValueOnce({
                 rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
             });
+            db.query.mockResolvedValueOnce({
+                rows: [{ oos_count: globalOos != null ? globalOos : 0 }]
+            });
         }
 
-        test('returns vendors with computed status', async () => {
+        test('returns { vendors, global_oos_count } shape', async () => {
             mockDashboardQueries([{
                 id: 'V1', name: 'Test Vendor', schedule_type: 'fixed',
                 order_day: 'Tuesday', receive_day: 'Thursday',
@@ -136,15 +139,17 @@ describe('Vendor Dashboard Service', () => {
                 notes: 'Test notes', default_supply_days: 45,
                 total_items: 87, oos_count: 0, reorder_count: 3,
                 pending_po_value: 60000, last_ordered_at: '2026-02-07'
-            }]);
+            }], null, 73);
 
             const result = await getVendorDashboard(merchantId);
 
-            expect(result).toHaveLength(1);
-            expect(result[0].status).toBe('ready');
-            expect(result[0].name).toBe('Test Vendor');
-            expect(result[0].total_items).toBe(87);
-            expect(result[0].pending_po_value).toBe(60000);
+            expect(result).toHaveProperty('vendors');
+            expect(result).toHaveProperty('global_oos_count', 73);
+            expect(result.vendors).toHaveLength(1);
+            expect(result.vendors[0].status).toBe('ready');
+            expect(result.vendors[0].name).toBe('Test Vendor');
+            expect(result.vendors[0].total_items).toBe(87);
+            expect(result.vendors[0].pending_po_value).toBe(60000);
         });
 
         test('loads merchant settings for reorder threshold', async () => {
@@ -155,7 +160,7 @@ describe('Vendor Dashboard Service', () => {
             expect(db.getMerchantSettings).toHaveBeenCalledWith(merchantId);
         });
 
-        test('passes reorder threshold to both queries', async () => {
+        test('passes reorder threshold to vendor and unassigned queries', async () => {
             mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
@@ -175,7 +180,8 @@ describe('Vendor Dashboard Service', () => {
 
             const result = await getVendorDashboard(merchantId);
 
-            expect(result).toEqual([]);
+            expect(result.vendors).toEqual([]);
+            expect(result.global_oos_count).toBe(0);
         });
 
         test('uses environment defaults when merchant settings missing', async () => {
@@ -197,13 +203,14 @@ describe('Vendor Dashboard Service', () => {
                    contact_email: null, order_method: null, notes: null,
                    default_supply_days: null, total_items: 10, oos_count: 0,
                    reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
-                { total_items: 25, oos_count: 3, reorder_count: 5 }
+                { total_items: 25, oos_count: 3, reorder_count: 5 },
+                73
             );
 
             const result = await getVendorDashboard(merchantId);
 
-            expect(result).toHaveLength(2);
-            const unassigned = result.find(v => v.id === '__unassigned__');
+            expect(result.vendors).toHaveLength(2);
+            const unassigned = result.vendors.find(v => v.id === '__unassigned__');
             expect(unassigned).toBeTruthy();
             expect(unassigned.name).toBe('No Vendor Assigned');
             expect(unassigned.total_items).toBe(25);
@@ -225,8 +232,8 @@ describe('Vendor Dashboard Service', () => {
 
             const result = await getVendorDashboard(merchantId);
 
-            expect(result).toHaveLength(1);
-            expect(result[0].id).toBe('V1');
+            expect(result.vendors).toHaveLength(1);
+            expect(result.vendors[0].id).toBe('V1');
         });
 
         test('unassigned row uses NOT EXISTS to find vendor-less items', async () => {
@@ -239,16 +246,30 @@ describe('Vendor Dashboard Service', () => {
             expect(unassignedQueryCall[0]).toContain('variation_vendors');
         });
 
-        test('OOS query uses raw quantity = 0 (no velocity filter)', async () => {
+        test('OOS guard requires ic record to exist (no LEFT JOIN ghosts)', async () => {
             mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
 
             const vendorQuery = db.query.mock.calls[0][0];
-            // Should match quantity = 0 for OOS
+            expect(vendorQuery).toContain('ic.catalog_object_id IS NOT NULL');
             expect(vendorQuery).toContain('COALESCE(ic.quantity, 0) = 0');
-            // Should NOT contain the old velocity filter in OOS context
             expect(vendorQuery).not.toContain('0.08');
+        });
+
+        test('global OOS query uses INNER JOIN like main dashboard', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            // Third query is the global OOS count
+            expect(db.query).toHaveBeenCalledTimes(3);
+            const globalQuery = db.query.mock.calls[2][0];
+            expect(globalQuery).toContain('COUNT(DISTINCT v.id)');
+            expect(globalQuery).toContain("ic.state = 'IN_STOCK'");
+            // Uses JOIN (not LEFT JOIN) — check for inventory_counts as driving table
+            expect(globalQuery).toContain('FROM inventory_counts ic');
+            expect(globalQuery).toContain('JOIN variations v');
         });
 
         test('reorder count excludes items at/above stock_alert_max', async () => {

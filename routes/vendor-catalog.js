@@ -70,8 +70,8 @@ router.get('/vendors', requireAuth, requireMerchant, validators.getVendors, asyn
  */
 router.get('/vendor-dashboard', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const vendors = await vendorDashboard.getVendorDashboard(merchantId);
-    res.json({ vendors });
+    const result = await vendorDashboard.getVendorDashboard(merchantId);
+    res.json({ vendors: result.vendors, global_oos_count: result.global_oos_count });
 }));
 
 /**

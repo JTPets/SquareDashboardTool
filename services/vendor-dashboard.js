@@ -116,10 +116,11 @@ async function getVendorDashboard(merchantId) {
             SELECT
                 COUNT(DISTINCT vv.variation_id) AS total_items,
 
-                -- OOS: raw quantity = 0, matching main dashboard
-                -- No velocity filter, no committed subtraction
+                -- OOS: quantity = 0 with an actual inventory record
+                -- Guard: ic must exist (LEFT JOIN can produce NULL rows)
                 COUNT(DISTINCT CASE
-                    WHEN COALESCE(ic.quantity, 0) = 0
+                    WHEN ic.catalog_object_id IS NOT NULL
+                         AND COALESCE(ic.quantity, 0) = 0
                     THEN vv.variation_id
                 END) AS oos_count,
 
@@ -198,7 +199,8 @@ async function getVendorDashboard(merchantId) {
         SELECT
             COUNT(DISTINCT v.id) AS total_items,
             COUNT(DISTINCT CASE
-                WHEN COALESCE(ic.quantity, 0) = 0
+                WHEN ic.catalog_object_id IS NOT NULL
+                     AND COALESCE(ic.quantity, 0) = 0
                 THEN v.id
             END) AS oos_count,
             COUNT(DISTINCT CASE
@@ -265,14 +267,30 @@ async function getVendorDashboard(merchantId) {
         }, defaultSupplyDays));
     }
 
+    // --- Global OOS: deduplicated count matching main dashboard (INNER JOIN) ---
+    const globalOosResult = await db.query(`
+        SELECT COUNT(DISTINCT v.id) AS oos_count
+        FROM inventory_counts ic
+        JOIN variations v ON ic.catalog_object_id = v.id AND v.merchant_id = $1
+        JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+        WHERE ic.state = 'IN_STOCK'
+          AND ic.merchant_id = $1
+          AND COALESCE(ic.quantity, 0) = 0
+          AND COALESCE(v.is_deleted, FALSE) = FALSE
+          AND COALESCE(i.is_deleted, FALSE) = FALSE
+    `, [merchantId]);
+
+    const globalOosCount = parseInt(globalOosResult.rows[0].oos_count) || 0;
+
     logger.info('Vendor dashboard loaded', {
         merchantId,
         vendorCount: vendors.length,
         unassignedItems: unassignedTotal,
+        globalOos: globalOosCount,
         actionNeeded: vendors.filter(v => v.status !== 'ok').length
     });
 
-    return vendors;
+    return { vendors, global_oos_count: globalOosCount };
 }
 
 /**

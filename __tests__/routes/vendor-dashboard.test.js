@@ -24,11 +24,14 @@ describe('Vendor Dashboard Routes', () => {
         jest.clearAllMocks();
     });
 
-    // Helper: mock both queries (vendors + unassigned)
-    function mockDashboardQueries(vendorRows, unassignedRow) {
+    // Helper: mock all 3 queries (vendors, unassigned, global OOS)
+    function mockDashboardQueries(vendorRows, unassignedRow, globalOos) {
         db.query.mockResolvedValueOnce({ rows: vendorRows });
         db.query.mockResolvedValueOnce({
             rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
+        });
+        db.query.mockResolvedValueOnce({
+            rows: [{ oos_count: globalOos != null ? globalOos : 0 }]
         });
     }
 
@@ -91,9 +94,20 @@ describe('Vendor Dashboard Routes', () => {
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
 
-                expect(db.query).toHaveBeenCalledTimes(2);
+                expect(db.query).toHaveBeenCalledTimes(3);
                 const unassignedQuery = db.query.mock.calls[1][0];
                 expect(unassignedQuery).toContain('NOT EXISTS');
+            });
+
+            test('OOS guards against LEFT JOIN NULL rows', async () => {
+                db.getMerchantSettings.mockResolvedValue({});
+                mockDashboardQueries([]);
+
+                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                await getVendorDashboard(1);
+
+                const vendorQuery = db.query.mock.calls[0][0];
+                expect(vendorQuery).toContain('ic.catalog_object_id IS NOT NULL');
             });
         });
 
@@ -110,12 +124,13 @@ describe('Vendor Dashboard Routes', () => {
                     default_supply_days: 30, total_items: 50, oos_count: 2,
                     reorder_count: 10, pending_po_value: 15000,
                     last_ordered_at: '2026-02-10'
-                }]);
+                }], null, 73);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);
 
-                const vendor = result[0];
+                expect(result).toHaveProperty('global_oos_count', 73);
+                const vendor = result.vendors[0];
                 expect(vendor).toHaveProperty('id', 'V1');
                 expect(vendor).toHaveProperty('name', 'Vendor A');
                 expect(vendor).toHaveProperty('schedule_type', 'anytime');
@@ -145,7 +160,7 @@ describe('Vendor Dashboard Routes', () => {
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);
 
-                const vendor = result[0];
+                const vendor = result.vendors[0];
                 expect(typeof vendor.lead_time_days).toBe('number');
                 expect(typeof vendor.minimum_order_amount).toBe('number');
                 expect(typeof vendor.total_items).toBe('number');

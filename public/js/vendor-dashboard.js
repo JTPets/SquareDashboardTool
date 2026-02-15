@@ -11,6 +11,7 @@
   'use strict';
 
   let allVendors = [];
+  let globalOosCount = 0;
   let currentFilter = 'all';
 
   const STATUS_LABELS = {
@@ -36,6 +37,7 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var data = await res.json();
       allVendors = data.vendors || [];
+      globalOosCount = data.global_oos_count || 0;
       updateSummary();
       renderTable();
     } catch (err) {
@@ -47,14 +49,15 @@
   // ==================== SUMMARY CARDS ====================
 
   function updateSummary() {
-    var totalOos = allVendors.reduce(function(s, v) { return s + v.oos_count; }, 0);
+    // Use global deduplicated OOS count for summary (matches main dashboard)
+    // Per-vendor oos_count in table rows can double-count multi-vendor items — that's correct per-vendor
     var totalReorder = allVendors.reduce(function(s, v) { return s + v.reorder_count; }, 0);
     var totalPoValue = allVendors.reduce(function(s, v) { return s + v.pending_po_value; }, 0);
     var actionCount = allVendors.filter(function(v) { return v.status !== 'ok'; }).length;
 
     var oosEl = document.getElementById('stat-oos');
-    oosEl.textContent = totalOos;
-    oosEl.className = totalOos > 0 ? 'stat-number alert' : 'stat-number';
+    oosEl.textContent = globalOosCount;
+    oosEl.className = globalOosCount > 0 ? 'stat-number alert' : 'stat-number';
 
     document.getElementById('stat-reorder').textContent = totalReorder;
     document.getElementById('stat-po-value').textContent = formatCurrency(totalPoValue);
