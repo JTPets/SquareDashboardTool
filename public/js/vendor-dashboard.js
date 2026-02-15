@@ -253,9 +253,8 @@
               '<label>Lead Time (days)</label>' +
               '<input type="number" id="field-lead_time_days-' + vid + '" min="0" value="' + (v.lead_time_days != null ? v.lead_time_days : '') + '">' +
             '</div>' +
-            formGroup('Minimum Order',
-              '<input type="number" id="field-minimum_order_amount-' + vid + '" min="0" step="1" value="' + (v.minimum_order_amount || '') + '">' +
-              '<span class="hint">In cents (e.g. 50000 = $500.00)</span>') +
+            formGroup('Minimum Order ($)',
+              '<input type="number" id="field-minimum_order_amount-' + vid + '" min="0" step="0.01" value="' + (v.minimum_order_amount ? (v.minimum_order_amount / 100).toFixed(2) : '') + '">') +
             formGroup('Payment Method',
               '<select id="field-payment_method-' + vid + '">' +
                 '<option value="">-- Select --</option>' +
@@ -360,7 +359,7 @@
       order_day: scheduleType === 'fixed' ? (getVal('order_day') || null) : null,
       receive_day: scheduleType === 'fixed' ? (getVal('receive_day') || null) : null,
       lead_time_days: getVal('lead_time_days') !== '' ? parseInt(getVal('lead_time_days')) : null,
-      minimum_order_amount: getVal('minimum_order_amount') !== '' ? parseInt(getVal('minimum_order_amount')) : 0,
+      minimum_order_amount: getVal('minimum_order_amount') !== '' ? Math.round(parseFloat(getVal('minimum_order_amount')) * 100) : 0,
       payment_method: getVal('payment_method') || null,
       payment_terms: getVal('payment_terms') || null,
       contact_email: getVal('contact_email') || null,
