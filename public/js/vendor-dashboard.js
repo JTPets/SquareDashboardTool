@@ -156,17 +156,30 @@
   function renderPoProgress(v) {
     var min = v.minimum_order_amount;
     var need = v.reorder_value || 0;
+    var costed = v.costed_reorder_count || 0;
+    var reorderCount = v.reorder_count || 0;
 
+    // No minimum set
     if (!min || min === 0) {
-      return need > 0
-        ? '<span style="color:#6b7280">' + formatCurrency(need) + '</span>'
-        : '<span style="color:#9ca3af">No min</span>';
+      if (need > 0) return '<span style="color:#6b7280">' + formatCurrency(need) + '</span>';
+      if (reorderCount > 0) return '<span style="color:#9ca3af">' + reorderCount + ' items</span>';
+      return '<span style="color:#9ca3af">No min</span>';
+    }
+
+    // Has items to reorder but no cost data available
+    if (reorderCount > 0 && costed === 0) {
+      return '<div class="po-progress">' +
+        '<div class="po-progress-text" style="color:#9ca3af">' + reorderCount + ' items / ' + formatCurrency(min) + '</div>' +
+        '<div class="po-progress-bar"><div class="po-progress-fill unmet" style="width:0%"></div></div>' +
+      '</div>';
     }
 
     var pct = Math.min(100, Math.round((need / min) * 100));
     var met = need >= min;
+    // Partial cost data — show estimate indicator
+    var partial = costed > 0 && costed < reorderCount ? ' ~' : '';
     return '<div class="po-progress">' +
-      '<div class="po-progress-text">' + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
+      '<div class="po-progress-text">' + partial + formatCurrency(need) + ' / ' + formatCurrency(min) + '</div>' +
       '<div class="po-progress-bar"><div class="po-progress-fill ' + (met ? 'met' : 'unmet') + '" style="width:' + pct + '%"></div></div>' +
     '</div>';
   }

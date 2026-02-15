@@ -39,29 +39,29 @@ describe('Vendor Dashboard Service', () => {
                 .toBe('has_oos');
         });
 
-        test('returns below_min when reorder_count > 0, reorder value below minimum', () => {
-            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 2000, minimum_order_amount: 50000 }))
+        test('returns below_min when reorder_count > 0, costed, value below minimum', () => {
+            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 2000, costed_reorder_count: 5, minimum_order_amount: 50000 }))
                 .toBe('below_min');
         });
 
-        test('returns ready when reorder_count > 0, reorder value meets minimum', () => {
-            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 60000, minimum_order_amount: 50000 }))
+        test('returns ready when reorder_count > 0, costed, value meets minimum', () => {
+            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 60000, costed_reorder_count: 5, minimum_order_amount: 50000 }))
                 .toBe('ready');
         });
 
         test('returns ready when reorder value equals minimum exactly', () => {
-            expect(computeStatus({ oos_count: 0, reorder_count: 3, reorder_value: 50000, minimum_order_amount: 50000 }))
+            expect(computeStatus({ oos_count: 0, reorder_count: 3, reorder_value: 50000, costed_reorder_count: 3, minimum_order_amount: 50000 }))
                 .toBe('ready');
         });
 
         test('returns needs_order when reorder_count > 0 and no minimum set', () => {
-            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 0, minimum_order_amount: 0 }))
+            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 0, costed_reorder_count: 0, minimum_order_amount: 0 }))
                 .toBe('needs_order');
         });
 
-        test('returns needs_order when reorder_count > 0, zero reorder value, has minimum', () => {
-            expect(computeStatus({ oos_count: 0, reorder_count: 3, reorder_value: 0, minimum_order_amount: 50000 }))
-                .toBe('below_min');
+        test('returns needs_order when no cost data, even with minimum set', () => {
+            expect(computeStatus({ oos_count: 0, reorder_count: 3, reorder_value: 0, costed_reorder_count: 0, minimum_order_amount: 50000 }))
+                .toBe('needs_order');
         });
 
         test('returns ok when no issues', () => {
@@ -137,7 +137,7 @@ describe('Vendor Dashboard Service', () => {
                 payment_method: 'Invoice', payment_terms: 'Net 14',
                 contact_email: 'test@vendor.com', order_method: 'Email',
                 notes: 'Test notes', default_supply_days: 45,
-                total_items: 87, oos_count: 0, reorder_count: 3, reorder_value: 60000,
+                total_items: 87, oos_count: 0, reorder_count: 3, reorder_value: 60000, costed_reorder_count: 3,
                 pending_po_value: 60000, last_ordered_at: '2026-02-07'
             }], null, 73);
 
@@ -214,7 +214,7 @@ describe('Vendor Dashboard Service', () => {
                    minimum_order_amount: 0, payment_method: null, payment_terms: null,
                    contact_email: null, order_method: null, notes: null,
                    default_supply_days: null, total_items: 10, oos_count: 0,
-                   reorder_count: 0, reorder_value: 0, pending_po_value: 0, last_ordered_at: null }],
+                   reorder_count: 0, reorder_value: 0, costed_reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
                 { total_items: 25, oos_count: 3, reorder_count: 5 },
                 73
             );
@@ -238,7 +238,7 @@ describe('Vendor Dashboard Service', () => {
                    minimum_order_amount: 0, payment_method: null, payment_terms: null,
                    contact_email: null, order_method: null, notes: null,
                    default_supply_days: null, total_items: 10, oos_count: 0,
-                   reorder_count: 0, reorder_value: 0, pending_po_value: 0, last_ordered_at: null }],
+                   reorder_count: 0, reorder_value: 0, costed_reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
                 { total_items: 0, oos_count: 0, reorder_count: 0 }
             );
 
@@ -409,19 +409,19 @@ describe('Vendor Dashboard Service', () => {
 
         test('below_min requires minimum to be > 0', () => {
             // Has reorder, has reorder value, but no minimum set -> needs_order
-            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 2000, minimum_order_amount: 0 }))
+            expect(computeStatus({ oos_count: 0, reorder_count: 5, reorder_value: 2000, costed_reorder_count: 5, minimum_order_amount: 0 }))
                 .toBe('needs_order');
         });
 
         test('zero reorder count with OOS still returns has_oos', () => {
-            expect(computeStatus({ oos_count: 1, reorder_count: 0, reorder_value: 0, minimum_order_amount: 0 }))
+            expect(computeStatus({ oos_count: 1, reorder_count: 0, reorder_value: 0, costed_reorder_count: 0, minimum_order_amount: 0 }))
                 .toBe('has_oos');
         });
 
         test('large values handled correctly', () => {
             expect(computeStatus({
                 oos_count: 0, reorder_count: 500,
-                reorder_value: 10000000, minimum_order_amount: 5000000
+                reorder_value: 10000000, costed_reorder_count: 500, minimum_order_amount: 5000000
             })).toBe('ready');
         });
     });
