@@ -194,8 +194,97 @@ async function redeemReward(redemptionData) {
 // ============================================================================
 
 /**
+ * Fallback: match free (100% discounted) line items to earned rewards.
+ *
+ * Used when catalog_object_id matching fails — e.g. staff applied a manual
+ * discount, auto-discount was removed and re-applied, or discount objects
+ * were recreated during migration.
+ *
+ * Uses the same "isFree" logic as the Order History Audit in backfill-service:
+ *   base_price > 0 AND total_money === 0
+ *
+ * Requires the order's customer to have an earned reward whose qualifying
+ * variations include the free item's variation.
+ *
+ * @param {Object} order - Square order object (normalized to snake_case)
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Match info or null
+ */
+async function matchEarnedRewardByFreeItem(order, merchantId) {
+    // Need customer ID to verify reward ownership
+    let customerId = order.customer_id;
+    if (!customerId && order.tenders) {
+        for (const tender of order.tenders) {
+            if (tender.customer_id) {
+                customerId = tender.customer_id;
+                break;
+            }
+        }
+    }
+    if (!customerId) return null;
+
+    const lineItems = order.line_items || [];
+    const freeVariationIds = [];
+
+    for (const lineItem of lineItems) {
+        const variationId = lineItem.catalog_object_id;
+        if (!variationId) continue;
+
+        const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
+        // Nullish check preserves 0 (free items have total_money = 0)
+        const rawTotalMoney = lineItem.total_money?.amount;
+        const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
+
+        if (unitPriceCents > 0 && totalMoneyCents === 0) {
+            freeVariationIds.push(variationId);
+        }
+    }
+
+    if (freeVariationIds.length === 0) return null;
+
+    // Find an earned reward for this customer where one of the free items
+    // is a qualifying variation for the reward's offer
+    const result = await db.query(`
+        SELECT r.id AS reward_id, r.offer_id, r.square_customer_id, o.offer_name,
+               qv.variation_id AS matched_variation_id
+        FROM loyalty_qualifying_variations qv
+        JOIN loyalty_offers o ON qv.offer_id = o.id AND qv.merchant_id = o.merchant_id
+        JOIN loyalty_rewards r ON r.offer_id = o.id
+            AND r.merchant_id = o.merchant_id
+            AND r.status = 'earned'
+            AND r.square_customer_id = $3
+        WHERE qv.merchant_id = $1
+          AND qv.variation_id = ANY($2)
+          AND qv.is_active = TRUE
+          AND o.is_active = TRUE
+        LIMIT 1
+    `, [merchantId, freeVariationIds, customerId]);
+
+    if (result.rows.length > 0) {
+        const match = result.rows[0];
+        logger.info('Matched earned reward via free item fallback', {
+            action: 'REDEMPTION_FREE_ITEM_MATCH',
+            orderId: order.id,
+            rewardId: match.reward_id,
+            offerId: match.offer_id,
+            offerName: match.offer_name,
+            matchedVariationId: match.matched_variation_id,
+            customerId,
+            merchantId
+        });
+        return match;
+    }
+
+    return null;
+}
+
+/**
  * Detect if an order contains a redemption of one of our loyalty rewards
  * This is called during order processing to auto-mark rewards as redeemed
+ *
+ * Detection strategy (in priority order):
+ * 1. Match order discount catalog_object_id to stored square_discount_id/pricing_rule_id
+ * 2. Fallback: match 100% discounted line items to earned rewards via qualifying variations
  *
  * @param {Object} order - Square order object
  * @param {number} merchantId - Internal merchant ID
@@ -204,55 +293,85 @@ async function redeemReward(redemptionData) {
 async function detectRewardRedemptionFromOrder(order, merchantId) {
     try {
         const discounts = order.discounts || [];
-        if (discounts.length === 0) {
-            return { detected: false };
+
+        // Strategy 1: Match by catalog_object_id (exact discount ID match)
+        if (discounts.length > 0) {
+            for (const discount of discounts) {
+                const catalogObjectId = discount.catalog_object_id;
+                if (!catalogObjectId) continue;
+
+                // Check BOTH square_discount_id AND square_pricing_rule_id because Square
+                // may reference either one in the order discount depending on how it was applied
+                const rewardResult = await db.query(`
+                    SELECT r.*, o.offer_name
+                    FROM loyalty_rewards r
+                    JOIN loyalty_offers o ON r.offer_id = o.id
+                    WHERE r.merchant_id = $1
+                      AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
+                      AND r.status = 'earned'
+                `, [merchantId, catalogObjectId]);
+
+                if (rewardResult.rows.length > 0) {
+                    const reward = rewardResult.rows[0];
+
+                    logger.info('Detected reward redemption from order', {
+                        merchantId,
+                        orderId: order.id,
+                        rewardId: reward.id,
+                        discountId: catalogObjectId,
+                        detectionMethod: 'catalog_object_id'
+                    });
+
+                    const redemptionResult = await redeemReward({
+                        merchantId,
+                        rewardId: reward.id,
+                        squareOrderId: order.id,
+                        squareCustomerId: order.customer_id,
+                        redemptionType: RedemptionTypes.AUTO_DETECTED,
+                        redeemedValueCents: Number(discount.applied_money?.amount || 0),
+                        squareLocationId: order.location_id
+                    });
+
+                    return {
+                        detected: true,
+                        rewardId: reward.id,
+                        offerName: reward.offer_name,
+                        redemptionResult,
+                        detectionMethod: 'catalog_object_id'
+                    };
+                }
+            }
         }
 
-        // Look for any of our reward discounts in the order
-        for (const discount of discounts) {
-            const catalogObjectId = discount.catalog_object_id;
-            if (!catalogObjectId) continue;
+        // Strategy 2: Fallback — match free items to earned rewards
+        // Catches manual discounts, re-applied discounts, migrated discount objects
+        const freeItemMatch = await matchEarnedRewardByFreeItem(order, merchantId);
+        if (freeItemMatch) {
+            logger.info('Detected reward redemption via free item fallback', {
+                merchantId,
+                orderId: order.id,
+                rewardId: freeItemMatch.reward_id,
+                matchedVariationId: freeItemMatch.matched_variation_id,
+                detectionMethod: 'free_item_fallback'
+            });
 
-            // Check if this discount matches any of our earned rewards
-            // Check BOTH square_discount_id AND square_pricing_rule_id because Square
-            // may reference either one in the order discount depending on how it was applied
-            const rewardResult = await db.query(`
-                SELECT r.*, o.offer_name
-                FROM loyalty_rewards r
-                JOIN loyalty_offers o ON r.offer_id = o.id
-                WHERE r.merchant_id = $1
-                  AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
-                  AND r.status = 'earned'
-            `, [merchantId, catalogObjectId]);
+            const redemptionResult = await redeemReward({
+                merchantId,
+                rewardId: freeItemMatch.reward_id,
+                squareOrderId: order.id,
+                squareCustomerId: freeItemMatch.square_customer_id,
+                redemptionType: RedemptionTypes.AUTO_DETECTED,
+                redeemedVariationId: freeItemMatch.matched_variation_id,
+                squareLocationId: order.location_id
+            });
 
-            if (rewardResult.rows.length > 0) {
-                const reward = rewardResult.rows[0];
-
-                logger.info('Detected reward redemption from order', {
-                    merchantId,
-                    orderId: order.id,
-                    rewardId: reward.id,
-                    discountId: catalogObjectId
-                });
-
-                // Redeem the reward (now a direct call, no lazy require needed)
-                const redemptionResult = await redeemReward({
-                    merchantId,
-                    rewardId: reward.id,
-                    squareOrderId: order.id,
-                    squareCustomerId: order.customer_id,
-                    redemptionType: RedemptionTypes.AUTO_DETECTED,
-                    redeemedValueCents: Number(discount.applied_money?.amount || 0),
-                    squareLocationId: order.location_id
-                });
-
-                return {
-                    detected: true,
-                    rewardId: reward.id,
-                    offerName: reward.offer_name,
-                    redemptionResult
-                };
-            }
+            return {
+                detected: true,
+                rewardId: freeItemMatch.reward_id,
+                offerName: freeItemMatch.offer_name,
+                redemptionResult,
+                detectionMethod: 'free_item_fallback'
+            };
         }
 
         return { detected: false };
@@ -287,5 +406,6 @@ async function createSquareLoyaltyReward({ merchantId, squareCustomerId, interna
 module.exports = {
     redeemReward,
     detectRewardRedemptionFromOrder,
+    matchEarnedRewardByFreeItem,
     createSquareLoyaltyReward
 };

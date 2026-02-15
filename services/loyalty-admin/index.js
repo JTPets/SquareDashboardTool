@@ -138,6 +138,7 @@ const {
 const {
     redeemReward,
     detectRewardRedemptionFromOrder,
+    matchEarnedRewardByFreeItem,
     createSquareLoyaltyReward
 } = require('./reward-service');
 
@@ -210,6 +211,7 @@ module.exports = {
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
     detectRewardRedemptionFromOrder,
+    matchEarnedRewardByFreeItem,
     createSquareLoyaltyReward,
 
     // Webhook processing
