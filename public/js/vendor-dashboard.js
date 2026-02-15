@@ -160,9 +160,6 @@
     if (!min || min === 0) {
       return '<span style="color:#9ca3af">No min</span>';
     }
-    if (pending === 0) {
-      return '<span style="color:#6b7280">' + formatCurrency(min) + '</span>';
-    }
 
     var pct = Math.min(100, Math.round((pending / min) * 100));
     var met = pending >= min;
