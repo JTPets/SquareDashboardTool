@@ -160,18 +160,18 @@ describe('Vendor Dashboard Service', () => {
             expect(db.getMerchantSettings).toHaveBeenCalledWith(merchantId);
         });
 
-        test('passes reorder threshold to vendor and unassigned queries', async () => {
+        test('passes supply days and safety days separately to vendor query', async () => {
             mockDashboardQueries([]);
 
             await getVendorDashboard(merchantId);
 
-            // supply_days (45) + safety_days (7) = 52
+            // Vendor query gets [merchantId, defaultSupplyDays, safetyDays]
             const vendorQueryCall = db.query.mock.calls[0];
-            expect(vendorQueryCall[1]).toContain(52);
-            expect(vendorQueryCall[1]).toContain(merchantId);
+            expect(vendorQueryCall[1]).toEqual([merchantId, 45, 7]);
 
+            // Unassigned query gets [merchantId, reorderThreshold] (global)
             const unassignedQueryCall = db.query.mock.calls[1];
-            expect(unassignedQueryCall[1]).toContain(52);
+            expect(unassignedQueryCall[1]).toContain(52); // 45 + 7
             expect(unassignedQueryCall[1]).toContain(merchantId);
         });
 
@@ -196,9 +196,9 @@ describe('Vendor Dashboard Service', () => {
 
                 await getVendorDashboard(merchantId);
 
-                // 45 (default) + 7 (default) = 52
+                // Vendor query: [merchantId, 45, 7]
                 const queryCall = db.query.mock.calls[0];
-                expect(queryCall[1]).toContain(52);
+                expect(queryCall[1]).toEqual([merchantId, 45, 7]);
             } finally {
                 if (origSupply === undefined) delete process.env.DEFAULT_SUPPLY_DAYS;
                 else process.env.DEFAULT_SUPPLY_DAYS = origSupply;
@@ -291,6 +291,33 @@ describe('Vendor Dashboard Service', () => {
 
             const vendorQuery = db.query.mock.calls[0][0];
             expect(vendorQuery).toContain('stock_alert_max');
+        });
+
+        test('vendor query uses per-vendor threshold via CROSS JOIN LATERAL', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const vendorQuery = db.query.mock.calls[0][0];
+            // Per-vendor threshold: vendor supply_days + lead_time + safety
+            expect(vendorQuery).toContain('CROSS JOIN LATERAL');
+            expect(vendorQuery).toContain('ve.default_supply_days');
+            expect(vendorQuery).toContain('ve.lead_time_days');
+            expect(vendorQuery).toContain('vt.val');
+        });
+
+        test('reorder value uses qty × cost formula with case pack rounding', async () => {
+            mockDashboardQueries([]);
+
+            await getVendorDashboard(merchantId);
+
+            const vendorQuery = db.query.mock.calls[0][0];
+            // Qty calculation: velocity * threshold, case-pack adjusted
+            expect(vendorQuery).toContain('daily_avg_quantity');
+            expect(vendorQuery).toContain('case_pack_quantity');
+            expect(vendorQuery).toContain('vv.unit_cost_money');
+            // Must multiply qty by cost, not just sum cost
+            expect(vendorQuery).toContain('* vv.unit_cost_money');
         });
 
         test('reorder count considers pending PO quantities', async () => {

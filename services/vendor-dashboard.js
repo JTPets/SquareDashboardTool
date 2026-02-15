@@ -111,7 +111,7 @@ async function getVendorDashboard(merchantId) {
             COALESCE(item_stats.oos_count, 0) AS oos_count,
             -- Reorder count: excludes items covered by pending POs or at/above max
             COALESCE(item_stats.reorder_count, 0) AS reorder_count,
-            -- Reorder value: estimated cost of items needing reorder (unit cost sum)
+            -- Reorder value: estimated PO cost (suggested qty × unit cost)
             COALESCE(item_stats.reorder_value, 0) AS reorder_value,
             -- How many reorder items have cost data
             COALESCE(item_stats.costed_reorder_count, 0) AS costed_reorder_count,
@@ -120,6 +120,10 @@ async function getVendorDashboard(merchantId) {
             -- Last ordered: most recent submitted/completed PO
             po_stats.last_ordered_at
         FROM vendors ve
+        CROSS JOIN LATERAL (
+            SELECT (COALESCE(ve.default_supply_days, $2)
+                + COALESCE(ve.lead_time_days, 0) + $3) AS val
+        ) vt
         LEFT JOIN LATERAL (
             SELECT
                 COUNT(DISTINCT vv.variation_id) AS total_items,
@@ -141,10 +145,10 @@ async function getVendorDashboard(merchantId) {
                         OR (COALESCE(vls.stock_alert_min, var.stock_alert_min) IS NOT NULL
                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
                                 <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
-                        -- Will stockout within threshold
+                        -- Will stockout within vendor supply period
                         OR (sv.daily_avg_quantity > 0
                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                / sv.daily_avg_quantity < $2)
+                                / sv.daily_avg_quantity < vt.val)
                     )
                     -- Exclude items at/above stock_alert_max (analytics.js post-filter)
                     AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
@@ -169,7 +173,9 @@ async function getVendorDashboard(merchantId) {
                     THEN vv.variation_id
                 END) AS reorder_count,
 
-                -- Reorder value: sum of unit cost for items needing reorder
+                -- Reorder value: estimated PO cost (suggested qty × unit cost)
+                -- Qty formula mirrors analytics.js: velocity * vendor_threshold,
+                -- case-pack rounded, capped at max, minus pending PO
                 COALESCE(SUM(CASE
                     WHEN (
                         (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
@@ -178,7 +184,7 @@ async function getVendorDashboard(merchantId) {
                                 <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
                         OR (sv.daily_avg_quantity > 0
                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                / sv.daily_avg_quantity < $2)
+                                / sv.daily_avg_quantity < vt.val)
                     )
                     AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
                          OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
@@ -200,7 +206,52 @@ async function getVendorDashboard(merchantId) {
                     AND var.discontinued = FALSE
                     AND vv.unit_cost_money IS NOT NULL
                     AND vv.unit_cost_money > 0
-                    THEN vv.unit_cost_money
+                    THEN
+                        GREATEST(0,
+                            LEAST(
+                                -- Suggested qty: velocity × vendor threshold, case-pack rounded
+                                CASE
+                                    WHEN COALESCE(var.case_pack_quantity, 0) > 1
+                                    THEN
+                                        CEIL(
+                                            GREATEST(0,
+                                                CASE WHEN COALESCE(sv.daily_avg_quantity, 0) > 0
+                                                    THEN sv.daily_avg_quantity * vt.val
+                                                    ELSE var.case_pack_quantity::NUMERIC
+                                                END
+                                                - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                                            ) / var.case_pack_quantity
+                                        ) * var.case_pack_quantity
+                                    ELSE
+                                        CEIL(GREATEST(0,
+                                            CASE WHEN COALESCE(sv.daily_avg_quantity, 0) > 0
+                                                THEN sv.daily_avg_quantity * vt.val
+                                                ELSE 1::NUMERIC
+                                            END
+                                            - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                                        ))
+                                END,
+                                -- Cap at stock_alert_max - current available
+                                CASE
+                                    WHEN COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NOT NULL
+                                    THEN GREATEST(0,
+                                        COALESCE(vls.stock_alert_max, var.stock_alert_max)
+                                        - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)))
+                                    ELSE 1e9
+                                END
+                            )
+                            -- Subtract pending PO qty
+                            - COALESCE((
+                                SELECT SUM(poi2.quantity_ordered - COALESCE(poi2.received_quantity, 0))
+                                FROM purchase_order_items poi2
+                                JOIN purchase_orders po2 ON poi2.purchase_order_id = po2.id
+                                    AND po2.merchant_id = $1
+                                WHERE poi2.variation_id = var.id
+                                    AND poi2.merchant_id = $1
+                                    AND po2.status NOT IN ('RECEIVED', 'CANCELLED')
+                                    AND (poi2.quantity_ordered - COALESCE(poi2.received_quantity, 0)) > 0
+                            ), 0)
+                        ) * vv.unit_cost_money
                     ELSE 0
                 END), 0) AS reorder_value,
 
@@ -213,7 +264,7 @@ async function getVendorDashboard(merchantId) {
                                 <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
                         OR (sv.daily_avg_quantity > 0
                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                / sv.daily_avg_quantity < $2)
+                                / sv.daily_avg_quantity < vt.val)
                     )
                     AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
                          OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
@@ -267,7 +318,7 @@ async function getVendorDashboard(merchantId) {
         WHERE ve.merchant_id = $1
           AND ve.status = 'ACTIVE'
         ORDER BY ve.name
-    `, [merchantId, reorderThreshold]);
+    `, [merchantId, defaultSupplyDays, safetyDays]);
 
     const vendors = result.rows.map(row => formatVendorRow(row, defaultSupplyDays));
 
