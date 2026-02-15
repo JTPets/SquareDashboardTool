@@ -109,6 +109,18 @@ describe('Vendor Dashboard Routes', () => {
                 const vendorQuery = db.query.mock.calls[0][0];
                 expect(vendorQuery).toContain('ic.catalog_object_id IS NOT NULL');
             });
+
+            test('computes reorder_value using unit_cost_money', async () => {
+                db.getMerchantSettings.mockResolvedValue({});
+                mockDashboardQueries([]);
+
+                const { getVendorDashboard } = require('../../services/vendor-dashboard');
+                await getVendorDashboard(1);
+
+                const vendorQuery = db.query.mock.calls[0][0];
+                expect(vendorQuery).toContain('reorder_value');
+                expect(vendorQuery).toContain('unit_cost_money');
+            });
         });
 
         describe('Response format', () => {
@@ -122,7 +134,7 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: 'Net 7', contact_email: 'a@test.com',
                     order_method: 'Portal', notes: 'Fast shipping',
                     default_supply_days: 30, total_items: 50, oos_count: 2,
-                    reorder_count: 10, pending_po_value: 15000,
+                    reorder_count: 10, reorder_value: 12000, pending_po_value: 15000,
                     last_ordered_at: '2026-02-10'
                 }], null, 73);
 
@@ -140,6 +152,7 @@ describe('Vendor Dashboard Routes', () => {
                 expect(vendor).toHaveProperty('total_items', 50);
                 expect(vendor).toHaveProperty('oos_count', 2);
                 expect(vendor).toHaveProperty('reorder_count', 10);
+                expect(vendor).toHaveProperty('reorder_value', 12000);
                 expect(vendor).toHaveProperty('pending_po_value', 15000);
                 expect(vendor).toHaveProperty('last_ordered_at', '2026-02-10');
                 expect(vendor).toHaveProperty('status', 'has_oos');
@@ -154,7 +167,7 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: null, contact_email: null,
                     order_method: null, notes: null, default_supply_days: '45',
                     total_items: '100', oos_count: '5', reorder_count: '20',
-                    pending_po_value: '75000', last_ordered_at: null
+                    reorder_value: '45000', pending_po_value: '75000', last_ordered_at: null
                 }]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -166,6 +179,7 @@ describe('Vendor Dashboard Routes', () => {
                 expect(typeof vendor.total_items).toBe('number');
                 expect(typeof vendor.oos_count).toBe('number');
                 expect(typeof vendor.reorder_count).toBe('number');
+                expect(typeof vendor.reorder_value).toBe('number');
                 expect(typeof vendor.pending_po_value).toBe('number');
             });
         });
