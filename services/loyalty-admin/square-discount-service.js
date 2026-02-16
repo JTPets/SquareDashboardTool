@@ -304,12 +304,12 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
 
 /**
  * Create a Discount + Pricing Rule in Square for a reward
- * This creates a FIXED_AMOUNT discount capped at one item's value that applies
- * to specific variations when a customer in the group checks out.
+ * This creates a FIXED_PERCENTAGE (100%) discount that auto-applies to exactly
+ * ONE qualifying item when a customer in the group checks out.
  *
- * Uses FIXED_AMOUNT (not FIXED_PERCENTAGE) so that even if Square matches multiple
- * qualifying items in the cart, the total discount is capped at the dollar amount
- * we set — preventing the "everything free" bug from FIXED_PERCENTAGE: 100%.
+ * Uses apply_products_id on the pricing rule to limit discount to a single item.
+ * Square docs: "An apply rule can only match once in the match set."
+ * Also includes maximum_amount_money as a per-item safety cap.
  *
  * @param {Object} params - Parameters
  * @param {number} params.merchantId - Internal merchant ID
@@ -317,7 +317,7 @@ async function deleteCustomerGroup({ merchantId, groupId }) {
  * @param {string} params.groupId - Square customer group ID
  * @param {string} params.offerName - Name of the offer for display
  * @param {Array<string>} params.variationIds - Square variation IDs this discount applies to
- * @param {number} params.maxDiscountAmountCents - Maximum discount in cents (from purchase history)
+ * @param {number} params.maxDiscountAmountCents - Per-item safety cap in cents (from purchase history)
  * @returns {Promise<Object>} Result with discount and pricing rule IDs
  */
 async function createRewardDiscount({ merchantId, internalRewardId, groupId, offerName, variationIds, maxDiscountAmountCents }) {
@@ -333,18 +333,20 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
         const pricingRuleId = `#loyalty-pricingrule-${internalRewardId}`;
 
         // Build catalog objects for batch upsert:
-        // 1. DISCOUNT - FIXED_AMOUNT capped at one item's value
+        // 1. DISCOUNT - 100% off, with maximum_amount_money as per-item safety cap
         // 2. PRODUCT_SET - defines which variations qualify
-        // 3. PRICING_RULE - links discount to product set with customer group condition
+        // 3. PRICING_RULE - links discount to product set; apply_products_id limits to 1 item
         const catalogObjects = [
             {
                 type: 'DISCOUNT',
                 id: discountId,
                 discount_data: {
                     name: `Loyalty: ${offerName} (Reward ${internalRewardId})`,
-                    discount_type: 'FIXED_AMOUNT',
-                    // TODO: BACKLOG - currency hardcoded to CAD for JTPets; for multi-tenant SaaS, pull from merchant config
-                    amount_money: {
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100',
+                    // Safety cap: limits per-item discount if apply_products_id somehow fails
+                    // TODO: BACKLOG - currency hardcoded to CAD; for multi-tenant SaaS, pull from merchant config
+                    maximum_amount_money: {
                         amount: maxDiscountAmountCents,
                         currency: 'CAD'
                     },
@@ -367,10 +369,9 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     name: `Loyalty Rule: ${offerName}`,
                     discount_id: discountId,
                     match_products_id: productSetId,
+                    apply_products_id: productSetId,
                     customer_group_ids_any: [groupId],
-                    time_period_ids: [],
-                    exclude_products_id: null,
-                    exclude_strategy: 'LEAST_EXPENSIVE'
+                    time_period_ids: []
                 }
             }
         ];
@@ -475,7 +476,8 @@ async function deleteRewardDiscountObjects({ merchantId, objectIds }) {
  * This is the main entry point - orchestrates group creation, customer assignment, and discount creation.
  * Once created, the discount will auto-apply at Square POS.
  *
- * Discount amount is calculated from purchase history:
+ * Discount is 100% off ONE item, enforced by apply_products_id on the pricing rule.
+ * Safety cap (maximum_amount_money) calculated from purchase history:
  * - Primary: MAX(unit_price_cents) from purchases linked to this specific reward
  * - Fallback: MAX(unit_price_cents) from any qualifying purchase for this offer
  * - Fail-safe: refuses to create discount if no price data exists ($0)
