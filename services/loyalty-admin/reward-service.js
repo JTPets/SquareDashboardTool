@@ -221,7 +221,12 @@ async function matchEarnedRewardByFreeItem(order, merchantId) {
             }
         }
     }
-    if (!customerId) return null;
+    if (!customerId) {
+        logger.info('Strategy 2: no customer ID on order, skipping', {
+            orderId: order.id, merchantId
+        });
+        return null;
+    }
 
     const lineItems = order.line_items || [];
     const freeVariationIds = [];
@@ -239,6 +244,23 @@ async function matchEarnedRewardByFreeItem(order, merchantId) {
             freeVariationIds.push(variationId);
         }
     }
+
+    // DIAGNOSTIC: Log free item identification
+    logger.info('Strategy 2: free item scan', {
+        orderId: order.id,
+        merchantId,
+        customerId,
+        lineItemCount: lineItems.length,
+        freeVariationIds,
+        lineItemDetails: lineItems.map(li => ({
+            name: li.name,
+            catalog_object_id: li.catalog_object_id || null,
+            base_price_amount: li.base_price_money?.amount,
+            total_money_amount: li.total_money?.amount,
+            isFree: Number(li.base_price_money?.amount || 0) > 0
+                && (li.total_money?.amount != null ? Number(li.total_money.amount) : Number(li.base_price_money?.amount || 0)) === 0
+        }))
+    });
 
     if (freeVariationIds.length === 0) return null;
 
@@ -274,6 +296,55 @@ async function matchEarnedRewardByFreeItem(order, merchantId) {
         });
         return match;
     }
+
+    // DIAGNOSTIC: No match — query qualifying variations without the reward
+    // join to isolate which condition is failing
+    try {
+        const diagResult = await db.query(`
+            SELECT qv.variation_id, qv.offer_id, qv.is_active AS qv_active,
+                   o.offer_name, o.is_active AS offer_active
+            FROM loyalty_qualifying_variations qv
+            LEFT JOIN loyalty_offers o ON qv.offer_id = o.id AND qv.merchant_id = o.merchant_id
+            WHERE qv.merchant_id = $1
+              AND qv.variation_id = ANY($2)
+        `, [merchantId, freeVariationIds]);
+
+        if (diagResult.rows.length === 0) {
+            logger.warn('Strategy 2: no qualifying variations found for free item IDs', {
+                orderId: order.id, merchantId, freeVariationIds
+            });
+        } else {
+            // Check earned rewards for the offers found
+            const offerIds = [...new Set(diagResult.rows.map(r => r.offer_id))];
+            const rewardCheck = await db.query(`
+                SELECT id AS reward_id, offer_id, square_customer_id, status
+                FROM loyalty_rewards
+                WHERE merchant_id = $1
+                  AND offer_id = ANY($2)
+                  AND square_customer_id = $3
+            `, [merchantId, offerIds, customerId]);
+
+            logger.warn('Strategy 2: free items found but no match — diagnostic', {
+                orderId: order.id,
+                merchantId,
+                customerId,
+                freeVariationIds,
+                qualifyingVariations: diagResult.rows.map(r => ({
+                    variation_id: r.variation_id,
+                    offer_id: r.offer_id,
+                    offer_name: r.offer_name,
+                    qv_active: r.qv_active,
+                    offer_active: r.offer_active
+                })),
+                customerRewards: rewardCheck.rows.map(r => ({
+                    reward_id: r.reward_id,
+                    offer_id: r.offer_id,
+                    square_customer_id: r.square_customer_id,
+                    status: r.status
+                }))
+            });
+        }
+    } catch (_) { /* diagnostic only — don't break detection */ }
 
     return null;
 }
