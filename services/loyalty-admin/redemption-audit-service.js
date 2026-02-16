@@ -156,27 +156,74 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
     `, [merchantId]);
 
     const earnedRewards = earnedResult.rows;
+
+    logger.info('Audit: earned rewards found', {
+        merchantId,
+        count: earnedRewards.length,
+        rewards: earnedRewards.map(r => ({
+            reward_id: r.reward_id,
+            square_customer_id: r.square_customer_id,
+            offer_id: r.offer_id,
+            offer_name: r.offer_name
+        }))
+    });
+
     if (earnedRewards.length === 0) {
         return { scanned: { rewards: 0, orders: 0 }, matches: [], dryRun };
     }
 
-    // For each earned reward, find recent orders for that customer
+    // For each earned reward, find recent orders for that customer.
+    // Date filter applied in code so we can log orders excluded by date.
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    logger.info('Audit: date filter', {
+        merchantId,
+        days,
+        cutoffDate: cutoffDate.toISOString()
+    });
 
     const allOrderIds = new Set();
     const rewardOrderMap = new Map(); // orderId -> Set<rewardId>
 
     for (const reward of earnedRewards) {
         const ordersResult = await db.query(`
-            SELECT DISTINCT square_order_id
-            FROM loyalty_processed_orders
-            WHERE merchant_id = $1
-              AND square_customer_id = $2
-              AND processed_at >= $3
-        `, [merchantId, reward.square_customer_id, cutoffDate.toISOString()]);
+            SELECT DISTINCT lpo.square_order_id, lpo.processed_at, lpo.created_at,
+                            lpo.result_type, lpo.source
+            FROM loyalty_processed_orders lpo
+            WHERE lpo.merchant_id = $1
+              AND lpo.square_customer_id = $2
+        `, [merchantId, reward.square_customer_id]);
+
+        const withinWindow = [];
+        const outsideWindow = [];
 
         for (const row of ordersResult.rows) {
+            if (new Date(row.processed_at) >= cutoffDate) {
+                withinWindow.push(row);
+            } else {
+                outsideWindow.push(row);
+            }
+        }
+
+        logger.info('Audit: orders for customer', {
+            merchantId,
+            reward_id: reward.reward_id,
+            square_customer_id: reward.square_customer_id,
+            totalOrders: ordersResult.rows.length,
+            withinWindow: withinWindow.length,
+            outsideWindow: outsideWindow.length,
+            orders: ordersResult.rows.map(r => ({
+                square_order_id: r.square_order_id,
+                processed_at: r.processed_at,
+                created_at: r.created_at,
+                result_type: r.result_type,
+                source: r.source,
+                in_window: new Date(r.processed_at) >= cutoffDate
+            }))
+        });
+
+        for (const row of withinWindow) {
             allOrderIds.add(row.square_order_id);
             if (!rewardOrderMap.has(row.square_order_id)) {
                 rewardOrderMap.set(row.square_order_id, new Set());
@@ -189,6 +236,12 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
     const orderIdArray = Array.from(allOrderIds);
     let unredeemedOrderIds = orderIdArray;
 
+    logger.info('Audit: unique orders before redemption filter', {
+        merchantId,
+        count: orderIdArray.length,
+        orderIds: orderIdArray
+    });
+
     if (orderIdArray.length > 0) {
         const redeemedResult = await db.query(`
             SELECT DISTINCT square_order_id
@@ -198,7 +251,21 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
 
         const redeemedSet = new Set(redeemedResult.rows.map(r => r.square_order_id));
         unredeemedOrderIds = orderIdArray.filter(id => !redeemedSet.has(id));
+
+        if (redeemedSet.size > 0) {
+            logger.info('Audit: orders already redeemed (filtered out)', {
+                merchantId,
+                filteredCount: redeemedSet.size,
+                filteredOrderIds: Array.from(redeemedSet)
+            });
+        }
     }
+
+    logger.info('Audit: final orders to scan', {
+        merchantId,
+        count: unredeemedOrderIds.length,
+        orderIds: unredeemedOrderIds
+    });
 
     const matches = [];
     let ordersScanned = 0;
