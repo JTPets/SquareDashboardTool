@@ -123,7 +123,8 @@ const {
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
-    validateEarnedRewardsDiscounts
+    validateEarnedRewardsDiscounts,
+    updateCustomerRewardNote
 } = require('./square-discount-service');
 
 // Purchase service (NEW - extracted from loyalty-service.js)
@@ -210,6 +211,7 @@ module.exports = {
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
+    updateCustomerRewardNote,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
     createSquareLoyaltyReward,
