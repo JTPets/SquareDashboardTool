@@ -386,9 +386,11 @@ async function matchEarnedRewardByDiscountAmount({ order, squareCustomerId, merc
  *
  * @param {Object} order - Square order object
  * @param {number} merchantId - Internal merchant ID
+ * @param {Object} [options] - Optional settings
+ * @param {boolean} [options.dryRun=false] - If true, detect only — do not redeem
  * @returns {Promise<Object>} Result with redeemed reward info if found
  */
-async function detectRewardRedemptionFromOrder(order, merchantId) {
+async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = false } = {}) {
     try {
         const discounts = order.discounts || [];
 
@@ -457,25 +459,35 @@ async function detectRewardRedemptionFromOrder(order, merchantId) {
                         orderId: order.id,
                         rewardId: reward.id,
                         discountId: catalogObjectId,
-                        detectionMethod: 'catalog_object_id'
+                        detectionMethod: 'catalog_object_id',
+                        dryRun
                     });
 
-                    const redemptionResult = await redeemReward({
-                        merchantId,
-                        rewardId: reward.id,
-                        squareOrderId: order.id,
-                        squareCustomerId: order.customer_id,
-                        redemptionType: RedemptionTypes.AUTO_DETECTED,
-                        redeemedValueCents: Number(discount.applied_money?.amount || 0),
-                        squareLocationId: order.location_id
-                    });
+                    let redemptionResult;
+                    if (!dryRun) {
+                        redemptionResult = await redeemReward({
+                            merchantId,
+                            rewardId: reward.id,
+                            squareOrderId: order.id,
+                            squareCustomerId: order.customer_id,
+                            redemptionType: RedemptionTypes.AUTO_DETECTED,
+                            redeemedValueCents: Number(discount.applied_money?.amount || 0),
+                            squareLocationId: order.location_id
+                        });
+                    }
 
                     return {
                         detected: true,
                         rewardId: reward.id,
+                        offerId: reward.offer_id,
                         offerName: reward.offer_name,
+                        squareCustomerId: reward.square_customer_id,
                         redemptionResult,
-                        detectionMethod: 'catalog_object_id'
+                        detectionMethod: 'catalog_object_id',
+                        discountDetails: {
+                            catalogObjectId,
+                            appliedMoney: discount.applied_money
+                        }
                     };
                 }
             }
@@ -490,25 +502,34 @@ async function detectRewardRedemptionFromOrder(order, merchantId) {
                 orderId: order.id,
                 rewardId: freeItemMatch.reward_id,
                 matchedVariationId: freeItemMatch.matched_variation_id,
-                detectionMethod: 'free_item_fallback'
+                detectionMethod: 'free_item_fallback',
+                dryRun
             });
 
-            const redemptionResult = await redeemReward({
-                merchantId,
-                rewardId: freeItemMatch.reward_id,
-                squareOrderId: order.id,
-                squareCustomerId: freeItemMatch.square_customer_id,
-                redemptionType: RedemptionTypes.AUTO_DETECTED,
-                redeemedVariationId: freeItemMatch.matched_variation_id,
-                squareLocationId: order.location_id
-            });
+            let redemptionResult;
+            if (!dryRun) {
+                redemptionResult = await redeemReward({
+                    merchantId,
+                    rewardId: freeItemMatch.reward_id,
+                    squareOrderId: order.id,
+                    squareCustomerId: freeItemMatch.square_customer_id,
+                    redemptionType: RedemptionTypes.AUTO_DETECTED,
+                    redeemedVariationId: freeItemMatch.matched_variation_id,
+                    squareLocationId: order.location_id
+                });
+            }
 
             return {
                 detected: true,
                 rewardId: freeItemMatch.reward_id,
+                offerId: freeItemMatch.offer_id,
                 offerName: freeItemMatch.offer_name,
+                squareCustomerId: freeItemMatch.square_customer_id,
                 redemptionResult,
-                detectionMethod: 'free_item_fallback'
+                detectionMethod: 'free_item_fallback',
+                discountDetails: {
+                    matchedVariationId: freeItemMatch.matched_variation_id
+                }
             };
         }
 
@@ -522,25 +543,35 @@ async function detectRewardRedemptionFromOrder(order, merchantId) {
                 totalDiscountCents: discountAmountMatch.totalDiscountCents,
                 expectedValueCents: discountAmountMatch.expectedValueCents,
                 orderId: order.id,
-                merchantId
+                merchantId,
+                dryRun
             });
 
-            const redemptionResult = await redeemReward({
-                merchantId,
-                rewardId: discountAmountMatch.reward_id,
-                squareOrderId: order.id,
-                squareCustomerId: discountAmountMatch.square_customer_id,
-                redemptionType: RedemptionTypes.AUTO_DETECTED,
-                redeemedValueCents: discountAmountMatch.totalDiscountCents,
-                squareLocationId: order.location_id
-            });
+            let redemptionResult;
+            if (!dryRun) {
+                redemptionResult = await redeemReward({
+                    merchantId,
+                    rewardId: discountAmountMatch.reward_id,
+                    squareOrderId: order.id,
+                    squareCustomerId: discountAmountMatch.square_customer_id,
+                    redemptionType: RedemptionTypes.AUTO_DETECTED,
+                    redeemedValueCents: discountAmountMatch.totalDiscountCents,
+                    squareLocationId: order.location_id
+                });
+            }
 
             return {
                 detected: true,
                 rewardId: discountAmountMatch.reward_id,
+                offerId: discountAmountMatch.offer_id,
                 offerName: discountAmountMatch.offer_name,
+                squareCustomerId: discountAmountMatch.square_customer_id,
                 redemptionResult,
-                detectionMethod: 'discount_amount_fallback'
+                detectionMethod: 'discount_amount_fallback',
+                discountDetails: {
+                    totalDiscountCents: discountAmountMatch.totalDiscountCents,
+                    expectedCents: discountAmountMatch.expectedValueCents
+                }
             };
         }
 
