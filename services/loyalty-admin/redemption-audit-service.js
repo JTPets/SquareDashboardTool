@@ -275,7 +275,8 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
                         redeemedValueCents: detection.discountDetails?.totalDiscountCents
                             || Number(detection.discountDetails?.appliedMoney?.amount || 0),
                         squareLocationId: order.location_id,
-                        adminNotes: `Audit remediation (Strategy: ${detection.detectionMethod})`
+                        adminNotes: `Audit remediation (Strategy: ${detection.detectionMethod})`,
+                        redeemedAt: order.created_at
                     });
                     redeemed = true;
                 } catch (err) {
