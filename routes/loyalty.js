@@ -2066,4 +2066,32 @@ router.post('/audit-findings/resolve/:id', requireAuth, requireMerchant, require
     });
 }));
 
+// ==================== MISSED REDEMPTION AUDIT ====================
+
+/**
+ * POST /api/loyalty/audit-missed-redemptions
+ * Re-scan recent orders through all three detection strategies to catch missed redemptions.
+ * Default dryRun=true — reports matches without redeeming.
+ */
+router.post('/audit-missed-redemptions', requireAuth, requireMerchant, requireWriteAccess, validators.auditMissedRedemptions, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const days = parseInt(req.query.days, 10) || 7;
+    const dryRun = req.query.dryRun !== 'false';
+
+    logger.info('Starting missed redemption audit', {
+        merchantId,
+        days,
+        dryRun,
+        userId: req.session.user.id
+    });
+
+    const result = await loyaltyService.auditMissedRedemptions({
+        merchantId,
+        days,
+        dryRun
+    });
+
+    res.json(result);
+}));
+
 module.exports = router;
