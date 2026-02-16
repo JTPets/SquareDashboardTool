@@ -116,6 +116,7 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
 
     const allOrderIds = new Set();
     const rewardOrderMap = new Map(); // orderId -> Set<rewardId>
+    const orderCustomerMap = new Map(); // orderId -> squareCustomerId
 
     for (const reward of earnedRewards) {
         const ordersResult = await db.query(`
@@ -156,6 +157,7 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
 
         for (const row of withinWindow) {
             allOrderIds.add(row.square_order_id);
+            orderCustomerMap.set(row.square_order_id, reward.square_customer_id);
             if (!rewardOrderMap.has(row.square_order_id)) {
                 rewardOrderMap.set(row.square_order_id, new Set());
             }
@@ -246,9 +248,11 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
             });
 
             // Use the canonical detection function (has DIAGNOSTIC logging)
-            // dryRun=true: detect only, don't redeem inside detectRewardRedemptionFromOrder
+            // Pass squareCustomerId from loyalty_processed_orders — the order
+            // from Square may not have customer_id set
+            const knownCustomerId = orderCustomerMap.get(orderId);
             const detection = await detectRewardRedemptionFromOrder(
-                order, merchantId, { dryRun: true }
+                order, merchantId, { dryRun: true, squareCustomerId: knownCustomerId }
             );
 
             if (!detection.detected) {

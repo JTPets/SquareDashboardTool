@@ -210,9 +210,9 @@ async function redeemReward(redemptionData) {
  * @param {number} merchantId - Internal merchant ID
  * @returns {Promise<Object|null>} Match info or null
  */
-async function matchEarnedRewardByFreeItem(order, merchantId) {
-    // Need customer ID to verify reward ownership
-    let customerId = order.customer_id;
+async function matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId: customerIdOverride } = {}) {
+    // Use provided customer ID or extract from order
+    let customerId = customerIdOverride || order.customer_id;
     if (!customerId && order.tenders) {
         for (const tender of order.tenders) {
             if (tender.customer_id) {
@@ -459,14 +459,17 @@ async function matchEarnedRewardByDiscountAmount({ order, squareCustomerId, merc
  * @param {number} merchantId - Internal merchant ID
  * @param {Object} [options] - Optional settings
  * @param {boolean} [options.dryRun=false] - If true, detect only — do not redeem
+ * @param {string} [options.squareCustomerId] - Override customer ID (for orders missing customer_id)
  * @returns {Promise<Object>} Result with redeemed reward info if found
  */
-async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = false } = {}) {
+async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = false, squareCustomerId: customerIdOverride } = {}) {
     try {
         const discounts = order.discounts || [];
 
-        // DIAGNOSTIC: Log all discounts before scanning (remove after issue confirmed resolved)
-        const squareCustomerId = order.customer_id || (order.tenders || []).find(t => t.customer_id)?.customer_id;
+        // Use provided customer ID or extract from order
+        const squareCustomerId = customerIdOverride
+            || order.customer_id
+            || (order.tenders || []).find(t => t.customer_id)?.customer_id;
         logger.info('Redemption detection: scanning order discounts', {
             orderId: order.id,
             squareCustomerId,
@@ -566,7 +569,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
 
         // Strategy 2: Fallback — match free items to earned rewards
         // Catches manual discounts, re-applied discounts, migrated discount objects
-        const freeItemMatch = await matchEarnedRewardByFreeItem(order, merchantId);
+        const freeItemMatch = await matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId });
         if (freeItemMatch) {
             logger.info('Detected reward redemption via free item fallback', {
                 merchantId,
