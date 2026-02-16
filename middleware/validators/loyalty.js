@@ -693,6 +693,21 @@ const updateVendorCredit = [
     handleValidationErrors
 ];
 
+/**
+ * POST /api/loyalty/audit-missed-redemptions
+ * Re-scan recent orders to detect missed reward redemptions
+ */
+const auditMissedRedemptions = [
+    query('days')
+        .optional()
+        .custom((value) => isIntInRange(value, 'days', 1, 90)),
+    query('dryRun')
+        .optional()
+        .isIn(['true', 'false'])
+        .withMessage('dryRun must be true or false'),
+    handleValidationErrors
+];
+
 module.exports = {
     listOffers,
     createOffer,
@@ -728,5 +743,6 @@ module.exports = {
     getBrandRedemptions,
     listAuditFindings,
     resolveAuditFinding,
-    updateVendorCredit
+    updateVendorCredit,
+    auditMissedRedemptions
 };

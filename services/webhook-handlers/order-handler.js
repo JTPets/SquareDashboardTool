@@ -697,8 +697,39 @@ class OrderHandler {
 
         // Strategy 1: Match by catalog_object_id (exact discount ID match)
         const discounts = order.discounts || [];
+
+        // DIAGNOSTIC: Log all discounts before scanning (remove after issue confirmed resolved)
+        const squareCustomerId = order.customer_id || (order.tenders || []).find(t => t.customer_id)?.customer_id;
+        logger.info('Redemption detection: scanning order discounts', {
+            orderId: order.id,
+            squareCustomerId,
+            discountCount: discounts.length,
+            discounts: discounts.map(d => ({
+                uid: d.uid,
+                name: d.name,
+                type: d.type,
+                catalog_object_id: d.catalog_object_id || null,
+                pricing_rule_id: d.pricing_rule_id || null,
+                applied_money: d.applied_money,
+                scope: d.scope
+            }))
+        });
+
         for (const discount of discounts) {
             const catalogObjectId = discount.catalog_object_id;
+
+            // DIAGNOSTIC: Log each discount evaluation (remove after issue confirmed resolved)
+            logger.info('Redemption detection: evaluating discount', {
+                orderId: order.id,
+                discountUid: discount.uid,
+                catalogObjectId: catalogObjectId || 'NONE (manual/ad-hoc)',
+                pricingRuleId: discount.pricing_rule_id || 'NONE',
+                discountName: discount.name,
+                discountType: discount.type,
+                appliedMoney: discount.applied_money,
+                skipped: !catalogObjectId
+            });
+
             if (!catalogObjectId) continue;
 
             // Match on square_discount_id OR square_pricing_rule_id (Square may use either)
@@ -710,6 +741,16 @@ class OrderHandler {
                   AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
                   AND r.status = 'earned'
             `, [merchantId, catalogObjectId]);
+
+            // DIAGNOSTIC: Log reward lookup results (remove after issue confirmed resolved)
+            logger.info('Redemption detection: reward lookup', {
+                orderId: order.id,
+                catalogObjectId,
+                pricingRuleId: discount.pricing_rule_id || null,
+                matchedRewardId: rewardResult.rows[0]?.id || null,
+                matchedBy: rewardResult.rows.length > 0 ? 'catalog_id' : 'none',
+                earnedRewardsFound: rewardResult.rows.length
+            });
 
             if (rewardResult.rows.length > 0) {
                 const reward = rewardResult.rows[0];
@@ -753,6 +794,31 @@ class OrderHandler {
                 offerId: freeItemMatch.offer_id,
                 offerName: freeItemMatch.offer_name,
                 squareCustomerId: freeItemMatch.square_customer_id,
+                discountCatalogId: null
+            };
+        }
+
+        // Strategy 3: Match by total discount amount on qualifying variations
+        const discountAmountMatch = await loyaltyService.matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId, merchantId
+        });
+        if (discountAmountMatch) {
+            logger.info('Pre-detected reward redemption via discount-amount fallback', {
+                action: 'REDEMPTION_PRE_CHECK_DISCOUNT_AMOUNT',
+                orderId: order.id,
+                rewardId: discountAmountMatch.reward_id,
+                offerId: discountAmountMatch.offer_id,
+                totalDiscountCents: discountAmountMatch.totalDiscountCents,
+                expectedValueCents: discountAmountMatch.expectedValueCents,
+                merchantId
+            });
+
+            return {
+                isRedemptionOrder: true,
+                rewardId: discountAmountMatch.reward_id,
+                offerId: discountAmountMatch.offer_id,
+                offerName: discountAmountMatch.offer_name,
+                squareCustomerId: discountAmountMatch.square_customer_id,
                 discountCatalogId: null
             };
         }

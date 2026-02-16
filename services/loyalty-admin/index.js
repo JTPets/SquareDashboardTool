@@ -140,6 +140,7 @@ const {
     redeemReward,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
+    matchEarnedRewardByDiscountAmount,
     createSquareLoyaltyReward
 } = require('./reward-service');
 
@@ -148,6 +149,9 @@ const {
     processOrderForLoyalty,
     processOrderRefundsForLoyalty
 } = require('./webhook-processing-service');
+
+// Redemption audit service
+const { auditMissedRedemptions } = require('./redemption-audit-service');
 
 // ============================================================================
 // EXPORTS - Complete public API
@@ -214,6 +218,7 @@ module.exports = {
     updateCustomerRewardNote,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
+    matchEarnedRewardByDiscountAmount,
     createSquareLoyaltyReward,
 
     // Webhook processing
@@ -241,5 +246,8 @@ module.exports = {
 
     // Audit
     logAuditEvent,
-    getAuditLogs
+    getAuditLogs,
+
+    // Redemption audit
+    auditMissedRedemptions
 };

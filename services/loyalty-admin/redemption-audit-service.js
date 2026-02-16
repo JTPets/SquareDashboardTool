@@ -1,0 +1,286 @@
+/**
+ * Missed Redemption Audit Service
+ *
+ * Re-scans recent orders through all three detection strategies to catch
+ * missed reward redemptions. Used as a one-time diagnostic/remediation tool.
+ *
+ * Strategies (in priority order):
+ * 1. Catalog ID match — exact discount ID
+ * 2. Free item — item is $0, variation matches offer
+ * 3. Discount amount — total discount on qualifying items ≈ reward value
+ */
+
+const db = require('../../utils/database');
+const logger = require('../../utils/logger');
+const { encryptToken, decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
+const { RedemptionTypes } = require('./constants');
+const { matchEarnedRewardByFreeItem, matchEarnedRewardByDiscountAmount, redeemReward } = require('./reward-service');
+
+/**
+ * Fetch a single order from Square API with raw fetch.
+ * @param {string} orderId - Square order ID
+ * @param {string} accessToken - Decrypted Square access token
+ * @returns {Promise<Object|null>} Order object or null
+ */
+async function fetchOrderFromSquare(orderId, accessToken) {
+    const response = await fetch(`https://connect.squareup.com/v2/orders/${orderId}`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'Square-Version': '2024-01-18'
+        }
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.order || null;
+}
+
+/**
+ * Small delay helper for rate limiting Square API calls.
+ * @param {number} ms - Milliseconds to wait
+ */
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Try all three detection strategies on an order without redeeming.
+ * Returns match info if any strategy matches, null otherwise.
+ *
+ * @param {Object} order - Square order object
+ * @param {number} merchantId - Internal merchant ID
+ * @returns {Promise<Object|null>} Match details or null
+ */
+async function tryDetectionStrategies(order, merchantId) {
+    const discounts = order.discounts || [];
+    const squareCustomerId = order.customer_id
+        || (order.tenders || []).find(t => t.customer_id)?.customer_id;
+
+    // Strategy 1: Catalog object ID match
+    for (const discount of discounts) {
+        const catalogObjectId = discount.catalog_object_id;
+        if (!catalogObjectId) continue;
+
+        const rewardResult = await db.query(`
+            SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name
+            FROM loyalty_rewards r
+            JOIN loyalty_offers o ON r.offer_id = o.id
+            WHERE r.merchant_id = $1
+              AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
+              AND r.status = 'earned'
+        `, [merchantId, catalogObjectId]);
+
+        if (rewardResult.rows.length > 0) {
+            const reward = rewardResult.rows[0];
+            return {
+                strategy: 'catalog_id',
+                rewardId: reward.id,
+                offerId: reward.offer_id,
+                offerName: reward.offer_name,
+                squareCustomerId: reward.square_customer_id,
+                discountDetails: {
+                    catalogObjectId,
+                    appliedMoney: discount.applied_money
+                }
+            };
+        }
+    }
+
+    // Strategy 2: Free item fallback
+    const freeItemMatch = await matchEarnedRewardByFreeItem(order, merchantId);
+    if (freeItemMatch) {
+        return {
+            strategy: 'free_item',
+            rewardId: freeItemMatch.reward_id,
+            offerId: freeItemMatch.offer_id,
+            offerName: freeItemMatch.offer_name,
+            squareCustomerId: freeItemMatch.square_customer_id,
+            discountDetails: {
+                matchedVariationId: freeItemMatch.matched_variation_id
+            }
+        };
+    }
+
+    // Strategy 3: Discount amount fallback
+    if (squareCustomerId) {
+        const amountMatch = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId, merchantId
+        });
+        if (amountMatch) {
+            return {
+                strategy: 'discount_amount',
+                rewardId: amountMatch.reward_id,
+                offerId: amountMatch.offer_id,
+                offerName: amountMatch.offer_name,
+                squareCustomerId: amountMatch.square_customer_id,
+                discountDetails: {
+                    totalDiscountCents: amountMatch.totalDiscountCents,
+                    expectedCents: amountMatch.expectedValueCents
+                }
+            };
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Audit missed redemptions by re-scanning recent orders.
+ *
+ * @param {Object} params
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {number} [params.days=7] - How far back to scan
+ * @param {boolean} [params.dryRun=true] - If true, report only. If false, redeem.
+ * @returns {Promise<Object>} Audit results
+ */
+async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
+    // Get decrypted Square access token
+    const tokenResult = await db.query(
+        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
+        [merchantId]
+    );
+    if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
+        throw new Error('No Square access token configured for this merchant');
+    }
+    const rawToken = tokenResult.rows[0].square_access_token;
+    const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
+
+    // Get all earned (not redeemed) rewards for the merchant
+    const earnedResult = await db.query(`
+        SELECT r.id AS reward_id, r.offer_id, r.square_customer_id, o.offer_name
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1 AND r.status = 'earned'
+    `, [merchantId]);
+
+    const earnedRewards = earnedResult.rows;
+    if (earnedRewards.length === 0) {
+        return { scanned: { rewards: 0, orders: 0 }, matches: [], dryRun };
+    }
+
+    // For each earned reward, find recent orders for that customer
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+
+    const allOrderIds = new Set();
+    const rewardOrderMap = new Map(); // orderId -> Set<rewardId>
+
+    for (const reward of earnedRewards) {
+        const ordersResult = await db.query(`
+            SELECT DISTINCT square_order_id
+            FROM loyalty_processed_orders
+            WHERE merchant_id = $1
+              AND square_customer_id = $2
+              AND processed_at >= $3
+        `, [merchantId, reward.square_customer_id, cutoffDate.toISOString()]);
+
+        for (const row of ordersResult.rows) {
+            allOrderIds.add(row.square_order_id);
+            if (!rewardOrderMap.has(row.square_order_id)) {
+                rewardOrderMap.set(row.square_order_id, new Set());
+            }
+            rewardOrderMap.get(row.square_order_id).add(reward.reward_id);
+        }
+    }
+
+    // Filter out orders that already triggered a redemption
+    const orderIdArray = Array.from(allOrderIds);
+    let unredeemedOrderIds = orderIdArray;
+
+    if (orderIdArray.length > 0) {
+        const redeemedResult = await db.query(`
+            SELECT DISTINCT square_order_id
+            FROM loyalty_redemptions
+            WHERE merchant_id = $1 AND square_order_id = ANY($2)
+        `, [merchantId, orderIdArray]);
+
+        const redeemedSet = new Set(redeemedResult.rows.map(r => r.square_order_id));
+        unredeemedOrderIds = orderIdArray.filter(id => !redeemedSet.has(id));
+    }
+
+    const matches = [];
+    let ordersScanned = 0;
+
+    // Fetch each order from Square and run detection strategies
+    for (const orderId of unredeemedOrderIds) {
+        // Rate limiting: 200ms between Square API calls
+        if (ordersScanned > 0) {
+            await delay(200);
+        }
+
+        const order = await fetchOrderFromSquare(orderId, accessToken);
+        ordersScanned++;
+
+        if (!order) {
+            logger.warn('Audit: could not fetch order from Square', { orderId, merchantId });
+            continue;
+        }
+
+        const match = await tryDetectionStrategies(order, merchantId);
+        if (!match) continue;
+
+        let redeemed = false;
+        if (!dryRun) {
+            try {
+                await redeemReward({
+                    merchantId,
+                    rewardId: match.rewardId,
+                    squareOrderId: order.id,
+                    squareCustomerId: match.squareCustomerId,
+                    redemptionType: RedemptionTypes.AUTO_DETECTED,
+                    redeemedValueCents: match.discountDetails.totalDiscountCents
+                        || Number(match.discountDetails.appliedMoney?.amount || 0),
+                    squareLocationId: order.location_id,
+                    adminNotes: `Audit remediation (Strategy: ${match.strategy})`
+                });
+                redeemed = true;
+            } catch (err) {
+                logger.error('Audit: failed to redeem reward', {
+                    rewardId: match.rewardId, orderId, error: err.message
+                });
+            }
+        }
+
+        // Look up customer name for reporting
+        let customerName = null;
+        try {
+            const custResult = await db.query(
+                `SELECT display_name FROM loyalty_customer_cache
+                 WHERE merchant_id = $1 AND square_customer_id = $2`,
+                [merchantId, match.squareCustomerId]
+            );
+            customerName = custResult.rows[0]?.display_name || null;
+        } catch (_) { /* non-critical */ }
+
+        const matchRecord = {
+            rewardId: match.rewardId,
+            orderId: order.id,
+            orderDate: order.created_at,
+            customerName,
+            offerName: match.offerName,
+            strategy: match.strategy,
+            discountDetails: match.discountDetails,
+            redeemed
+        };
+
+        matches.push(matchRecord);
+
+        logger.info('Audit: missed redemption found', {
+            ...matchRecord,
+            merchantId,
+            dryRun
+        });
+    }
+
+    return {
+        scanned: { rewards: earnedRewards.length, orders: ordersScanned },
+        matches,
+        dryRun
+    };
+}
+
+module.exports = {
+    auditMissedRedemptions
+};
