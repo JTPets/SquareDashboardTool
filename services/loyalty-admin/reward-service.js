@@ -41,7 +41,7 @@ async function redeemReward(redemptionData) {
     const {
         merchantId, rewardId, squareOrderId, squareCustomerId,
         redemptionType, redeemedVariationId, redeemedValueCents,
-        redeemedByUserId, adminNotes, squareLocationId
+        redeemedByUserId, adminNotes, squareLocationId, redeemedAt
     } = redemptionData;
 
     if (!merchantId) {
@@ -100,29 +100,33 @@ async function redeemReward(redemptionData) {
                 merchant_id, reward_id, offer_id, square_customer_id,
                 redemption_type, square_order_id, square_location_id,
                 redeemed_variation_id, redeemed_item_name, redeemed_variation_name,
-                redeemed_value_cents, redeemed_by_user_id, admin_notes
+                redeemed_value_cents, redeemed_by_user_id, admin_notes,
+                redeemed_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    COALESCE($14, NOW()))
             RETURNING *
         `, [
             merchantId, rewardId, reward.offer_id, reward.square_customer_id,
             redemptionType || RedemptionTypes.ORDER_DISCOUNT, squareOrderId, squareLocationId,
             redeemedVariationId, itemName, variationName,
-            redeemedValueCents, redeemedByUserId, adminNotes
+            redeemedValueCents, redeemedByUserId, adminNotes,
+            redeemedAt || null
         ]);
 
         const redemption = redemptionResult.rows[0];
 
         // Update reward status
+        const effectiveRedeemedAt = redeemedAt || null;
         await client.query(`
             UPDATE loyalty_rewards
             SET status = 'redeemed',
-                redeemed_at = NOW(),
-                redemption_id = $1,
-                redemption_order_id = $2,
+                redeemed_at = COALESCE($1, NOW()),
+                redemption_id = $2,
+                redemption_order_id = $3,
                 updated_at = NOW()
-            WHERE id = $3
-        `, [redemption.id, squareOrderId, rewardId]);
+            WHERE id = $4
+        `, [effectiveRedeemedAt, redemption.id, squareOrderId, rewardId]);
 
         await logAuditEvent({
             merchantId,

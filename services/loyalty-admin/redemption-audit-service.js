@@ -275,7 +275,8 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
                         redeemedValueCents: detection.discountDetails?.totalDiscountCents
                             || Number(detection.discountDetails?.appliedMoney?.amount || 0),
                         squareLocationId: order.location_id,
-                        adminNotes: `Audit remediation (Strategy: ${detection.detectionMethod})`
+                        adminNotes: `Audit remediation (Strategy: ${detection.detectionMethod})`,
+                        redeemedAt: order.created_at
                     });
                     redeemed = true;
                 } catch (err) {
@@ -289,7 +290,7 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
             let customerName = null;
             try {
                 const custResult = await db.query(
-                    `SELECT display_name FROM loyalty_customer_cache
+                    `SELECT display_name FROM loyalty_customers
                      WHERE merchant_id = $1 AND square_customer_id = $2`,
                     [merchantId, detection.squareCustomerId]
                 );
