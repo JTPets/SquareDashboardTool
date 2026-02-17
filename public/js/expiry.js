@@ -23,32 +23,6 @@ function escapeJsString(str) {
     .replace(/\r/g, '\\r');
 }
 
-/**
- * Escape HTML entities to prevent XSS
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-/**
- * Escape for HTML attributes
- * @param {string} str - String to escape
- * @returns {string} Escaped string
- */
-function escapeHtmlAttr(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 // Handle image fallback (replaces onerror handlers)
 document.addEventListener('error', function(e) {
   if (e.target.tagName === 'IMG' && e.target.dataset.fallback === 'image') {

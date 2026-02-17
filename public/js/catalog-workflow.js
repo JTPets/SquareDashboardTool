@@ -688,13 +688,6 @@ async function applyGenerated() {
 
 // ==================== Utility Functions ====================
 
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 function showAlert(message, type) {
     // Remove existing alerts
     const existingAlerts = document.querySelectorAll('.floating-alert');

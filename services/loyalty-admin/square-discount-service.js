@@ -17,7 +17,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../loyalty/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../utils/square-catalog-cleanup');
 
@@ -385,7 +385,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                 'Square-Version': '2025-01-16'
             },
             body: JSON.stringify({
-                idempotency_key: `loyalty-discount-batch-${internalRewardId}-${Date.now()}`,
+                idempotency_key: generateIdempotencyKey(`loyalty-discount-batch-${internalRewardId}`),
                 batches: [{
                     objects: catalogObjects
                 }]

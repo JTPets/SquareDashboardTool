@@ -3,14 +3,6 @@
  * Extracted for CSP compliance (P0-4 Phase 2)
  */
 
-// Escape HTML to prevent XSS
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 const form = document.getElementById('login-form');
 const errorMessage = document.getElementById('error-message');
 const sessionMessage = document.getElementById('session-message');

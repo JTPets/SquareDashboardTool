@@ -479,12 +479,6 @@ const LabelPrinter = (function () {
         });
     }
 
-    // Utility: escape for HTML attributes
-    function escapeAttr(str) {
-        if (!str) return '';
-        return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
     // Public API
     return {
         checkAvailability,

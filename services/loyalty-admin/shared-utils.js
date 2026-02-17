@@ -7,6 +7,7 @@
  * Extracted from loyalty-service.js as part of P1-1 Phase 4 refactoring.
  */
 
+const crypto = require('crypto');
 const db = require('../../utils/database');
 const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
 
@@ -65,8 +66,20 @@ function getSquareApi() {
     return squareApi;
 }
 
+/**
+ * Generate a unique idempotency key for Square API requests.
+ * Mirrors services/square/api.js:generateIdempotencyKey — kept here
+ * to avoid pulling in the full Square API module (which requires node-fetch).
+ * @param {string} prefix - Prefix to identify the operation type
+ * @returns {string} Unique idempotency key
+ */
+function generateIdempotencyKey(prefix) {
+    return `${prefix}-${crypto.randomUUID()}`;
+}
+
 module.exports = {
     fetchWithTimeout,
     getSquareAccessToken,
-    getSquareApi
+    getSquareApi,
+    generateIdempotencyKey
 };

@@ -196,11 +196,6 @@ function handleOAuthCallback() {
   }
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 // Escape strings for use in JavaScript onclick handlers (single-quoted)
 function escapeJsString(str) {
   if (!str) return '';

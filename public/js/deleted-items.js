@@ -149,13 +149,6 @@ function updateFooter() {
   document.getElementById('archived-count').textContent = filteredItems.filter(i => i.status === 'archived').length;
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadDeletedItems();

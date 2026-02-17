@@ -1661,12 +1661,6 @@ function recreateDisplay(cell, variationId, field, value) {
   cell.appendChild(displayDiv);
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Escape strings for use in JavaScript onclick handlers (single-quoted)
 function escapeJsString(str) {
   if (!str) return '';

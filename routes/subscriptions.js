@@ -35,6 +35,7 @@ const crypto = require('crypto');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
+const { generateIdempotencyKey } = require('../utils/square-api');
 const subscriptionHandler = require('../utils/subscription-handler');
 const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
@@ -227,7 +228,7 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
         body: JSON.stringify({
             email_address: email,
             company_name: businessName || undefined,
-            idempotency_key: `customer-${email}-${Date.now()}`
+            idempotency_key: generateIdempotencyKey(`customer-${email}`)
         })
     });
 
@@ -248,7 +249,7 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
         method: 'POST',
         body: JSON.stringify({
             source_id: sourceId,
-            idempotency_key: `card-${email}-${Date.now()}`,
+            idempotency_key: generateIdempotencyKey(`card-${email}`),
             card: {
                 customer_id: squareCustomerId
             }
@@ -294,7 +295,7 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
                 method: 'POST',
                 body: JSON.stringify({
                     source_id: cardId,
-                    idempotency_key: `payment-${subscriber.id}-${Date.now()}`,
+                    idempotency_key: generateIdempotencyKey(`payment-${subscriber.id}`),
                     amount_money: {
                         amount: finalPriceCents,
                         currency: 'CAD'
@@ -607,7 +608,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
             const refundResponse = await squareApi.makeSquareRequest('/v2/refunds', {
                 method: 'POST',
                 body: JSON.stringify({
-                    idempotency_key: `refund-${lastPayment.id}-${Date.now()}`,
+                    idempotency_key: generateIdempotencyKey(`refund-${lastPayment.id}`),
                     payment_id: lastPayment.square_payment_id,
                     amount_money: {
                         amount: lastPayment.amount_cents,

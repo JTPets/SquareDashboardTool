@@ -78,12 +78,6 @@ function filterLogs() {
   document.getElementById('logs-content').innerHTML = tableHTML;
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 async function refreshLogs() {
   await Promise.all([loadStats(), loadLogs()]);
   resetCountdown();

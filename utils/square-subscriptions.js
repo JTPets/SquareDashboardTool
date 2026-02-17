@@ -15,7 +15,7 @@
 
 const logger = require('./logger');
 const db = require('./database');
-const { makeSquareRequest } = require('./square-api');
+const { makeSquareRequest, generateIdempotencyKey } = require('./square-api');
 
 /**
  * Get the application's Square access token for subscription management
@@ -113,7 +113,7 @@ async function setupSubscriptionPlans() {
  * @returns {Promise<Object>} Created plan IDs
  */
 async function createSquarePlan(plan, accessToken) {
-    const idempotencyKey = `plan-${plan.plan_key}-${Date.now()}`;
+    const idempotencyKey = generateIdempotencyKey(`plan-${plan.plan_key}`);
 
     // Determine cadence based on billing frequency
     const cadence = plan.billing_frequency === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
@@ -205,7 +205,7 @@ async function createSubscription({ customerId, cardId, planVariationId, locatio
         throw new Error('customerId, planVariationId, and locationId are required');
     }
 
-    const idempotencyKey = `sub-${customerId}-${Date.now()}`;
+    const idempotencyKey = generateIdempotencyKey(`sub-${customerId}`);
 
     const requestBody = {
         idempotency_key: idempotencyKey,

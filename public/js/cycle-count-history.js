@@ -169,13 +169,6 @@ function clearFilters() {
   });
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Load last 30 days by default
 window.addEventListener('DOMContentLoaded', () => {
   setLast30Days();

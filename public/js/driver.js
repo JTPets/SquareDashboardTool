@@ -430,13 +430,6 @@ function formatDate(dateStr) {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 function showLoading(text) {
   text = text || 'Loading...';
   document.getElementById('loadingText').textContent = text;

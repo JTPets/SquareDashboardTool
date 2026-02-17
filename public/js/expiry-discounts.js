@@ -558,13 +558,6 @@ function getDaysClass(days) {
   return 'ok';
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadStatus();

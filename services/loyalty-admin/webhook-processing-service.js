@@ -14,13 +14,9 @@ const { loyaltyLogger } = require('../loyalty/loyalty-logger');
 
 // Direct sibling imports (not through index.js)
 const { getSetting } = require('./settings-service');
-const {
-    getCustomerDetails,
-    lookupCustomerFromLoyalty,
-    lookupCustomerFromFulfillmentRecipient,
-    lookupCustomerFromOrderRewards
-} = require('./customer-admin-service');
+const { getCustomerDetails } = require('./customer-admin-service');
 const { updateCustomerStats } = require('./customer-cache-service');
+const { LoyaltyCustomerService } = require('../loyalty/customer-service');
 const { processQualifyingPurchase, processRefund } = require('./purchase-service');
 
 // ============================================================================
@@ -48,240 +44,16 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
         return { processed: false, reason: 'loyalty_disabled' };
     }
 
-    // RELIABLE CUSTOMER IDENTIFICATION - Only use trustworthy identifiers
-    // Priority order: order.customer_id > tenders.customer_id > loyalty event by order_id
-    let squareCustomerId = order.customer_id;
-    let customerSource = options.customerSourceOverride || 'order.customer_id';
+    // Customer identification — delegate to canonical LoyaltyCustomerService
+    // (6-method fallback chain with rate-limit protection and throttling)
+    const customerService = new LoyaltyCustomerService(merchantId);
+    await customerService.initialize();
+    const customerResult = await customerService.identifyCustomerFromOrder(order);
 
-    // Log customer identification attempt
-    if (squareCustomerId) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_SUCCESS',
-            orderId: order.id,
-            method: 'ORDER_CUSTOMER_ID',
-            customerId: squareCustomerId,
-            merchantId,
-        });
-    } else {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_ATTEMPT',
-            orderId: order.id,
-            method: 'ORDER_CUSTOMER_ID',
-            success: false,
-            merchantId,
-        });
-    }
+    let squareCustomerId = customerResult.customerId;
+    let customerSource = options.customerSourceOverride || customerResult.method;
 
-    // Fallback 1: Check tenders for customer_id (some POS workflows attach customer to payment)
-    if (!squareCustomerId && order.tenders && order.tenders.length > 0) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_ATTEMPT',
-            orderId: order.id,
-            method: 'TENDER_CUSTOMER_ID',
-            merchantId,
-        });
-        for (const tender of order.tenders) {
-            if (tender.customer_id) {
-                squareCustomerId = tender.customer_id;
-                customerSource = 'tender.customer_id';
-                loyaltyLogger.customer({
-                    action: 'CUSTOMER_LOOKUP_SUCCESS',
-                    orderId: order.id,
-                    method: 'TENDER_CUSTOMER_ID',
-                    customerId: squareCustomerId,
-                    merchantId,
-                });
-                logger.debug('Found customer_id on tender', { orderId: order.id, customerId: squareCustomerId });
-                break;
-            }
-        }
-        if (!squareCustomerId) {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_FAILED',
-                orderId: order.id,
-                method: 'TENDER_CUSTOMER_ID',
-                reason: 'no_customer_id_on_tenders',
-                merchantId,
-            });
-        }
-    }
-
-    // Fallback 2: Lookup via Square Loyalty API using order_id (NOT timestamp)
     if (!squareCustomerId) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_ATTEMPT',
-            orderId: order.id,
-            method: 'LOYALTY_API',
-            merchantId,
-        });
-        logger.debug('No customer_id on order or tenders, trying loyalty lookup by order_id', { orderId: order.id });
-        squareCustomerId = await lookupCustomerFromLoyalty(order.id, merchantId);
-        if (squareCustomerId) {
-            customerSource = 'loyalty_event_order_id';
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_SUCCESS',
-                orderId: order.id,
-                method: 'LOYALTY_API',
-                customerId: squareCustomerId,
-                merchantId,
-            });
-            logger.info('Found customer via loyalty API (order_id match)', {
-                orderId: order.id,
-                customerId: squareCustomerId
-            });
-        } else {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_FAILED',
-                orderId: order.id,
-                method: 'LOYALTY_API',
-                reason: 'no_loyalty_events_found',
-                merchantId,
-            });
-        }
-    }
-
-    // Fallback 3: If order has Square Loyalty rewards, look up customer from reward
-    if (!squareCustomerId) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_ATTEMPT',
-            orderId: order.id,
-            method: 'ORDER_REWARDS',
-            hasRewards: !!(order.rewards?.length),
-            merchantId,
-        });
-        logger.debug('Trying order rewards lookup', { orderId: order.id, hasRewards: !!(order.rewards?.length) });
-        squareCustomerId = await lookupCustomerFromOrderRewards(order, merchantId);
-        if (squareCustomerId) {
-            customerSource = 'order_rewards';
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_SUCCESS',
-                orderId: order.id,
-                method: 'ORDER_REWARDS',
-                customerId: squareCustomerId,
-                merchantId,
-            });
-            logger.info('Found customer via order rewards lookup', {
-                orderId: order.id,
-                customerId: squareCustomerId
-            });
-        } else {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_FAILED',
-                orderId: order.id,
-                method: 'ORDER_REWARDS',
-                reason: 'no_customer_from_rewards',
-                merchantId,
-            });
-        }
-    }
-
-    // Fallback 4: For web/online orders - lookup by fulfillment recipient phone/email
-    // Square Online orders often don't have customer_id but have recipient contact info
-    if (!squareCustomerId) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_LOOKUP_ATTEMPT',
-            orderId: order.id,
-            method: 'FULFILLMENT_RECIPIENT',
-            merchantId,
-        });
-        logger.debug('Trying fulfillment recipient lookup for web order', { orderId: order.id });
-        squareCustomerId = await lookupCustomerFromFulfillmentRecipient(order, merchantId);
-        if (squareCustomerId) {
-            customerSource = 'fulfillment_recipient';
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_SUCCESS',
-                orderId: order.id,
-                method: 'FULFILLMENT_RECIPIENT',
-                customerId: squareCustomerId,
-                merchantId,
-            });
-            logger.info('Found customer via fulfillment recipient lookup (phone/email match)', {
-                orderId: order.id,
-                customerId: squareCustomerId
-            });
-        } else {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_FAILED',
-                orderId: order.id,
-                method: 'FULFILLMENT_RECIPIENT',
-                reason: 'no_customer_from_fulfillment',
-                merchantId,
-            });
-        }
-    }
-
-    // Fallback 5: Reverse-lookup from loyalty discount on order
-    // If order has a discount matching our loyalty_rewards catalog objects,
-    // derive the customer from the reward record (local DB, no API calls)
-    if (!squareCustomerId) {
-        const discounts = order.discounts || [];
-        // Handle both snake_case (webhook) and camelCase (SDK) field names
-        const catalogObjectIds = discounts.map(d => d.catalog_object_id || d.catalogObjectId).filter(Boolean);
-
-        if (catalogObjectIds.length > 0) {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_ATTEMPT',
-                orderId: order.id,
-                method: 'LOYALTY_DISCOUNT',
-                discountCount: catalogObjectIds.length,
-                merchantId,
-            });
-
-            const rewardResult = await db.query(`
-                SELECT r.square_customer_id, r.id as reward_id, o.offer_name
-                FROM loyalty_rewards r
-                JOIN loyalty_offers o ON r.offer_id = o.id
-                WHERE r.merchant_id = $1
-                  AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
-                  AND r.status = 'earned'
-                LIMIT 1
-            `, [merchantId, catalogObjectIds]);
-
-            if (rewardResult.rows.length > 0) {
-                squareCustomerId = rewardResult.rows[0].square_customer_id;
-                customerSource = 'loyalty_discount';
-                loyaltyLogger.customer({
-                    action: 'CUSTOMER_LOOKUP_SUCCESS',
-                    orderId: order.id,
-                    method: 'LOYALTY_DISCOUNT',
-                    customerId: squareCustomerId,
-                    rewardId: rewardResult.rows[0].reward_id,
-                    offerName: rewardResult.rows[0].offer_name,
-                    merchantId,
-                });
-                logger.info('Found customer via loyalty discount reverse-lookup', {
-                    orderId: order.id,
-                    customerId: squareCustomerId,
-                    rewardId: rewardResult.rows[0].reward_id,
-                });
-            } else {
-                loyaltyLogger.customer({
-                    action: 'CUSTOMER_LOOKUP_FAILED',
-                    orderId: order.id,
-                    method: 'LOYALTY_DISCOUNT',
-                    reason: 'no_matching_reward',
-                    merchantId,
-                });
-            }
-        } else {
-            loyaltyLogger.customer({
-                action: 'CUSTOMER_LOOKUP_SKIPPED',
-                orderId: order.id,
-                method: 'LOYALTY_DISCOUNT',
-                reason: 'no_catalog_discount_ids',
-                merchantId,
-            });
-        }
-    }
-
-    // No customer found through any method
-    if (!squareCustomerId) {
-        loyaltyLogger.customer({
-            action: 'CUSTOMER_NOT_IDENTIFIED',
-            orderId: order.id,
-            attemptedMethods: ['ORDER_CUSTOMER_ID', 'TENDER_CUSTOMER_ID', 'LOYALTY_API', 'ORDER_REWARDS', 'FULFILLMENT_RECIPIENT', 'LOYALTY_DISCOUNT'],
-            merchantId,
-        });
         logger.debug('Order has no reliable customer identifier after all lookups', { orderId: order.id });
         return { processed: false, reason: 'no_customer' };
     }

@@ -441,12 +441,6 @@ function exportCSV() {
   link.click();
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 async function fixLocationMismatches() {
   const btn = document.getElementById('fixLocationsBtn');
   const originalText = btn.textContent;

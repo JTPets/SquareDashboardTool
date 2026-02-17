@@ -13,6 +13,7 @@ const logger = require('../../utils/logger');
 const { SENIORS_DISCOUNT } = require('../../config/constants');
 const { LoyaltySquareClient } = require('../loyalty/square-client');
 const { calculateAge, isSenior, parseBirthday, formatBirthday } = require('./age-calculator');
+const { generateIdempotencyKey } = require('../square/api');
 
 /**
  * Get today's date in YYYY-MM-DD format in America/Toronto timezone
@@ -147,7 +148,7 @@ class SeniorsService {
      * @returns {Promise<Object>} Created group
      */
     async createSeniorsGroup() {
-        const idempotencyKey = `seniors-group-${this.merchantId}-${Date.now()}`;
+        const idempotencyKey = generateIdempotencyKey(`seniors-group-${this.merchantId}`);
 
         logger.info('Creating seniors customer group', {
             merchantId: this.merchantId,
@@ -175,7 +176,7 @@ class SeniorsService {
      * @returns {Promise<Object>} Created object IDs
      */
     async createCatalogObjects(groupId) {
-        const idempotencyKey = `seniors-catalog-${this.merchantId}-${Date.now()}`;
+        const idempotencyKey = generateIdempotencyKey(`seniors-catalog-${this.merchantId}`);
 
         // Temporary IDs for batch upsert (Square replaces with real IDs)
         const discountTempId = '#seniors-discount';
@@ -320,7 +321,7 @@ class SeniorsService {
                 },
             };
 
-            const idempotencyKey = `seniors-enable-${this.merchantId}-${Date.now()}`;
+            const idempotencyKey = generateIdempotencyKey(`seniors-enable-${this.merchantId}`);
             let result;
 
             try {
@@ -399,7 +400,7 @@ class SeniorsService {
                 },
             };
 
-            const idempotencyKey = `seniors-disable-${this.merchantId}-${Date.now()}`;
+            const idempotencyKey = generateIdempotencyKey(`seniors-disable-${this.merchantId}`);
             let result;
 
             try {
