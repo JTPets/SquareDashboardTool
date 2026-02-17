@@ -6,6 +6,7 @@
 const db = require('./database');
 const logger = require('./logger');
 const { decryptToken, isEncryptedToken } = require('./token-encryption');
+const { generateIdempotencyKey } = require('./square-api');
 
 // Square API configuration
 const SQUARE_API_VERSION = '2025-01-16';
@@ -246,7 +247,7 @@ async function createWebhookSubscription(merchantId, options) {
         throw new Error('notificationUrl must be a valid URL');
     }
 
-    const idempotencyKey = `webhook-create-${merchantId}-${Date.now()}`;
+    const idempotencyKey = generateIdempotencyKey(`webhook-create-${merchantId}`);
 
     try {
         const data = await makeSquareRequest('/v2/webhooks/subscriptions', {

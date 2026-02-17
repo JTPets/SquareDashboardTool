@@ -555,12 +555,6 @@ function recreateDisplay(cell, variationId, field, value) {
   cell.appendChild(displayDiv);
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Expose functions to global scope for event delegation
 window.loadData = loadData;
 window.sortTable = sortTable;

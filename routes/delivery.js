@@ -50,6 +50,7 @@ const logger = require('../utils/logger');
 const deliveryApi = require('../utils/delivery-api');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant, getSquareClientForMerchant } = require('../middleware/merchant');
+const { generateIdempotencyKey } = require('../utils/square-api');
 const asyncHandler = require('../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
 const { validateUploadedImage } = require('../utils/file-validation');
@@ -359,7 +360,7 @@ router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.com
                                             version: squareOrder.order.version,
                                             fulfillments: [fulfillmentUpdate]
                                         },
-                                        idempotencyKey: `complete-${order.id}-${fulfillment.uid}-${nextState}-${Date.now()}`
+                                        idempotencyKey: generateIdempotencyKey(`complete-${order.id}-${fulfillment.uid}-${nextState}`)
                                     });
                                 }
 
@@ -403,7 +404,7 @@ router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.com
                                         version: squareOrder.order.version,
                                         state: 'COMPLETED'
                                     },
-                                    idempotencyKey: `complete-order-${order.id}-${Date.now()}`
+                                    idempotencyKey: generateIdempotencyKey(`complete-order-${order.id}`)
                                 });
 
                                 logger.info('Order state updated to COMPLETED', {

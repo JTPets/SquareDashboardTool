@@ -1195,26 +1195,330 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-14: Reorder Formula Duplication
+### BACKLOG-14: Reorder Formula Duplication (DEDUP-AUDIT R-1)
 
 **Identified**: 2026-02-15
-**Priority**: Medium — no current divergence but high risk on next reorder logic change
-**Status**: Documented, not fixed
+**Priority**: Medium — **3 active divergences found** (2026-02-17 audit)
+**Status**: Divergences documented, not fixed — awaiting decision on canonical behavior
 **Target**: Next reorder logic change
 
 **Problem**: The reorder quantity calculation exists in two places:
-- `routes/analytics.js` — JS post-processing (lines ~379-443)
-- `services/vendor-dashboard.js` — SQL LATERAL subquery (reorder_value CASE)
+- `routes/analytics.js` — JS post-processing (lines ~378-423)
+- `services/vendor-dashboard.js` — SQL LATERAL subquery (lines ~92, 215-255)
 
-Both compute: velocity × threshold → case pack rounding → subtract pending POs → cap at stock_alert_max. If either changes without updating the other, vendor dashboard "Need vs Min" values will diverge from reorder.html quantities.
+**Active Divergences** (discovered 2026-02-17 deduplication audit):
+
+| # | Component | `analytics.js` | `vendor-dashboard.js` | Impact |
+|---|-----------|----------------|----------------------|--------|
+| 1 | **Reorder threshold** | `supplyDays + safetyDays` (no lead time) | `defaultSupplyDays + safetyDays + lead_time_days` | Vendor dashboard orders more than reorder page for items with lead time |
+| 2 | **Reorder multiple** | Applied (rounds up to nearest multiple) | **Not applied** | Vendor dashboard may suggest non-case-pack-aligned quantities |
+| 3 | **stock_alert_min** | Enforced as floor (`Math.max(qty, stock_alert_min)`) | **Not enforced** | Vendor dashboard may suggest below-minimum quantities |
+
+**Decision needed**: Which behavior is correct for each divergence? Options:
+1. analytics.js is correct → update vendor-dashboard.js SQL
+2. vendor-dashboard.js is correct → update analytics.js JS
+3. Both are intentionally different (different use cases) → document why
 
 **Consolidation options:**
 - SQL function (`CREATE FUNCTION calc_reorder_qty`) called by both
 - Shared JS service both routes call (fetch raw data, compute in JS)
 
-**Impact**: Currently both are in sync. Risk materializes on next reorder formula change — developer must remember to update both locations.
+**Files involved**:
+- `routes/analytics.js:378-423` — JS calculation with reorder_multiple and stock_alert_min
+- `services/vendor-dashboard.js:92,215-255` — SQL calculation with lead_time_days
 
-**Audit date**: 2026-02-15
+**Audit date**: 2026-02-17 (updated from 2026-02-15)
+
+---
+
+### BACKLOG-15: Reward Progress / Threshold Crossing Duplication (DEDUP-AUDIT L-2)
+
+**Identified**: 2026-02-17
+**Priority**: Medium (different algorithms for same business logic)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: `updateRewardProgress()` exists in both loyalty layers with different threshold-crossing logic. The webhook layer (`services/loyalty/purchase-service.js:268-721`) uses split-row deduction at the threshold boundary. The admin layer (`services/loyalty-admin/purchase-service.js:130-306`) uses simpler locking with LIMIT/ORDER BY. Running admin backfill operations could calculate different progress than the webhook path for the same purchases.
+
+**Risk**: Rewards double-counted or missed if both paths process the same order. Split-row deduction in one path but not the other means progress counts can diverge.
+
+**Suggested fix**: Extract progress calculation and threshold-crossing logic into a shared `reward-progress.js` module. Both layers use the same algorithm.
+
+**Effort**: L — Split-row logic is complex and tightly coupled to transaction handling.
+
+**Files involved**:
+- `services/loyalty/purchase-service.js:268-721`
+- `services/loyalty-admin/purchase-service.js:130-306`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-16: redeemReward() Name Collision (DEDUP-AUDIT L-3)
+
+**Identified**: 2026-02-17
+**Priority**: Medium (same name, different signatures and behavior)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: Two functions named `redeemReward()` with different parameter signatures. The loyalty layer version (`services/loyalty/reward-service.js:161-279`) takes `(rewardId, redemptionData)` and does basic status update. The admin layer version (`services/loyalty-admin/reward-service.js:40-194`) takes `(redemptionData)` with rewardId inside the object, and additionally handles audit logging and Square discount cleanup.
+
+**Risk**: Importing from the wrong module gives silent misbehavior — skipped audit logging or Square cleanup. Different signatures make this easy to confuse.
+
+**Suggested fix**: Rename to distinguish intent (`redeemRewardBasic()` vs `redeemRewardWithAudit()`), or consolidate into one implementation with options parameter.
+
+**Effort**: M — Update all callers, ensure correct version used in each context.
+
+**Files involved**:
+- `services/loyalty/reward-service.js:161-279`
+- `services/loyalty-admin/reward-service.js:40-194`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-17: Customer Lookup Helpers Duplicated Between Layers (DEDUP-AUDIT L-4)
+
+**Identified**: 2026-02-17
+**Priority**: Low (partially mitigated by L-1 fix)
+**Status**: Documented, partially mitigated
+**Target**: TBD
+
+**Problem**: Three customer lookup functions exist as both class methods in `services/loyalty/customer-service.js` and standalone exports in `services/loyalty-admin/customer-admin-service.js`: Loyalty API lookup, fulfillment recipient lookup, and order rewards lookup. The L-1 fix consolidated webhook-processing-service.js to delegate to the class-based version, but the standalone exports in customer-admin-service.js still exist independently.
+
+**Risk**: Bug fixes or Square API changes applied to one set but not the other.
+
+**Suggested fix**: Have admin-layer standalone functions delegate to the class methods (or vice versa).
+
+**Effort**: M — Straightforward refactor with clear function boundaries.
+
+**Files involved**:
+- `services/loyalty/customer-service.js:195-274, 280-361, 367-495`
+- `services/loyalty-admin/customer-admin-service.js:110-214, 222-334, 342-413`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-18: Offer/Variation Query Overlap (DEDUP-AUDIT L-5)
+
+**Identified**: 2026-02-17
+**Priority**: Low (similar SQL, different layers)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: Offer and variation lookup queries exist in both `services/loyalty/offer-service.js` (6 functions) and `services/loyalty-admin/variation-admin-service.js` + `offer-admin-service.js` (5 functions) with similar-but-not-identical SQL (different join conditions, active filters).
+
+**Risk**: SQL differences could cause webhook to qualify a variation the admin UI shows as non-qualifying, or vice versa.
+
+**Suggested fix**: Create shared `loyalty-queries.js` with canonical SQL for offer/variation lookups. Admin-specific queries (CRUD, conflict checks) stay in admin services.
+
+**Effort**: S — Simple SELECT extraction with minimal risk.
+
+**Files involved**:
+- `services/loyalty/offer-service.js:30-212`
+- `services/loyalty-admin/variation-admin-service.js:164-275`
+- `services/loyalty-admin/offer-admin-service.js:110-170`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-19: Dual Square API Client Layers (DEDUP-AUDIT L-6)
+
+**Identified**: 2026-02-17
+**Priority**: Low (works correctly, but divergent retry behavior)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: The loyalty layer has a custom `LoyaltySquareClient` (`services/loyalty/square-client.js:50-496`) with built-in rate-limit retry logic. The admin layer uses `fetchWithTimeout()` + `getSquareAccessToken()` from `services/loyalty-admin/shared-utils.js` or `getSquareClientForMerchant()` from middleware. Rate-limit handling, retry logic, and timeout behavior differ between clients.
+
+**Risk**: If Square changes rate limits, only one client may handle it correctly.
+
+**Suggested fix**: Evaluate whether the custom client's retry adds value over SDK defaults. If so, make it shared. If not, remove it.
+
+**Effort**: M — Requires testing all Square API interactions after migration.
+
+**Files involved**:
+- `services/loyalty/square-client.js:50-496`
+- `services/loyalty-admin/shared-utils.js:20-66`
+- `middleware/merchant.js`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-20: Redemption Detection Asymmetry (DEDUP-AUDIT L-7)
+
+**Identified**: 2026-02-17
+**Priority**: Low (no current bug, but audit job has simplified check)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: Full redemption detection logic exists only in admin layer (`services/loyalty-admin/reward-service.js:469-666` with 2 matching methods). The audit job (`jobs/loyalty-audit-job.js:152-178`) has a simplified `orderHasOurDiscount()` that could produce false positives/negatives if detection rules evolve.
+
+**Suggested fix**: If audit job detection needs to evolve, have it call `detectRewardRedemptionFromOrder()` from admin layer instead of its own simplified version.
+
+**Effort**: S — Single call-site change.
+
+**Files involved**:
+- `services/loyalty-admin/reward-service.js:469-666`
+- `jobs/loyalty-audit-job.js:152-178`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-21: Days-of-Stock Calculation — 5 Implementations (DEDUP-AUDIT R-2)
+
+**Identified**: 2026-02-17
+**Priority**: Low (confusing UX but no data corruption)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: "How many days of inventory remain" is calculated in 5 files with variations: `routes/analytics.js` (available qty), `services/vendor-dashboard.js` (available qty), `services/catalog/inventory-service.js` (total on-hand), `services/catalog/audit-service.js` (CTE variable), `routes/bundles.js` + `public/js/reorder.js` (bundle-driven velocity). Different base values (available vs total) mean different pages show different days-of-stock for the same item.
+
+**Suggested fix**: Create SQL VIEW `v_days_of_stock` standardizing on available quantity (`on_hand - committed`). Bundle-specific calculations extend the base.
+
+**Effort**: M — Decide canonical formula and update 5 files.
+
+**Files involved**:
+- `routes/analytics.js:218-224`
+- `services/vendor-dashboard.js:142-176`
+- `services/catalog/inventory-service.js:58-64`
+- `services/catalog/audit-service.js:116-121`
+- `routes/bundles.js:232-234, 261-263`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-22: Available vs Total Stock Inconsistency (DEDUP-AUDIT R-3)
+
+**Identified**: 2026-02-17
+**Priority**: Medium (merchant sees conflicting numbers across pages)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: Reorder and vendor dashboard use `on_hand - committed` (available) for days-of-stock, while inventory-service and audit-service use raw `on_hand` (total). A merchant with 10 on hand and 8 committed sees different days-of-stock on different pages.
+
+**Suggested fix**: Standardize on available quantity (`on_hand - committed`) for all days-of-stock calculations. Update inventory-service.js and audit-service.js.
+
+**Effort**: S — Two SQL query changes.
+
+**Files involved**:
+- `services/catalog/inventory-service.js:58-64`
+- `services/catalog/audit-service.js:116-121`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-23: Currency Formatting — No Shared Helper (DEDUP-AUDIT G-3)
+
+**Identified**: 2026-02-17
+**Priority**: Low (inconsistent display, no data issue)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: Currency formatting (cents to dollars) is implemented inline across 14+ frontend files. Some use `en-CA` locale, some don't specify locale, some use different patterns (`(cents / 100).toFixed(2)` vs `toLocaleString()`). Mixed cent/dollar confusion possible.
+
+**Suggested fix**: Add `formatCurrency(cents)` to `public/js/utils/escape.js` (shared utility). Standardize on `en-CA` locale with 2 decimal places.
+
+**Effort**: S — Extract existing function and replace inline patterns.
+
+**Files involved**:
+- `public/js/vendor-dashboard.js:409`, `public/cart-activity.html:365`, `public/js/inventory.js`, `public/js/dashboard.js`, and 10+ others
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-24: Order Normalization Boilerplate (DEDUP-AUDIT G-4)
+
+**Identified**: 2026-02-17
+**Priority**: Low (single file, no divergence risk)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: `normalizeSquareOrder()` is defined once in `services/webhook-handlers/order-handler.js:47` but the calling pattern (init SDK client → fetch order → normalize) is repeated at 3 call sites within the same file (lines 316, 983, 1202). Each also initializes `getSquareClientForMerchant()` separately.
+
+**Suggested fix**: Extract `fetchAndNormalizeOrder(merchantId, orderId)` helper combining client init + fetch + normalize.
+
+**Effort**: S — Single file refactor.
+
+**Files involved**:
+- `services/webhook-handlers/order-handler.js:312-316, 979-983, 1194-1202`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-25: Location Lookup Queries Repeated (DEDUP-AUDIT G-5)
+
+**Identified**: 2026-02-17
+**Priority**: Low (simple parameterized queries, minimal risk)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: SQL queries to look up locations by merchant_id are written inline in 6+ route files with slight variations (active filter, ordering, limit).
+
+**Suggested fix**: Create location helper functions: `getLocationById()`, `getActiveLocations()`, `getDefaultLocation()`.
+
+**Effort**: S — Straightforward extraction.
+
+**Files involved**:
+- `routes/gmc.js:756, 815`
+- `routes/purchase-orders.js:65`
+- `routes/delivery.js:83`
+- `routes/loyalty.js:1319`
+- `routes/cycle-counts.js:231`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-26: Date String Formatting Pattern (DEDUP-AUDIT G-7)
+
+**Identified**: 2026-02-17
+**Priority**: Low (common JS idiom, readability improvement only)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: `new Date().toISOString().split('T')[0]` repeated 12 times across 5 frontend files for YYYY-MM-DD date strings.
+
+**Suggested fix**: Add `getToday()` and `getDateString(date)` to shared utility file.
+
+**Effort**: S — Mechanical replacement.
+
+**Files involved**:
+- `public/js/delivery.js:102,110`
+- `public/js/delivery-history.js:55,63,67`
+- `public/js/cycle-count-history.js:11,21,22,30,31`
+- `public/js/catalog-audit.js:440`
+- `public/js/vendor-catalog.js:1325`
+
+**Audit date**: 2026-02-17
+
+---
+
+### BACKLOG-27: Inconsistent toLocaleString() Usage (DEDUP-AUDIT G-8)
+
+**Identified**: 2026-02-17
+**Priority**: Low (display inconsistency, no data issue)
+**Status**: Documented, not fixed
+**Target**: TBD
+
+**Problem**: `.toLocaleString()` used 60 times across 14 frontend files with inconsistent locale/options. Some specify `en-CA`, some use browser default. Numbers display differently depending on which page and browser.
+
+**Suggested fix**: Create `formatNumber(n)` helper in shared utility that always uses `en-CA` locale. Bundle with BACKLOG-23 currency formatting effort.
+
+**Effort**: S — Mechanical replacement.
+
+**Files involved**:
+- `public/js/gmc-feed.js` (11), `public/js/dashboard.js` (10), `public/js/expiry.js` (6), `public/js/vendor-catalog.js` (6), `public/js/inventory.js` (5), and 9 more files
+
+**Audit date**: 2026-02-17
 
 ---
 

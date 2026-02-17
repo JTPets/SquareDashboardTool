@@ -20,6 +20,7 @@ const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/analytics');
 const { batchResolveImageUrls } = require('../utils/image-utils');
 const { calculateOrderOptions } = require('../services/bundle-calculator');
+const { calculateReorderQuantity } = require('../services/catalog/reorder-math');
 
 // ==================== SALES VELOCITY ENDPOINTS ====================
 
@@ -376,50 +377,17 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     reorder_reason = 'Below minimum stock level';
                 }
 
-                // Calculate quantity needed to reach (supply_days + safety_days) worth of stock
-                // Safety days adds buffer inventory to protect against demand variability
-                // NOTE: Reorder qty formula duplicated in services/vendor-dashboard.js — keep in sync (BACKLOG-14)
-                let targetQty;
-
-                // For items with no sales velocity, use minimum reorder quantities
-                if (dailyAvg <= 0 || baseSuggestedQty <= 0) {
-                    // No sales data - suggest minimum reorder based on case pack or reorder multiple
-                    if (casePack > 1) {
-                        targetQty = casePack; // Order at least 1 case
-                    } else if (reorderMultiple > 1) {
-                        targetQty = reorderMultiple;
-                    } else {
-                        targetQty = 1; // Default minimum order of 1 unit
-                    }
-                } else {
-                    // baseSuggestedQty already includes safety days (from SQL: daily_avg * reorderThreshold)
-                    // where reorderThreshold = supply_days + safety_days
-                    targetQty = baseSuggestedQty;
-                }
-
-                // When stock_alert_min > 0, ensure we order enough to exceed it
-                if (stockAlertMin && stockAlertMin > 0) {
-                    targetQty = Math.max(stockAlertMin + 1, targetQty);
-                }
-
-                // Calculate suggested quantity based on AVAILABLE stock (round up to ensure minimum of 1)
-                let suggestedQty = Math.ceil(Math.max(0, targetQty - availableQty));
-
-                // Round up to case pack
-                if (casePack > 1) {
-                    suggestedQty = Math.ceil(suggestedQty / casePack) * casePack;
-                }
-
-                // Apply reorder multiple
-                if (reorderMultiple > 1) {
-                    suggestedQty = Math.ceil(suggestedQty / reorderMultiple) * reorderMultiple;
-                }
-
-                // Don't exceed max stock level based on AVAILABLE (round up final quantity)
-                // If stockAlertMax is null (unlimited), don't cap the quantity
-                const finalQty = stockAlertMax !== null
-                    ? Math.ceil(Math.min(suggestedQty, stockAlertMax - availableQty))
-                    : Math.ceil(suggestedQty);
+                // Shared reorder formula (services/catalog/reorder-math.js)
+                const finalQty = calculateReorderQuantity({
+                    velocity: dailyAvg,
+                    supplyDays: supplyDaysNum,
+                    safetyDays,
+                    casePack,
+                    reorderMultiple,
+                    stockAlertMin,
+                    stockAlertMax,
+                    currentStock: availableQty
+                });
 
                 if (finalQty <= 0) {
                     return null;

@@ -2018,14 +2018,6 @@ function closeModal(elementOrId, event, modalId) {
   document.getElementById(id).classList.remove('show');
 }
 
-// Escape HTML
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 // Escape strings for use in JavaScript onclick handlers (single-quoted)
 function escapeJsString(str) {
   if (!str) return '';

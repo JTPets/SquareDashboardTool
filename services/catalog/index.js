@@ -14,6 +14,7 @@ const itemService = require('./item-service');
 const variationService = require('./variation-service');
 const inventoryService = require('./inventory-service');
 const auditService = require('./audit-service');
+const reorderMath = require('./reorder-math');
 
 module.exports = {
     // Item Service
@@ -40,5 +41,9 @@ module.exports = {
     // Audit Service
     getCatalogAudit: auditService.getCatalogAudit,
     fixLocationMismatches: auditService.fixLocationMismatches,
-    enableItemAtAllLocations: auditService.enableItemAtAllLocations
+    enableItemAtAllLocations: auditService.enableItemAtAllLocations,
+
+    // Reorder Math
+    calculateReorderQuantity: reorderMath.calculateReorderQuantity,
+    calculateDaysOfStock: reorderMath.calculateDaysOfStock
 };

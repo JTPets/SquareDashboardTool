@@ -474,13 +474,6 @@ async function saveBundle() {
 
 // ==================== UTILITIES ====================
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
 function showToast(message, type = '') {
     const toast = document.getElementById('toast');
     toast.textContent = message;

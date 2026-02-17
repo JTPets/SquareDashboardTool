@@ -963,14 +963,6 @@
       }
     }
 
-    // Escape HTML
-    function escapeHtml(text) {
-      if (!text) return '';
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
     // Escape strings for use in JavaScript onclick handlers (single-quoted)
     function escapeJsString(str) {
       if (!str) return '';

@@ -118,9 +118,10 @@ describe('Vendor Dashboard Service', () => {
             });
         });
 
-        // Helper: mock all 3 queries (vendors, unassigned, global OOS)
-        function mockDashboardQueries(vendorRows, unassignedRow, globalOos) {
+        // Helper: mock all 4 queries (vendors, reorder items, unassigned, global OOS)
+        function mockDashboardQueries(vendorRows, reorderItemRows, unassignedRow, globalOos) {
             db.query.mockResolvedValueOnce({ rows: vendorRows });
+            db.query.mockResolvedValueOnce({ rows: reorderItemRows || [] });
             db.query.mockResolvedValueOnce({
                 rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
             });
@@ -137,23 +138,38 @@ describe('Vendor Dashboard Service', () => {
                 payment_method: 'Invoice', payment_terms: 'Net 14',
                 contact_email: 'test@vendor.com', order_method: 'Email',
                 notes: 'Test notes', default_supply_days: 45,
-                total_items: 87, oos_count: 0, reorder_count: 3, reorder_value: 60000, costed_reorder_count: 3,
+                total_items: 87, oos_count: 0, reorder_count: 3,
                 pending_po_value: 60000, last_ordered_at: '2026-02-07'
-            }], null, 73);
+            }], [
+                // 3 items needing reorder with cost data
+                { vendor_id: 'V1', velocity: 2, available_qty: 5, case_pack: 1,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                  unit_cost: 1500, vendor_supply_days: 45, vendor_lead_time_days: 2,
+                  pending_po_qty: 0 },
+                { vendor_id: 'V1', velocity: 1, available_qty: 3, case_pack: 6,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                  unit_cost: 800, vendor_supply_days: 45, vendor_lead_time_days: 2,
+                  pending_po_qty: 0 },
+                { vendor_id: 'V1', velocity: 3, available_qty: 0, case_pack: 1,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                  unit_cost: 2000, vendor_supply_days: 45, vendor_lead_time_days: 2,
+                  pending_po_qty: 0 }
+            ], null, 73);
 
             const result = await getVendorDashboard(merchantId);
 
             expect(result).toHaveProperty('vendors');
             expect(result).toHaveProperty('global_oos_count', 73);
             expect(result.vendors).toHaveLength(1);
-            expect(result.vendors[0].status).toBe('ready');
             expect(result.vendors[0].name).toBe('Test Vendor');
             expect(result.vendors[0].total_items).toBe(87);
             expect(result.vendors[0].pending_po_value).toBe(60000);
+            expect(result.vendors[0].reorder_value).toBeGreaterThan(0);
+            expect(result.vendors[0].costed_reorder_count).toBe(3);
         });
 
         test('loads merchant settings for reorder threshold', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
@@ -161,7 +177,7 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('passes supply days and safety days separately to vendor query', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
@@ -170,13 +186,13 @@ describe('Vendor Dashboard Service', () => {
             expect(vendorQueryCall[1]).toEqual([merchantId, 45, 7]);
 
             // Unassigned query gets [merchantId, reorderThreshold] (global)
-            const unassignedQueryCall = db.query.mock.calls[1];
+            const unassignedQueryCall = db.query.mock.calls[2];
             expect(unassignedQueryCall[1]).toContain(52); // 45 + 7
             expect(unassignedQueryCall[1]).toContain(merchantId);
         });
 
         test('handles empty vendor list with no unassigned items', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             const result = await getVendorDashboard(merchantId);
 
@@ -192,7 +208,7 @@ describe('Vendor Dashboard Service', () => {
 
             try {
                 db.getMerchantSettings.mockResolvedValue({});
-                mockDashboardQueries([]);
+                mockDashboardQueries([], []);
 
                 await getVendorDashboard(merchantId);
 
@@ -214,7 +230,8 @@ describe('Vendor Dashboard Service', () => {
                    minimum_order_amount: 0, payment_method: null, payment_terms: null,
                    contact_email: null, order_method: null, notes: null,
                    default_supply_days: null, total_items: 10, oos_count: 0,
-                   reorder_count: 0, reorder_value: 0, costed_reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                   reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                [],
                 { total_items: 25, oos_count: 3, reorder_count: 5 },
                 73
             );
@@ -238,7 +255,8 @@ describe('Vendor Dashboard Service', () => {
                    minimum_order_amount: 0, payment_method: null, payment_terms: null,
                    contact_email: null, order_method: null, notes: null,
                    default_supply_days: null, total_items: 10, oos_count: 0,
-                   reorder_count: 0, reorder_value: 0, costed_reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                   reorder_count: 0, pending_po_value: 0, last_ordered_at: null }],
+                [],
                 { total_items: 0, oos_count: 0, reorder_count: 0 }
             );
 
@@ -249,17 +267,17 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('unassigned row uses NOT EXISTS to find vendor-less items', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
-            const unassignedQueryCall = db.query.mock.calls[1];
+            const unassignedQueryCall = db.query.mock.calls[2];
             expect(unassignedQueryCall[0]).toContain('NOT EXISTS');
             expect(unassignedQueryCall[0]).toContain('variation_vendors');
         });
 
         test('OOS guard requires ic record to exist (no LEFT JOIN ghosts)', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
@@ -270,13 +288,13 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('global OOS query uses INNER JOIN like main dashboard', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
-            // Third query is the global OOS count
-            expect(db.query).toHaveBeenCalledTimes(3);
-            const globalQuery = db.query.mock.calls[2][0];
+            // Fourth query is the global OOS count
+            expect(db.query).toHaveBeenCalledTimes(4);
+            const globalQuery = db.query.mock.calls[3][0];
             expect(globalQuery).toContain('COUNT(DISTINCT v.id)');
             expect(globalQuery).toContain("ic.state = 'IN_STOCK'");
             // Uses JOIN (not LEFT JOIN) — check for inventory_counts as driving table
@@ -285,7 +303,7 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('reorder count excludes items at/above stock_alert_max', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
@@ -294,7 +312,7 @@ describe('Vendor Dashboard Service', () => {
         });
 
         test('vendor query uses per-vendor threshold via CROSS JOIN LATERAL', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
@@ -306,22 +324,45 @@ describe('Vendor Dashboard Service', () => {
             expect(vendorQuery).toContain('vt.val');
         });
 
-        test('reorder value uses qty × cost formula with case pack rounding', async () => {
-            mockDashboardQueries([]);
+        test('reorder value computed via shared reorder-math.js in JS', async () => {
+            mockDashboardQueries([{
+                id: 'V1', name: 'Vendor', schedule_type: null,
+                order_day: null, receive_day: null, lead_time_days: 3,
+                minimum_order_amount: 0, payment_method: null, payment_terms: null,
+                contact_email: null, order_method: null, notes: null,
+                default_supply_days: 30, total_items: 2, oos_count: 0,
+                reorder_count: 1, pending_po_value: 0, last_ordered_at: null
+            }], [
+                // velocity=2/day, 30+3+7=40 day supply, available=10 → need ~70 units
+                { vendor_id: 'V1', velocity: 2, available_qty: 10, case_pack: 1,
+                  reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                  unit_cost: 500, vendor_supply_days: 30, vendor_lead_time_days: 3,
+                  pending_po_qty: 0 }
+            ]);
+
+            const result = await getVendorDashboard(merchantId);
+
+            // Should use reorder-math: ceil(2 * (30+3+7)) - 10 = 70, × 500 = 35000
+            expect(result.vendors[0].reorder_value).toBe(35000);
+            expect(result.vendors[0].costed_reorder_count).toBe(1);
+        });
+
+        test('reorder value query fetches per-item data with cost filter', async () => {
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 
-            const vendorQuery = db.query.mock.calls[0][0];
-            // Qty calculation: velocity * threshold, case-pack adjusted
-            expect(vendorQuery).toContain('daily_avg_quantity');
-            expect(vendorQuery).toContain('case_pack_quantity');
-            expect(vendorQuery).toContain('vv.unit_cost_money');
-            // Must multiply qty by cost, not just sum cost
-            expect(vendorQuery).toContain('* vv.unit_cost_money');
+            // Second query is the reorder items query
+            const reorderQuery = db.query.mock.calls[1][0];
+            expect(reorderQuery).toContain('unit_cost_money');
+            expect(reorderQuery).toContain('daily_avg_quantity');
+            expect(reorderQuery).toContain('case_pack_quantity');
+            expect(reorderQuery).toContain('reorder_multiple');
+            expect(reorderQuery).toContain('purchase_order_items');
         });
 
         test('reorder count considers pending PO quantities', async () => {
-            mockDashboardQueries([]);
+            mockDashboardQueries([], []);
 
             await getVendorDashboard(merchantId);
 

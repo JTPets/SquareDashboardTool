@@ -411,18 +411,6 @@
     return '$' + (cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function escapeHtml(str) {
-    if (!str && str !== 0) return '';
-    var div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
-  }
-
-  function escapeAttr(str) {
-    if (!str) return '';
-    return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
   function showToast(message, type) {
     var toast = document.getElementById('toast');
     toast.textContent = message;

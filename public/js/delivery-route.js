@@ -537,13 +537,6 @@ function formatTime(timestamp) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Render line items with error handling for each item
 function renderLineItems(lineItems, orderId) {
   // Debug: log what we're rendering

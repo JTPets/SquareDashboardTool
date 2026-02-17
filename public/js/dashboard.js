@@ -8,18 +8,6 @@ let autoRefreshInterval = null;
 let dashboardReady = false;
 const AUTO_REFRESH_MS = 300000;
 
-/**
- * Escape HTML to prevent XSS
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Set current year in footer
 document.getElementById('year').textContent = new Date().getFullYear();
 

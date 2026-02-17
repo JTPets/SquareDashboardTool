@@ -157,13 +157,6 @@ async function loadPurchaseOrders() {
   }
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 function formatDate(dateString) {
   if (!dateString) return '-';
   try {

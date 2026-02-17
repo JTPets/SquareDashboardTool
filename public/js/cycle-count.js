@@ -483,13 +483,6 @@ function showToast(message, type) {
   }, 3000);
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 function getLastCountedBadge(item) {
   if (!item.last_counted_date) {
     return '<span class="badge" style="background: #fef3c7; color: #92400e;">&#128203; Never Counted</span>';
