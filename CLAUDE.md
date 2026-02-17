@@ -223,6 +223,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | "Cannot find module" | `npm install` |
 | "merchant_id cannot be null" | Add `requireMerchant` middleware |
 | Session issues after deploy | `pm2 restart square-dashboard-addon` |
+| Square API "ITEM_AT_LOCATION not found" | Use `POST /api/catalog-audit/enable-item-at-locations` to enable item at all active locations |
 
 ---
 

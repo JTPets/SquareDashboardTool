@@ -239,7 +239,7 @@ services/                     # Business logic services
 │   ├── item-service.js       # Locations, categories, items
 │   ├── variation-service.js  # Variations, costs, bulk updates
 │   ├── inventory-service.js  # Inventory, low stock, expirations
-│   └── audit-service.js      # Catalog audit, location fixes
+│   └── audit-service.js      # Catalog audit, location fixes, enable items at locations
 │
 ├── merchant/                 # Merchant settings
 │   ├── index.js

@@ -235,7 +235,7 @@ All 179 loyalty tests pass. No circular dependencies remain.
   - `item-service.js` - Locations, categories, items
   - `variation-service.js` - Variations, costs, bulk updates
   - `inventory-service.js` - Inventory, low stock, expirations
-  - `audit-service.js` - Catalog audit, location fixes
+  - `audit-service.js` - Catalog audit, location fixes, enable items at locations
 - **Wired routes/catalog.js to use catalog service** (1,493 → 327 lines, 78% reduction)
   - All 17 endpoints now call catalogService methods
   - Zero direct db.query() calls in routes
