@@ -504,11 +504,13 @@ END $$;
 
 -- Create variation_expiration table for tracking product expiration dates
 CREATE TABLE IF NOT EXISTS variation_expiration (
-    variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+    variation_id TEXT NOT NULL REFERENCES variations(id) ON DELETE CASCADE,
     expiration_date TIMESTAMPTZ,
     does_not_expire BOOLEAN DEFAULT FALSE,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (variation_id, merchant_id)
 );
 
 -- Create indexes for efficient expiration queries
@@ -846,7 +848,7 @@ CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
 
 -- 2. Track which variations are currently in which tier
 CREATE TABLE IF NOT EXISTS variation_discount_status (
-    variation_id TEXT PRIMARY KEY REFERENCES variations(id) ON DELETE CASCADE,
+    variation_id TEXT NOT NULL REFERENCES variations(id) ON DELETE CASCADE,
     current_tier_id INTEGER REFERENCES expiry_discount_tiers(id) ON DELETE SET NULL,
     days_until_expiry INTEGER,                 -- Cached calculation
     original_price_cents INTEGER,              -- Price before any discount
@@ -854,8 +856,10 @@ CREATE TABLE IF NOT EXISTS variation_discount_status (
     discount_applied_at TIMESTAMPTZ,           -- When discount was applied in Square
     last_evaluated_at TIMESTAMPTZ DEFAULT NOW(),
     needs_pull BOOLEAN DEFAULT FALSE,          -- Flag for expired items needing removal
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (variation_id, merchant_id)
 );
 
 -- 3. Audit log for all discount changes

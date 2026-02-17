@@ -203,12 +203,12 @@ function formatDate(dateStr) {
 
 /**
  * Show date confirmation popup
- * Called by event delegation with (param, element, event)
- * @param {any} param - Unused parameter
+ * Called by event delegation with (element, event, param)
  * @param {HTMLElement} element - The input element
  * @param {Event} event - The change event
+ * @param {string} param - Unused (data-action-param, not set for change events)
  */
-function showDateConfirmation(param, element, event) {
+function showDateConfirmation(element, event, param) {
   const input = element;
   const id = input.dataset.itemId;
   const newValue = input.value;
@@ -257,7 +257,7 @@ function cancelDateChange(element, event, id) {
  */
 async function updateExpiration(id, value) {
   try {
-    await fetch('/api/expirations', {
+    const response = await fetch('/api/expirations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify([{
@@ -266,6 +266,11 @@ async function updateExpiration(id, value) {
         does_not_expire: false
       }])
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to save expiration date');
+    }
 
     const row = document.querySelector(`tr[data-id="${id}"]`);
     if (row) row.classList.add('row-changed');
@@ -277,12 +282,12 @@ async function updateExpiration(id, value) {
 
 /**
  * Update never expires flag
- * Called by event delegation with (param, element, event)
- * @param {any} param - Unused parameter
+ * Called by event delegation with (element, event, param)
  * @param {HTMLElement} element - The checkbox element
  * @param {Event} event - The change event
+ * @param {string} param - Unused (data-action-param, not set for change events)
  */
-async function updateNeverExpires(param, element, event) {
+async function updateNeverExpires(element, event, param) {
   const id = element.dataset.itemId;
   const checked = element.checked;
   const row = document.querySelector(`tr[data-id="${id}"]`);
@@ -291,7 +296,7 @@ async function updateNeverExpires(param, element, event) {
   if (checked) dateInput.value = '';
 
   try {
-    await fetch('/api/expirations', {
+    const response = await fetch('/api/expirations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify([{
@@ -300,6 +305,11 @@ async function updateNeverExpires(param, element, event) {
         does_not_expire: checked
       }])
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to save expiration setting');
+    }
 
     row.classList.add('row-changed');
 
