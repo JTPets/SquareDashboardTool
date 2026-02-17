@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-17
 **Scope**: Full codebase — services/, routes/, public/js/, jobs/, utils/
-**Status**: 5 of 18 findings fixed (G-1, G-2, G-6, L-1, R-1). Remaining items tracked as BACKLOG-15 through BACKLOG-28 in TECHNICAL_DEBT.md.
+**Status**: 7 of 18 findings fixed (G-1, G-2, G-6, L-1, L-2, L-3, R-1). Remaining items tracked as BACKLOG-17 through BACKLOG-28 in TECHNICAL_DEBT.md.
 
 ---
 
@@ -78,65 +78,32 @@
 
 ---
 
-### L-2: Reward Progress / Threshold Crossing — 2 Implementations
+### L-2: Reward Progress / Threshold Crossing — 2 Implementations ~~FIXED~~
 
-**What's duplicated**: `updateRewardProgress()` exists in both layers with different approaches to handling the threshold crossing (when a customer reaches the required number of purchases).
+**Status**: **FIXED** (2026-02-17) — Split-row rollover logic ported to admin layer.
 
-**Files + line numbers**:
+**What was duplicated**: `updateRewardProgress()` existed in both layers with different approaches to handling the threshold crossing.
 
-| Implementation | File | Lines | Approach |
-|---------------|------|-------|----------|
-| Class-based (sophisticated) | `services/loyalty/purchase-service.js` | 268-721 | Split-row logic for threshold crossing |
-| Standalone (simpler) | `services/loyalty-admin/purchase-service.js` | 130-306 | Basic locking with LIMIT/ORDER BY |
+**Fix applied**: Ported the split-row rollover logic from the loyalty layer into the admin layer (`services/loyalty-admin/purchase-service.js`). The admin layer now:
+- Uses window-function based locking (`cumulative_qty <= required`) instead of `LIMIT`
+- Splits the crossing row into locked child + unlocked excess child via `original_event_id`
+- Filters superseded parent rows with `NOT EXISTS (child.original_event_id = lpe.id)`
+- Handles multi-threshold (e.g. 30 units toward "buy 12" earns 2 rewards with 6 rollover)
+- Preserves all existing admin layer post-threshold actions (audit, Square discount, customer summary)
 
-**Detailed breakdown**:
-
-- `services/loyalty/purchase-service.js`:
-  - `updateRewardProgress()` — Lines 268-365
-  - `createOrUpdateReward()` — Lines 385-721 (includes split-row deduplication at lines 507-683)
-  - Window date calculation — Lines 269-297
-  - Progress counting with split-row exclusion — Lines 314-335
-
-- `services/loyalty-admin/purchase-service.js`:
-  - `updateRewardProgress()` — Lines 130-306
-  - Count qualifying quantity — Lines 136-144
-  - Get/create in_progress reward — Lines 148-209
-  - Threshold check and state transition — Lines 212-235
-
-**Risk**: The loyalty layer splits a crossing purchase row into locked + unlocked portions; the admin layer does not. Running admin operations (backfill, catchup) could calculate different progress than the webhook path for the same set of purchases. If both paths ever process the same order, rewards could be double-counted or missed.
-
-**Suggested fix**: Extract the progress calculation and threshold-crossing logic into a shared `reward-progress.js` module. Both layers should use the same algorithm. Document which features (split-row, rollover) are required vs optional.
-
-**Effort**: L — The split-row logic is complex and tightly coupled to transaction handling in each layer.
+**Tests**: 8 new unit tests in `__tests__/services/loyalty-admin/purchase-split-row.test.js`
 
 ---
 
-### L-3: `redeemReward()` — Same Name, Different Signatures
+### L-3: `redeemReward()` — Same Name, Different Signatures ~~FIXED~~
 
-**What's duplicated**: Two functions named `redeemReward()` exist with different parameter signatures and different behavior.
+**Status**: **FIXED** (2026-02-17) — Loyalty layer `redeemReward()` removed.
 
-**Files + line numbers**:
+**What was duplicated**: Two functions named `redeemReward()` with different signatures and behavior.
 
-| Implementation | File | Lines | Signature |
-|---------------|------|-------|-----------|
-| Class method | `services/loyalty/reward-service.js` | 161-279 | `redeemReward(rewardId, redemptionData = {})` |
-| Standalone function | `services/loyalty-admin/reward-service.js` | 40-194 | `redeemReward(redemptionData)` (rewardId inside object) |
+**Fix applied**: Deleted `redeemReward()` from `services/loyalty/reward-service.js` (had zero production callers, was a strict subset of the admin layer version). Also deleted `expireRewards()` (same file, zero callers — admin layer's `processExpiredEarnedRewards()` handles this with full Square cleanup). Updated tests to remove references.
 
-**Detailed breakdown**:
-
-- `services/loyalty/reward-service.js`:
-  - Lines 161-279: Gets reward by ID, validates status, updates to `redeemed`, creates redemption record
-  - Simpler — no Square discount cleanup
-
-- `services/loyalty-admin/reward-service.js`:
-  - Lines 40-194: Validates, updates status, logs audit event, triggers async Square discount cleanup (lines 155-168)
-  - More complete — handles audit trail and Square integration
-
-**Risk**: Calling the wrong `redeemReward()` could skip audit logging or Square cleanup. The different signatures make this easy to mix up. A developer importing from the wrong module will get silent misbehavior, not an error.
-
-**Suggested fix**: Rename to distinguish intent: `redeemRewardBasic()` vs `redeemRewardWithAudit()`, or consolidate into one implementation with an options parameter for audit/cleanup behavior.
-
-**Effort**: M — Requires updating all callers and ensuring the right version is used in each context.
+**Canonical implementation**: `services/loyalty-admin/reward-service.js:redeemReward(redemptionData)` — the only version now. Provides full audit logging, redemption records, Square discount cleanup, and customer summary updates.
 
 ---
 
