@@ -48,16 +48,6 @@ function calculateReorderQuantity({
     stockAlertMax = null,
     currentStock = 0
 }) {
-    // TEMP DEBUG — remove after investigation (BACKLOG-14 bug hunt)
-    if (typeof calculateReorderQuantity._debugCount === 'undefined') calculateReorderQuantity._debugCount = 0;
-    if (calculateReorderQuantity._debugCount < 3) {
-        console.log('[reorder-math DEBUG]', JSON.stringify({
-            velocity, supplyDays, leadTimeDays, safetyDays,
-            reorderMultiple, casePack, stockAlertMin, stockAlertMax, currentStock
-        }));
-        calculateReorderQuantity._debugCount++;
-    }
-
     const threshold = supplyDays + leadTimeDays + safetyDays;
 
     let targetQty;

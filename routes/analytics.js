@@ -434,7 +434,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     reorder_reason: reorder_reason,
                     base_suggested_qty: baseSuggestedQty,
                     case_pack_quantity: casePack,
-                    case_pack_adjusted_qty: suggestedQty,
+                    case_pack_adjusted_qty: finalQty,
                     pending_po_quantity: pendingPoQty,
                     final_suggested_qty: adjustedQty,
                     unit_cost_cents: unitCost,
