@@ -2921,6 +2921,75 @@ async function fixLocationMismatches(merchantId) {
     }
 }
 
+/**
+ * Enable a single parent item at all locations in Square
+ * Used when a variation is active at a location but its parent item is not
+ * @param {string} itemId - The Square catalog item ID to enable
+ * @param {number} merchantId - The merchant ID for multi-tenant token lookup
+ * @returns {Promise<Object>} Result with item details
+ */
+async function enableItemAtAllLocations(itemId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for enableItemAtAllLocations');
+    }
+    if (!itemId) {
+        throw new Error('itemId is required for enableItemAtAllLocations');
+    }
+
+    logger.info('Enabling item at all locations', { itemId, merchantId });
+    const accessToken = await getMerchantToken(merchantId);
+
+    // Retrieve current item to get version and data
+    const retrieveData = await makeSquareRequest(
+        `/v2/catalog/object/${itemId}?include_related_objects=false`,
+        { accessToken }
+    );
+
+    if (!retrieveData.object) {
+        throw new Error(`Catalog item not found: ${itemId}`);
+    }
+
+    const currentObject = retrieveData.object;
+    if (currentObject.type !== 'ITEM') {
+        throw new Error(`Object is not an ITEM: ${currentObject.type}`);
+    }
+
+    const idempotencyKey = generateIdempotencyKey('enable-item-locations');
+
+    const updateBody = {
+        idempotency_key: idempotencyKey,
+        object: {
+            type: 'ITEM',
+            id: itemId,
+            version: currentObject.version,
+            present_at_all_locations: true,
+            present_at_location_ids: [],
+            absent_at_location_ids: [],
+            item_data: currentObject.item_data
+        }
+    };
+
+    const data = await makeSquareRequest('/v2/catalog/object', {
+        method: 'POST',
+        body: JSON.stringify(updateBody),
+        accessToken
+    });
+
+    logger.info('Item enabled at all locations', {
+        itemId,
+        merchantId,
+        itemName: currentObject.item_data?.name,
+        newVersion: data.catalog_object?.version
+    });
+
+    return {
+        success: true,
+        itemId,
+        itemName: currentObject.item_data?.name || 'Unknown',
+        newVersion: data.catalog_object?.version
+    };
+}
+
 // ========================================
 // CUSTOM ATTRIBUTE MANAGEMENT
 // ========================================
@@ -4016,6 +4085,23 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
                 continue;
             }
 
+            // Check if parent item is not enabled at the location
+            const isLocationMismatch = error.message &&
+                error.message.includes('is enabled at unit') &&
+                error.message.includes('of type ITEM is not');
+
+            if (isLocationMismatch) {
+                const parentItemId = currentVariationData?.item_id || null;
+                logger.warn('Parent item not enabled at location - location mismatch', {
+                    variationId,
+                    parentItemId,
+                    merchantId,
+                    error: error.message
+                });
+                error.code = 'ITEM_NOT_AT_LOCATION';
+                error.parentItemId = parentItemId;
+            }
+
             // Non-retryable error or max retries reached
             logger.error('Failed to update variation cost', {
                 variationId,
@@ -4210,6 +4296,7 @@ module.exports = {
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
     fixLocationMismatches,
+    enableItemAtAllLocations,
     // Custom attribute functions
     listCustomAttributeDefinitions,
     upsertCustomAttributeDefinition,

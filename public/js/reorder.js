@@ -1326,11 +1326,87 @@ async function saveCost(input) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+
+      // Handle parent item not active at location
+      if (errorData.code === 'ITEM_NOT_AT_LOCATION' && errorData.parent_item_id) {
+        input.classList.remove('saving');
+        input.disabled = false;
+
+        const activate = confirm(
+          'This product is not active at all store locations, which prevents cost updates.\n\n' +
+          'Press OK to activate it at all locations and retry, or Cancel to discard the change.'
+        );
+
+        if (activate) {
+          input.classList.add('saving');
+          input.disabled = true;
+
+          // Enable the parent item at all locations
+          const enableResponse = await fetch('/api/catalog-audit/enable-item-at-locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: errorData.parent_item_id })
+          });
+
+          if (!enableResponse.ok) {
+            const enableError = await enableResponse.json().catch(() => ({}));
+            throw new Error(enableError.error || 'Failed to activate product at locations');
+          }
+
+          const enableResult = await enableResponse.json();
+          if (typeof showToast === 'function') {
+            showToast(`Activated "${enableResult.itemName}" at all locations`, 'success');
+          }
+
+          // Retry the cost update
+          const retryResponse = await fetch(`/api/variations/${variationId}/cost`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cost_cents: newValueCents, vendor_id: vendorId || null })
+          });
+
+          if (!retryResponse.ok) {
+            const retryError = await retryResponse.json().catch(() => ({}));
+            throw new Error(retryError.error || `HTTP ${retryResponse.status}`);
+          }
+
+          // Use the retry result as our successful result
+          const retryResult = await retryResponse.json();
+          handleCostSaveSuccess(input, variationId, newValueCents, newValueDollars, retryResult);
+          return;
+        }
+
+        // User cancelled - revert input
+        input.value = (originalValue / 100).toFixed(2);
+        return;
+      }
+
       throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
     const result = await response.json();
+    handleCostSaveSuccess(input, variationId, newValueCents, newValueDollars, result);
 
+  } catch (error) {
+    console.error('Failed to save cost:', error);
+    input.classList.remove('saving');
+    input.classList.add('error');
+    setTimeout(() => input.classList.remove('error'), 2000);
+
+    // Revert to original value
+    input.value = (originalValue / 100).toFixed(2);
+
+    const friendlyMsg = window.ErrorHelper
+      ? ErrorHelper.getFriendlyMessage(error)
+      : 'Failed to update cost. Please try again.';
+    alert(friendlyMsg);
+  } finally {
+    input.disabled = false;
+  }
+}
+
+// Handle successful cost save (shared between initial save and retry after location fix)
+function handleCostSaveSuccess(input, variationId, newValueCents, newValueDollars, result) {
     // Update local data
     const item = allSuggestions.find(s => s.variation_id === variationId);
     if (item) {
@@ -1360,22 +1436,8 @@ async function saveCost(input) {
       }
     }
 
-  } catch (error) {
-    console.error('Failed to save cost:', error);
+    // Remove saving state
     input.classList.remove('saving');
-    input.classList.add('error');
-    setTimeout(() => input.classList.remove('error'), 2000);
-
-    // Revert to original value
-    input.value = (originalValue / 100).toFixed(2);
-
-    const friendlyMsg = window.ErrorHelper
-      ? ErrorHelper.getFriendlyMessage(error)
-      : 'Failed to update cost. Please try again.';
-    alert(friendlyMsg);
-  } finally {
-    input.disabled = false;
-  }
 }
 
 // Update order quantity (cases) when user edits

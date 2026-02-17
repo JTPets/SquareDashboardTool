@@ -145,6 +145,12 @@ const getCatalogAudit = [
     handleValidationErrors
 ];
 
+// POST /api/catalog-audit/enable-item-at-locations
+const enableItemAtLocations = [
+    body('item_id').isString().notEmpty().matches(/^[A-Za-z0-9_-]+$/),
+    handleValidationErrors
+];
+
 // POST /api/catalog-audit/fix-locations
 const fixLocations = [handleValidationErrors];
 
@@ -164,5 +170,6 @@ module.exports = {
     getLowStock,
     getDeletedItems,
     getCatalogAudit,
+    enableItemAtLocations,
     fixLocations
 };

@@ -305,7 +305,35 @@ async function fixLocationMismatches(merchantId) {
     }
 }
 
+/**
+ * Enable a single parent item at all locations
+ * Used when a cost update fails because the parent item isn't active at a location
+ * @param {string} itemId - The Square catalog item ID
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
+ * @returns {Promise<Object>} - Result with success status
+ */
+async function enableItemAtAllLocations(itemId, merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for enableItemAtAllLocations');
+    }
+    if (!itemId) {
+        throw new Error('itemId is required for enableItemAtAllLocations');
+    }
+
+    logger.info('Enabling item at all locations from service', { itemId, merchantId });
+
+    const result = await squareApi.enableItemAtAllLocations(itemId, merchantId);
+
+    return {
+        success: true,
+        message: `Activated "${result.itemName}" at all locations`,
+        itemId: result.itemId,
+        itemName: result.itemName
+    };
+}
+
 module.exports = {
     getCatalogAudit,
-    fixLocationMismatches
+    fixLocationMismatches,
+    enableItemAtAllLocations
 };
