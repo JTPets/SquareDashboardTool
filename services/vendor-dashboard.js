@@ -12,11 +12,12 @@
  * Reorder count aligned to reorder suggestions (analytics.js):
  *   Excludes items where pending PO covers the need or available >= stock_alert_max.
  *
- * NOTE: Reorder qty formula duplicated in routes/analytics.js — keep in sync (BACKLOG-14).
+ * Reorder value computed in JS via shared reorder-math.js (BACKLOG-14 resolved).
  */
 
 const db = require('../utils/database');
 const logger = require('../utils/logger');
+const { calculateReorderQuantity } = require('./catalog/reorder-math');
 
 // Status priority order (for sorting)
 const STATUS_PRIORITY = {
@@ -77,6 +78,116 @@ function formatVendorRow(row, defaultSupplyDays) {
 }
 
 /**
+ * Compute reorder_value and costed_reorder_count per vendor using
+ * the shared reorder-math.js formula (single source of truth).
+ *
+ * Fetches per-item reorder ingredients for items needing reorder,
+ * then aggregates suggested qty × unit cost per vendor.
+ */
+async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
+    const result = await db.query(`
+        SELECT
+            vv.vendor_id,
+            COALESCE(sv.daily_avg_quantity, 0) AS velocity,
+            (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) AS available_qty,
+            COALESCE(var.case_pack_quantity, 1) AS case_pack,
+            COALESCE(var.reorder_multiple, 1) AS reorder_multiple,
+            COALESCE(vls.stock_alert_min, var.stock_alert_min, 0) AS stock_alert_min,
+            COALESCE(vls.stock_alert_max, var.stock_alert_max) AS stock_alert_max,
+            vv.unit_cost_money AS unit_cost,
+            COALESCE(ve.default_supply_days, $2) AS vendor_supply_days,
+            COALESCE(ve.lead_time_days, 0) AS vendor_lead_time_days,
+            COALESCE((
+                SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
+                FROM purchase_order_items poi
+                JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                    AND po.merchant_id = $1
+                WHERE poi.variation_id = var.id
+                  AND poi.merchant_id = $1
+                  AND po.status NOT IN ('RECEIVED', 'CANCELLED')
+                  AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
+            ), 0) AS pending_po_qty
+        FROM variation_vendors vv
+        JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $1
+            AND ve.status = 'ACTIVE'
+        JOIN variations var ON vv.variation_id = var.id AND var.merchant_id = $1
+        JOIN items i ON var.item_id = i.id AND i.merchant_id = $1
+        LEFT JOIN inventory_counts ic ON var.id = ic.catalog_object_id AND ic.merchant_id = $1
+            AND ic.state = 'IN_STOCK'
+        LEFT JOIN inventory_counts ic_c ON var.id = ic_c.catalog_object_id AND ic_c.merchant_id = $1
+            AND ic_c.state = 'RESERVED_FOR_SALE'
+            AND ic_c.location_id = ic.location_id
+        LEFT JOIN sales_velocity sv ON var.id = sv.variation_id AND sv.period_days = 91
+            AND sv.merchant_id = $1
+            AND (sv.location_id = ic.location_id OR (sv.location_id IS NULL AND ic.location_id IS NULL))
+        LEFT JOIN variation_location_settings vls ON var.id = vls.variation_id
+            AND vls.merchant_id = $1 AND ic.location_id = vls.location_id
+        CROSS JOIN LATERAL (
+            SELECT (COALESCE(ve.default_supply_days, $2)
+                + COALESCE(ve.lead_time_days, 0) + $3) AS val
+        ) vt
+        WHERE vv.merchant_id = $1
+          AND COALESCE(var.is_deleted, FALSE) = FALSE
+          AND COALESCE(i.is_deleted, FALSE) = FALSE
+          AND var.discontinued = FALSE
+          AND vv.unit_cost_money IS NOT NULL
+          AND vv.unit_cost_money > 0
+          AND (
+              (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
+              OR (COALESCE(vls.stock_alert_min, var.stock_alert_min) IS NOT NULL
+                  AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                      <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
+              OR (sv.daily_avg_quantity > 0
+                  AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                      / sv.daily_avg_quantity < vt.val)
+          )
+          AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
+               OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
+                  < COALESCE(vls.stock_alert_max, var.stock_alert_max))
+          AND (
+              COALESCE((
+                  SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
+                  FROM purchase_order_items poi
+                  JOIN purchase_orders po ON poi.purchase_order_id = po.id
+                      AND po.merchant_id = $1
+                  WHERE poi.variation_id = var.id
+                    AND poi.merchant_id = $1
+                    AND po.status NOT IN ('RECEIVED', 'CANCELLED')
+                    AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
+              ), 0) = 0
+              OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
+          )
+    `, [merchantId, defaultSupplyDays, safetyDays]);
+
+    // Aggregate reorder value and costed count per vendor using shared formula
+    const valuesByVendor = {};
+    const countsByVendor = {};
+
+    for (const item of result.rows) {
+        const vendorId = item.vendor_id;
+        const qty = calculateReorderQuantity({
+            velocity: parseFloat(item.velocity),
+            supplyDays: parseInt(item.vendor_supply_days),
+            leadTimeDays: parseInt(item.vendor_lead_time_days),
+            safetyDays,
+            casePack: parseInt(item.case_pack),
+            reorderMultiple: parseInt(item.reorder_multiple),
+            stockAlertMin: parseInt(item.stock_alert_min) || 0,
+            stockAlertMax: item.stock_alert_max != null ? parseInt(item.stock_alert_max) : null,
+            currentStock: parseFloat(item.available_qty)
+        });
+        const pendingPoQty = parseInt(item.pending_po_qty) || 0;
+        const adjustedQty = Math.max(0, qty - pendingPoQty);
+        const value = adjustedQty * parseInt(item.unit_cost);
+
+        valuesByVendor[vendorId] = (valuesByVendor[vendorId] || 0) + value;
+        countsByVendor[vendorId] = (countsByVendor[vendorId] || 0) + 1;
+    }
+
+    return { valuesByVendor, countsByVendor };
+}
+
+/**
  * Get all vendors with dashboard stats for a merchant.
  * Includes a synthetic "No Vendor Assigned" row for unlinked items.
  *
@@ -91,7 +202,7 @@ async function getVendorDashboard(merchantId) {
         parseInt(process.env.REORDER_SAFETY_DAYS || '7');
     const reorderThreshold = defaultSupplyDays + safetyDays;
 
-    // --- Real vendors query ---
+    // --- Real vendors query (counts only — reorder value computed in JS) ---
     const result = await db.query(`
         SELECT
             ve.id,
@@ -113,10 +224,6 @@ async function getVendorDashboard(merchantId) {
             COALESCE(item_stats.oos_count, 0) AS oos_count,
             -- Reorder count: excludes items covered by pending POs or at/above max
             COALESCE(item_stats.reorder_count, 0) AS reorder_count,
-            -- Reorder value: estimated PO cost (suggested qty × unit cost)
-            COALESCE(item_stats.reorder_value, 0) AS reorder_value,
-            -- How many reorder items have cost data
-            COALESCE(item_stats.costed_reorder_count, 0) AS costed_reorder_count,
             -- Pending PO value: sum of draft/submitted PO totals
             COALESCE(po_stats.pending_po_value, 0) AS pending_po_value,
             -- Last ordered: most recent submitted/completed PO
@@ -152,7 +259,7 @@ async function getVendorDashboard(merchantId) {
                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
                                 / sv.daily_avg_quantity < vt.val)
                     )
-                    -- Exclude items at/above stock_alert_max (analytics.js post-filter)
+                    -- Exclude items at/above stock_alert_max
                     AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
                          OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
                             < COALESCE(vls.stock_alert_max, var.stock_alert_max))
@@ -173,123 +280,7 @@ async function getVendorDashboard(merchantId) {
                     AND COALESCE(var.is_deleted, FALSE) = FALSE
                     AND var.discontinued = FALSE
                     THEN vv.variation_id
-                END) AS reorder_count,
-
-                -- Reorder value: estimated PO cost (suggested qty × unit cost)
-                -- Qty formula mirrors analytics.js: velocity * vendor_threshold,
-                -- case-pack rounded, capped at max, minus pending PO
-                COALESCE(SUM(CASE
-                    WHEN (
-                        (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
-                        OR (COALESCE(vls.stock_alert_min, var.stock_alert_min) IS NOT NULL
-                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
-                        OR (sv.daily_avg_quantity > 0
-                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                / sv.daily_avg_quantity < vt.val)
-                    )
-                    AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
-                         OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                            < COALESCE(vls.stock_alert_max, var.stock_alert_max))
-                    AND (
-                        COALESCE((
-                            SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
-                            FROM purchase_order_items poi
-                            JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                                AND po.merchant_id = $1
-                            WHERE poi.variation_id = var.id
-                              AND poi.merchant_id = $1
-                              AND po.status NOT IN ('RECEIVED', 'CANCELLED')
-                              AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
-                        ), 0) = 0
-                        OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
-                    )
-                    AND COALESCE(var.is_deleted, FALSE) = FALSE
-                    AND var.discontinued = FALSE
-                    AND vv.unit_cost_money IS NOT NULL
-                    AND vv.unit_cost_money > 0
-                    THEN
-                        GREATEST(0,
-                            LEAST(
-                                -- Suggested qty: velocity × vendor threshold, case-pack rounded
-                                CASE
-                                    WHEN COALESCE(var.case_pack_quantity, 0) > 1
-                                    THEN
-                                        CEIL(
-                                            GREATEST(0,
-                                                CASE WHEN COALESCE(sv.daily_avg_quantity, 0) > 0
-                                                    THEN sv.daily_avg_quantity * vt.val
-                                                    ELSE var.case_pack_quantity::NUMERIC
-                                                END
-                                                - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                            ) / var.case_pack_quantity
-                                        ) * var.case_pack_quantity
-                                    ELSE
-                                        CEIL(GREATEST(0,
-                                            CASE WHEN COALESCE(sv.daily_avg_quantity, 0) > 0
-                                                THEN sv.daily_avg_quantity * vt.val
-                                                ELSE 1::NUMERIC
-                                            END
-                                            - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                        ))
-                                END,
-                                -- Cap at stock_alert_max - current available
-                                CASE
-                                    WHEN COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NOT NULL
-                                    THEN GREATEST(0,
-                                        COALESCE(vls.stock_alert_max, var.stock_alert_max)
-                                        - (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)))
-                                    ELSE 1e9
-                                END
-                            )
-                            -- Subtract pending PO qty
-                            - COALESCE((
-                                SELECT SUM(poi2.quantity_ordered - COALESCE(poi2.received_quantity, 0))
-                                FROM purchase_order_items poi2
-                                JOIN purchase_orders po2 ON poi2.purchase_order_id = po2.id
-                                    AND po2.merchant_id = $1
-                                WHERE poi2.variation_id = var.id
-                                    AND poi2.merchant_id = $1
-                                    AND po2.status NOT IN ('RECEIVED', 'CANCELLED')
-                                    AND (poi2.quantity_ordered - COALESCE(poi2.received_quantity, 0)) > 0
-                            ), 0)
-                        ) * vv.unit_cost_money
-                    ELSE 0
-                END), 0) AS reorder_value,
-
-                -- Costed item count: how many reorder items have cost data
-                COUNT(DISTINCT CASE
-                    WHEN (
-                        (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
-                        OR (COALESCE(vls.stock_alert_min, var.stock_alert_min) IS NOT NULL
-                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                <= COALESCE(vls.stock_alert_min, var.stock_alert_min))
-                        OR (sv.daily_avg_quantity > 0
-                            AND (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                                / sv.daily_avg_quantity < vt.val)
-                    )
-                    AND (COALESCE(vls.stock_alert_max, var.stock_alert_max) IS NULL
-                         OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0))
-                            < COALESCE(vls.stock_alert_max, var.stock_alert_max))
-                    AND (
-                        COALESCE((
-                            SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
-                            FROM purchase_order_items poi
-                            JOIN purchase_orders po ON poi.purchase_order_id = po.id
-                                AND po.merchant_id = $1
-                            WHERE poi.variation_id = var.id
-                              AND poi.merchant_id = $1
-                              AND po.status NOT IN ('RECEIVED', 'CANCELLED')
-                              AND (poi.quantity_ordered - COALESCE(poi.received_quantity, 0)) > 0
-                        ), 0) = 0
-                        OR (COALESCE(ic.quantity, 0) - COALESCE(ic_c.quantity, 0)) <= 0
-                    )
-                    AND COALESCE(var.is_deleted, FALSE) = FALSE
-                    AND var.discontinued = FALSE
-                    AND vv.unit_cost_money IS NOT NULL
-                    AND vv.unit_cost_money > 0
-                    THEN vv.variation_id
-                END) AS costed_reorder_count
+                END) AS reorder_count
             FROM variation_vendors vv
             JOIN variations var ON vv.variation_id = var.id AND var.merchant_id = $1
             JOIN items i ON var.item_id = i.id AND i.merchant_id = $1
@@ -322,7 +313,19 @@ async function getVendorDashboard(merchantId) {
         ORDER BY ve.name
     `, [merchantId, defaultSupplyDays, safetyDays]);
 
-    const vendors = result.rows.map(row => formatVendorRow(row, defaultSupplyDays));
+    // --- Compute reorder values per vendor using shared formula ---
+    const { valuesByVendor, countsByVendor } = await computeReorderValues(
+        merchantId, defaultSupplyDays, safetyDays
+    );
+
+    // Merge reorder_value and costed_reorder_count into vendor rows
+    const vendorRows = result.rows.map(row => ({
+        ...row,
+        reorder_value: valuesByVendor[row.id] || 0,
+        costed_reorder_count: countsByVendor[row.id] || 0
+    }));
+
+    const vendors = vendorRows.map(row => formatVendorRow(row, defaultSupplyDays));
 
     // --- Unassigned items (no vendor linked) ---
     const unassignedResult = await db.query(`

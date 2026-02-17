@@ -273,7 +273,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — **investigated 2026-02-12**, no immediate action needed (see TECHNICAL_DEBT.md) |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
-| Medium | BACKLOG-14 | Reorder formula duplication — **3 active divergences found** (lead_time, reorder_multiple, stock_alert_min) |
+| ~~Medium~~ | ~~BACKLOG-14~~ | ~~Reorder formula duplication~~ **COMPLETE** (shared `services/catalog/reorder-math.js`, 31 tests) |
 | Medium | BACKLOG-15 | Reward progress / threshold crossing — 2 different algorithms (DEDUP L-2) |
 | Medium | BACKLOG-16 | redeemReward() name collision — same name, different signatures (DEDUP L-3) |
 | Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
@@ -287,6 +287,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
+| Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 
@@ -314,6 +315,28 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 - Remove `vendor_email` column from `loyalty_offers` once migration is complete
 
 **Audit date**: 2026-02-02
+
+#### BACKLOG-28: Wire Vendor Dashboard Per-Vendor Config Into Reorder Formula
+
+**Context**: `services/catalog/reorder-math.js` now accepts `leadTimeDays` and `safetyDays` (defaulting to 0). The vendor dashboard already passes per-vendor `lead_time_days` into the formula. The reorder suggestions page (`reorder.html`) does not yet read per-vendor config.
+
+**Files involved**:
+- `services/catalog/reorder-math.js` (shared formula — ready)
+- `routes/analytics.js` (reorder suggestions — currently passes `safetyDays` only)
+- `services/vendor-dashboard.js` (vendor dashboard — already passes `leadTimeDays`)
+- `public/js/reorder.js` (frontend — no vendor config yet)
+
+**Proposed solution**:
+- Vendor dashboard stores per-vendor: `lead_time_days`, `default_supply_days`, `safety_days`
+- `reorder.html` reads vendor config when calculating order quantities via `reorder-math.js`
+- When a vendor filter is selected, the reorder endpoint uses that vendor's settings
+
+**Depends on**: R-1 complete (done), vendor dashboard data model finalized
+
+**Priority**: Medium
+**Effort**: M
+
+**Audit date**: 2026-02-17
 
 ### Architectural Tech Debt
 

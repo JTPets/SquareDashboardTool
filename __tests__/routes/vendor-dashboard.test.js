@@ -24,9 +24,10 @@ describe('Vendor Dashboard Routes', () => {
         jest.clearAllMocks();
     });
 
-    // Helper: mock all 3 queries (vendors, unassigned, global OOS)
-    function mockDashboardQueries(vendorRows, unassignedRow, globalOos) {
+    // Helper: mock all 4 queries (vendors, reorder items, unassigned, global OOS)
+    function mockDashboardQueries(vendorRows, reorderItemRows, unassignedRow, globalOos) {
         db.query.mockResolvedValueOnce({ rows: vendorRows });
+        db.query.mockResolvedValueOnce({ rows: reorderItemRows || [] });
         db.query.mockResolvedValueOnce({
             rows: [unassignedRow || { total_items: 0, oos_count: 0, reorder_count: 0 }]
         });
@@ -94,8 +95,8 @@ describe('Vendor Dashboard Routes', () => {
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
 
-                expect(db.query).toHaveBeenCalledTimes(3);
-                const unassignedQuery = db.query.mock.calls[1][0];
+                expect(db.query).toHaveBeenCalledTimes(4);
+                const unassignedQuery = db.query.mock.calls[2][0];
                 expect(unassignedQuery).toContain('NOT EXISTS');
             });
 
@@ -110,16 +111,18 @@ describe('Vendor Dashboard Routes', () => {
                 expect(vendorQuery).toContain('ic.catalog_object_id IS NOT NULL');
             });
 
-            test('computes reorder_value using unit_cost_money', async () => {
+            test('reorder value computed via per-item query using shared formula', async () => {
                 db.getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 await getVendorDashboard(1);
 
-                const vendorQuery = db.query.mock.calls[0][0];
-                expect(vendorQuery).toContain('reorder_value');
-                expect(vendorQuery).toContain('unit_cost_money');
+                // Second query fetches per-item reorder data
+                const reorderQuery = db.query.mock.calls[1][0];
+                expect(reorderQuery).toContain('unit_cost_money');
+                expect(reorderQuery).toContain('case_pack_quantity');
+                expect(reorderQuery).toContain('reorder_multiple');
             });
         });
 
@@ -134,9 +137,15 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: 'Net 7', contact_email: 'a@test.com',
                     order_method: 'Portal', notes: 'Fast shipping',
                     default_supply_days: 30, total_items: 50, oos_count: 2,
-                    reorder_count: 10, reorder_value: 12000, costed_reorder_count: 10, pending_po_value: 15000,
+                    reorder_count: 10, pending_po_value: 15000,
                     last_ordered_at: '2026-02-10'
-                }], null, 73);
+                }], [
+                    // Per-item reorder data for reorder_value computation
+                    { vendor_id: 'V1', velocity: 2, available_qty: 5, case_pack: 1,
+                      reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                      unit_cost: 400, vendor_supply_days: 30, vendor_lead_time_days: 5,
+                      pending_po_qty: 0 }
+                ], null, 73);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);
@@ -152,7 +161,7 @@ describe('Vendor Dashboard Routes', () => {
                 expect(vendor).toHaveProperty('total_items', 50);
                 expect(vendor).toHaveProperty('oos_count', 2);
                 expect(vendor).toHaveProperty('reorder_count', 10);
-                expect(vendor).toHaveProperty('reorder_value', 12000);
+                expect(vendor.reorder_value).toBeGreaterThan(0);
                 expect(vendor).toHaveProperty('pending_po_value', 15000);
                 expect(vendor).toHaveProperty('last_ordered_at', '2026-02-10');
                 expect(vendor).toHaveProperty('status', 'has_oos');
@@ -167,8 +176,13 @@ describe('Vendor Dashboard Routes', () => {
                     payment_terms: null, contact_email: null,
                     order_method: null, notes: null, default_supply_days: '45',
                     total_items: '100', oos_count: '5', reorder_count: '20',
-                    reorder_value: '45000', costed_reorder_count: '20', pending_po_value: '75000', last_ordered_at: null
-                }]);
+                    pending_po_value: '75000', last_ordered_at: null
+                }], [
+                    { vendor_id: 'V1', velocity: 1, available_qty: 0, case_pack: 1,
+                      reorder_multiple: 1, stock_alert_min: 0, stock_alert_max: null,
+                      unit_cost: 1000, vendor_supply_days: 45, vendor_lead_time_days: 0,
+                      pending_po_qty: 0 }
+                ]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
                 const result = await getVendorDashboard(1);

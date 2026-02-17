@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-17
 **Scope**: Full codebase — services/, routes/, public/js/, jobs/, utils/
-**Status**: 4 of 18 findings fixed (G-1, G-2, G-6, L-1). Remaining items tracked as BACKLOG-15 through BACKLOG-27 in TECHNICAL_DEBT.md.
+**Status**: 5 of 18 findings fixed (G-1, G-2, G-6, L-1, R-1). Remaining items tracked as BACKLOG-15 through BACKLOG-28 in TECHNICAL_DEBT.md.
 
 ---
 
@@ -17,7 +17,7 @@
 | L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | BACKLOG-18 |
 | L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | BACKLOG-19 |
 | L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | BACKLOG-20 |
-| R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | BACKLOG-14 (3 divergences found) |
+| R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | **FIXED** (shared `reorder-math.js`, BACKLOG-28 for vendor config wiring) |
 | R-2 | Days-of-stock / days-until-stockout — 5 implementations | 5 | High | M | P2 | BACKLOG-21 |
 | R-3 | Available vs total stock — inconsistent base value | 4 | High | S | P2 | BACKLOG-22 |
 | G-1 | `escapeHtml()` — 26 identical copies | 26 | Medium | S | P3 | **FIXED** |
@@ -237,43 +237,18 @@
 
 ## Priority 2: Reorder Formula (BACKLOG-14)
 
-### R-1: Reorder Quantity Formula — JS vs SQL Implementations
+### R-1: Reorder Quantity Formula — JS vs SQL Implementations — **FIXED**
 
-**What's duplicated**: The reorder quantity formula exists in JavaScript (analytics.js) and pure SQL (vendor-dashboard.js) with identical business logic but different implementations. A comment at vendor-dashboard.js:15 explicitly flags this as BACKLOG-14.
+**Status**: Resolved 2026-02-17. Shared module `services/catalog/reorder-math.js` is the single source of truth. Both `routes/analytics.js` and `services/vendor-dashboard.js` now call `calculateReorderQuantity()` from the shared module. 31 unit tests in `__tests__/services/catalog/reorder-math.test.js`.
 
-**Files + line numbers**:
+**What was fixed**:
+- Extracted reorder formula into `services/catalog/reorder-math.js` with `calculateReorderQuantity()` and `calculateDaysOfStock()`
+- `routes/analytics.js` calls the shared function directly (replaced ~40 lines of inline logic)
+- `services/vendor-dashboard.js` moved reorder_value computation from SQL to JS via `computeReorderValues()` which calls the shared function per-item
+- Function accepts `leadTimeDays` and `safetyDays` (both defaulting to 0) — ready for BACKLOG-28 vendor config wiring
+- All 3 prior divergences resolved: lead_time inclusion, reorder_multiple application, stock_alert_min enforcement
 
-**`routes/analytics.js`** (JavaScript implementation):
-| Component | Lines |
-|-----------|-------|
-| Reorder threshold | 122, 278 (`supplyDays + safetyDays`) |
-| Base suggested qty (SQL) | 226 (`daily_avg * reorderThreshold`) |
-| Days until stockout (SQL) | 218-224 |
-| Target qty calculation (JS) | 378-423 |
-| Case pack rounding (JS) | 408-411 |
-| Reorder multiple (JS) | 413-415 |
-| Stock alert max capping (JS) | 418-422 |
-| Pending PO subtraction (JS) | ~438 |
-| BACKLOG-14 comment | 381 |
-
-**`services/vendor-dashboard.js`** (SQL implementation):
-| Component | Lines |
-|-----------|-------|
-| Reorder threshold | 92 (`defaultSupplyDays + safetyDays`) |
-| BACKLOG-14 comment | 15 |
-| Reorder count filter (SQL) | 142-176 |
-| Base qty with case pack rounding (SQL) | 215-226 |
-| Stock alert max capping (SQL) | 237-243 |
-| Pending PO subtraction (SQL) | 245-255 |
-| Reorder value calculation (SQL) | 181-258 |
-
-**Key difference**: analytics.js performs the calculation in JavaScript after fetching base data from SQL, while vendor-dashboard.js embeds the entire calculation in a single SQL query. The vendor-dashboard.js version also incorporates `lead_time_days` from the vendors table (not present in analytics.js).
-
-**Risk**: If the reorder formula changes (e.g., new rounding rule, different safety stock calculation), one file will be updated and the other forgotten. The reorder suggestions page and vendor dashboard will show different quantities for the same item. This has already been identified as a maintenance concern (BACKLOG-14).
-
-**Suggested fix**: Extract the formula into a shared SQL function (PostgreSQL stored procedure) or a shared JavaScript module that both endpoints call. Given the vendor-dashboard.js version includes lead_time_days, the shared version should accept lead time as an optional parameter.
-
-**Effort**: M — Requires reconciling the JS and SQL approaches and choosing one canonical implementation.
+**Follow-up**: BACKLOG-28 — Wire vendor dashboard per-vendor config (lead_time_days, target_supply_days, safety_days) into reorder.html via this function.
 
 ---
 
