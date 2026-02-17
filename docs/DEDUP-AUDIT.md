@@ -2,32 +2,32 @@
 
 **Date**: 2026-02-17
 **Scope**: Full codebase — services/, routes/, public/js/, jobs/, utils/
-**Status**: Report only — no changes made
+**Status**: 4 of 18 findings fixed (G-1, G-2, G-6, L-1). Remaining items tracked as BACKLOG-15 through BACKLOG-27 in TECHNICAL_DEBT.md.
 
 ---
 
 ## Summary Table
 
-| ID | Finding | Files | Risk | Effort | Priority |
-|----|---------|-------|------|--------|----------|
-| L-1 | Customer identification — 3 parallel implementations | 3 | Critical | L | P1 |
-| L-2 | Reward progress / threshold crossing — 2 implementations | 2 | High | L | P1 |
-| L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 |
-| L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 |
-| L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 |
-| L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 |
-| L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 |
-| R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 |
-| R-2 | Days-of-stock / days-until-stockout — 5 implementations | 5 | High | M | P2 |
-| R-3 | Available vs total stock — inconsistent base value | 4 | High | S | P2 |
-| G-1 | `escapeHtml()` — 26 identical copies | 26 | Medium | S | P3 |
-| G-2 | Idempotency key generation — 4 inconsistent patterns | 8+ | Medium | S | P3 |
-| G-3 | Currency formatting — no shared helper | 14+ | Medium | S | P3 |
-| G-4 | Order normalization (Square camelCase to snake_case) | 1 (3 call sites) | Low | S | P3 |
-| G-5 | Location lookup queries — repeated across routes | 6 | Low | S | P3 |
-| G-6 | `escapeAttr()` — 2 copies | 2 | Low | S | P3 |
-| G-7 | Date string formatting — repeated pattern | 5 | Low | S | P3 |
-| G-8 | `.toLocaleString()` — inconsistent locale/options | 14 | Low | S | P3 |
+| ID | Finding | Files | Risk | Effort | Priority | Status |
+|----|---------|-------|------|--------|----------|--------|
+| L-1 | Customer identification — 3 parallel implementations | 3 | Critical | L | P1 | **FIXED** |
+| L-2 | Reward progress / threshold crossing — 2 implementations | 2 | High | L | P1 | BACKLOG-15 |
+| L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 | BACKLOG-16 |
+| L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 | BACKLOG-17 |
+| L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | BACKLOG-18 |
+| L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | BACKLOG-19 |
+| L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | BACKLOG-20 |
+| R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | BACKLOG-14 (3 divergences found) |
+| R-2 | Days-of-stock / days-until-stockout — 5 implementations | 5 | High | M | P2 | BACKLOG-21 |
+| R-3 | Available vs total stock — inconsistent base value | 4 | High | S | P2 | BACKLOG-22 |
+| G-1 | `escapeHtml()` — 26 identical copies | 26 | Medium | S | P3 | **FIXED** |
+| G-2 | Idempotency key generation — 4 inconsistent patterns | 8+ | Medium | S | P3 | **FIXED** |
+| G-3 | Currency formatting — no shared helper | 14+ | Medium | S | P3 | BACKLOG-23 |
+| G-4 | Order normalization (Square camelCase to snake_case) | 1 (3 call sites) | Low | S | P3 | BACKLOG-24 |
+| G-5 | Location lookup queries — repeated across routes | 6 | Low | S | P3 | BACKLOG-25 |
+| G-6 | `escapeAttr()` — 2 copies | 2 | Low | S | P3 | **FIXED** (with G-1) |
+| G-7 | Date string formatting — repeated pattern | 5 | Low | S | P3 | BACKLOG-26 |
+| G-8 | `.toLocaleString()` — inconsistent locale/options | 14 | Low | S | P3 | BACKLOG-27 |
 
 **Effort**: S = < 1 file change, M = 2-5 files, L = 6+ files with integration risk
 

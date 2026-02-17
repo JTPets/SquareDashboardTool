@@ -235,6 +235,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) | Vulnerability history, fixes, security best practices |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
+| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 4 fixed |
 | [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
 
 ---
@@ -272,7 +273,20 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — **investigated 2026-02-12**, no immediate action needed (see TECHNICAL_DEBT.md) |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
-| Medium | BACKLOG-14 | Reorder formula duplication between analytics.js and vendor-dashboard.js |
+| Medium | BACKLOG-14 | Reorder formula duplication — **3 active divergences found** (lead_time, reorder_multiple, stock_alert_min) |
+| Medium | BACKLOG-15 | Reward progress / threshold crossing — 2 different algorithms (DEDUP L-2) |
+| Medium | BACKLOG-16 | redeemReward() name collision — same name, different signatures (DEDUP L-3) |
+| Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
+| Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
+| Low | BACKLOG-18 | Offer/variation query overlap between layers (DEDUP L-5) |
+| Low | BACKLOG-19 | Dual Square API client layers with divergent retry (DEDUP L-6) |
+| Low | BACKLOG-20 | Redemption detection asymmetry — audit job simplified check (DEDUP L-7) |
+| Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |
+| Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
+| Low | BACKLOG-24 | Order normalization boilerplate in order-handler.js (DEDUP G-4) |
+| Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
+| Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
+| Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 
