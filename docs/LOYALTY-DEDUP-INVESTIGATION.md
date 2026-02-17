@@ -416,6 +416,98 @@ The loyalty layer creates `original_event_id` references when splitting rows. If
 
 ---
 
+## Pre-Deletion Audit: Complete Reward Lifecycle Map
+
+Before any code changes, every reward lifecycle function across both layers was audited to confirm the admin layer provides a complete lifecycle and the loyalty layer's `redeemReward()` contains no unique logic.
+
+### Reward Status Machine
+
+```
+in_progress → earned → redeemed    (happy path)
+                     → revoked     (refund / expiration)
+               earned → expired    (loyalty layer only — uses expires_at column)
+```
+
+### 1. CREATE / EARN (`in_progress` → `earned`)
+
+| Function | Layer | File:Lines | Trigger | Square Discount | Audit Log | Customer Summary |
+|---|---|---|---|---|---|---|
+| `updateRewardProgress()` | **Admin (active)** | `purchase-service.js:130-306` | Purchase, refund, expiration | Yes (async) | Yes | Yes |
+| `updateRewardProgress()` + `createOrUpdateReward()` | Loyalty (inactive) | `purchase-service.js:268-721` | `recordPurchase()` | **No** | **No** | **No** |
+
+### 2. REDEEM (`earned` → `redeemed`)
+
+| Function | Layer | File:Lines | Callers | Redemption Record | Audit Log | Square Cleanup | Customer Summary |
+|---|---|---|---|---|---|---|---|
+| `redeemReward(redemptionData)` | **Admin (active)** | `reward-service.js:40-194` | route, auto-detect, catchup job | Yes (`loyalty_redemptions`) | Yes | Yes (async) | Yes |
+| `redeemReward(rewardId, data)` | Loyalty (inactive) | `reward-service.js:161-279` | **Zero production callers** (tests only) | **No** | **No** | **No** | **No** |
+
+### 3. REVOKE (refund: `earned` → `revoked`)
+
+| Function | Layer | File:Lines | Trigger | Unlocks Purchases | Audit Log | Square Cleanup |
+|---|---|---|---|---|---|---|
+| `processRefund()` | **Admin (active)** | `purchase-service.js:492-656` | Webhook refund | Yes | Yes | No (deferred to expiration) |
+| *(none)* | Loyalty | — | — | — | — | — |
+
+### 4. EXPIRE / REVOKE (expiration: `earned` → `revoked` or `expired`)
+
+| Function | Layer | File:Lines | Trigger | Unlocks Purchases | Audit Log | Square Cleanup |
+|---|---|---|---|---|---|---|
+| `processExpiredWindowEntries()` | **Admin (active)** | `expiration-service.js:25-85` | Scheduled job | Via `updateRewardProgress` | Yes | — |
+| `processExpiredEarnedRewards()` | **Admin (active)** | `expiration-service.js:94-190` | Scheduled job | Yes | Yes | **Yes** |
+| `expireRewards()` | Loyalty (inactive) | `reward-service.js:370-414` | **Zero production callers** | **No** | **No** | **No** |
+
+### 5. SQUARE DISCOUNT LIFECYCLE
+
+| Function | File:Lines | Called When |
+|---|---|---|
+| `createSquareCustomerGroupDiscount()` | `square-discount-service.js:492-644` | After reward earned |
+| `cleanupSquareCustomerGroupDiscount()` | `square-discount-service.js:657-739` | After redeem, after expiration revoke |
+| `validateEarnedRewardsDiscounts()` | `square-discount-service.js:751-821` | Manual validation endpoint |
+| `updateCustomerRewardNote()` | `square-discount-service.js:1070-1202` | After earn (add note), after redeem/cleanup (remove note) |
+
+The loyalty layer has low-level Square client primitives (`deleteCustomerGroup`, `removeCustomerFromGroup` in `square-client.js:371-419`) but these are **never called** from any lifecycle function in that layer.
+
+### 6. UNIQUE LOGIC CHECK: Loyalty `redeemReward()` vs Admin `redeemReward()`
+
+| Logic Element | Admin Layer | Loyalty Layer | Gap? |
+|---|---|---|---|
+| Lock reward (FOR UPDATE) | Yes (:56-68) | Yes (:170-183) | No |
+| Validate status = earned | Yes (:70-72) | Yes (:196-206) | No |
+| Check not already redeemed | Yes (via status check) | Yes (:196, `redeemed_at IS NULL`) | No |
+| Check not expired (`expires_at`) | No — relies on status being `earned` | Yes (:210-219) | See note below |
+| Update status to redeemed | Yes (:122-128) | Yes (:231-238) | No |
+| Set `redemption_order_id` | Yes (:126) | Yes (:234) | No |
+| Set `trace_id` | No | Yes (:235) | Diagnostic only |
+| Set `redeemed_at` | Yes, `COALESCE($1, NOW())` | Yes, `NOW()` | No |
+| Set `redemption_id` (FK) | Yes (:125) | No | No — admin is superset |
+| Insert redemption record | Yes (:98-115) | No | No — admin is superset |
+| Audit log | Yes (:131-148) | No | No — admin is superset |
+| Customer summary | Yes (:151) | No | No — admin is superset |
+| Square cleanup | Yes (:155-168) | No | No — admin is superset |
+
+**`expires_at` check**: The loyalty layer checks `expires_at < NOW()` as an additional guard. The admin layer does not — it relies on the scheduled `processExpiredEarnedRewards()` job to transition expired rewards to `revoked` status before they can be redeemed. This is safe because:
+1. The expiration job sets `status = 'revoked'` for expired rewards
+2. A `revoked` reward fails the admin layer's `status = 'earned'` validation
+3. The `expires_at` column is not populated in the admin layer's earn flow (it uses `earned_at + window_months` in the expiration query instead)
+
+**`trace_id` column**: Set by loyalty layer, not by admin layer. This is a diagnostic correlation field. The admin layer logs tracing through `logAuditEvent()` instead, which provides a richer audit trail.
+
+### Verdict
+
+**The admin layer provides a complete reward lifecycle**:
+
+```
+earn → Square discount created → note added → audit logged → summary updated
+     → redeem → redemption record → audit logged → Square cleanup → note removed → summary updated
+     → refund → revoke → audit logged → summary updated → (Square cleanup via expiration job)
+     → expire → revoke → Square cleanup → note removed → audit logged
+```
+
+**The loyalty layer's `redeemReward()` contains zero unique functional logic**. It is a strict subset of the admin version. Safe to deprecate/remove.
+
+---
+
 ## Recommended Fix Approach (DO NOT IMPLEMENT)
 
 ### Phase 1: Consolidate redeemReward() (BACKLOG-16)
