@@ -495,6 +495,20 @@ async function updateCost(variationId, merchantId, costCents, vendorId = null) {
                 variationId,
                 error: squareError.message
             });
+
+            // Detect parent item not enabled at location
+            if (squareError.code === 'ITEM_NOT_AT_LOCATION') {
+                return {
+                    success: false,
+                    error: 'This item\'s parent product is not active at all locations. Activate it to update the cost.',
+                    code: 'ITEM_NOT_AT_LOCATION',
+                    parent_item_id: squareError.parentItemId,
+                    variation_id: variationId,
+                    status: 422,
+                    square_error: true
+                };
+            }
+
             return { success: false, error: 'Failed to update cost in Square: ' + squareError.message, status: 500, square_error: true };
         }
     }

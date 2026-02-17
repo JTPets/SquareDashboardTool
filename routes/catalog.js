@@ -25,6 +25,7 @@
  * - GET    /api/low-stock                     - Get low stock items
  * - GET    /api/deleted-items                 - Get deleted/archived items
  * - GET    /api/catalog-audit                 - Get catalog audit data
+ * - POST   /api/catalog-audit/enable-item-at-locations - Enable parent item at all locations
  * - POST   /api/catalog-audit/fix-locations   - Fix location mismatches
  *
  * Note: Business logic is delegated to services/catalog/ (P1-2 service extraction).
@@ -151,10 +152,17 @@ router.patch('/variations/:id/cost', requireAuth, requireMerchant, validators.up
     const result = await catalogService.updateCost(id, merchantId, cost_cents, vendor_id);
 
     if (!result.success) {
-        return res.status(result.status || 400).json({
+        const errorResponse = {
             error: result.error,
             square_error: result.square_error
-        });
+        };
+        // Include structured error info for location mismatch
+        if (result.code) {
+            errorResponse.code = result.code;
+            errorResponse.parent_item_id = result.parent_item_id;
+            errorResponse.variation_id = result.variation_id;
+        }
+        return res.status(result.status || 400).json(errorResponse);
     }
 
     res.json(result);
@@ -291,6 +299,31 @@ router.get('/catalog-audit', requireAuth, requireMerchant, validators.getCatalog
     const merchantId = req.merchantContext.id;
 
     const result = await catalogService.getCatalogAudit(merchantId, { location_id, issue_type });
+    res.json(result);
+}));
+
+/**
+ * POST /api/catalog-audit/enable-item-at-locations
+ * Enable a single parent item at all locations (used when cost update fails due to location mismatch)
+ *
+ * Tenant isolation: merchantId drives the Square access token lookup (getMerchantToken),
+ * so the token can only access that merchant's own catalog. No additional ownership check
+ * is needed — Square's API enforces that the token cannot read/modify other merchants' objects.
+ */
+router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerchant, validators.enableItemAtLocations, asyncHandler(async (req, res) => {
+    const { item_id } = req.body;
+    const merchantId = req.merchantContext.id;
+
+    logger.info('Enabling item at all locations from API', { merchantId, itemId: item_id });
+
+    const result = await catalogService.enableItemAtAllLocations(item_id, merchantId);
+
+    if (!result.success) {
+        return res.status(result.status || 500).json({
+            error: result.error
+        });
+    }
+
     res.json(result);
 }));
 

@@ -39,5 +39,6 @@ module.exports = {
 
     // Audit Service
     getCatalogAudit: auditService.getCatalogAudit,
-    fixLocationMismatches: auditService.fixLocationMismatches
+    fixLocationMismatches: auditService.fixLocationMismatches,
+    enableItemAtAllLocations: auditService.enableItemAtAllLocations
 };
