@@ -322,14 +322,35 @@ async function enableItemAtAllLocations(itemId, merchantId) {
 
     logger.info('Enabling item at all locations from service', { itemId, merchantId });
 
-    const result = await squareApi.enableItemAtAllLocations(itemId, merchantId);
+    try {
+        const result = await squareApi.enableItemAtAllLocations(itemId, merchantId);
 
-    return {
-        success: true,
-        message: `Activated "${result.itemName}" at all locations`,
-        itemId: result.itemId,
-        itemName: result.itemName
-    };
+        return {
+            success: true,
+            message: `Activated "${result.itemName}" at all locations`,
+            itemId: result.itemId,
+            itemName: result.itemName
+        };
+    } catch (error) {
+        logger.error('Failed to enable item at all locations', {
+            itemId,
+            merchantId,
+            error: error.message
+        });
+
+        const isNotFound = error.message && error.message.includes('not found');
+        const isAuth = error.message && error.message.includes('authentication failed');
+
+        return {
+            success: false,
+            error: isNotFound
+                ? 'Item not found in Square catalog. It may have been deleted.'
+                : isAuth
+                    ? 'Square authorization failed. Please reconnect your Square account.'
+                    : 'Failed to activate item at all locations. Please try again.',
+            status: isNotFound ? 404 : isAuth ? 401 : 500
+        };
+    }
 }
 
 module.exports = {

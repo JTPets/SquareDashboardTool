@@ -504,7 +504,7 @@ async function updateCost(variationId, merchantId, costCents, vendorId = null) {
                     code: 'ITEM_NOT_AT_LOCATION',
                     parent_item_id: squareError.parentItemId,
                     variation_id: variationId,
-                    status: 409,
+                    status: 422,
                     square_error: true
                 };
             }

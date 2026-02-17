@@ -172,10 +172,13 @@ async function makeSquareRequest(endpoint, options = {}) {
                     // Throw immediately without retry by breaking out of the loop
                     const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
                     err.nonRetryable = true;
+                    err.squareErrors = data.errors || [];
                     throw err;
                 }
 
-                throw new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
+                const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
+                err.squareErrors = data.errors || [];
+                throw err;
             }
 
             return data;
@@ -4086,9 +4089,15 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
             }
 
             // Check if parent item is not enabled at the location
-            const isLocationMismatch = error.message &&
+            // Detect via structured Square error fields (preferred) or message string (fallback)
+            const squareErrors = error.squareErrors || [];
+            const hasStructuredLocationMismatch = squareErrors.some(e =>
+                e.code === 'INVALID_VALUE' && e.field === 'item_id'
+            );
+            const hasMessageLocationMismatch = error.message &&
                 error.message.includes('is enabled at unit') &&
                 error.message.includes('of type ITEM is not');
+            const isLocationMismatch = hasStructuredLocationMismatch || hasMessageLocationMismatch;
 
             if (isLocationMismatch) {
                 const parentItemId = currentVariationData?.item_id || null;

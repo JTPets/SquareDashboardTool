@@ -305,6 +305,10 @@ router.get('/catalog-audit', requireAuth, requireMerchant, validators.getCatalog
 /**
  * POST /api/catalog-audit/enable-item-at-locations
  * Enable a single parent item at all locations (used when cost update fails due to location mismatch)
+ *
+ * Tenant isolation: merchantId drives the Square access token lookup (getMerchantToken),
+ * so the token can only access that merchant's own catalog. No additional ownership check
+ * is needed — Square's API enforces that the token cannot read/modify other merchants' objects.
  */
 router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerchant, validators.enableItemAtLocations, asyncHandler(async (req, res) => {
     const { item_id } = req.body;
@@ -313,6 +317,12 @@ router.post('/catalog-audit/enable-item-at-locations', requireAuth, requireMerch
     logger.info('Enabling item at all locations from API', { merchantId, itemId: item_id });
 
     const result = await catalogService.enableItemAtAllLocations(item_id, merchantId);
+
+    if (!result.success) {
+        return res.status(result.status || 500).json({
+            error: result.error
+        });
+    }
 
     res.json(result);
 }));
