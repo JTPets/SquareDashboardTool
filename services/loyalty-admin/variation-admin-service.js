@@ -17,6 +17,10 @@ const logger = require('../../utils/logger');
 const { AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { getOfferById } = require('./offer-admin-service');
+const {
+    queryQualifyingVariations,
+    queryOfferForVariation
+} = require('./loyalty-queries');
 
 /**
  * Check if variations are already assigned to other offers
@@ -166,13 +170,7 @@ async function getQualifyingVariations(offerId, merchantId) {
         throw new Error('merchantId is required for getQualifyingVariations - tenant isolation required');
     }
 
-    const result = await db.query(`
-        SELECT * FROM loyalty_qualifying_variations
-        WHERE offer_id = $1 AND merchant_id = $2 AND is_active = TRUE
-        ORDER BY item_name, variation_name
-    `, [offerId, merchantId]);
-
-    return result.rows;
+    return queryQualifyingVariations(offerId, merchantId);
 }
 
 /**
@@ -186,17 +184,7 @@ async function getOfferForVariation(variationId, merchantId) {
         throw new Error('merchantId is required for getOfferForVariation - tenant isolation required');
     }
 
-    const result = await db.query(`
-        SELECT o.*, qv.variation_id
-        FROM loyalty_offers o
-        JOIN loyalty_qualifying_variations qv ON o.id = qv.offer_id
-        WHERE qv.variation_id = $1
-          AND qv.merchant_id = $2
-          AND qv.is_active = TRUE
-          AND o.is_active = TRUE
-    `, [variationId, merchantId]);
-
-    return result.rows[0] || null;
+    return queryOfferForVariation(variationId, merchantId);
 }
 
 /**

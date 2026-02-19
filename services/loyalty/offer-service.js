@@ -9,6 +9,11 @@
 
 const db = require('../../utils/database');
 const { loyaltyLogger } = require('./loyalty-logger');
+const {
+    queryOffersForVariation,
+    queryQualifyingVariations,
+    queryAllQualifyingVariationIds
+} = require('../loyalty-admin/loyalty-queries');
 
 /**
  * LoyaltyOfferService - Manages loyalty offers and qualifying variations
@@ -68,38 +73,21 @@ class LoyaltyOfferService {
    */
   async getOffersForVariation(variationId) {
     try {
-      const result = await db.query(`
-        SELECT
-          lo.id,
-          lo.offer_name as name,
-          lo.description,
-          lo.required_quantity,
-          lo.reward_quantity,
-          lo.window_months,
-          lo.is_active,
-          lqv.variation_id,
-          lqv.variation_name,
-          lqv.item_name
-        FROM loyalty_offers lo
-        INNER JOIN loyalty_qualifying_variations lqv ON lo.id = lqv.offer_id
-        WHERE lo.merchant_id = $1
-          AND lo.is_active = TRUE
-          AND lqv.variation_id = $2
-      `, [this.merchantId, variationId]);
+      const rows = await queryOffersForVariation(variationId, this.merchantId);
 
       this.tracer?.span('VARIATION_OFFERS_FETCHED', {
         variationId,
-        offerCount: result.rows.length,
+        offerCount: rows.length,
       });
 
       loyaltyLogger.debug({
         action: 'GET_OFFERS_FOR_VARIATION',
         variationId,
-        offerCount: result.rows.length,
+        offerCount: rows.length,
         merchantId: this.merchantId,
       });
 
-      return result.rows;
+      return rows;
     } catch (error) {
       loyaltyLogger.error({
         action: 'GET_OFFERS_FOR_VARIATION_ERROR',
@@ -162,20 +150,7 @@ class LoyaltyOfferService {
    */
   async getQualifyingVariations(offerId) {
     try {
-      const result = await db.query(`
-        SELECT
-          lqv.id,
-          lqv.variation_id,
-          lqv.variation_name,
-          lqv.item_name,
-          lqv.created_at
-        FROM loyalty_qualifying_variations lqv
-        INNER JOIN loyalty_offers lo ON lqv.offer_id = lo.id
-        WHERE lqv.offer_id = $1 AND lo.merchant_id = $2
-        ORDER BY lqv.item_name, lqv.variation_name
-      `, [offerId, this.merchantId]);
-
-      return result.rows;
+      return await queryQualifyingVariations(offerId, this.merchantId);
     } catch (error) {
       loyaltyLogger.error({
         action: 'GET_QUALIFYING_VARIATIONS_ERROR',
@@ -193,14 +168,8 @@ class LoyaltyOfferService {
    */
   async getAllQualifyingVariationIds() {
     try {
-      const result = await db.query(`
-        SELECT DISTINCT lqv.variation_id
-        FROM loyalty_qualifying_variations lqv
-        INNER JOIN loyalty_offers lo ON lqv.offer_id = lo.id
-        WHERE lo.merchant_id = $1 AND lo.is_active = TRUE
-      `, [this.merchantId]);
-
-      return new Set(result.rows.map(r => r.variation_id));
+      const ids = await queryAllQualifyingVariationIds(this.merchantId);
+      return new Set(ids);
     } catch (error) {
       loyaltyLogger.error({
         action: 'GET_ALL_QUALIFYING_VARIATION_IDS_ERROR',
