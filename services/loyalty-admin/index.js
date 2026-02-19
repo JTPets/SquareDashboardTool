@@ -97,7 +97,8 @@ const {
     lookupCustomerFromOrderRewards,
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
-    getCustomerEarnedRewards
+    getCustomerEarnedRewards,
+    getCustomerOfferProgress
 } = require('./customer-admin-service');
 
 // Expiration service
@@ -202,6 +203,7 @@ module.exports = {
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
     getCustomerDetails,
+    getCustomerOfferProgress,
     lookupCustomerFromLoyalty,
     lookupCustomerFromFulfillmentRecipient,
     lookupCustomerFromOrderRewards,
