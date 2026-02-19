@@ -54,7 +54,7 @@ const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/loyalty');
-const { getCustomerOfferProgress } = require('../services/loyalty');
+const { getCustomerOfferProgress } = require('../services/loyalty-admin');
 
 // ==================== OFFER MANAGEMENT ====================
 
