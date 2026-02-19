@@ -371,7 +371,7 @@ function renderBundleRows() {
               <small style="color:#9ca3af;margin-left:6px;">${escapeHtml(child.child_sku || '')}</small>
               ${deletedAlert}
             </td>
-            <td class="text-right">${child.stock}${child.committed_quantity > 0 ? '<br><small style="color:#92400e;">(' + child.available_quantity + ' avail)</small>' : ''}</td>
+            <td class="text-right">${child.committed_quantity > 0 ? child.available_quantity : child.stock}${child.committed_quantity > 0 ? '<br><small style="color:#92400e;">⚠️ ' + child.current_stock + ' on-hand</small>' : ''}</td>
             <td class="text-right">${child.stock_alert_min > 0 ? child.stock_alert_min : '-'}</td>
             <td class="text-right ${daysClass}">${daysStr}</td>
             <td class="text-right">
@@ -656,8 +656,8 @@ function renderTable() {
         </td>
         <td class="sku clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(item.sku || '')}" data-copy-label="SKU" title="Click to copy SKU">${escapeHtml(item.sku || '-')}</td>
         <td class="text-right">
-          ${item.current_stock}
-          ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.available_quantity} available, ${item.committed_quantity} committed to invoices">⚠️ ${item.available_quantity} avail</small>` : ''}
+          ${item.committed_quantity > 0 ? item.available_quantity : item.current_stock}
+          ${item.committed_quantity > 0 ? `<br><small style="color: #92400e;" title="${item.current_stock} on-hand, ${item.committed_quantity} committed to invoices">⚠️ ${item.current_stock} on-hand</small>` : ''}
         </td>
         <td class="text-right editable-cell">
           <div class="editable-display ${item.stock_alert_min ? 'has-value' : ''}"

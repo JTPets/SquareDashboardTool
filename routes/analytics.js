@@ -350,8 +350,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 let priority;
                 let reorder_reason;
 
-                // Handle out-of-stock items specially
-                if (currentStock <= urgentDays) {
+                // Handle out-of-stock items specially (use available, not on-hand)
+                if (availableQty <= urgentDays) {
                     if (dailyAvg > 0) {
                         priority = 'URGENT';
                         reorder_reason = 'Out of stock with active sales';
@@ -541,11 +541,14 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 velocityParams.push(location_id);
             }
 
-            // Fetch inventory for bundle children
+            // Fetch inventory for bundle children (on-hand and committed)
             let invQuery = `
-                SELECT catalog_object_id, COALESCE(SUM(quantity), 0) as stock
+                SELECT catalog_object_id,
+                    COALESCE(SUM(CASE WHEN state = 'IN_STOCK' THEN quantity ELSE 0 END), 0) as stock,
+                    COALESCE(SUM(CASE WHEN state = 'RESERVED_FOR_SALE' THEN quantity ELSE 0 END), 0) as committed
                 FROM inventory_counts
-                WHERE catalog_object_id = ANY($1) AND merchant_id = $2 AND state = 'IN_STOCK'
+                WHERE catalog_object_id = ANY($1) AND merchant_id = $2
+                    AND state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
             `;
             const invParams = [childVarIds, merchantId];
             if (location_id) {
@@ -582,7 +585,10 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             ]);
 
             const velMap = new Map(velResult.rows.map(r => [r.variation_id, parseFloat(r.daily_avg_quantity) || 0]));
-            const invMap = new Map(invResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
+            const invMap = new Map(invResult.rows.map(r => [r.catalog_object_id, {
+                stock: parseInt(r.stock) || 0,
+                committed: parseInt(r.committed) || 0
+            }]));
             const minMap = new Map(minResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
             const deletedMap = new Map(minResult.rows.map(r => [r.id, r.is_deleted === true]));
             const vendorCodeMap = new Map(minResult.rows.map(r => [r.id, r.vendor_code || null]));
@@ -624,7 +630,10 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     const bundleDrivenDaily = bundleVelocity * child.quantity_in_bundle;
                     const totalDailyVelocity = childIndVelocity + bundleDrivenDaily;
 
-                    const stock = invMap.get(child.child_variation_id) || 0;
+                    const inv = invMap.get(child.child_variation_id) || { stock: 0, committed: 0 };
+                    const onHand = inv.stock;
+                    const committedQty = inv.committed;
+                    const stock = onHand - committedQty;  // available stock
                     const minStock = minMap.get(child.child_variation_id) || 0;
 
                     // Individual need: target stock for supply_days using TOTAL velocity
@@ -648,7 +657,10 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                         child_sku: child.child_sku,
                         quantity_in_bundle: child.quantity_in_bundle,
                         individual_cost_cents: child.individual_cost_cents || 0,
-                        stock,
+                        stock,  // available (on_hand - committed)
+                        current_stock: onHand,
+                        committed_quantity: committedQty,
+                        available_quantity: stock,
                         stock_alert_min: minStock,
                         available_for_bundles: availableForBundles,
                         can_assemble: canAssemble,
