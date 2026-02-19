@@ -16,10 +16,14 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
 
+// Track consecutive runs with zero deletions per merchant (resets on PM2 restart)
+const consecutiveZeroDeletions = new Map();
+const CONSECUTIVE_WARN_THRESHOLD = 3;
+
 /**
  * Run committed inventory reconciliation for all active merchants.
- * Uses the existing syncCommittedInventory function which does a full
- * rebuild from Square's Invoice API.
+ * Uses the existing syncCommittedInventory function which reconciles
+ * committed_inventory against Square's Invoice API.
  *
  * @returns {Promise<Object>} Results per merchant
  */
@@ -47,6 +51,26 @@ async function runCommittedInventoryReconciliation() {
 
             const syncResult = await squareApi.syncCommittedInventory(merchant.id);
 
+            // Track consecutive zero-deletion runs for non-skipped merchants
+            if (syncResult && !syncResult.skipped && syncResult.rows_before > 0) {
+                const prev = consecutiveZeroDeletions.get(merchant.id) || 0;
+                if (syncResult.rows_deleted === 0) {
+                    const streak = prev + 1;
+                    consecutiveZeroDeletions.set(merchant.id, streak);
+
+                    if (streak >= CONSECUTIVE_WARN_THRESHOLD) {
+                        logger.warn('Committed inventory reconciliation has made zero deletions for multiple consecutive days — verify invoice status sync is working', {
+                            merchantId: merchant.id,
+                            businessName: merchant.business_name,
+                            consecutiveDays: streak,
+                            rowsRemaining: syncResult.rows_remaining
+                        });
+                    }
+                } else {
+                    consecutiveZeroDeletions.set(merchant.id, 0);
+                }
+            }
+
             results.push({
                 merchantId: merchant.id,
                 businessName: merchant.business_name,
@@ -56,7 +80,7 @@ async function runCommittedInventoryReconciliation() {
 
             logger.info('Committed inventory reconciliation complete for merchant', {
                 merchantId: merchant.id,
-                result: typeof syncResult === 'object' ? syncResult : { records: syncResult }
+                result: syncResult
             });
         } catch (error) {
             logger.error('Committed inventory reconciliation failed for merchant', {
