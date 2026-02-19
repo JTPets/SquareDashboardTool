@@ -550,7 +550,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 WHERE catalog_object_id = ANY($1) AND merchant_id = $2
                     AND state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
             `;
-            const invParams = [childVarIds, merchantId];
+            const invParams = [allBundleVarIds, merchantId];
             if (location_id) {
                 invQuery += ` AND location_id = $3`;
                 invParams.push(location_id);
@@ -620,6 +620,22 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 bundleAffiliations[row.child_variation_id].push(row.bundle_item_name);
             }
 
+            // Propagate bundle parent committed inventory to children.
+            // A child in multiple bundles accumulates committed from all parents.
+            const bundleCommittedMap = new Map();
+            for (const [, bg] of bundleGroups) {
+                const parentInv = invMap.get(bg.bundle_variation_id) || { stock: 0, committed: 0 };
+                if (parentInv.committed > 0) {
+                    for (const child of bg.children) {
+                        const current = bundleCommittedMap.get(child.child_variation_id) || 0;
+                        bundleCommittedMap.set(
+                            child.child_variation_id,
+                            current + (parentInv.committed * child.quantity_in_bundle)
+                        );
+                    }
+                }
+            }
+
             // For each bundle, calculate analysis
             for (const [, bundle] of bundleGroups) {
                 const bundleVelocity = velMap.get(bundle.bundle_variation_id) || 0;
@@ -632,13 +648,23 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 
                     const inv = invMap.get(child.child_variation_id) || { stock: 0, committed: 0 };
                     const onHand = inv.stock;
-                    const committedQty = inv.committed;
+                    const individualCommitted = inv.committed;
+                    const bundleCommittedForChild = bundleCommittedMap.get(child.child_variation_id) || 0;
+                    const committedQty = individualCommitted + bundleCommittedForChild;
                     const stock = onHand - committedQty;  // available stock
                     const minStock = minMap.get(child.child_variation_id) || 0;
 
-                    // Individual need: target stock for supply_days using TOTAL velocity
-                    const targetStock = (totalDailyVelocity * supplyDaysNum) + minStock;
-                    const individualNeed = Math.max(0, Math.ceil(targetStock - stock));
+                    // Individual need: use shared reorder formula (consistent with standalone items)
+                    const individualNeed = calculateReorderQuantity({
+                        velocity: totalDailyVelocity,
+                        supplyDays: supplyDaysNum,
+                        safetyDays,
+                        casePack: 1,
+                        reorderMultiple: 1,
+                        stockAlertMin: minStock,
+                        stockAlertMax: null,
+                        currentStock: stock
+                    });
 
                     // Assemblable from this child
                     const availableForBundles = Math.max(0, stock - minStock);
