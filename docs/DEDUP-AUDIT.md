@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-17
 **Scope**: Full codebase — services/, routes/, public/js/, jobs/, utils/
-**Status**: 7 of 18 findings fixed (G-1, G-2, G-6, L-1, L-2, L-3, R-1). Remaining items tracked as BACKLOG-17 through BACKLOG-28 in TECHNICAL_DEBT.md.
+**Status**: 8 of 18 findings fixed (G-1, G-2, G-6, L-1, L-2, L-3, L-6, R-1). Remaining items tracked as BACKLOG-17 through BACKLOG-31 in TECHNICAL_DEBT.md.
 
 ---
 
@@ -15,7 +15,7 @@
 | L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 | BACKLOG-16 |
 | L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 | BACKLOG-17 |
 | L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | **FIXED** (shared `loyalty-queries.js`, 2026-02-19) |
-| L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | BACKLOG-19 |
+| L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | **FIXED** (unified `square-api-client.js`, 2026-02-19) |
 | L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | **FIXED** (audit job calls `detectRewardRedemptionFromOrder()`, 2026-02-19) |
 | R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | **FIXED** (shared `reorder-math.js`, BACKLOG-28 for vendor config wiring) |
 | R-2 | Days-of-stock / days-until-stockout — 5 implementations | 5 | High | M | P2 | BACKLOG-21 |
@@ -146,29 +146,21 @@ All 3 bugs would have caused the webhook layer to process purchases against soft
 
 ---
 
-### L-6: Square API Client — Two Wrapper Layers
+### L-6: Square API Client — Two Wrapper Layers — **FIXED**
 
-**What's duplicated**: The loyalty layer has its own Square API client class (`LoyaltySquareClient`) that wraps the SDK, while the admin layer uses `getSquareClientForMerchant()` from middleware or `shared-utils.js` for direct SDK access.
+**Status**: Resolved 2026-02-19. Ported 429 retry logic from `LoyaltySquareClient` into the admin layer. All active callers migrated to unified `SquareApiClient`.
 
-**Files + line numbers**:
+**What was fixed**:
+- Ported `squareApiRequest()` (with 429 rate-limit retry and `retry-after` header backoff) into `services/loyalty-admin/shared-utils.js`
+- Created `services/loyalty-admin/square-api-client.js` with `SquareApiClient` class providing the same convenience methods (getCustomer, getLoyaltyAccount, getOrder, createCustomerGroup, batchUpsertCatalog, getCatalogObject, addCustomerToGroup, removeCustomerFromGroup)
+- Migrated 3 active callers:
+  - `services/webhook-handlers/customer-handler.js` (getCustomer)
+  - `services/webhook-handlers/loyalty-handler.js` (getLoyaltyAccount, getOrder)
+  - `services/seniors/seniors-service.js` (createCustomerGroup, batchUpsertCatalog, getCatalogObject, addCustomerToGroup, removeCustomerFromGroup)
+- Updated `__tests__/services/seniors-service.test.js` mock path
+- `services/loyalty/square-client.js` is now dead code (only referenced by the dead modern loyalty layer)
 
-| Implementation | File | Lines | Pattern |
-|---------------|------|-------|---------|
-| Custom HTTP client | `services/loyalty/square-client.js` | 50-496 | Custom request wrapper with rate-limit retry |
-| Shared utils | `services/loyalty-admin/shared-utils.js` | 20-66 | `fetchWithTimeout()` + `getSquareAccessToken()` |
-| SDK middleware | `middleware/merchant.js` | (used by admin layer) | `getSquareClientForMerchant()` |
-
-**Key methods in `square-client.js`**:
-- `getCustomer()` — Lines 283-289
-- `searchCustomers()` — Lines 296-302
-- `searchLoyaltyEvents()` — Lines 309-315
-- `getOrder()` — Lines 483-496
-
-**Risk**: Rate-limit handling, retry logic, and timeout behavior differ between the two clients. The loyalty layer has built-in retry (lines 131-174) while the admin layer relies on the SDK's defaults. If Square changes rate limits, only one client may handle it correctly.
-
-**Suggested fix**: Evaluate whether the custom client adds value over the SDK's built-in retry. If so, make it the shared implementation. If not, remove it in favor of the standard `getSquareClientForMerchant()` pattern.
-
-**Effort**: M — Requires testing all Square API interactions after migration.
+**Follow-up**: BACKLOG-31 — Remove dead modern loyalty layer (`services/loyalty/`), including `square-client.js`.
 
 ---
 

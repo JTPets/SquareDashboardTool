@@ -10,15 +10,15 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
-// Mock LoyaltySquareClient
+// Mock SquareApiClient (migrated from LoyaltySquareClient in L-6)
 const mockSquareClient = {
     initialize: jest.fn().mockResolvedValue({}),
     getCatalogObject: jest.fn(),
     batchUpsertCatalog: jest.fn(),
 };
 
-jest.mock('../../services/loyalty/square-client', () => ({
-    LoyaltySquareClient: jest.fn().mockImplementation(() => mockSquareClient),
+jest.mock('../../services/loyalty-admin/square-api-client', () => ({
+    SquareApiClient: jest.fn().mockImplementation(() => mockSquareClient),
     SquareApiError: class SquareApiError extends Error {
         constructor(message, status, endpoint, details = {}) {
             super(message);
@@ -30,7 +30,7 @@ jest.mock('../../services/loyalty/square-client', () => ({
     },
 }));
 
-const { SquareApiError } = require('../../services/loyalty/square-client');
+const { SquareApiError } = require('../../services/loyalty-admin/square-api-client');
 const { SeniorsService } = require('../../services/seniors/seniors-service');
 
 describe('SeniorsService', () => {
