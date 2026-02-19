@@ -52,7 +52,7 @@ res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
 ```
 routes/          → API endpoints (thin - validation + call service)
 middleware/      → Auth, merchant context, validators, security
-services/        → Business logic (loyalty/ has good examples)
+services/        → Business logic (loyalty-admin/ has good examples)
 utils/           → Shared utilities (database, Square API, logging)
 database/        → schema.sql + migrations/
 jobs/            → Background jobs and cron tasks
@@ -178,9 +178,10 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 ├── middleware/          # auth, merchant, security, validators/
 ├── services/            # Business logic
 │   ├── webhook-processor.js
-│   ├── webhook-handlers/ (7 handlers)
-│   ├── loyalty/         # Loyalty event logging
+│   ├── webhook-handlers/ (8 handlers)
+│   ├── loyalty/         # Dead code — feature flag routes all traffic to loyalty-admin/ (BACKLOG-31)
 │   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
+│   ├── seniors/         # Seniors discount automation
 │   ├── catalog/         # Catalog data management
 │   └── bundle-calculator.js  # Bundle order optimization
 ├── jobs/                # Cron tasks
@@ -191,7 +192,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Loyalty-Admin Module Structure
 
-The `services/loyalty-admin/` directory contains 15 modular services (53 exports). The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 19 modular services (59 exports). The legacy monolith has been fully eliminated.
 
 **Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
 
@@ -235,7 +236,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) | Vulnerability history, fixes, security best practices |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
-| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 7 fixed |
+| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 10 fixed |
 | [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
 
 ---
@@ -243,7 +244,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 ## Current Status
 
 **Grade**: A+ (All P0 and P1 issues FIXED)
-**Last Review**: 2026-02-06
+**Last Review**: 2026-02-19
 
 | Priority | Status |
 |----------|--------|
@@ -256,71 +257,59 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Bundle Reorder System | Complete (new feature) |
 | P3 Scalability | Optional |
 
-### Backlog (Target: TBD)
+### Backlog — Open Items
 
 | Priority | Item | Description |
 |----------|------|-------------|
-| ~~High~~ | ~~BACKLOG-10~~ | ~~Invoice-driven committed inventory~~ **COMPLETE** (invoice webhooks + daily reconciliation) |
-| ~~Medium-High~~ | ~~BACKLOG-2~~ | ~~Delivery routing webhook sync~~ **COMPLETE** (investigated 2026-02-12 — webhook→delivery ingestion, deduplication, route transactions, Square sync all working correctly) |
-| ~~Medium~~ | ~~BACKLOG-11~~ | ~~Subscribe to `customer.created` webhook~~ **COMPLETE** (handler + config already wired) |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
-| ~~Medium~~ | ~~BACKLOG-6~~ | ~~Consolidate Square discount/pricing rule deletion code~~ **COMPLETE** (shared `utils/square-catalog-cleanup.js`, 21 tests) |
+| Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
+| Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
+| Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
-| Low | BACKLOG-7 | Loyalty audit job per-event Square API calls |
+| Low | BACKLOG-7 | Loyalty audit job per-event Square API calls (batch optimization) |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
-| Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — **investigated 2026-02-12**, no immediate action needed (see TECHNICAL_DEBT.md) |
+| Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
 | Low | BACKLOG-12 | Driver share link validation failure |
-| Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
-| ~~Medium~~ | ~~BACKLOG-14~~ | ~~Reorder formula duplication~~ **COMPLETE** (shared `services/catalog/reorder-math.js`, 31 tests) |
-| ~~Medium~~ | ~~BACKLOG-15~~ | ~~Reward progress / threshold crossing — 2 different algorithms (DEDUP L-2)~~ **COMPLETE** (split-row rollover ported to admin layer, 8 tests) |
-| ~~Medium~~ | ~~BACKLOG-16~~ | ~~redeemReward() name collision — same name, different signatures (DEDUP L-3)~~ **COMPLETE** (dead code removed from loyalty layer, now read-only) |
-| Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
-| ~~Low~~ | ~~BACKLOG-18~~ | ~~Offer/variation query overlap between layers (DEDUP L-5)~~ **COMPLETE** (shared `loyalty-queries.js`, fixed 3 missing `is_active` filters) |
-| ~~Low~~ | ~~BACKLOG-19~~ | ~~Dual Square API client layers with divergent retry (DEDUP L-6)~~ **COMPLETE** (unified `square-api-client.js`, 429 retry ported to admin layer) |
-| ~~Low~~ | ~~BACKLOG-20~~ | ~~Redemption detection asymmetry — audit job simplified check (DEDUP L-7)~~ **COMPLETE** (audit job calls `detectRewardRedemptionFromOrder()` with `dryRun: true`) |
 | Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |
 | Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
 | Low | BACKLOG-24 | Order normalization boilerplate in order-handler.js (DEDUP G-4) |
 | Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
-| Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
-| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription — re-register webhooks |
-| ~~High~~ | ~~BACKLOG-30~~ | ~~Consolidate divergent loyalty order processing paths into single atomic intake function~~ **COMPLETE** (`services/loyalty-admin/order-intake.js`, 14 tests) |
+| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
 | Low | BACKLOG-31 | Remove dead modern loyalty layer (`services/loyalty/`) |
 
-#### BACKLOG-30: Consolidate Order Processing (COMPLETE)
+### Backlog — Archive (Completed)
 
-**Context**: At least 3 divergent code paths wrote to `loyalty_processed_orders` and `loyalty_purchase_events`. The admin/legacy paths wrote to `loyalty_purchase_events` only — never to `loyalty_processed_orders`. The writes were not atomic, causing orders to become invisible to the audit system (the "missed redemption" bug).
+| Item | Description | Completed |
+|------|-------------|-----------|
+| BACKLOG-2 | Delivery routing webhook sync | 2026-02-12 (investigated — all working correctly) |
+| BACKLOG-6 | Consolidate Square discount/pricing rule deletion code | 2026-02-06 (shared `utils/square-catalog-cleanup.js`, 21 tests) |
+| BACKLOG-10 | Invoice-driven committed inventory | 2026-02-19 (invoice webhooks + daily reconciliation) |
+| BACKLOG-11 | Subscribe to `customer.created` webhook | 2026-02-19 (handler + config wired) |
+| BACKLOG-14 | Reorder formula duplication (DEDUP R-1) | 2026-02-17 (shared `services/catalog/reorder-math.js`, 31 tests) |
+| BACKLOG-15 | Reward progress / threshold crossing (DEDUP L-2) | 2026-02-17 (split-row rollover ported to admin layer, 8 tests) |
+| BACKLOG-16 | redeemReward() name collision (DEDUP L-3) | 2026-02-17 (dead code removed from loyalty layer) |
+| BACKLOG-18 | Offer/variation query overlap (DEDUP L-5) | 2026-02-19 (shared `loyalty-queries.js`, fixed 3 missing `is_active` filters) |
+| BACKLOG-19 | Dual Square API client layers (DEDUP L-6) | 2026-02-19 (unified `square-api-client.js`, 429 retry ported) |
+| BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
+| BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
 
-**Solution**: Created `services/loyalty-admin/order-intake.js` with `processLoyaltyOrder({ order, merchantId, squareCustomerId, source })` — a single intake function that writes both tables in the same database transaction. Modified `processQualifyingPurchase()` to accept an optional external transaction client for atomic multi-table writes.
+#### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls (Batch Optimization)
 
-**Entry points updated** (all now route through `processLoyaltyOrder`):
-- `services/webhook-handlers/order-handler.js` (`_processLoyalty`, `_processPaymentForLoyalty`)
-- `services/webhook-handlers/loyalty-handler.js` (`_processLoyaltyEventWithOrder`)
-- `jobs/loyalty-catchup-job.js` (`processMerchantCatchup`)
-- `services/loyalty-admin/backfill-service.js` (`addOrdersToLoyaltyTracking`, `runLoyaltyCatchup`, `processOrderForLoyaltyIfNeeded`)
+**Context**: The audit job fetches individual orders via Square API for `REDEEM_REWARD` events and passes them to `detectRewardRedemptionFromOrder()` for canonical detection. At current volume (2-5 events per 48h window) this is fine, but a backfill audit over weeks/months would hit Square API rate limits.
 
-**Flagged unique logic** (separate concerns, not merged into intake):
-- Refund processing: `processRefund()` writes negative-quantity rows to `loyalty_purchase_events`
-- Redemption detection: `detectRewardRedemptionFromOrder()` — handled after intake returns
-- Modern layer (`services/loyalty/`): `LoyaltyWebhookService.processOrder()` is no longer called by any entry point; feature flag branches removed
-
-**Completed**: 2026-02-19
-
-#### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
-
-**Context**: `orderHasOurDiscount()` in `jobs/loyalty-audit-job.js` fetches the full order via Square API for every `REDEEM_REWARD` event to check if it's our custom discount. At current volume (2-5 events per 48h window) this is fine, but a backfill audit over weeks/months would hit Square API rate limits.
+> **Note**: The original `orderHasOurDiscount()` was removed in the L-7 fix (BACKLOG-20, 2026-02-19). Detection now uses the canonical `detectRewardRedemptionFromOrder()` with `dryRun: true` from `services/loyalty-admin/reward-service.js`. The batch optimization proposal below is still valid.
 
 **Files involved**:
-- `jobs/loyalty-audit-job.js:orderHasOurDiscount()` (lines 152-178)
+- `jobs/loyalty-audit-job.js:fetchSquareOrder()` + `detectRewardRedemptionFromOrder()` call
 
-**Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then check discounts in memory.
+**Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then run canonical detection in memory.
 
-**Audit date**: 2026-02-02
+**Audit date**: 2026-02-02 (updated 2026-02-19)
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 

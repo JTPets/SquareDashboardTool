@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-17
 **Scope**: Full codebase — services/, routes/, public/js/, jobs/, utils/
-**Status**: 8 of 18 findings fixed (G-1, G-2, G-6, L-1, L-2, L-3, L-6, R-1). Remaining items tracked as BACKLOG-17 through BACKLOG-31 in TECHNICAL_DEBT.md.
+**Status**: 10 of 18 findings fixed (G-1, G-2, G-6, L-1, L-2, L-3, L-5, L-6, L-7, R-1). Remaining items tracked as BACKLOG-17 through BACKLOG-31 in TECHNICAL_DEBT.md.
 
 ---
 
@@ -11,8 +11,8 @@
 | ID | Finding | Files | Risk | Effort | Priority | Status |
 |----|---------|-------|------|--------|----------|--------|
 | L-1 | Customer identification — 3 parallel implementations | 3 | Critical | L | P1 | **FIXED** |
-| L-2 | Reward progress / threshold crossing — 2 implementations | 2 | High | L | P1 | BACKLOG-15 |
-| L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 | BACKLOG-16 |
+| L-2 | Reward progress / threshold crossing — 2 implementations | 2 | High | L | P1 | **FIXED** (split-row rollover ported, 2026-02-17) |
+| L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 | **FIXED** (dead code removed, 2026-02-17) |
 | L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 | BACKLOG-17 |
 | L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | **FIXED** (shared `loyalty-queries.js`, 2026-02-19) |
 | L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | **FIXED** (unified `square-api-client.js`, 2026-02-19) |
@@ -463,31 +463,30 @@ Each call site also has its own `getSquareClientForMerchant()` initialization (l
 
 ---
 
-## Recommendations
+## Recommendations (Updated 2026-02-19)
 
-### Immediate (next sprint)
+### Completed Since Initial Audit
 
-1. **G-1**: Extract `escapeHtml()` to shared utility — lowest risk, highest file count reduction
-2. **R-1**: Consolidate reorder formula (BACKLOG-14) — already flagged, highest business risk
-3. **R-3**: Standardize available vs total stock — small change, fixes data inconsistency
+- ~~**G-1**: Extract `escapeHtml()` to shared utility~~ FIXED
+- ~~**G-2**: Standardize idempotency key generation~~ FIXED
+- ~~**G-6**: Extract `escapeAttr()` to shared utility~~ FIXED (with G-1)
+- ~~**L-1**: Consolidate customer identification~~ FIXED
+- ~~**L-2**: Unify reward progress calculation~~ FIXED (split-row rollover)
+- ~~**L-3**: Rename or merge `redeemReward()`~~ FIXED (dead code removed)
+- ~~**L-5**: Extract shared offer/variation query module~~ FIXED (`loyalty-queries.js`)
+- ~~**L-6**: Evaluate dual Square API client layers~~ FIXED (`square-api-client.js`)
+- ~~**L-7**: Canonical redemption detection in audit job~~ FIXED
+- ~~**R-1**: Consolidate reorder formula~~ FIXED (`reorder-math.js`)
 
-### Short-term
+### Next Priority
 
-4. **L-1**: Consolidate customer identification to single implementation
-5. **L-3**: Rename or merge `redeemReward()` functions
-6. **L-4**: Deduplicate customer lookup helpers between layers
-7. **G-2**: Standardize idempotency key generation
+1. **R-3**: Standardize available vs total stock (BACKLOG-22) — small change, fixes data inconsistency
+2. **L-4**: Deduplicate customer lookup helpers (BACKLOG-17) — reduces cross-layer risk
+3. **R-2**: Create shared days-of-stock calculation (BACKLOG-21) — ties to R-3
 
-### Medium-term
+### Low-priority (Bundle Together)
 
-8. **L-2**: Unify reward progress calculation algorithm
-9. **R-2**: Create shared days-of-stock calculation
-10. **L-5**: Extract shared offer/variation query module
-11. **G-3**: Create shared currency formatting utility
-
-### Low-priority
-
-12. **L-6**: Evaluate dual Square API client layers
-13. **G-4**: Extract `fetchAndNormalizeOrder()` helper
-14. **G-5**: Create location lookup helpers
-15. **G-6, G-7, G-8**: Bundle into shared frontend utility effort with G-1
+4. **G-3**: Create shared currency formatting utility (BACKLOG-23)
+5. **G-4**: Extract `fetchAndNormalizeOrder()` helper (BACKLOG-24)
+6. **G-5**: Create location lookup helpers (BACKLOG-25)
+7. **G-7, G-8**: Bundle into shared frontend utility effort (BACKLOG-26, BACKLOG-27)

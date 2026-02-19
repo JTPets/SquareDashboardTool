@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Security Audit](./SECURITY_AUDIT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Review**: 2026-02-06
+**Last Review**: 2026-02-19
 **Master Engineering Review**: 2026-01-26
 **Current Grade**: A+ (All P0 and P1 security issues FIXED)
 **Target Grade**: A++ (Production-ready SaaS)
@@ -183,8 +183,8 @@ PRODUCTION FLOW (2026-02-05)
                                     ┌──────────────────┴──────────────────┐
                                     ▼                                     ▼
                       services/loyalty/              services/loyalty-admin/
-                      (Modern webhook processing)    (15 modular services)
-                      ├── webhook-service.js         ├── index.js (47 exports)
+                      (DEAD CODE — BACKLOG-31)       (19 modular services)
+                      ├── webhook-service.js         ├── index.js (59 exports)
                       ├── square-client.js           ├── purchase-service.js
                       ├── customer-service.js        ├── reward-service.js
                       ├── offer-service.js           ├── webhook-processing-service.js
@@ -194,10 +194,10 @@ PRODUCTION FLOW (2026-02-05)
                       └── loyalty-tracer.js          └── ... (9 more modules)
 
   routes/loyalty.js ───────────────────► services/loyalty-admin/
-  (Admin API - 47 function calls)
+  (Admin API - 59 exports)
 ```
 
-The legacy `loyalty-service.js` monolith has been **fully eliminated**. All functions extracted to 15 dedicated modules in `services/loyalty-admin/`. See [ARCHITECTURE.md](./ARCHITECTURE.md#loyalty-admin-modules) for the full module structure.
+The legacy `loyalty-service.js` monolith has been **fully eliminated**. All functions extracted to 19 dedicated modules in `services/loyalty-admin/`. See [ARCHITECTURE.md](./ARCHITECTURE.md#loyalty-admin-modules) for the full module structure.
 
 #### Migration Plan
 
@@ -272,7 +272,7 @@ async function getItems(merchantId, filters) {
 ```
 services/                # Business logic services
 ├── loyalty/             # Modern service (P1-1)
-├── loyalty-admin/       # Modular loyalty admin (15 modules, 47 exports)
+├── loyalty-admin/       # Modular loyalty admin (19 modules, 59 exports)
 ├── catalog/             # Catalog data management (P1-2)
 ├── merchant/            # Settings service
 ├── delivery/            # Delivery order management
@@ -798,7 +798,7 @@ See [EVENT_DELEGATION.md - API Response Data Wrapper Mismatch](./archive/EVENT_D
 |-----------|--------|----------|
 | `loyalty_customers` table | ✅ Exists | `database/schema.sql` |
 | `birthday` column | ✅ Added | `database/migrations/032_seniors_day.sql` |
-| `customer.updated` webhook | ✅ Exists | `services/webhook-handlers/catalog-handler.js:88-147` |
+| `customer.created/updated` webhook | ✅ Exists | `services/webhook-handlers/customer-handler.js` |
 | `cacheCustomerDetails()` | ✅ Exists | `services/loyalty-admin/customer-cache-service.js` |
 | Customer group CRUD | ✅ Exists | `services/loyalty-admin/square-discount-service.js` |
 | Bulk customer sync cron | ❌ Not needed | Only capture on change |
@@ -852,7 +852,7 @@ CREATE INDEX idx_loyalty_customers_birthday
 | `getCustomerDetails()` | `services/loyalty-admin/customer-admin-service.js` | Fetch from Square API |
 | `addCustomerToGroup()` | `services/loyalty-admin/square-discount-service.js` | Add customer to group |
 | `removeCustomerFromGroup()` | `services/loyalty-admin/square-discount-service.js` | Remove from group |
-| `handleCustomerUpdated()` | `services/webhook-handlers/catalog-handler.js:88-147` | Webhook handler |
+| `handleCustomerChange()` | `services/webhook-handlers/customer-handler.js` | Webhook handler (handles both `customer.created` and `customer.updated`) |
 
 #### Known Gap: Birthday Removal Ignored
 
@@ -1012,11 +1012,11 @@ The application already has robust recovery for most scenarios:
 
 ---
 
-### BACKLOG-10: Invoice-Driven Committed Inventory (Replace Order-Triggered Full Resync)
+### ~~BACKLOG-10: Invoice-Driven Committed Inventory (Replace Order-Triggered Full Resync)~~ COMPLETE
 **Identified**: 2026-02-11
-**Priority**: High (API optimization — eliminates ~100-200 Square API calls/day)
-**Status**: Plan complete, ready to implement
-**Target**: TBD
+**Priority**: ~~High~~ Complete
+**Status**: **COMPLETE** (2026-02-19) — All 6 phases implemented
+**Target**: N/A
 
 **Problem**: Every `order.created`, `order.updated`, and `order.fulfillment.updated` webhook triggers `syncCommittedInventory()`, which:
 1. **DELETEs** all `RESERVED_FOR_SALE` rows for the merchant
@@ -1130,11 +1130,11 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-11: Subscribe to `customer.created` Webhook (Loyalty Gap)
+### ~~BACKLOG-11: Subscribe to `customer.created` Webhook (Loyalty Gap)~~ COMPLETE
 **Identified**: 2026-02-11
-**Priority**: Medium (closes loyalty tracking gap)
-**Status**: Ready to implement (trivial change)
-**Target**: Implement alongside BACKLOG-10
+**Priority**: ~~Medium~~ Complete
+**Status**: **COMPLETE** (2026-02-19) — `customer.created` wired to `customer-handler.js:handleCustomerChange()` in webhook-handlers/index.js
+**Target**: N/A
 
 **Problem**: The app subscribes to `customer.updated` and `customer.deleted` but NOT `customer.created`. When a new customer is created and immediately places an order, the loyalty catchup logic that runs on `customer.updated` never fires for that first interaction. The customer's first order may not be attributed until a subsequent update event.
 
@@ -1195,12 +1195,12 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-14: Reorder Formula Duplication (DEDUP-AUDIT R-1)
+### ~~BACKLOG-14: Reorder Formula Duplication (DEDUP-AUDIT R-1)~~ COMPLETE
 
 **Identified**: 2026-02-15
-**Priority**: Medium — **3 active divergences found** (2026-02-17 audit)
-**Status**: Divergences documented, not fixed — awaiting decision on canonical behavior
-**Target**: Next reorder logic change
+**Priority**: ~~Medium~~ Complete
+**Status**: **COMPLETE** (2026-02-17) — Shared `services/catalog/reorder-math.js`, 31 tests. All 3 divergences resolved.
+**Target**: N/A
 
 **Problem**: The reorder quantity calculation exists in two places:
 - `routes/analytics.js` — JS post-processing (lines ~378-423)
@@ -1281,12 +1281,12 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-18: Offer/Variation Query Overlap (DEDUP-AUDIT L-5)
+### ~~BACKLOG-18: Offer/Variation Query Overlap (DEDUP-AUDIT L-5)~~ COMPLETE
 
 **Identified**: 2026-02-17
-**Priority**: Low (similar SQL, different layers)
-**Status**: Documented, not fixed
-**Target**: TBD
+**Priority**: ~~Low~~ Complete
+**Status**: **COMPLETE** (2026-02-19) — Shared `loyalty-queries.js`, fixed 3 missing `is_active` filters
+**Target**: N/A
 
 **Problem**: Offer and variation lookup queries exist in both `services/loyalty/offer-service.js` (6 functions) and `services/loyalty-admin/variation-admin-service.js` + `offer-admin-service.js` (5 functions) with similar-but-not-identical SQL (different join conditions, active filters).
 
@@ -1305,12 +1305,12 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-19: Dual Square API Client Layers (DEDUP-AUDIT L-6)
+### ~~BACKLOG-19: Dual Square API Client Layers (DEDUP-AUDIT L-6)~~ COMPLETE
 
 **Identified**: 2026-02-17
-**Priority**: Low (works correctly, but divergent retry behavior)
-**Status**: Documented, not fixed
-**Target**: TBD
+**Priority**: ~~Low~~ Complete
+**Status**: **COMPLETE** (2026-02-19) — Unified `square-api-client.js`, 429 retry ported to admin layer
+**Target**: N/A
 
 **Problem**: The loyalty layer has a custom `LoyaltySquareClient` (`services/loyalty/square-client.js:50-496`) with built-in rate-limit retry logic. The admin layer uses `fetchWithTimeout()` + `getSquareAccessToken()` from `services/loyalty-admin/shared-utils.js` or `getSquareClientForMerchant()` from middleware. Rate-limit handling, retry logic, and timeout behavior differ between clients.
 
@@ -1329,12 +1329,12 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
-### BACKLOG-20: Redemption Detection Asymmetry (DEDUP-AUDIT L-7)
+### ~~BACKLOG-20: Redemption Detection Asymmetry (DEDUP-AUDIT L-7)~~ COMPLETE
 
 **Identified**: 2026-02-17
-**Priority**: Low (no current bug, but audit job has simplified check)
-**Status**: Documented, not fixed
-**Target**: TBD
+**Priority**: ~~Low~~ Complete
+**Status**: **COMPLETE** (2026-02-19) — Audit job calls `detectRewardRedemptionFromOrder()` with `dryRun: true`
+**Target**: N/A
 
 **Problem**: Full redemption detection logic exists only in admin layer (`services/loyalty-admin/reward-service.js:469-666` with 2 matching methods). The audit job (`jobs/loyalty-audit-job.js:152-178`) has a simplified `orderHasOurDiscount()` that could produce false positives/negatives if detection rules evolve.
 
@@ -1517,19 +1517,23 @@ Full audit of all 140+ Square webhook event types against app features. Categori
 | Vendors (2) | `vendor.created`, `vendor.updated` | catalog |
 | Locations (2) | `location.created`, `location.updated` | catalog |
 | Subscriptions (5) | `subscription.created`, `subscription.updated`, `invoice.payment_made`, `invoice.payment_failed`, `customer.deleted` | subscription |
+| Committed Inventory (7) | `invoice.created`, `invoice.updated`, `invoice.published`, `invoice.canceled`, `invoice.deleted`, `invoice.refunded`, `invoice.scheduled_charge_failed` | inventory |
+| Customer (1) | `customer.created` | customer |
 
-#### Should Subscribe — High Priority (8 events)
+#### ~~Should Subscribe — High Priority (8 events)~~ NOW SUBSCRIBED
 
-| Event | Reason | Related Backlog |
-|-------|--------|----------------|
-| `invoice.created` | Committed inventory: new commitment | BACKLOG-10 |
-| `invoice.updated` | Committed inventory: status/line item changes | BACKLOG-10 |
-| `invoice.published` | Committed inventory: DRAFT → active | BACKLOG-10 |
-| `invoice.canceled` | Committed inventory: remove commitment | BACKLOG-10 |
-| `invoice.deleted` | Committed inventory: remove commitment (DRAFT) | BACKLOG-10 |
-| `invoice.refunded` | Committed inventory: refund adjustments | BACKLOG-10 |
-| `invoice.scheduled_charge_failed` | Commitment stays, merchant alerting | BACKLOG-10 |
-| `customer.created` | Loyalty catchup gap — first order missed | BACKLOG-11 |
+All 8 events are now wired (BACKLOG-10 + BACKLOG-11, completed 2026-02-19):
+
+| Event | Handler | Related Backlog |
+|-------|---------|----------------|
+| `invoice.created` | `inventory-handler.js:handleInvoiceChanged()` | BACKLOG-10 |
+| `invoice.updated` | `inventory-handler.js:handleInvoiceChanged()` | BACKLOG-10 |
+| `invoice.published` | `inventory-handler.js:handleInvoiceChanged()` | BACKLOG-10 |
+| `invoice.canceled` | `inventory-handler.js:handleInvoiceClosed()` | BACKLOG-10 |
+| `invoice.deleted` | `inventory-handler.js:handleInvoiceClosed()` | BACKLOG-10 |
+| `invoice.refunded` | `inventory-handler.js:handleInvoiceChanged()` | BACKLOG-10 |
+| `invoice.scheduled_charge_failed` | `inventory-handler.js:handleInvoiceChanged()` | BACKLOG-10 |
+| `customer.created` | `customer-handler.js:handleCustomerChange()` | BACKLOG-11 |
 
 #### Should Subscribe — Medium Priority (5 events)
 
@@ -1560,7 +1564,7 @@ Full audit of all 140+ Square webhook event types against app features. Categori
 | Device Codes (`device.code.paired`) | 1 | No device management |
 | Gift Card misc (`gift_card.customer_unlinked`, `gift_card.updated`) | 2 | Extremely rare edge cases |
 
-**Summary**: Add 8 high-priority events (BACKLOG-10 + BACKLOG-11), consider 5 medium-priority events later. Skip 100+ events — no matching features exist.
+**Summary**: 8 high-priority events added (BACKLOG-10 + BACKLOG-11, completed 2026-02-19). Consider 5 medium-priority events later. Skip 100+ events — no matching features exist.
 
 ---
 
@@ -1572,7 +1576,7 @@ These items are COMPLETE and should not regress:
 |-------------|------|-------|
 | server.js: 3,057 → 1,023 lines (66% reduction) | 2026-01-26 | Route extraction |
 | All 246 routes use asyncHandler | 2026-01-26 | Error handling |
-| Webhook processing modularized (6 handlers) | 2026-01-26 | services/webhook-handlers/ |
+| Webhook processing modularized (8 handlers) | 2026-01-26 | services/webhook-handlers/ |
 | Cron jobs extracted to jobs/ directory | 2026-01-26 | cron-scheduler.js |
 | Composite indexes added for multi-tenant queries | 2026-01-26 | Performance |
 | N+1 queries eliminated | 2026-01-26 | Performance |
