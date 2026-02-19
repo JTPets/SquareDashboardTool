@@ -235,7 +235,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) | Vulnerability history, fixes, security best practices |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
-| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 4 fixed |
+| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 7 fixed |
 | [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
 
 ---
@@ -274,8 +274,8 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
 | ~~Medium~~ | ~~BACKLOG-14~~ | ~~Reorder formula duplication~~ **COMPLETE** (shared `services/catalog/reorder-math.js`, 31 tests) |
-| Medium | BACKLOG-15 | Reward progress / threshold crossing — 2 different algorithms (DEDUP L-2) |
-| Medium | BACKLOG-16 | redeemReward() name collision — same name, different signatures (DEDUP L-3) |
+| ~~Medium~~ | ~~BACKLOG-15~~ | ~~Reward progress / threshold crossing — 2 different algorithms (DEDUP L-2)~~ **COMPLETE** (split-row rollover ported to admin layer, 8 tests) |
+| ~~Medium~~ | ~~BACKLOG-16~~ | ~~redeemReward() name collision — same name, different signatures (DEDUP L-3)~~ **COMPLETE** (dead code removed from loyalty layer, now read-only) |
 | Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
 | Low | BACKLOG-18 | Offer/variation query overlap between layers (DEDUP L-5) |
