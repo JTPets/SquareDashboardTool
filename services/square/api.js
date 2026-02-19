@@ -2445,10 +2445,14 @@ async function setSquareInventoryAlertThreshold(catalogObjectId, locationId, thr
 }
 
 /**
- * Sync committed inventory from open/unpaid invoices
- * This calculates quantities reserved for invoices that haven't been paid yet
+ * Sync committed inventory from open/unpaid invoices.
+ *
+ * Fetches ALL invoices from Square, identifies open ones, cleans up
+ * committed_inventory rows for invoices that are no longer open, upserts
+ * rows for open invoices, then rebuilds RESERVED_FOR_SALE aggregates.
+ *
  * @param {number} merchantId - The merchant ID for multi-tenant isolation
- * @returns {Promise<number>} Number of committed inventory records synced
+ * @returns {Promise<Object>} Reconciliation result with detailed metrics
  */
 async function syncCommittedInventory(merchantId) {
     if (!merchantId) {
@@ -2458,56 +2462,53 @@ async function syncCommittedInventory(merchantId) {
     // Check if merchant is known to lack INVOICES_READ scope (cached)
     const cachedTimestamp = merchantsWithoutInvoicesScope.get(merchantId);
     if (cachedTimestamp && Date.now() - cachedTimestamp < INVOICES_SCOPE_CACHE_TTL) {
-        // Silently skip - already logged once when cached
         return { skipped: true, reason: 'INVOICES_READ scope not authorized (cached)', count: 0 };
     }
 
-    logger.info('Starting committed inventory sync from invoices', { merchantId });
+    logger.info('Starting committed inventory reconciliation', { merchantId });
+
+    const accessToken = await getMerchantToken(merchantId);
+
+    // Get all active locations FOR THIS MERCHANT ONLY
+    const locationsResult = await db.query(
+        'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1',
+        [merchantId]
+    );
+    const locationIds = locationsResult.rows.map(r => r.id);
+
+    if (locationIds.length === 0) {
+        logger.warn('No active locations found for committed inventory sync', { merchantId });
+        return {
+            invoices_fetched: 0, rows_before: 0, rows_deleted: 0,
+            rows_remaining: 0, deleted_invoice_ids: []
+        };
+    }
+
+    // Count existing committed_inventory rows BEFORE cleanup
+    const beforeResult = await db.query(
+        'SELECT count(*) AS cnt FROM committed_inventory WHERE merchant_id = $1',
+        [merchantId]
+    );
+    const rowsBefore = parseInt(beforeResult.rows[0].cnt) || 0;
+
+    // Fetch ALL invoices from Square and build the open set
+    const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID'];
+    const openInvoiceIds = new Set();
+    // Map of open invoiceId -> { orderId, locationId, status }
+    const openInvoiceDetails = new Map();
+    let totalInvoicesFetched = 0;
+    const statusCounts = {};
+    let cursor = null;
 
     try {
-        const accessToken = await getMerchantToken(merchantId);
-
-        // Get all active locations FOR THIS MERCHANT ONLY
-        const locationsResult = await db.query(
-            'SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1',
-            [merchantId]
-        );
-        const locationIds = locationsResult.rows.map(r => r.id);
-
-        if (locationIds.length === 0) {
-            logger.warn('No active locations found for committed inventory sync', { merchantId });
-            return 0;
-        }
-
-        // Clear existing RESERVED_FOR_SALE records FOR THIS MERCHANT ONLY before recalculating
-        await db.query(
-            "DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE' AND merchant_id = $1",
-            [merchantId]
-        );
-
-        // Track committed quantities: Map<variationId:locationId, quantity>
-        const committedQuantities = new Map();
-
-        // Search for open invoices - Square doesn't support status filtering,
-        // so we fetch all and filter in code
-        let cursor = null;
-        let invoicesProcessed = 0;
-        const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID'];
-
         do {
             const requestBody = {
                 query: {
-                    filter: {
-                        location_ids: locationIds
-                    },
-                    sort: {
-                        field: 'INVOICE_SORT_DATE',
-                        order: 'DESC'
-                    }
+                    filter: { location_ids: locationIds },
+                    sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' }
                 },
                 limit: 200
             };
-
             if (cursor) {
                 requestBody.cursor = cursor;
             }
@@ -2520,14 +2521,11 @@ async function syncCommittedInventory(merchantId) {
                     accessToken
                 });
             } catch (apiError) {
-                // Gracefully handle missing INVOICES_READ scope
                 if (apiError.message && apiError.message.includes('INSUFFICIENT_SCOPES')) {
-                    // Cache this to avoid repeated API calls and log spam
                     merchantsWithoutInvoicesScope.set(merchantId, Date.now());
-                    logger.info('Skipping committed inventory sync - merchant does not have INVOICES_READ scope (will cache for 1 hour)', { merchantId });
+                    logger.info('Skipping committed inventory sync - INVOICES_READ scope not authorized (cached for 1 hour)', { merchantId });
                     return { skipped: true, reason: 'INVOICES_READ scope not authorized', count: 0 };
                 }
-                // Re-throw other errors
                 throw apiError;
             }
 
@@ -2535,95 +2533,155 @@ async function syncCommittedInventory(merchantId) {
             cursor = data.cursor;
 
             for (const invoice of invoices) {
-                // Filter by status in code (Square API doesn't support status filter)
-                if (!openStatuses.includes(invoice.status)) continue;
+                totalInvoicesFetched++;
+                statusCounts[invoice.status] = (statusCounts[invoice.status] || 0) + 1;
 
-                // Skip if no location
-                if (!invoice.location_id) continue;
-
-                // Get the full invoice details to get line items
-                // The search endpoint may not return all line item details
-                try {
-                    const invoiceDetail = await makeSquareRequest(`/v2/invoices/${invoice.id}`, {
-                        method: 'GET',
-                        accessToken
-                    });
-
-                    const fullInvoice = invoiceDetail.invoice;
-                    if (!fullInvoice || !fullInvoice.order_id) continue;
-
-                    // Fetch the order to get line items with catalog_object_id
-                    const orderData = await makeSquareRequest(`/v2/orders/${fullInvoice.order_id}`, {
-                        method: 'GET',
-                        accessToken
-                    });
-
-                    const order = orderData.order;
-                    if (!order || !order.line_items) continue;
-
-                    for (const lineItem of order.line_items) {
-                        const variationId = lineItem.catalog_object_id;
-                        const locationId = order.location_id || invoice.location_id;
-                        const quantity = parseInt(lineItem.quantity) || 0;
-
-                        if (!variationId || quantity <= 0) continue;
-
-                        const key = `${variationId}:${locationId}`;
-                        const existing = committedQuantities.get(key) || 0;
-                        committedQuantities.set(key, existing + quantity);
-                    }
-
-                    invoicesProcessed++;
-                } catch (error) {
-                    logger.warn('Failed to process invoice for committed inventory', {
-                        invoice_id: invoice.id,
-                        error: error.message
+                if (openStatuses.includes(invoice.status) && invoice.location_id) {
+                    openInvoiceIds.add(invoice.id);
+                    openInvoiceDetails.set(invoice.id, {
+                        orderId: invoice.order_id,
+                        locationId: invoice.location_id,
+                        status: invoice.status
                     });
                 }
-
-                // Small delay to avoid rate limiting
-                await sleep(50);
             }
         } while (cursor);
-
-        // Insert committed quantities into inventory_counts
-        let recordsInserted = 0;
-        for (const [key, quantity] of committedQuantities) {
-            const [variationId, locationId] = key.split(':');
-
-            try {
-                await db.query(`
-                    INSERT INTO inventory_counts (
-                        catalog_object_id, location_id, state, quantity, merchant_id, updated_at
-                    )
-                    VALUES ($1, $2, 'RESERVED_FOR_SALE', $3, $4, CURRENT_TIMESTAMP)
-                    ON CONFLICT (catalog_object_id, location_id, state, merchant_id) DO UPDATE SET
-                        quantity = EXCLUDED.quantity,
-                        updated_at = CURRENT_TIMESTAMP
-                `, [variationId, locationId, quantity, merchantId]);
-                recordsInserted++;
-            } catch (error) {
-                logger.warn('Failed to insert committed inventory record', {
-                    variation_id: variationId,
-                    location_id: locationId,
-                    quantity,
-                    merchantId,
-                    error: error.message
-                });
-            }
-        }
-
-        logger.info('Committed inventory sync complete', {
-            invoices_processed: invoicesProcessed,
-            committed_records: recordsInserted,
-            total_committed_items: committedQuantities.size
-        });
-
-        return recordsInserted;
     } catch (error) {
-        logger.error('Committed inventory sync failed', { error: error.message, stack: error.stack });
+        logger.error('Committed inventory reconciliation failed during Square API fetch', {
+            merchantId, error: error.message, stack: error.stack
+        });
         throw error;
     }
+
+    logger.info('Fetched invoices from Square for reconciliation', {
+        merchantId,
+        totalInvoicesFetched,
+        openInvoiceCount: openInvoiceIds.size,
+        statusCounts
+    });
+
+    // Determine which committed_inventory rows to delete:
+    // any invoice ID NOT in the open set
+    const existingResult = await db.query(
+        'SELECT DISTINCT square_invoice_id FROM committed_inventory WHERE merchant_id = $1',
+        [merchantId]
+    );
+    const existingInvoiceIds = existingResult.rows.map(r => r.square_invoice_id);
+    const invoiceIdsToDelete = existingInvoiceIds.filter(id => !openInvoiceIds.has(id));
+
+    // Delete committed_inventory rows for non-open invoices
+    let rowsDeleted = 0;
+    if (invoiceIdsToDelete.length > 0) {
+        const deleteResult = await db.query(
+            'DELETE FROM committed_inventory WHERE merchant_id = $1 AND square_invoice_id = ANY($2)',
+            [merchantId, invoiceIdsToDelete]
+        );
+        rowsDeleted = deleteResult.rowCount || 0;
+
+        logger.info('Removed stale committed_inventory rows', {
+            merchantId,
+            invoiceIdsDeleted: invoiceIdsToDelete,
+            rowsDeleted
+        });
+    }
+
+    // Upsert committed_inventory rows for open invoices
+    let invoicesProcessed = 0;
+    let lineItemsUpserted = 0;
+
+    for (const [invoiceId, details] of openInvoiceDetails) {
+        try {
+            const invoiceDetail = await makeSquareRequest(`/v2/invoices/${invoiceId}`, {
+                method: 'GET', accessToken
+            });
+            const fullInvoice = invoiceDetail.invoice;
+            if (!fullInvoice || !fullInvoice.order_id) continue;
+
+            const orderData = await makeSquareRequest(`/v2/orders/${fullInvoice.order_id}`, {
+                method: 'GET', accessToken
+            });
+            const order = orderData.order;
+            if (!order || !order.line_items) continue;
+
+            await db.transaction(async (client) => {
+                // Remove existing rows for this invoice (handles line item changes)
+                await client.query(
+                    'DELETE FROM committed_inventory WHERE merchant_id = $1 AND square_invoice_id = $2',
+                    [merchantId, invoiceId]
+                );
+
+                for (const lineItem of order.line_items) {
+                    const variationId = lineItem.catalog_object_id;
+                    const locationId = order.location_id || details.locationId;
+                    const quantity = parseInt(lineItem.quantity) || 0;
+
+                    if (!variationId || quantity <= 0 || !locationId) continue;
+
+                    await client.query(`
+                        INSERT INTO committed_inventory
+                            (merchant_id, square_invoice_id, square_order_id, catalog_object_id,
+                             location_id, quantity, invoice_status, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                    `, [merchantId, invoiceId, fullInvoice.order_id, variationId, locationId, quantity, fullInvoice.status]);
+                    lineItemsUpserted++;
+                }
+            });
+
+            invoicesProcessed++;
+        } catch (error) {
+            logger.warn('Failed to process open invoice during reconciliation', {
+                invoiceId, merchantId, error: error.message
+            });
+        }
+
+        await sleep(50);
+    }
+
+    // Rebuild RESERVED_FOR_SALE aggregate from committed_inventory
+    await db.transaction(async (client) => {
+        await client.query(
+            "DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE' AND merchant_id = $1",
+            [merchantId]
+        );
+        await client.query(`
+            INSERT INTO inventory_counts
+                (catalog_object_id, location_id, state, quantity, merchant_id, updated_at)
+            SELECT catalog_object_id, location_id, 'RESERVED_FOR_SALE', SUM(quantity), $1, NOW()
+            FROM committed_inventory WHERE merchant_id = $1
+            GROUP BY catalog_object_id, location_id
+            ON CONFLICT (catalog_object_id, location_id, state, merchant_id)
+            DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = NOW()
+        `, [merchantId]);
+    });
+
+    // Count rows remaining
+    const afterResult = await db.query(
+        'SELECT count(*) AS cnt FROM committed_inventory WHERE merchant_id = $1',
+        [merchantId]
+    );
+    const rowsRemaining = parseInt(afterResult.rows[0].cnt) || 0;
+
+    const result = {
+        invoices_fetched: totalInvoicesFetched,
+        open_invoices: openInvoiceIds.size,
+        invoices_processed: invoicesProcessed,
+        line_items_upserted: lineItemsUpserted,
+        rows_before: rowsBefore,
+        rows_deleted: rowsDeleted,
+        rows_remaining: rowsRemaining,
+        deleted_invoice_ids: invoiceIdsToDelete
+    };
+
+    // Warn if nothing changed despite existing records
+    if (rowsBefore > 0 && rowsDeleted === 0 && rowsBefore === rowsRemaining) {
+        logger.warn('Committed inventory reconciliation made no changes despite existing records', {
+            merchantId, ...result
+        });
+    }
+
+    logger.info('Committed inventory reconciliation complete', { merchantId, ...result });
+
+    return result;
 }
 
 /**

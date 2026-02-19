@@ -16,10 +16,13 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
 
+// Track consecutive zero-deletion runs per merchant to detect stuck reconciliation
+const consecutiveNoChanges = new Map();
+
 /**
  * Run committed inventory reconciliation for all active merchants.
- * Uses the existing syncCommittedInventory function which does a full
- * rebuild from Square's Invoice API.
+ * Uses syncCommittedInventory which does a full rebuild from Square's Invoice API,
+ * cleans up stale committed_inventory rows, and rebuilds RESERVED_FOR_SALE aggregates.
  *
  * @returns {Promise<Object>} Results per merchant
  */
@@ -47,6 +50,26 @@ async function runCommittedInventoryReconciliation() {
 
             const syncResult = await squareApi.syncCommittedInventory(merchant.id);
 
+            // Track consecutive zero-deletion runs
+            if (syncResult && !syncResult.skipped) {
+                if (syncResult.rows_before > 0 && syncResult.rows_deleted === 0) {
+                    const count = (consecutiveNoChanges.get(merchant.id) || 0) + 1;
+                    consecutiveNoChanges.set(merchant.id, count);
+
+                    if (count >= 3) {
+                        logger.warn('Committed inventory reconciliation has made no deletions for 3+ consecutive days', {
+                            merchantId: merchant.id,
+                            businessName: merchant.business_name,
+                            consecutiveDays: count,
+                            rowsBefore: syncResult.rows_before,
+                            rowsRemaining: syncResult.rows_remaining
+                        });
+                    }
+                } else {
+                    consecutiveNoChanges.set(merchant.id, 0);
+                }
+            }
+
             results.push({
                 merchantId: merchant.id,
                 businessName: merchant.business_name,
@@ -61,7 +84,9 @@ async function runCommittedInventoryReconciliation() {
         } catch (error) {
             logger.error('Committed inventory reconciliation failed for merchant', {
                 merchantId: merchant.id,
-                error: error.message
+                businessName: merchant.business_name,
+                error: error.message,
+                stack: error.stack
             });
             results.push({
                 merchantId: merchant.id,
