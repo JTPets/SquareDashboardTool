@@ -23,7 +23,7 @@
 | G-1 | `escapeHtml()` — 26 identical copies | 26 | Medium | S | P3 | **FIXED** |
 | G-2 | Idempotency key generation — 4 inconsistent patterns | 8+ | Medium | S | P3 | **FIXED** |
 | G-3 | Currency formatting — no shared helper | 14+ | Medium | S | P3 | BACKLOG-23 |
-| G-4 | Order normalization (Square camelCase to snake_case) | 1 (3 call sites) | Low | S | P3 | BACKLOG-24 |
+| G-4 | Order normalization (Square camelCase to snake_case) | 1 (3 call sites) | Low | S | P3 | **CLOSED** (intentional — 3 call sites serve different workflows with different pre-checks) |
 | G-5 | Location lookup queries — repeated across routes | 6 | Low | S | P3 | BACKLOG-25 |
 | G-6 | `escapeAttr()` — 2 copies | 2 | Low | S | P3 | **FIXED** (with G-1) |
 | G-7 | Date string formatting — repeated pattern | 5 | Low | S | P3 | BACKLOG-26 |
@@ -337,26 +337,18 @@ function escapeHtml(text) {
 
 ---
 
-### G-4: Order Normalization (Square camelCase to snake_case)
+### G-4: Order Normalization (Square camelCase to snake_case) — CLOSED
 
-**What's duplicated**: The `normalizeSquareOrder()` function in order-handler.js is called at 3 separate points after fetching orders from Square.
+**Status**: **CLOSED** (2026-02-19) — Investigated and determined to be intentional.
 
-**Files + line numbers**:
+**What was reported**: The `normalizeSquareOrder()` function in order-handler.js is called at 3 separate points after fetching orders from Square.
 
-| Usage | File | Lines |
-|-------|------|-------|
-| Definition | `services/webhook-handlers/order-handler.js` | 47 |
-| Call #1 — `_fetchFullOrder()` | `services/webhook-handlers/order-handler.js` | 316 |
-| Call #2 — `_autoIngestFromFulfillment()` | `services/webhook-handlers/order-handler.js` | 983 |
-| Call #3 — `_processPaymentForLoyalty()` | `services/webhook-handlers/order-handler.js` | 1202 |
+**Why it's intentional**: Each call site serves a different webhook workflow with different pre-checks:
+- `_fetchFullOrder()`: Generic fetch with error handling and logging
+- `_autoIngestFromFulfillment()`: Checks `order.state === 'COMPLETED'` before velocity update
+- `_processPaymentForLoyalty()`: Checks `order.state !== 'COMPLETED'` as early return before normalization
 
-Each call site also has its own `getSquareClientForMerchant()` initialization (lines 312, 979, 1089, 1194).
-
-**Risk**: Low — the function is defined once and called correctly. The repetition is in the calling pattern, not the logic. However, if normalization logic changes, all callers automatically get the update since they reference the same function.
-
-**Suggested fix**: Consider extracting a helper `fetchAndNormalizeOrder(merchantId, orderId)` to combine the client init + fetch + normalize into one call, reducing the boilerplate at each call site.
-
-**Effort**: S — Single file refactor within order-handler.js.
+Extracting a shared `fetchAndNormalizeOrder()` would require different signatures for the pre-normalization state checks, adding complexity without reducing risk. The normalization function itself is already centralized and exported for reuse (e.g., `loyalty-catchup-job.js` imports it).
 
 ---
 
@@ -487,6 +479,6 @@ Each call site also has its own `getSquareClientForMerchant()` initialization (l
 ### Low-priority (Bundle Together)
 
 4. **G-3**: Create shared currency formatting utility (BACKLOG-23)
-5. **G-4**: Extract `fetchAndNormalizeOrder()` helper (BACKLOG-24)
+5. ~~**G-4**: Extract `fetchAndNormalizeOrder()` helper (BACKLOG-24)~~ — **CLOSED** (intentional)
 6. **G-5**: Create location lookup helpers (BACKLOG-25)
 7. **G-7, G-8**: Bundle into shared frontend utility effort (BACKLOG-26, BACKLOG-27)
