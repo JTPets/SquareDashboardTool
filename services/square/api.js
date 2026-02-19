@@ -2492,7 +2492,7 @@ async function syncCommittedInventory(merchantId) {
     const rowsBefore = beforeResult.rows[0].cnt;
 
     // Fetch ALL invoices from Square (paginated) and classify by status
-    const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID'];
+    const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID', 'PARTIALLY_REFUNDED'];
     const openInvoiceIds = new Set();
     // Map<invoiceId, { orderId, status, locationId }> for open invoices
     const openInvoiceDetails = new Map();
@@ -2551,6 +2551,45 @@ async function syncCommittedInventory(merchantId) {
         openCount: openInvoiceIds.size,
         statusCounts
     });
+
+    // Delete stale committed_inventory rows — any invoice no longer in the open set
+    const openIdArray = Array.from(openInvoiceIds);
+    let staleDeleteResult;
+    if (openIdArray.length > 0) {
+        staleDeleteResult = await db.query(
+            `DELETE FROM committed_inventory
+             WHERE merchant_id = $1 AND NOT (square_invoice_id = ANY($2))
+             RETURNING square_invoice_id, invoice_status`,
+            [merchantId, openIdArray]
+        );
+    } else {
+        // No open invoices — delete ALL committed_inventory for this merchant
+        staleDeleteResult = await db.query(
+            `DELETE FROM committed_inventory
+             WHERE merchant_id = $1
+             RETURNING square_invoice_id, invoice_status`,
+            [merchantId]
+        );
+    }
+
+    const rowsDeleted = staleDeleteResult.rowCount;
+    const deletedInvoiceIds = [...new Set(staleDeleteResult.rows.map(r => r.square_invoice_id))];
+
+    for (const row of staleDeleteResult.rows) {
+        logger.info('Deleted stale committed_inventory row', {
+            merchantId,
+            invoiceId: row.square_invoice_id,
+            oldStatus: row.invoice_status
+        });
+    }
+
+    if (deletedInvoiceIds.length > 0) {
+        logger.info('Stale committed_inventory cleanup summary', {
+            merchantId,
+            deletedInvoiceIds,
+            rowsDeleted
+        });
+    }
 
     // For each open invoice, fetch order line items and upsert into committed_inventory
     let invoicesProcessed = 0;
@@ -2615,30 +2654,6 @@ async function syncCommittedInventory(merchantId) {
         await sleep(50);
     }
 
-    // Delete committed_inventory rows for invoices NOT in the open set
-    const existingInvoicesResult = await db.query(
-        'SELECT DISTINCT square_invoice_id FROM committed_inventory WHERE merchant_id = $1',
-        [merchantId]
-    );
-    const staleInvoiceIds = existingInvoicesResult.rows
-        .map(r => r.square_invoice_id)
-        .filter(id => !openInvoiceIds.has(id));
-
-    let rowsDeleted = 0;
-    if (staleInvoiceIds.length > 0) {
-        const deleteResult = await db.query(
-            'DELETE FROM committed_inventory WHERE merchant_id = $1 AND square_invoice_id = ANY($2)',
-            [merchantId, staleInvoiceIds]
-        );
-        rowsDeleted = deleteResult.rowCount;
-
-        logger.info('Removed stale committed_inventory rows', {
-            merchantId,
-            deletedInvoiceIds: staleInvoiceIds,
-            rowsDeleted
-        });
-    }
-
     // Rebuild RESERVED_FOR_SALE aggregate from committed_inventory
     // (matches webhook handler's _rebuildReservedForSaleAggregate pattern)
     await db.transaction(async (client) => {
@@ -2683,12 +2698,12 @@ async function syncCommittedInventory(merchantId) {
         rows_before: rowsBefore,
         rows_deleted: rowsDeleted,
         rows_remaining: rowsRemaining,
-        deleted_invoice_ids: staleInvoiceIds
+        deleted_invoice_ids: deletedInvoiceIds
     };
 
     // Warn if no changes were made despite existing committed records
     if (rowsBefore > 0 && rowsDeleted === 0) {
-        logger.warn('Committed inventory reconciliation made no deletions despite existing records', {
+        logger.warn(`No stale rows deleted despite ${rowsBefore} committed records — verify invoice status sync`, {
             merchantId,
             rowsBefore,
             rowsRemaining,
@@ -2699,8 +2714,8 @@ async function syncCommittedInventory(merchantId) {
     logger.info('Committed inventory reconciliation complete', {
         merchantId,
         ...result,
-        deleted_invoice_ids: result.deleted_invoice_ids.length > 0
-            ? result.deleted_invoice_ids : '(none)'
+        deleted_invoice_ids: deletedInvoiceIds.length > 0
+            ? deletedInvoiceIds : '(none)'
     });
 
     return result;
