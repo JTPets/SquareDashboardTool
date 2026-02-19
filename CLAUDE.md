@@ -267,7 +267,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-3 | Response format standardization |
 | Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
-| Low | BACKLOG-7 | Loyalty audit job per-event Square API calls (batch optimization) |
+| ~~Low~~ | ~~BACKLOG-7~~ | ~~Loyalty audit job per-event Square API calls (batch optimization)~~ **DONE** (2026-02-19) |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
 | Low | BACKLOG-12 | Driver share link validation failure |
@@ -296,19 +296,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
 | BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
 | BACKLOG-31 | Remove dead modern loyalty layer | 2026-02-19 (`services/loyalty/` deleted, active code migrated to `loyalty-admin/`) |
-
-#### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls (Batch Optimization)
-
-**Context**: The audit job fetches individual orders via Square API for `REDEEM_REWARD` events and passes them to `detectRewardRedemptionFromOrder()` for canonical detection. At current volume (2-5 events per 48h window) this is fine, but a backfill audit over weeks/months would hit Square API rate limits.
-
-> **Note**: The original `orderHasOurDiscount()` was removed in the L-7 fix (BACKLOG-20, 2026-02-19). Detection now uses the canonical `detectRewardRedemptionFromOrder()` with `dryRun: true` from `services/loyalty-admin/reward-service.js`. The batch optimization proposal below is still valid.
-
-**Files involved**:
-- `jobs/loyalty-audit-job.js:fetchSquareOrder()` + `detectRewardRedemptionFromOrder()` call
-
-**Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then run canonical detection in memory.
-
-**Audit date**: 2026-02-02 (updated 2026-02-19)
+| BACKLOG-7 | Loyalty audit job batch optimization | 2026-02-19 (`batchFetchSquareOrders()` with concurrency control, no per-event API calls) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 
