@@ -31,7 +31,7 @@ jest.mock('../../../utils/logger', () => ({
     error: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty/loyalty-logger', () => ({
+jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: {
         debug: jest.fn(),
         audit: jest.fn(),

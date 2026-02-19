@@ -16,7 +16,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { loyaltyLogger } = require('../loyalty/loyalty-logger');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../utils/square-catalog-cleanup');

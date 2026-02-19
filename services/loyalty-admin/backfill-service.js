@@ -13,7 +13,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { loyaltyLogger } = require('../loyalty/loyalty-logger');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { AuditActions } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { logAuditEvent } = require('./audit-service');

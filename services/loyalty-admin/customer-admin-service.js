@@ -16,7 +16,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { loyaltyLogger } = require('../loyalty/loyalty-logger');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { cacheCustomerDetails, getCachedCustomer } = require('./customer-cache-service');
 

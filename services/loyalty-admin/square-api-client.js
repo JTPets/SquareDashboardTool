@@ -179,6 +179,30 @@ class SquareApiClient {
             throw error;
         }
     }
+
+    /**
+     * POST /loyalty/events/search
+     * @param {Object} query - Search query with filter criteria
+     * @returns {Promise<Array>} Array of loyalty events
+     */
+    async searchLoyaltyEvents(query) {
+        const data = await this.request('POST', '/loyalty/events/search', query, {
+            context: 'searchLoyaltyEvents', timeout: 10000,
+        });
+        return data.events || [];
+    }
+
+    /**
+     * POST /customers/search
+     * @param {Object} query - Search query with filter criteria
+     * @returns {Promise<Array>} Array of customers
+     */
+    async searchCustomers(query) {
+        const data = await this.request('POST', '/customers/search', query, {
+            context: 'searchCustomers', timeout: 10000,
+        });
+        return data.customers || [];
+    }
 }
 
 module.exports = { SquareApiClient, SquareApiError };

@@ -39,10 +39,12 @@ jest.mock('../../middleware/merchant', () => ({
     requireMerchant: jest.fn()
 }));
 
-jest.mock('../../services/loyalty/webhook-service', () => ({
-    processOrderForLoyalty: jest.fn().mockResolvedValue(),
-    detectRewardRedemptionFromOrder: jest.fn().mockResolvedValue(),
-    processOrderRefundsForLoyalty: jest.fn().mockResolvedValue()
+jest.mock('../../services/loyalty-admin/customer-identification-service', () => ({
+    LoyaltyCustomerService: jest.fn().mockImplementation(() => ({
+        initialize: jest.fn().mockResolvedValue({}),
+        identifyCustomerFromOrder: jest.fn().mockResolvedValue({ customerId: null, method: 'NONE', success: false }),
+        getCustomerDetails: jest.fn().mockResolvedValue(null)
+    }))
 }));
 
 const db = require('../../utils/database');
