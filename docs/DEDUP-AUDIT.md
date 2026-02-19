@@ -14,7 +14,7 @@
 | L-2 | Reward progress / threshold crossing — 2 implementations | 2 | High | L | P1 | BACKLOG-15 |
 | L-3 | `redeemReward()` — same name, different signatures | 2 | High | M | P1 | BACKLOG-16 |
 | L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 | BACKLOG-17 |
-| L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | BACKLOG-18 |
+| L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | **FIXED** (shared `loyalty-queries.js`, 2026-02-19) |
 | L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | BACKLOG-19 |
 | L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | **FIXED** (audit job calls `detectRewardRedemptionFromOrder()`, 2026-02-19) |
 | R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | **FIXED** (shared `reorder-math.js`, BACKLOG-28 for vendor config wiring) |
@@ -127,31 +127,22 @@
 
 ---
 
-### L-5: Offer/Variation Queries — Overlapping Implementations
+### L-5: Offer/Variation Queries — Overlapping Implementations — **FIXED**
 
-**What's duplicated**: Offer and variation lookup queries exist in both the webhook and admin layers with similar-but-not-identical SQL.
+**Status**: Resolved 2026-02-19. Created shared `services/loyalty-admin/loyalty-queries.js` with 4 canonical query functions. Both layers now delegate to the shared module.
 
-**Files + line numbers**:
+**What was fixed**:
+- Created `loyalty-queries.js` with `queryQualifyingVariations()`, `queryOfferForVariation()`, `queryOffersForVariation()`, `queryAllQualifyingVariationIds()`
+- `services/loyalty/offer-service.js` delegates `getOffersForVariation()`, `getQualifyingVariations()`, `getAllQualifyingVariationIds()` to shared queries
+- `services/loyalty-admin/variation-admin-service.js` delegates `getQualifyingVariations()`, `getOfferForVariation()` to shared queries
+- Functions with intentionally different SQL left in place: `getActiveOffers()` (webhook-specific, lightweight), `getOffers()` (admin-specific, includes reward stats), `getOfferById()` (different return shapes between layers)
 
-| Function | File | Lines |
-|----------|------|-------|
-| `getActiveOffers()` | `services/loyalty/offer-service.js` | 30-62 |
-| `getOffersForVariation()` | `services/loyalty/offer-service.js` | 69-112 |
-| `isQualifyingVariation()` | `services/loyalty/offer-service.js` | 119-122 |
-| `getOfferById()` | `services/loyalty/offer-service.js` | 129-156 |
-| `getQualifyingVariations()` | `services/loyalty/offer-service.js` | 163-188 |
-| `getAllQualifyingVariationIds()` | `services/loyalty/offer-service.js` | 194-212 |
-| `getQualifyingVariations()` | `services/loyalty-admin/variation-admin-service.js` | 164-176 |
-| `getOfferForVariation()` | `services/loyalty-admin/variation-admin-service.js` | 184-200 |
-| `getAllVariationAssignments()` | `services/loyalty-admin/variation-admin-service.js` | 247-275 |
-| `getOffers()` | `services/loyalty-admin/offer-admin-service.js` | 110-149 |
-| `getOfferById()` | `services/loyalty-admin/offer-admin-service.js` | 151-170 |
+**Bugs fixed during consolidation**:
+- `offer-service.js:getOffersForVariation()` was missing `lqv.is_active = TRUE` — could match via deactivated variation links
+- `offer-service.js:getQualifyingVariations()` was missing `is_active = TRUE` — could return inactive variations to the webhook layer
+- `offer-service.js:getAllQualifyingVariationIds()` was missing `lqv.is_active = TRUE` — could return deactivated variation IDs
 
-**Risk**: SQL query differences (e.g., join conditions, active filters) between the two layers could cause the webhook to qualify a variation that the admin UI shows as non-qualifying, or vice versa.
-
-**Suggested fix**: Create a shared `loyalty-queries.js` module with canonical SQL for offer/variation lookups. Both layers import from it. Admin-specific queries (CRUD, conflict checks) stay in variation-admin-service.js.
-
-**Effort**: S — Most queries are simple SELECT statements that can be extracted with minimal risk.
+All 3 bugs would have caused the webhook layer to process purchases against soft-deleted variations that the admin UI correctly excluded.
 
 ---
 

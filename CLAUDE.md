@@ -278,7 +278,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | ~~Medium~~ | ~~BACKLOG-16~~ | ~~redeemReward() name collision — same name, different signatures (DEDUP L-3)~~ **COMPLETE** (dead code removed from loyalty layer, now read-only) |
 | Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
-| Low | BACKLOG-18 | Offer/variation query overlap between layers (DEDUP L-5) |
+| ~~Low~~ | ~~BACKLOG-18~~ | ~~Offer/variation query overlap between layers (DEDUP L-5)~~ **COMPLETE** (shared `loyalty-queries.js`, fixed 3 missing `is_active` filters) |
 | Low | BACKLOG-19 | Dual Square API client layers with divergent retry (DEDUP L-6) |
 | ~~Low~~ | ~~BACKLOG-20~~ | ~~Redemption detection asymmetry — audit job simplified check (DEDUP L-7)~~ **COMPLETE** (audit job calls `detectRewardRedemptionFromOrder()` with `dryRun: true`) |
 | Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |

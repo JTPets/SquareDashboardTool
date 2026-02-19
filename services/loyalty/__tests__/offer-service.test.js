@@ -112,7 +112,7 @@ describe('LoyaltyOfferService', () => {
       expect(offers).toHaveLength(1);
       expect(offers[0].variation_id).toBe('VAR-123');
       expect(mockDb.query).toHaveBeenCalledWith(
-        expect.stringContaining('lqv.variation_id = $2'),
+        expect.stringContaining('qv.variation_id = $2'),
         [123, 'VAR-123']
       );
     });
