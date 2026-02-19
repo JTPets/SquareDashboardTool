@@ -17,7 +17,7 @@ const { loyaltyLogger } = require('../loyalty/loyalty-logger');
 const { AuditActions } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { logAuditEvent } = require('./audit-service');
-const { processOrderForLoyalty } = require('./webhook-processing-service');
+const { processLoyaltyOrder } = require('./order-intake');
 
 /**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
@@ -235,22 +235,31 @@ async function processOrderForLoyaltyIfNeeded(order, merchantId) {
         return { processed: false, reason: 'already_processed', orderId: order.id };
     }
 
-    // Process the order through normal loyalty flow
-    // Note: processOrderForLoyalty has multiple fallbacks to identify customer:
-    // 1. order.customer_id
-    // 2. tender.customer_id
-    // 3. loyalty API lookup
-    // 4. order rewards lookup
-    // 5. fulfillment recipient (phone/email) - catches web orders without customer_id
     logger.info('Processing missed order for loyalty (backfill)', {
         orderId: order.id,
-        customerId: order.customer_id || '(will try fallback lookups)',
+        customerId: order.customer_id || '(no customer_id on order)',
         merchantId,
         source: 'sync_backfill'
     });
 
-    // processOrderForLoyalty is imported at top of file
-    return processOrderForLoyalty(order, merchantId);
+    // Use the customer_id from the order directly
+    // The consolidated intake handles the case where squareCustomerId is null
+    const intakeResult = await processLoyaltyOrder({
+        order,
+        merchantId,
+        squareCustomerId: order.customer_id || null,
+        source: 'backfill',
+        customerSource: 'order'
+    });
+
+    // Adapt to the legacy return format expected by callers
+    return {
+        processed: !intakeResult.alreadyProcessed && intakeResult.purchaseEvents.length > 0,
+        reason: intakeResult.alreadyProcessed ? 'already_processed' : undefined,
+        orderId: order.id,
+        purchasesRecorded: intakeResult.purchaseEvents,
+        rewardEarned: intakeResult.rewardEarned
+    };
 }
 
 /**
@@ -643,18 +652,9 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
         errors: []
     };
 
-    // processOrderForLoyalty is imported at top of file
-
-    // Fetch each order and process
+    // Fetch each order and process through consolidated intake
     for (const orderId of orderIds) {
         try {
-            // Check if already tracked
-            const alreadyTracked = await isOrderAlreadyProcessedForLoyalty(orderId, merchantId);
-            if (alreadyTracked) {
-                results.skipped.push({ orderId, reason: 'already_tracked' });
-                continue;
-            }
-
             // Fetch order from Square with timeout
             const orderFetchStart = Date.now();
             const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
@@ -700,21 +700,24 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                 continue;
             }
 
-            // If order has no customer_id, we'll assign it to this customer for loyalty purposes
-            // This is safe because admin manually selected this customer + order combo
-            const effectiveOrder = {
-                ...order,
-                customer_id: squareCustomerId  // Use the customer we're auditing
-            };
-
-            // Process through normal loyalty flow, marking as 'manual' since admin added it
-            const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId, { customerSourceOverride: 'manual' });
-
-            results.processed.push({
-                orderId,
-                purchasesRecorded: loyaltyResult.purchasesRecorded?.length || 0,
-                skippedFreeItems: loyaltyResult.skippedFreeItems?.length || 0
+            // Consolidated intake: atomic write to both tables (includes dedup)
+            const intakeResult = await processLoyaltyOrder({
+                order,
+                merchantId,
+                squareCustomerId,
+                source: 'audit',
+                customerSource: 'manual'
             });
+
+            if (intakeResult.alreadyProcessed) {
+                results.skipped.push({ orderId, reason: 'already_tracked' });
+            } else {
+                results.processed.push({
+                    orderId,
+                    purchasesRecorded: intakeResult.purchaseEvents.length,
+                    skippedFreeItems: 0
+                });
+            }
 
         } catch (error) {
             logger.error('Error adding order to loyalty', { orderId, error: error.message });
@@ -819,8 +822,6 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - periodDays);
 
-    // processOrderForLoyalty is imported at top of file
-
     // Process each customer
     for (const customer of customers) {
         const squareCustomerId = customer.square_customer_id;
@@ -896,33 +897,25 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
 
             results.ordersFound += orders.length;
 
-            // Process each order
+            // Process each order through consolidated intake
             for (const order of orders) {
-                // Check if already tracked
-                const alreadyTracked = await isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
-                if (alreadyTracked) {
-                    results.ordersAlreadyTracked++;
-                    continue;
-                }
-
-                // Create effective order with the customer_id we know
-                const effectiveOrder = {
-                    ...order,
-                    customer_id: squareCustomerId
-                };
-
-                // Process through normal loyalty flow
                 try {
-                    const loyaltyResult = await processOrderForLoyalty(effectiveOrder, merchantId, {
-                        customerSourceOverride: 'catchup_reverse_lookup'
+                    const intakeResult = await processLoyaltyOrder({
+                        order,
+                        merchantId,
+                        squareCustomerId,
+                        source: 'catchup',
+                        customerSource: 'catchup_reverse_lookup'
                     });
 
-                    if (loyaltyResult.purchasesRecorded?.length > 0) {
+                    if (intakeResult.alreadyProcessed) {
+                        results.ordersAlreadyTracked++;
+                    } else if (intakeResult.purchaseEvents.length > 0) {
                         results.ordersNewlyTracked++;
                         logger.debug('Catchup: tracked new order', {
                             orderId: order.id,
                             customerId: squareCustomerId,
-                            purchases: loyaltyResult.purchasesRecorded.length
+                            purchases: intakeResult.purchaseEvents.length
                         });
                     }
                 } catch (orderError) {

@@ -16,55 +16,10 @@
 
 const logger = require('../../utils/logger');
 const loyaltyService = require('../../utils/loyalty-service');
-const { FEATURE_FLAGS } = require('../../config/constants');
 
-// Modern loyalty service (feature-flagged)
-const { LoyaltyWebhookService } = require('../loyalty');
+// Consolidated order intake (single entry point for all loyalty order processing)
+const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
 const { LoyaltySquareClient } = require('../loyalty/square-client');
-
-/**
- * Process order for loyalty using either modern or legacy service
- * Feature flag: USE_NEW_LOYALTY_SERVICE
- *
- * @param {Object} order - Square order object
- * @param {number} merchantId - Internal merchant ID
- * @param {Object} [options] - Processing options
- * @param {string} [options.source] - Source of event
- * @returns {Promise<Object>} Normalized result compatible with legacy format
- */
-async function processOrderForLoyalty(order, merchantId, options = {}) {
-    const { source = 'LOYALTY_WEBHOOK' } = options;
-
-    if (FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE) {
-        logger.debug('Using modern loyalty service for order processing', {
-            orderId: order.id,
-            merchantId,
-            source
-        });
-
-        const service = new LoyaltyWebhookService(merchantId);
-        await service.initialize();
-        const result = await service.processOrder(order, { source });
-
-        // Adapt modern result to legacy format
-        return {
-            processed: result.processed,
-            customerId: result.customerId || null,
-            purchasesRecorded: (result.lineItemResults || [])
-                .filter(r => r.recorded)
-                .map(r => ({
-                    variationId: r.variationId,
-                    quantity: r.quantity,
-                    rewardEarned: r.rewardEarned || false
-                })),
-            _modern: true,
-            _trace: result.trace
-        };
-    }
-
-    // Use legacy service (default)
-    return loyaltyService.processOrderForLoyalty(order, merchantId, options);
-}
 
 class LoyaltyHandler {
     /**
@@ -223,29 +178,25 @@ class LoyaltyHandler {
             return;
         }
 
-        // Process with the customer_id we got from loyalty account
-        // Override the order's customer_id if it's missing
-        const effectiveOrder = {
-            ...order,
-            customer_id: order.customer_id || customerId
-        };
-
-        const loyaltyResult = await processOrderForLoyalty(
-            effectiveOrder,
+        // Consolidated intake: atomic write to both tables
+        const intakeResult = await processLoyaltyOrder({
+            order,
             merchantId,
-            { source: 'LOYALTY_EVENT', customerSourceOverride: 'loyalty_api' }
-        );
+            squareCustomerId: customerId,
+            source: 'webhook',
+            customerSource: 'loyalty_api'
+        });
 
-        if (loyaltyResult.processed) {
+        if (!intakeResult.alreadyProcessed && intakeResult.purchaseEvents.length > 0) {
             result.loyaltyEventRecovery = {
                 orderId,
                 customerId,
-                purchasesRecorded: loyaltyResult.purchasesRecorded.length
+                purchasesRecorded: intakeResult.purchaseEvents.length
             };
             logger.info('Successfully processed order via loyalty event webhook', {
                 orderId,
                 customerId,
-                purchaseCount: loyaltyResult.purchasesRecorded.length,
+                purchaseCount: intakeResult.purchaseEvents.length,
                 merchantId
             });
         }

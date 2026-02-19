@@ -229,7 +229,8 @@ services/                     # Business logic services
 │   ├── customer-admin-service.js   # Customer lookups, status, history
 │   ├── purchase-service.js         # Purchase processing, refunds
 │   ├── reward-service.js           # Reward redemption, progress tracking
-│   ├── webhook-processing-service.js  # Webhook order processing
+│   ├── order-intake.js              # Consolidated order processing entry point
+│   ├── webhook-processing-service.js  # Webhook order processing (legacy — prefer order-intake)
 │   ├── square-discount-service.js  # Square Customer Group Discount ops
 │   ├── backfill-service.js         # Catchup, order history backfill
 │   └── expiration-service.js       # Reward/offer expiration processing
@@ -281,13 +282,30 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 15 modular services (53 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 16 modular services (55 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript
 const loyaltyAdmin = require('./services/loyalty-admin');
-await loyaltyAdmin.processOrderForLoyalty(order, merchantId);
+await loyaltyAdmin.processLoyaltyOrder({ order, merchantId, squareCustomerId, source: 'webhook' });
 ```
+
+### Order Processing — Single Entry Point
+
+All order processing for loyalty MUST go through `processLoyaltyOrder()` in `order-intake.js`. This function:
+- Writes **both** `loyalty_processed_orders` and `loyalty_purchase_events` atomically (same transaction)
+- Is idempotent (safe to call twice for the same order)
+- Accepts a source tag (`webhook`, `catchup`, `backfill`, `audit`) for debugging
+
+Entry points that call `processLoyaltyOrder()`:
+1. `services/webhook-handlers/order-handler.js` — `_processLoyalty()` and `_processPaymentForLoyalty()`
+2. `services/webhook-handlers/loyalty-handler.js` — `_processLoyaltyEventWithOrder()`
+3. `jobs/loyalty-catchup-job.js` — `processMerchantCatchup()`
+4. `services/loyalty-admin/backfill-service.js` — `addOrdersToLoyaltyTracking()`, `runLoyaltyCatchup()`, `processOrderForLoyaltyIfNeeded()`
+
+**Separate concerns** (not part of order intake):
+- Refund processing: `processRefund()` in `purchase-service.js` (writes negative-quantity rows to `loyalty_purchase_events`)
+- Redemption detection: `detectRewardRedemptionFromOrder()` in `reward-service.js`
 
 ### Module Categories
 
@@ -296,7 +314,8 @@ await loyaltyAdmin.processOrderForLoyalty(order, merchantId);
 | Foundation | `constants.js`, `shared-utils.js` | Enums, shared helpers (no service dependencies) |
 | Core Admin | `audit-service.js`, `settings-service.js`, `offer-admin-service.js`, `variation-admin-service.js` | CRUD and configuration |
 | Customer | `customer-cache-service.js`, `customer-admin-service.js` | Customer data and caching |
-| Processing | `purchase-service.js`, `reward-service.js`, `webhook-processing-service.js` | Order/reward processing |
+| Order Intake | `order-intake.js` | Single entry point for all order → loyalty processing |
+| Processing | `purchase-service.js`, `reward-service.js`, `webhook-processing-service.js` | Per-item purchase recording, rewards, refunds |
 | Integration | `square-discount-service.js`, `expiration-service.js`, `backfill-service.js` | Square API, cleanup, catchup |
 
 ### Dependency Rules

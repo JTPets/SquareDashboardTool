@@ -289,6 +289,26 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription — re-register webhooks |
+| ~~High~~ | ~~BACKLOG-30~~ | ~~Consolidate divergent loyalty order processing paths into single atomic intake function~~ **COMPLETE** (`services/loyalty-admin/order-intake.js`, 14 tests) |
+
+#### BACKLOG-30: Consolidate Order Processing (COMPLETE)
+
+**Context**: At least 3 divergent code paths wrote to `loyalty_processed_orders` and `loyalty_purchase_events`. The admin/legacy paths wrote to `loyalty_purchase_events` only — never to `loyalty_processed_orders`. The writes were not atomic, causing orders to become invisible to the audit system (the "missed redemption" bug).
+
+**Solution**: Created `services/loyalty-admin/order-intake.js` with `processLoyaltyOrder({ order, merchantId, squareCustomerId, source })` — a single intake function that writes both tables in the same database transaction. Modified `processQualifyingPurchase()` to accept an optional external transaction client for atomic multi-table writes.
+
+**Entry points updated** (all now route through `processLoyaltyOrder`):
+- `services/webhook-handlers/order-handler.js` (`_processLoyalty`, `_processPaymentForLoyalty`)
+- `services/webhook-handlers/loyalty-handler.js` (`_processLoyaltyEventWithOrder`)
+- `jobs/loyalty-catchup-job.js` (`processMerchantCatchup`)
+- `services/loyalty-admin/backfill-service.js` (`addOrdersToLoyaltyTracking`, `runLoyaltyCatchup`, `processOrderForLoyaltyIfNeeded`)
+
+**Flagged unique logic** (separate concerns, not merged into intake):
+- Refund processing: `processRefund()` writes negative-quantity rows to `loyalty_purchase_events`
+- Redemption detection: `detectRewardRedemptionFromOrder()` — handled after intake returns
+- Modern layer (`services/loyalty/`): `LoyaltyWebhookService.processOrder()` is no longer called by any entry point; feature flag branches removed
+
+**Completed**: 2026-02-19
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 
