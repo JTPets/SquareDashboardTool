@@ -153,6 +153,12 @@ const {
 // Redemption audit service
 const { auditMissedRedemptions } = require('./redemption-audit-service');
 
+// Order intake service (consolidated entry point for all order processing)
+const {
+    processLoyaltyOrder,
+    isOrderAlreadyProcessed
+} = require('./order-intake');
+
 // ============================================================================
 // EXPORTS - Complete public API
 // ============================================================================
@@ -221,7 +227,11 @@ module.exports = {
     matchEarnedRewardByDiscountAmount,
     createSquareLoyaltyReward,
 
-    // Webhook processing
+    // Order intake (single entry point for all order processing)
+    processLoyaltyOrder,
+    isOrderAlreadyProcessed,
+
+    // Webhook processing (legacy — prefer processLoyaltyOrder for new code)
     processOrderForLoyalty,
     processOrderRefundsForLoyalty,
 

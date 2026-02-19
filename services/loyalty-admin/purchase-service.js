@@ -478,12 +478,16 @@ async function updateRewardProgress(client, data) {
  * @param {string} [purchaseData.paymentType] - Payment method: CARD, CASH, WALLET, etc.
  * @returns {Promise<Object>} Processing result
  */
-async function processQualifyingPurchase(purchaseData) {
+async function processQualifyingPurchase(purchaseData, options = {}) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
         quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl,
         customerSource = 'order', paymentType = null
     } = purchaseData;
+
+    // When transactionClient is provided, the caller manages the transaction
+    // (BEGIN/COMMIT/ROLLBACK). This enables atomic multi-table writes.
+    const { transactionClient = null } = options;
 
     if (!merchantId) {
         throw new Error('merchantId is required - tenant isolation required');
@@ -505,7 +509,9 @@ async function processQualifyingPurchase(purchaseData) {
     const idempotencyKey = `${squareOrderId}:${variationId}:${quantity}`;
 
     // Check for existing event (idempotency)
-    const existingEvent = await db.query(`
+    // Use transactionClient if available so the check is within the same snapshot
+    const queryFn = transactionClient || db;
+    const existingEvent = await queryFn.query(`
         SELECT id FROM loyalty_purchase_events
         WHERE merchant_id = $1 AND idempotency_key = $2
     `, [merchantId, idempotencyKey]);
@@ -525,10 +531,14 @@ async function processQualifyingPurchase(purchaseData) {
         offerName: offer.offer_name
     });
 
-    // Begin transaction for consistency
-    const client = await db.pool.connect();
+    // If caller provided a transaction client, use it directly (no own transaction)
+    const client = transactionClient || await db.pool.connect();
+    const managesOwnTransaction = !transactionClient;
+
     try {
-        await client.query('BEGIN');
+        if (managesOwnTransaction) {
+            await client.query('BEGIN');
+        }
 
         // Calculate window dates
         const purchaseDate = new Date(purchasedAt);
@@ -594,7 +604,9 @@ async function processQualifyingPurchase(purchaseData) {
             offer
         });
 
-        await client.query('COMMIT');
+        if (managesOwnTransaction) {
+            await client.query('COMMIT');
+        }
 
         logger.info('Purchase processed successfully', {
             merchantId,
@@ -610,7 +622,9 @@ async function processQualifyingPurchase(purchaseData) {
         };
 
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (managesOwnTransaction) {
+            await client.query('ROLLBACK');
+        }
         logger.error('Failed to process qualifying purchase', {
             error: error.message,
             stack: error.stack,
@@ -619,7 +633,9 @@ async function processQualifyingPurchase(purchaseData) {
         });
         throw error;
     } finally {
-        client.release();
+        if (managesOwnTransaction) {
+            client.release();
+        }
     }
 }
 

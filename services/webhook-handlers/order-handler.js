@@ -27,7 +27,12 @@ const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 const { FEATURE_FLAGS } = require('../../config/constants');
 
-// Modern loyalty service (feature-flagged)
+// Consolidated order intake (single entry point for all loyalty order processing)
+const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
+// Customer identification service (6-method fallback chain)
+const { LoyaltyCustomerService } = require('../loyalty/customer-service');
+
+// Modern loyalty service (feature-flagged — used for non-intake paths only)
 const { LoyaltyWebhookService } = require('../loyalty');
 
 // Cart activity tracking for DRAFT orders
@@ -112,64 +117,31 @@ const webhookOrderStats = {
 // A daily reconciliation job provides a safety net (see committed-inventory-reconciliation-job.js).
 
 /**
- * Process order for loyalty using either modern or legacy service
- * Feature flag: USE_NEW_LOYALTY_SERVICE
+ * Identify the Square customer associated with an order.
+ * Uses the LoyaltyCustomerService's 6-method fallback chain.
  *
  * @param {Object} order - Square order object
  * @param {number} merchantId - Internal merchant ID
- * @param {Object} [options] - Processing options
- * @param {string} [options.source] - Source of event (e.g., 'WEBHOOK', 'PAYMENT')
- * @param {Object} [options.redemptionContext] - Redemption context if this is a redemption order
- * @param {string} [options.redemptionContext.rewardId] - ID of reward being redeemed
- * @param {string} [options.redemptionContext.offerId] - Offer ID of the reward
- * @param {boolean} [options.redemptionContext.isRedemptionOrder] - True if this order has a redemption
- * @returns {Promise<Object>} Normalized result compatible with legacy format
+ * @returns {Promise<{customerId: string|null, customerSource: string}>}
  */
-async function processOrderForLoyalty(order, merchantId, options = {}) {
-    const { source = 'WEBHOOK', redemptionContext = null } = options;
+async function identifyCustomerForOrder(order, merchantId) {
+    const customerService = new LoyaltyCustomerService(merchantId);
+    await customerService.initialize();
+    const result = await customerService.identifyCustomerFromOrder(order);
 
-    if (FEATURE_FLAGS.USE_NEW_LOYALTY_SERVICE) {
-        // Use modern service
-        logger.debug('Using modern loyalty service for order processing', {
-            orderId: order.id,
-            merchantId,
-            source,
-            hasRedemptionContext: !!redemptionContext
-        });
-
-        const service = new LoyaltyWebhookService(merchantId);
-        await service.initialize();
-        const result = await service.processOrder(order, { source, redemptionContext });
-
-        // Adapt modern result to legacy format for compatibility
-        // Modern: { processed, customerId, lineItemResults, summary, trace }
-        // Legacy: { processed, purchasesRecorded, customerId }
-        return {
-            processed: result.processed,
-            customerId: result.customerId || null,
-            purchasesRecorded: (result.lineItemResults || [])
-                .filter(r => r.recorded)
-                .map(r => ({
-                    variationId: r.variationId,
-                    quantity: r.quantity,
-                    rewardEarned: r.rewardEarned || false,
-                    rewardId: r.purchaseResult?.results?.[0]?.progress?.rewardEarned
-                        ? r.purchaseResult.results[0].purchaseEventId
-                        : null,
-                    reward: r.rewardEarned ? {
-                        status: 'earned',
-                        rewardId: r.purchaseResult?.results?.[0]?.purchaseEventId
-                    } : null
-                })),
-            // Include modern-only fields for enhanced logging
-            _modern: true,
-            _trace: result.trace,
-            _summary: result.summary
-        };
+    if (!result.customerId) {
+        return { customerId: null, customerSource: 'unknown' };
     }
 
-    // Use legacy service (default)
-    return loyaltyService.processOrderForLoyalty(order, merchantId);
+    // Map detailed method to shorter DB values
+    const sourceMap = {
+        'order.customer_id': 'order',
+        'tender.customer_id': 'tender',
+        'loyalty_event_order_id': 'loyalty_api'
+    };
+    const customerSource = sourceMap[result.method] || 'order';
+
+    return { customerId: result.customerId, customerSource };
 }
 
 class OrderHandler {
@@ -829,27 +801,28 @@ class OrderHandler {
     /**
      * Process loyalty for completed order
      *
-     * BUG FIX: Now checks for redemption BEFORE processing purchases.
-     * This ensures that paid qualifying items on a redemption order start
-     * a new reward window instead of being linked to the old reward.
+     * Routes through the consolidated processLoyaltyOrder() intake function
+     * which writes both loyalty_processed_orders and loyalty_purchase_events
+     * atomically in the same transaction.
+     *
+     * Redemption detection and refund processing remain separate concerns
+     * handled after the intake function returns.
      *
      * @private
      */
     async _processLoyalty(order, merchantId, result) {
         try {
-            // Dedup check - prevent duplicate loyalty processing
-            const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
-            if (alreadyProcessed) {
-                logger.debug('Loyalty skip - order already processed', {
-                    action: 'LOYALTY_SKIP_DUPLICATE',
+            // Identify the customer (6-method fallback chain)
+            const { customerId: squareCustomerId, customerSource } = await identifyCustomerForOrder(order, merchantId);
+
+            if (!squareCustomerId) {
+                logger.debug('Loyalty skip - no customer identified for order', {
                     orderId: order.id,
                     merchantId
                 });
-                return;
             }
 
-            // BUG FIX: Check for redemption BEFORE processing purchases
-            // This allows purchase processing to know it should start a new reward window
+            // Check for redemption BEFORE processing purchases (for logging)
             const redemptionCheck = await this._checkOrderForRedemption(order, merchantId);
 
             if (redemptionCheck.isRedemptionOrder) {
@@ -861,40 +834,43 @@ class OrderHandler {
                 });
             }
 
-            // Process purchases with redemption context
-            // If this is a redemption order, the purchase service will treat any
-            // existing earned reward as "about to be redeemed" and start a new window
-            const loyaltyResult = await processOrderForLoyalty(order, merchantId, {
-                source: 'WEBHOOK',
-                redemptionContext: redemptionCheck.isRedemptionOrder ? {
-                    rewardId: redemptionCheck.rewardId,
-                    offerId: redemptionCheck.offerId,
-                    isRedemptionOrder: true
-                } : null
+            // Consolidated intake: atomic write to both tables
+            const intakeResult = await processLoyaltyOrder({
+                order,
+                merchantId,
+                squareCustomerId,
+                source: 'webhook',
+                customerSource
             });
 
-            if (loyaltyResult.processed) {
+            if (intakeResult.alreadyProcessed) {
+                logger.debug('Loyalty skip - order already processed', {
+                    action: 'LOYALTY_SKIP_DUPLICATE',
+                    orderId: order.id,
+                    merchantId
+                });
+                return;
+            }
+
+            if (intakeResult.purchaseEvents.length > 0) {
                 result.loyalty = {
-                    purchasesRecorded: loyaltyResult.purchasesRecorded.length,
-                    customerId: loyaltyResult.customerId,
+                    purchasesRecorded: intakeResult.purchaseEvents.length,
+                    customerId: squareCustomerId,
                     isRedemptionOrder: redemptionCheck.isRedemptionOrder
                 };
                 logger.info('Loyalty purchases processed via webhook', {
                     orderId: order.id,
-                    purchaseCount: loyaltyResult.purchasesRecorded.length,
+                    purchaseCount: intakeResult.purchaseEvents.length,
                     isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                     merchantId
                 });
 
-                // Log earned rewards
-                for (const purchase of loyaltyResult.purchasesRecorded) {
-                    if (purchase.reward && purchase.reward.status === 'earned') {
-                        logger.info('Customer earned a loyalty reward!', {
-                            orderId: order.id,
-                            customerId: loyaltyResult.customerId,
-                            rewardId: purchase.reward.rewardId
-                        });
-                    }
+                if (intakeResult.rewardEarned) {
+                    logger.info('Customer earned a loyalty reward!', {
+                        orderId: order.id,
+                        customerId: squareCustomerId,
+                        merchantId
+                    });
                 }
             }
 
@@ -1182,6 +1158,7 @@ class OrderHandler {
 
     /**
      * Process payment for loyalty
+     * Routes through the consolidated processLoyaltyOrder() intake function.
      * @private
      */
     async _processPaymentForLoyalty(payment, merchantId, result, source) {
@@ -1201,9 +1178,19 @@ class OrderHandler {
             // SDK v43+ returns camelCase — normalize to snake_case
             const order = normalizeSquareOrder(orderResponse.order);
 
-            // Dedup check - prevent duplicate loyalty processing
-            const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(order.id, merchantId);
-            if (alreadyProcessed) {
+            // Identify customer
+            const { customerId: squareCustomerId, customerSource } = await identifyCustomerForOrder(order, merchantId);
+
+            // Consolidated intake: atomic write to both tables (includes dedup)
+            const intakeResult = await processLoyaltyOrder({
+                order,
+                merchantId,
+                squareCustomerId,
+                source: 'webhook',
+                customerSource
+            });
+
+            if (intakeResult.alreadyProcessed) {
                 logger.debug('Loyalty skip - order already processed via payment webhook', {
                     action: 'LOYALTY_SKIP_DUPLICATE',
                     orderId: order.id,
@@ -1213,42 +1200,17 @@ class OrderHandler {
                 return;
             }
 
-            // Process for loyalty
-            const loyaltyResult = await processOrderForLoyalty(order, merchantId, { source });
-            if (loyaltyResult.processed) {
+            if (intakeResult.purchaseEvents.length > 0) {
                 result.loyalty = {
-                    purchasesRecorded: loyaltyResult.purchasesRecorded.length,
-                    customerId: loyaltyResult.customerId,
+                    purchasesRecorded: intakeResult.purchaseEvents.length,
+                    customerId: squareCustomerId,
                     source
                 };
                 logger.info(`Loyalty purchases recorded via ${source} webhook`, {
                     orderId: order.id,
-                    customerId: loyaltyResult.customerId,
-                    purchases: loyaltyResult.purchasesRecorded.length
+                    customerId: squareCustomerId,
+                    purchases: intakeResult.purchaseEvents.length
                 });
-
-                // Create reward discounts for earned rewards
-                if (loyaltyResult.purchasesRecorded.length > 0) {
-                    for (const purchase of loyaltyResult.purchasesRecorded) {
-                        if (purchase.rewardEarned) {
-                            try {
-                                await loyaltyService.createRewardDiscount({
-                                    merchantId,
-                                    squareCustomerId: loyaltyResult.customerId,
-                                    internalRewardId: purchase.rewardId
-                                });
-                                logger.info('Created reward discount via payment webhook', {
-                                    rewardId: purchase.rewardId
-                                });
-                            } catch (discountErr) {
-                                logger.error('Failed to create reward discount', {
-                                    error: discountErr.message,
-                                    rewardId: purchase.rewardId
-                                });
-                            }
-                        }
-                    }
-                }
             }
 
             // Check for reward redemption
