@@ -2593,6 +2593,10 @@ async function syncCommittedInventory(merchantId) {
                             (merchant_id, square_invoice_id, square_order_id, catalog_object_id,
                              location_id, quantity, invoice_status, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                        ON CONFLICT (merchant_id, square_invoice_id, catalog_object_id, location_id)
+                        DO UPDATE SET
+                            quantity = committed_inventory.quantity + EXCLUDED.quantity,
+                            updated_at = NOW()
                     `, [merchantId, invoiceId, fullInvoice.order_id, variationId,
                         locationId, quantity, details.status]);
                 }

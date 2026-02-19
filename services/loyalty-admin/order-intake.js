@@ -75,7 +75,6 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
         // If no row returned, another process already claimed this order
         if (claimResult.rows.length === 0) {
             await client.query('COMMIT');
-            client.release();
             return { alreadyProcessed: true, purchaseEvents: [], rewardEarned: false };
         }
 
@@ -90,7 +89,6 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
                 WHERE id = $2
             `, [resultType, processedOrderId]);
             await client.query('COMMIT');
-            client.release();
 
             logger.debug('Order processed with no qualifying work', {
                 orderId, merchantId, resultType, source
