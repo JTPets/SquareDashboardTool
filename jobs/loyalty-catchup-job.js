@@ -16,8 +16,8 @@ const { getSquareClientForMerchant } = require('../middleware/merchant');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../services/loyalty-admin/order-intake');
-// Customer identification service
-const { LoyaltyCustomerService } = require('../services/loyalty/customer-service');
+// Customer identification service (6-method fallback chain)
+const { LoyaltyCustomerService } = require('../services/loyalty-admin/customer-identification-service');
 
 // Loyalty admin service (for redemption detection)
 const loyaltyService = require('../utils/loyalty-service');

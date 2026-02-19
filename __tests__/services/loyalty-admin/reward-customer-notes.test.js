@@ -17,7 +17,7 @@ jest.mock('../../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty/loyalty-logger', () => ({
+jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: {
         squareApi: jest.fn(),
         purchase: jest.fn(),

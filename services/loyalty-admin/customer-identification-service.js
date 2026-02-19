@@ -1,5 +1,5 @@
 /**
- * Loyalty Customer Service
+ * Loyalty Customer Identification Service
  *
  * Handles customer identification from orders using multiple fallback methods:
  * 1. order.customer_id - Direct customer ID on order
@@ -8,11 +8,13 @@
  * 4. Order Rewards - Lookup via Square Loyalty rewards on order
  * 5. Fulfillment Recipient - Search by phone/email from fulfillment
  * 6. Loyalty Discount - Reverse-lookup from order discount catalog_object_id to loyalty_rewards
+ *
+ * Relocated from services/loyalty/customer-service.js (BACKLOG-31).
  */
 
 const db = require('../../utils/database');
-const { loyaltyLogger } = require('./loyalty-logger');
-const { LoyaltySquareClient } = require('./square-client');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
+const { SquareApiClient } = require('./square-api-client');
 
 /**
  * Customer identification result
@@ -41,7 +43,7 @@ class LoyaltyCustomerService {
    * @returns {Promise<LoyaltyCustomerService>}
    */
   async initialize() {
-    this.squareClient = await new LoyaltySquareClient(this.merchantId).initialize();
+    this.squareClient = await new SquareApiClient(this.merchantId).initialize();
     return this;
   }
 

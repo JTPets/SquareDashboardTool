@@ -10,9 +10,11 @@
  * - Debugging
  *
  * All logs include [LOYALTY:*] prefix for easy filtering in log aggregators.
+ *
+ * Relocated from services/loyalty/loyalty-logger.js (BACKLOG-31).
  */
 
-const logger = require('../../utils/logger');
+const logger = require('./logger');
 
 /**
  * Structured logging for loyalty service operations

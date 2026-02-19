@@ -20,7 +20,7 @@
 
 const db = require('../utils/database');
 const { getSquareClientForMerchant } = require('../middleware/merchant');
-const { loyaltyLogger } = require('../services/loyalty/loyalty-logger');
+const { loyaltyLogger } = require('../utils/loyalty-logger');
 const { detectRewardRedemptionFromOrder } = require('../services/loyalty-admin');
 
 /**

@@ -10,13 +10,13 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { loyaltyLogger } = require('../loyalty/loyalty-logger');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
 
 // Direct sibling imports (not through index.js)
 const { getSetting } = require('./settings-service');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { updateCustomerStats } = require('./customer-cache-service');
-const { LoyaltyCustomerService } = require('../loyalty/customer-service');
+const { LoyaltyCustomerService } = require('./customer-identification-service');
 const { processQualifyingPurchase, processRefund } = require('./purchase-service');
 
 // ============================================================================

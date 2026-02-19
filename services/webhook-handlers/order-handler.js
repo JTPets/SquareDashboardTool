@@ -25,15 +25,11 @@ const squareApi = require('../../utils/square-api');
 const deliveryApi = require('../../utils/delivery-api');
 const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
-const { FEATURE_FLAGS } = require('../../config/constants');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
 // Customer identification service (6-method fallback chain)
-const { LoyaltyCustomerService } = require('../loyalty/customer-service');
-
-// Modern loyalty service (feature-flagged — used for non-intake paths only)
-const { LoyaltyWebhookService } = require('../loyalty');
+const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
 
 // Cart activity tracking for DRAFT orders
 const cartActivityService = require('../cart/cart-activity-service');
@@ -560,7 +556,7 @@ class OrderHandler {
             const squareCustomerId = fullOrder.customerId || fullOrder.customer_id;
             if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
                 try {
-                    const { LoyaltyCustomerService } = require('../loyalty');
+                    const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
                     const customerService = new LoyaltyCustomerService(merchantId);
                     await customerService.initialize();
                     const customerDetails = await customerService.getCustomerDetails(squareCustomerId);

@@ -167,37 +167,28 @@ See [SECURITY_AUDIT.md](./SECURITY_AUDIT.md#p0-7-xss-via-unescaped-innerhtml) fo
 ## P1: Architecture Fixes (HIGH)
 
 ### P1-1: Loyalty Service Migration
-**Status**: IN PRODUCTION (2026-01-30)
+**Status**: COMPLETE (2026-02-19)
 
-Modern service running in production with feature flags enabled.
+All loyalty code is now in `services/loyalty-admin/` (21 modules, 61 exports). The dead modern layer (`services/loyalty/`) was removed in BACKLOG-31.
 
 #### Architecture Overview
 
 ```
-PRODUCTION FLOW (2026-02-05)
+PRODUCTION FLOW (2026-02-19)
 ────────────────────────────────────────────────────────────────────────
   Webhook Events ──► webhook-processor.js ──► webhook-handlers/
                                               ├── order-handler.js
                                               └── loyalty-handler.js
                                                        │
-                                    ┌──────────────────┴──────────────────┐
-                                    ▼                                     ▼
-                      services/loyalty/              services/loyalty-admin/
-                      (DEAD CODE — BACKLOG-31)       (19 modular services)
-                      ├── webhook-service.js         ├── index.js (59 exports)
-                      ├── square-client.js           ├── purchase-service.js
-                      ├── customer-service.js        ├── reward-service.js
-                      ├── offer-service.js           ├── webhook-processing-service.js
-                      ├── purchase-service.js        ├── square-discount-service.js
-                      ├── reward-service.js          ├── backfill-service.js
-                      ├── loyalty-logger.js          ├── expiration-service.js
-                      └── loyalty-tracer.js          └── ... (9 more modules)
+                                                       ▼
+                                         services/loyalty-admin/
+                                         (21 modular services, 61 exports)
 
   routes/loyalty.js ───────────────────► services/loyalty-admin/
-  (Admin API - 59 exports)
+  (Admin API - 61 exports)
 ```
 
-The legacy `loyalty-service.js` monolith has been **fully eliminated**. All functions extracted to 19 dedicated modules in `services/loyalty-admin/`. See [ARCHITECTURE.md](./ARCHITECTURE.md#loyalty-admin-modules) for the full module structure.
+The legacy `loyalty-service.js` monolith and dead modern layer have been **fully eliminated**. All functions in 21 dedicated modules in `services/loyalty-admin/`. See [ARCHITECTURE.md](./ARCHITECTURE.md#loyalty-admin-modules) for the full module structure.
 
 #### Migration Plan
 
@@ -205,18 +196,20 @@ The legacy `loyalty-service.js` monolith has been **fully eliminated**. All func
 **Phase 2: Test in Production** - COMPLETE (2026-01-30)
 **Phase 3: Migrate Remaining Handlers** - COMPLETE
 **Phase 4: Extract Admin to Modular Services** - COMPLETE (2026-02-05)
+**Phase 5: Remove dead modern layer (BACKLOG-31)** - COMPLETE (2026-02-19)
 
-All 179 loyalty tests pass. No circular dependencies remain.
+All loyalty tests pass. No circular dependencies remain.
 
 #### Success Criteria
 
-- [x] Feature flag `USE_NEW_LOYALTY_SERVICE` added (in `config/constants.js`)
-- [x] Modern service processes orders when flag is `true`
-- [x] Legacy service still works when flag is `false`
+- [x] Feature flag `USE_NEW_LOYALTY_SERVICE` removed (no longer needed — admin layer is sole implementation)
+- [x] Admin layer processes all orders directly (no feature flag branching)
+- [x] Dead modern layer removed (BACKLOG-31)
 - [x] Rate limiting handled with retry logic (commit 89b9a85)
 - [x] Phase 4 modular extraction complete (2026-02-05)
 - [x] Legacy monolith eliminated - all functions in dedicated modules
-- [x] All existing tests pass (179 loyalty tests)
+- [x] Dead modern layer removed (BACKLOG-31, 2026-02-19)
+- [x] All existing tests pass
 - [x] No circular dependencies in module graph
 
 ---
@@ -271,8 +264,7 @@ async function getItems(merchantId, filters) {
 **Current Structure**:
 ```
 services/                # Business logic services
-├── loyalty/             # Modern service (P1-1)
-├── loyalty-admin/       # Modular loyalty admin (19 modules, 59 exports)
+├── loyalty-admin/       # Modular loyalty admin (21 modules, 61 exports)
 ├── catalog/             # Catalog data management (P1-2)
 ├── merchant/            # Settings service
 ├── delivery/            # Delivery order management
@@ -903,7 +895,7 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 **Files involved**:
 - `services/webhook-processor.js` - Event-level dedup (works correctly)
 - `services/webhook-handlers/order-handler.js` - Order handler
-- `services/loyalty/webhook-service.js` - Loyalty processing
+- `services/loyalty-admin/` - Loyalty processing
 
 ---
 
@@ -929,7 +921,7 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 | 4 | `inventoryPending` Map | `services/sync-queue.js:34` | Merchants needing follow-up inventory sync | Webhook during active sync | No | Yes | **MEDIUM** |
 | 5 | `clientCache` Map | `middleware/merchant.js:19` | Authenticated Square SDK clients per merchant | On first request | No (5-min TTL cache) | Yes — recreated on demand | **LOW** |
 | 6 | `merchantsWithoutInvoicesScope` Map | `services/square/api.js:35` | Merchants lacking INVOICES_READ scope | On API call failure | No (1-hour TTL cache) | Yes — re-detected on next call | **LOW** |
-| 7 | `traceStore` Map | `services/loyalty/loyalty-tracer.js:146` | Active trace contexts for debugging | During order processing | No | Yes — in-flight traces lost | **LOW** |
+| 7 | ~~`traceStore` Map~~ | ~~`services/loyalty/loyalty-tracer.js:146`~~ | ~~Removed (BACKLOG-31)~~ | — | — | — | **N/A** |
 | 8 | `webhookOrderStats` Object | `services/webhook-handlers/order-handler.js:104` | Direct-use vs API-fallback counters | On each order webhook | No | Yes — metrics reset | **LOW** |
 | 9 | `upsertProductState` Object | `services/gmc/merchant-service.js:253` | GMC product sync debug counters | During GMC sync cycle | No | Yes — reset each cycle anyway | **LOW** |
 | 10 | `localInventoryState` Object | `services/gmc/merchant-service.js:666` | GMC local inventory debug counters | During GMC sync cycle | No | Yes — reset each cycle anyway | **LOW** |
@@ -948,7 +940,7 @@ await redis.set(orderCacheKey, '1', 'EX', 60); // 60 second lock
 | Lazy module refs (`let x = null`) | 4 files | Circular dependency avoidance — re-required on first use |
 | `developmentSecret` | `server.js:167` | Only in dev mode; production requires SESSION_SECRET env var |
 | `httpServer` / `cronTasks` | `server.js:21-22` | Recreated on startup |
-| `tracerInstances` WeakMap | `services/loyalty/loyalty-tracer.js:19` | WeakMap — GC'd with keys, no accumulation |
+| ~~`tracerInstances` WeakMap~~ | ~~`services/loyalty/loyalty-tracer.js:19`~~ | Removed (BACKLOG-31) |
 
 #### Existing Startup Recovery (Already Working)
 
@@ -1265,17 +1257,17 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 **Status**: Documented, partially mitigated
 **Target**: TBD
 
-**Problem**: Three customer lookup functions exist as both class methods in `services/loyalty/customer-service.js` and standalone exports in `services/loyalty-admin/customer-admin-service.js`: Loyalty API lookup, fulfillment recipient lookup, and order rewards lookup. The L-1 fix consolidated webhook-processing-service.js to delegate to the class-based version, but the standalone exports in customer-admin-service.js still exist independently.
+**Problem**: Three customer lookup functions exist as both class methods in `services/loyalty-admin/customer-identification-service.js` and standalone exports in `services/loyalty-admin/customer-admin-service.js`: Loyalty API lookup, fulfillment recipient lookup, and order rewards lookup. The L-1 fix consolidated webhook-processing-service.js to delegate to the class-based version, but the standalone exports in customer-admin-service.js still exist independently.
 
 **Risk**: Bug fixes or Square API changes applied to one set but not the other.
 
-**Suggested fix**: Have admin-layer standalone functions delegate to the class methods (or vice versa).
+**Suggested fix**: Have admin-layer standalone functions delegate to the class methods (or vice versa). Both are now in the same directory, making consolidation straightforward.
 
-**Effort**: M — Straightforward refactor with clear function boundaries.
+**Effort**: S — Both files in same directory, clear function boundaries.
 
 **Files involved**:
-- `services/loyalty/customer-service.js:195-274, 280-361, 367-495`
-- `services/loyalty-admin/customer-admin-service.js:110-214, 222-334, 342-413`
+- `services/loyalty-admin/customer-identification-service.js`
+- `services/loyalty-admin/customer-admin-service.js`
 
 **Audit date**: 2026-02-17
 
@@ -1588,7 +1580,7 @@ These items are COMPLETE and should not regress:
 | Token encryption: AES-256-GCM | 2026-01-26 | Security |
 | Password hashing: bcrypt with 12 rounds | 2026-01-26 | Security |
 | Multi-tenant isolation: merchant_id on all queries | 2026-01-26 | Security |
-| Modern loyalty service built with 2,931 lines of tests | 2026-01-26 | services/loyalty/ |
+| Loyalty service modularized (21 modules, dead layer removed) | 2026-02-19 | services/loyalty-admin/ |
 | P0-1, P0-2, P0-3 security fixes applied | 2026-01-26 | Security |
 | Bundle reorder system (tables, routes, calculator, UI) | 2026-02-06 | routes/bundles.js, services/bundle-calculator.js |
 | Dead webhook alerting + health endpoint stats | 2026-02-06 | utils/webhook-retry.js, server.js |

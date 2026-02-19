@@ -119,7 +119,7 @@ POST /api/webhooks/square
     └─► oauth-handler.js (oauth.authorization.revoked)
 ```
 
-Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_SYNC`
+Feature flags: `WEBHOOK_CATALOG_SYNC`, `WEBHOOK_INVENTORY_SYNC`, `WEBHOOK_ORDER_SYNC` (webhook processing only)
 
 ### Webhook Subscription Configuration
 
@@ -209,19 +209,7 @@ services/                     # Business logic services
 │   ├── loyalty-handler.js
 │   └── oauth-handler.js
 │
-├── loyalty/                  # DEAD CODE — feature flag routes all traffic to loyalty-admin/ (BACKLOG-31)
-│   ├── index.js              # Feature flag branches (no longer active)
-│   ├── webhook-service.js    # LoyaltyWebhookService (unused)
-│   ├── square-client.js      # LoyaltySquareClient (superseded by loyalty-admin/square-api-client.js)
-│   ├── customer-service.js   # LoyaltyCustomerService (partially duplicated in admin layer)
-│   ├── offer-service.js      # LoyaltyOfferService (queries delegated to loyalty-queries.js)
-│   ├── purchase-service.js   # LoyaltyPurchaseService (unused)
-│   ├── reward-service.js     # LoyaltyRewardService (read-only, redeemReward/expireRewards removed)
-│   ├── loyalty-logger.js     # Structured logging
-│   ├── loyalty-tracer.js     # Request tracing
-│   └── __tests__/            # Tests for dead code
-│
-├── loyalty-admin/            # Modular loyalty admin (19 modules, 59 exports)
+├── loyalty-admin/            # Modular loyalty admin (21 modules, 61 exports)
 │   ├── index.js              # Public API (re-exports all modules)
 │   ├── constants.js          # RewardStatus, AuditActions, RedemptionTypes
 │   ├── shared-utils.js       # fetchWithTimeout, getSquareAccessToken, squareApiRequest, SquareApiError
@@ -240,6 +228,7 @@ services/                     # Business logic services
 │   ├── webhook-processing-service.js  # Webhook order processing (legacy — prefer order-intake)
 │   ├── square-discount-service.js  # Square Customer Group Discount ops
 │   ├── backfill-service.js         # Catchup, order history backfill
+│   ├── customer-identification-service.js  # 6-method customer ID from orders
 │   └── expiration-service.js       # Reward/offer expiration processing
 │
 ├── catalog/                  # Catalog data management (P1-2)
@@ -294,7 +283,7 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 19 modular services (59 exports) for loyalty program administration. The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 21 modular services (61 exports) for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript
@@ -325,7 +314,7 @@ Entry points that call `processLoyaltyOrder()`:
 |----------|---------|---------|
 | Foundation | `constants.js`, `shared-utils.js`, `square-api-client.js`, `loyalty-queries.js` | Enums, shared helpers, Square API client with 429 retry, canonical SQL queries |
 | Core Admin | `audit-service.js`, `settings-service.js`, `offer-admin-service.js`, `variation-admin-service.js` | CRUD and configuration |
-| Customer | `customer-cache-service.js`, `customer-admin-service.js` | Customer data and caching |
+| Customer | `customer-cache-service.js`, `customer-admin-service.js`, `customer-identification-service.js` | Customer data, caching, and order identification |
 | Order Intake | `order-intake.js` | Single entry point for all order → loyalty processing |
 | Processing | `purchase-service.js`, `reward-service.js`, `redemption-audit-service.js`, `webhook-processing-service.js` | Per-item purchase recording, rewards, detection audit, refunds |
 | Integration | `square-discount-service.js`, `expiration-service.js`, `backfill-service.js` | Square API, cleanup, catchup |

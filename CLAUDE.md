@@ -179,7 +179,6 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 ├── services/            # Business logic
 │   ├── webhook-processor.js
 │   ├── webhook-handlers/ (8 handlers)
-│   ├── loyalty/         # Dead code — feature flag routes all traffic to loyalty-admin/ (BACKLOG-31)
 │   ├── loyalty-admin/   # Loyalty program admin (modular - see below)
 │   ├── seniors/         # Seniors discount automation
 │   ├── catalog/         # Catalog data management
@@ -192,7 +191,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Loyalty-Admin Module Structure
 
-The `services/loyalty-admin/` directory contains 19 modular services (59 exports). The legacy monolith has been fully eliminated.
+The `services/loyalty-admin/` directory contains 21 modular services (61 exports). The legacy monolith and dead modern layer have been fully eliminated.
 
 **Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
 
@@ -280,7 +279,6 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
-| Low | BACKLOG-31 | Remove dead modern loyalty layer (`services/loyalty/`) |
 
 ### Backlog — Archive (Completed)
 
@@ -297,6 +295,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-19 | Dual Square API client layers (DEDUP L-6) | 2026-02-19 (unified `square-api-client.js`, 429 retry ported) |
 | BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
 | BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
+| BACKLOG-31 | Remove dead modern loyalty layer | 2026-02-19 (`services/loyalty/` deleted, active code migrated to `loyalty-admin/`) |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls (Batch Optimization)
 
@@ -361,26 +360,6 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 **Priority**: Low (JTPets already has both groups enabled; affects future multi-tenant only)
 **Effort**: S
-
-**Audit date**: 2026-02-19
-
-#### BACKLOG-31: Remove Dead Modern Loyalty Layer (`services/loyalty/`)
-
-**Context**: `services/loyalty/` is entirely dead code since the feature flag routes all traffic to `services/loyalty-admin/`. After L-6 (BACKLOG-19), no active code imports from `services/loyalty/square-client.js` — the last cross-layer dependency.
-
-**Files to remove**:
-- `services/loyalty/webhook-service.js`
-- `services/loyalty/purchase-service.js`
-- `services/loyalty/offer-service.js`
-- `services/loyalty/customer-service.js`
-- `services/loyalty/square-client.js`
-- `services/loyalty/index.js` (feature flag branches)
-- Related test files in `services/loyalty/__tests__/`
-
-**Depends on**: L-6 complete (done — no active `square-client.js` callers remain)
-
-**Priority**: Low (dead code, no runtime risk, cleanup only)
-**Effort**: M (need to verify no imports, remove files, update tests that mock the modern layer)
 
 **Audit date**: 2026-02-19
 

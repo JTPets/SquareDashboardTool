@@ -17,7 +17,7 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 
 // Customer lookup for fallback when fulfillment recipient data is missing
-const { LoyaltyCustomerService } = require('../loyalty');
+const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
 
 // POD storage directory (relative to app root)
 const POD_STORAGE_DIR = process.env.POD_STORAGE_DIR || 'storage/pod';

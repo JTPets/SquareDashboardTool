@@ -1,17 +1,18 @@
 /**
- * Unit tests for loyalty-logger.js
+ * Unit tests for utils/loyalty-logger.js
+ * Migrated from services/loyalty/__tests__/loyalty-logger.test.js (BACKLOG-31)
  */
 
-const { loyaltyLogger } = require('../loyalty-logger');
+const { loyaltyLogger } = require('../../utils/loyalty-logger');
 
 // Mock the logger module
-jest.mock('../../../utils/logger', () => ({
+jest.mock('../../utils/logger', () => ({
   info: jest.fn(),
   error: jest.fn(),
   debug: jest.fn(),
 }));
 
-const mockLogger = require('../../../utils/logger');
+const mockLogger = require('../../utils/logger');
 
 describe('loyaltyLogger', () => {
   beforeEach(() => {
