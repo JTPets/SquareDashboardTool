@@ -16,7 +16,7 @@
 | L-4 | Customer lookup helpers — duplicated between layers | 2 | High | M | P1 | BACKLOG-17 |
 | L-5 | Offer/variation queries — overlapping implementations | 2 | Medium | S | P1 | BACKLOG-18 |
 | L-6 | Square API client — two wrapper layers | 2 | Medium | M | P1 | BACKLOG-19 |
-| L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | BACKLOG-20 |
+| L-7 | Redemption detection — only exists in admin layer | 1 | Low | S | P1 | **FIXED** (audit job calls `detectRewardRedemptionFromOrder()`, 2026-02-19) |
 | R-1 | Reorder quantity formula — JS vs SQL implementations | 2 | Critical | M | P2 | **FIXED** (shared `reorder-math.js`, BACKLOG-28 for vendor config wiring) |
 | R-2 | Days-of-stock / days-until-stockout — 5 implementations | 5 | High | M | P2 | BACKLOG-21 |
 | R-3 | Available vs total stock — inconsistent base value | 4 | High | S | P2 | BACKLOG-22 |
@@ -181,24 +181,18 @@
 
 ---
 
-### L-7: Redemption Detection — Only Exists in Admin Layer
+### L-7: Redemption Detection — Only Exists in Admin Layer — **FIXED**
 
-**What's duplicated**: This is an asymmetry rather than a duplication. Redemption detection logic exists only in the admin layer; the webhook layer has no equivalent.
+**Status**: Resolved 2026-02-19. The audit job's simplified `orderHasOurDiscount()` (27 lines, Strategy 1 only) was replaced with a call to the canonical `detectRewardRedemptionFromOrder()` from `services/loyalty-admin/reward-service.js` (all 3 strategies, `dryRun: true`). The `getOurDiscountIds()` helper was also removed.
 
-**Files + line numbers**:
+**What was fixed**:
+- `jobs/loyalty-audit-job.js` now imports `detectRewardRedemptionFromOrder` from `services/loyalty-admin`
+- Removed `orderHasOurDiscount()` and `getOurDiscountIds()` (simplified detection)
+- Added `fetchSquareOrder()` helper (audit job still fetches orders, passes them to canonical detection)
+- Unmatched REDEEM_REWARD events are correctly identified as Square native points and skipped (no more false MISSING_REDEMPTION errors)
+- No circular dependency: `jobs/` → `services/loyalty-admin/` is one-way
 
-| Function | File | Lines |
-|----------|------|-------|
-| `detectRewardRedemptionFromOrder()` | `services/loyalty-admin/reward-service.js` | 469-666 |
-| `matchEarnedRewardByFreeItem()` | `services/loyalty-admin/reward-service.js` | 217-354 |
-| `matchEarnedRewardByDiscountAmount()` | `services/loyalty-admin/reward-service.js` | 373-451 |
-| `orderHasOurDiscount()` (minimal check) | `jobs/loyalty-audit-job.js` | 152-178 |
-
-**Risk**: Low currently — webhooks process purchases, not redemptions. But `orderHasOurDiscount()` in the audit job is a simplified version of the detection logic. If detection rules change, the audit job's simplified check may produce false positives or negatives.
-
-**Suggested fix**: If the audit job's detection needs to evolve, it should call `detectRewardRedemptionFromOrder()` from the admin layer rather than maintaining its own simplified version.
-
-**Effort**: S — Single call-site change.
+**Bug fixed**: The simplified detection only checked catalog_object_id matching (Strategy 1). Orders with manual discounts or pricing-rule-applied discounts would pass the filter, then fail the local redemption lookup, generating false `MISSING_REDEMPTION` audit findings. The canonical function uses all 3 strategies (catalog ID, free item fallback, discount amount fallback) and correctly distinguishes our punch card rewards from Square native points.
 
 ---
 

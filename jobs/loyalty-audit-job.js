@@ -21,6 +21,7 @@
 const db = require('../utils/database');
 const { getSquareClientForMerchant } = require('../middleware/merchant');
 const { loyaltyLogger } = require('../services/loyalty/loyalty-logger');
+const { detectRewardRedemptionFromOrder } = require('../services/loyalty-admin');
 
 /**
  * Get all merchants with active loyalty offers
@@ -123,57 +124,23 @@ async function getLocalRedemptions(merchantId, orderIds) {
 }
 
 /**
- * Get all our custom discount IDs for a merchant
- * These are discounts created by our punch card system, not Square's native loyalty
- *
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<Set>} Set of square_discount_id values
- */
-async function getOurDiscountIds(merchantId) {
-    const result = await db.query(`
-        SELECT DISTINCT square_discount_id
-        FROM loyalty_rewards
-        WHERE merchant_id = $1
-          AND square_discount_id IS NOT NULL
-    `, [merchantId]);
-
-    return new Set(result.rows.map(row => row.square_discount_id));
-}
-
-/**
- * Check if an order contains one of our custom loyalty discounts
- * Returns false for Square native points redemptions (not our system)
+ * Fetch an order from Square API
  *
  * @param {Object} squareClient - Square SDK client
  * @param {string} orderId - Square order ID
- * @param {Set} ourDiscountIds - Set of our discount IDs
- * @returns {Promise<boolean>} True if order has our discount
+ * @returns {Promise<Object|null>} Order object or null if fetch fails
  */
-async function orderHasOurDiscount(squareClient, orderId, ourDiscountIds) {
-    if (ourDiscountIds.size === 0) return false;
-
+async function fetchSquareOrder(squareClient, orderId) {
     try {
         const response = await squareClient.orders.get({ orderId });
-        const order = response.order;
-
-        if (!order || !order.discounts) return false;
-
-        // Check if any applied discount matches our custom loyalty discounts
-        for (const discount of order.discounts) {
-            if (discount.catalogObjectId && ourDiscountIds.has(discount.catalogObjectId)) {
-                return true;
-            }
-        }
-
-        return false;
+        return response.order || null;
     } catch (error) {
-        // If we can't fetch the order, log and return false (skip this event)
         loyaltyLogger.error({
             action: 'ORDER_FETCH_FAILED',
             orderId,
             error: error.message
         });
-        return false;
+        return null;
     }
 }
 
@@ -254,10 +221,6 @@ async function auditMerchant(merchant, hoursBack) {
         // Get Square client for order lookups
         const squareClient = await getSquareClientForMerchant(merchantId);
 
-        // Get our custom discount IDs (punch card system)
-        // Square native points redemptions won't have these discounts
-        const ourDiscountIds = await getOurDiscountIds(merchantId);
-
         // Extract order IDs from events
         const orderIds = events
             .map(e => e.redeemReward?.orderId)
@@ -269,8 +232,8 @@ async function auditMerchant(merchant, hoursBack) {
         // Track seen order IDs for double redemption detection (only among our system's events)
         const seenOrderIds = new Map();
 
-        // Cache order discount checks to avoid re-fetching for double redemptions
-        const orderDiscountCache = new Map();
+        // Cache detection results to avoid re-fetching for double redemptions
+        const orderDetectionCache = new Map();
 
         for (const event of events) {
             const orderId = event.redeemReward?.orderId;
@@ -279,16 +242,25 @@ async function auditMerchant(merchant, hoursBack) {
 
             if (!orderId) continue;
 
-            // FILTER FIRST - Check if this is our punch card system vs Square native points
+            // FILTER FIRST - Use canonical 3-strategy detection (dryRun: true)
+            // to distinguish our punch card rewards from Square native points.
             // This MUST happen before double redemption tracking to avoid false positives
-            let isOurRedemption = orderDiscountCache.get(orderId);
-            if (isOurRedemption === undefined) {
-                isOurRedemption = await orderHasOurDiscount(squareClient, orderId, ourDiscountIds);
-                orderDiscountCache.set(orderId, isOurRedemption);
+            let detectionResult = orderDetectionCache.get(orderId);
+            if (detectionResult === undefined) {
+                const order = await fetchSquareOrder(squareClient, orderId);
+                if (!order) {
+                    // Could not fetch order — skip this event
+                    orderDetectionCache.set(orderId, { detected: false });
+                    results.skippedNativePoints++;
+                    continue;
+                }
+                detectionResult = await detectRewardRedemptionFromOrder(order, merchantId, { dryRun: true });
+                orderDetectionCache.set(orderId, detectionResult);
             }
 
-            if (!isOurRedemption) {
-                // This is a Square native points redemption, not our system - skip entirely
+            if (!detectionResult.detected) {
+                // Unmatched REDEEM_REWARD = Square native points redemption, not our system.
+                // This is expected and normal — info, not error.
                 results.skippedNativePoints++;
                 continue;
             }

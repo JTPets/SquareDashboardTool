@@ -280,7 +280,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
 | Low | BACKLOG-18 | Offer/variation query overlap between layers (DEDUP L-5) |
 | Low | BACKLOG-19 | Dual Square API client layers with divergent retry (DEDUP L-6) |
-| Low | BACKLOG-20 | Redemption detection asymmetry — audit job simplified check (DEDUP L-7) |
+| ~~Low~~ | ~~BACKLOG-20~~ | ~~Redemption detection asymmetry — audit job simplified check (DEDUP L-7)~~ **COMPLETE** (audit job calls `detectRewardRedemptionFromOrder()` with `dryRun: true`) |
 | Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |
 | Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
 | Low | BACKLOG-24 | Order normalization boilerplate in order-handler.js (DEDUP G-4) |
