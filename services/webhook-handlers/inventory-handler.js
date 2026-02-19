@@ -273,14 +273,33 @@ class InventoryHandler {
                 [merchantId, invoiceId]
             );
 
-            // Insert each line item
+            // Check which catalog_object_ids exist locally for orphan filtering
+            const allVariationIds = lineItems
+                .map(item => item.catalogObjectId || item.catalog_object_id)
+                .filter(Boolean);
+            let knownVariationIds = new Set();
+            if (allVariationIds.length > 0) {
+                const knownResult = await client.query(
+                    'SELECT id FROM variations WHERE id = ANY($1) AND merchant_id = $2',
+                    [allVariationIds, merchantId]
+                );
+                knownVariationIds = new Set(knownResult.rows.map(r => r.id));
+            }
+
+            // Insert each line item (skip orphan variations not in local catalog)
             let itemsInserted = 0;
+            const skippedOrphans = [];
             for (const item of lineItems) {
                 const variationId = item.catalogObjectId || item.catalog_object_id;
                 const itemLocationId = locationId;
                 const quantity = parseInt(item.quantity) || 0;
 
                 if (!variationId || quantity <= 0 || !itemLocationId) continue;
+
+                if (!knownVariationIds.has(variationId)) {
+                    skippedOrphans.push(variationId);
+                    continue;
+                }
 
                 await client.query(`
                     INSERT INTO committed_inventory
@@ -293,6 +312,12 @@ class InventoryHandler {
                         updated_at = NOW()
                 `, [merchantId, invoiceId, orderId, variationId, itemLocationId, quantity, invoiceStatus]);
                 itemsInserted++;
+            }
+
+            if (skippedOrphans.length > 0) {
+                logger.warn('Skipped invoice line items with catalog variations not in local catalog — run a catalog sync to resolve', {
+                    merchantId, invoiceId, orderId, skippedVariationIds: skippedOrphans
+                });
             }
 
             result.committedInventory = {
@@ -377,6 +402,7 @@ class InventoryHandler {
             );
 
             // Rebuild from committed_inventory (aggregate across all open invoices)
+            // Filter out catalog_object_ids not in local variations table (orphans)
             await client.query(`
                 INSERT INTO inventory_counts
                     (catalog_object_id, location_id, state, quantity, merchant_id, updated_at)
@@ -389,6 +415,7 @@ class InventoryHandler {
                     NOW()
                 FROM committed_inventory
                 WHERE merchant_id = $1
+                    AND catalog_object_id IN (SELECT id FROM variations WHERE merchant_id = $1)
                 GROUP BY catalog_object_id, location_id
                 ON CONFLICT (catalog_object_id, location_id, state, merchant_id)
                 DO UPDATE SET
@@ -396,6 +423,25 @@ class InventoryHandler {
                     updated_at = NOW()
             `, [merchantId]);
         });
+
+        // Log warning for orphan variations in committed_inventory
+        const orphanResult = await db.query(`
+            SELECT DISTINCT ci.catalog_object_id, ci.square_invoice_id
+            FROM committed_inventory ci
+            WHERE ci.merchant_id = $1
+                AND ci.catalog_object_id NOT IN (
+                    SELECT id FROM variations WHERE merchant_id = $1
+                )
+        `, [merchantId]);
+
+        if (orphanResult.rows.length > 0) {
+            const orphanIds = [...new Set(orphanResult.rows.map(r => r.catalog_object_id))];
+            const invoiceIds = [...new Set(orphanResult.rows.map(r => r.square_invoice_id))];
+            logger.warn(
+                `Committed inventory references ${orphanIds.length} variation(s) not in local catalog — these items are excluded from RESERVED_FOR_SALE. Run a catalog sync to resolve.`,
+                { merchantId, orphanVariationIds: orphanIds, invoiceIds }
+            );
+        }
 
         logger.debug('RESERVED_FOR_SALE aggregate rebuilt from committed_inventory', { merchantId });
     }

@@ -2620,12 +2620,31 @@ async function syncCommittedInventory(merchantId) {
                     [merchantId, invoiceId]
                 );
 
+                // Check which catalog_object_ids exist locally for orphan filtering
+                const allVariationIds = order.line_items
+                    .map(li => li.catalog_object_id)
+                    .filter(Boolean);
+                let knownVariationIds = new Set();
+                if (allVariationIds.length > 0) {
+                    const knownResult = await client.query(
+                        'SELECT id FROM variations WHERE id = ANY($1) AND merchant_id = $2',
+                        [allVariationIds, merchantId]
+                    );
+                    knownVariationIds = new Set(knownResult.rows.map(r => r.id));
+                }
+
+                const skippedOrphans = [];
                 for (const lineItem of order.line_items) {
                     const variationId = lineItem.catalog_object_id;
                     const locationId = order.location_id || details.locationId;
                     const quantity = parseInt(lineItem.quantity) || 0;
 
                     if (!variationId || quantity <= 0 || !locationId) continue;
+
+                    if (!knownVariationIds.has(variationId)) {
+                        skippedOrphans.push(variationId);
+                        continue;
+                    }
 
                     await client.query(`
                         INSERT INTO committed_inventory
@@ -2638,6 +2657,12 @@ async function syncCommittedInventory(merchantId) {
                             updated_at = NOW()
                     `, [merchantId, invoiceId, fullInvoice.order_id, variationId,
                         locationId, quantity, details.status]);
+                }
+
+                if (skippedOrphans.length > 0) {
+                    logger.warn('Skipped invoice line items with catalog variations not in local catalog — run a catalog sync to resolve', {
+                        merchantId, invoiceId, orderId: fullInvoice.order_id, skippedVariationIds: skippedOrphans
+                    });
                 }
             });
 
@@ -2656,6 +2681,7 @@ async function syncCommittedInventory(merchantId) {
 
     // Rebuild RESERVED_FOR_SALE aggregate from committed_inventory
     // (matches webhook handler's _rebuildReservedForSaleAggregate pattern)
+    // Filter out catalog_object_ids not in local variations table (orphans)
     await db.transaction(async (client) => {
         await client.query(
             "DELETE FROM inventory_counts WHERE state = 'RESERVED_FOR_SALE' AND merchant_id = $1",
@@ -2674,6 +2700,7 @@ async function syncCommittedInventory(merchantId) {
                 NOW()
             FROM committed_inventory
             WHERE merchant_id = $1
+                AND catalog_object_id IN (SELECT id FROM variations WHERE merchant_id = $1)
             GROUP BY catalog_object_id, location_id
             ON CONFLICT (catalog_object_id, location_id, state, merchant_id)
             DO UPDATE SET
@@ -2681,6 +2708,25 @@ async function syncCommittedInventory(merchantId) {
                 updated_at = NOW()
         `, [merchantId]);
     });
+
+    // Log warning for orphan variations in committed_inventory
+    const orphanResult = await db.query(`
+        SELECT DISTINCT ci.catalog_object_id, ci.square_invoice_id
+        FROM committed_inventory ci
+        WHERE ci.merchant_id = $1
+            AND ci.catalog_object_id NOT IN (
+                SELECT id FROM variations WHERE merchant_id = $1
+            )
+    `, [merchantId]);
+
+    if (orphanResult.rows.length > 0) {
+        const orphanIds = [...new Set(orphanResult.rows.map(r => r.catalog_object_id))];
+        const invoiceIds = [...new Set(orphanResult.rows.map(r => r.square_invoice_id))];
+        logger.warn(
+            `Committed inventory references ${orphanIds.length} variation(s) not in local catalog — these items are excluded from RESERVED_FOR_SALE. Run a catalog sync to resolve.`,
+            { merchantId, orphanVariationIds: orphanIds, invoiceIds }
+        );
+    }
 
     // Count rows AFTER reconciliation
     const afterResult = await db.query(
