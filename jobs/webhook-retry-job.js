@@ -89,7 +89,9 @@ async function processWebhookRetries(batchSize = 10) {
                 case 'order.created':
                 case 'order.updated':
                 case 'order.fulfillment.updated':
-                    syncResult = await squareApi.syncCommittedInventory(internalMerchantId);
+                    // BACKLOG-10: Committed inventory is now driven by invoice webhooks,
+                    // not order webhooks. Order retries no longer trigger full sync.
+                    syncResult = { skipped: true, reason: 'Committed inventory handled by invoice webhooks (BACKLOG-10)' };
                     break;
 
                 case 'vendor.created':
