@@ -10,15 +10,15 @@
 
 | Category | Count | Cleanup Effort |
 |----------|-------|----------------|
-| Unused exports | 2 | S |
+| Unused exports | 0 (2 removed 2026-02-19) | — |
 | Orphan route handlers | 0 | — |
 | Debug artifacts (console.log) | 1 file (CLI utility, OK) | — |
 | Commented-out code blocks | 0 | — |
-| TODO/FIXME comments | 3 | S |
+| TODO/FIXME comments | 2 (1 stale removed 2026-02-19) | — |
 | Stale imports | 0 | — |
-| **Total actionable items** | **5** | **S** |
+| **Total actionable items** | **0** | **—** |
 
-**Overall assessment**: Codebase is clean. Only 2 genuinely unused exports found. The 3 TODOs are known items already tracked in the backlog.
+**Overall assessment**: Codebase is clean. All actionable findings resolved 2026-02-19. Remaining 2 TODOs are known backlog items (currency hardcode, batch-delete restart edge case).
 
 ---
 
@@ -28,12 +28,11 @@ Exports from `module.exports` that have zero importers in production code (servi
 
 | File | Export | Import Count | Status | Recommendation |
 |------|--------|-------------|--------|----------------|
-| `services/loyalty-admin/index.js` | `createSquareLoyaltyReward` | 0 | DEAD | Remove from index.js re-exports. Legacy Square Loyalty API function superseded by Customer Group Discount approach. |
-| `services/loyalty-admin/index.js` | `getAllVariationAssignments` | 0 | DEAD | Remove from index.js re-exports. Admin UI variation list may use different endpoint. |
+| `services/loyalty-admin/index.js` | `createSquareLoyaltyReward` | 0 | ~~DEAD~~ **REMOVED** (2026-02-19) | Removed from index.js, reward-service.js exports, and function body deleted. |
+| `services/loyalty-admin/index.js` | `getAllVariationAssignments` | 0 | ~~DEAD~~ **REMOVED** (2026-02-19) | Removed from index.js, variation-admin-service.js exports, and function body deleted. |
 
 **Notes**:
-- Both are re-exports from the loyalty-admin index. The underlying functions exist in their service files but are never called from any route, job, or other service.
-- Frontend code in `public/js/loyalty.js` calls variation endpoints via HTTP API routes — the route handler uses `getVariationsForOffer()` not `getAllVariationAssignments()`.
+- Both were re-exports from the loyalty-admin index. Functions and re-exports removed 2026-02-19.
 
 ---
 
@@ -77,7 +76,7 @@ The codebase has clean commenting practices. Inline comments explain logic but d
 
 | File | Line | Comment | Status | Recommendation |
 |------|------|---------|--------|----------------|
-| `middleware/security.js` | 23 | `TODO: Externalize inline scripts to complete CSP hardening (see P0-4 in CLAUDE.md)` | **STALE** | P0-4 CSP Phase 2 is 100% complete (29/29 files). Remove this TODO and update the "P0-4 PARTIAL" comment above it. |
+| `middleware/security.js` | 23 | `TODO: Externalize inline scripts to complete CSP hardening (see P0-4 in CLAUDE.md)` | ~~STALE~~ **REMOVED** (2026-02-19) | TODO removed and comment updated from "P0-4 PARTIAL" to "P0-4 COMPLETE". |
 | `services/loyalty-admin/square-discount-service.js` | 348 | `TODO: BACKLOG - currency hardcoded to CAD; for multi-tenant SaaS, pull from merchant config` | Known | Pre-franchise item. Leave as-is until multi-tenant currency support is needed. |
 | `utils/square-catalog-cleanup.js` | 14 | `TODO: If the server restarts during a batch-delete call, objects may be partially deleted` | Known | Edge case documentation. The batch-delete is idempotent so this is informational, not a bug. |
 

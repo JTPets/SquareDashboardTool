@@ -266,15 +266,15 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-3 | Response format standardization |
-| Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
-| Low | BACKLOG-7 | Loyalty audit job per-event Square API calls (batch optimization) |
+| ~~Low~~ | ~~BACKLOG-5~~ | ~~Rapid-fire webhook duplicate processing~~ **DONE** (2026-02-19) |
+| ~~Low~~ | ~~BACKLOG-7~~ | ~~Loyalty audit job per-event Square API calls (batch optimization)~~ **DONE** (2026-02-19) |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
 | Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |
 | Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
-| Low | BACKLOG-24 | Order normalization boilerplate in order-handler.js (DEDUP G-4) |
+| ~~Low~~ | ~~BACKLOG-24~~ | ~~Order normalization boilerplate in order-handler.js (DEDUP G-4)~~ **CLOSED** (2026-02-19, intentional — see archive) |
 | Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
@@ -296,19 +296,9 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
 | BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
 | BACKLOG-31 | Remove dead modern loyalty layer | 2026-02-19 (`services/loyalty/` deleted, active code migrated to `loyalty-admin/`) |
-
-#### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls (Batch Optimization)
-
-**Context**: The audit job fetches individual orders via Square API for `REDEEM_REWARD` events and passes them to `detectRewardRedemptionFromOrder()` for canonical detection. At current volume (2-5 events per 48h window) this is fine, but a backfill audit over weeks/months would hit Square API rate limits.
-
-> **Note**: The original `orderHasOurDiscount()` was removed in the L-7 fix (BACKLOG-20, 2026-02-19). Detection now uses the canonical `detectRewardRedemptionFromOrder()` with `dryRun: true` from `services/loyalty-admin/reward-service.js`. The batch optimization proposal below is still valid.
-
-**Files involved**:
-- `jobs/loyalty-audit-job.js:fetchSquareOrder()` + `detectRewardRedemptionFromOrder()` call
-
-**Proposed solution**: Batch fetch orders using Square's `BatchRetrieveOrders` endpoint (up to 100 per call) instead of individual gets. Collect all order IDs from events first, batch fetch, then run canonical detection in memory.
-
-**Audit date**: 2026-02-02 (updated 2026-02-19)
+| BACKLOG-5 | Rapid-fire webhook duplicate processing | 2026-02-19 (in-memory event lock in webhook-processor.js, 60s auto-expire) |
+| BACKLOG-24 | Order normalization boilerplate (DEDUP G-4) | 2026-02-19 (investigated — intentional; 3 call sites in order-handler.js serve different workflows with different pre-checks; `_fetchFullOrder()` already encapsulates common case) |
+| BACKLOG-7 | Loyalty audit job batch optimization | 2026-02-19 (`batchFetchSquareOrders()` with concurrency control, no per-event API calls) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 

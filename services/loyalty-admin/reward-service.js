@@ -4,7 +4,6 @@
  * Handles reward redemption and detection:
  * - redeemReward: Mark earned rewards as redeemed
  * - detectRewardRedemptionFromOrder: Auto-detect redemptions from order discounts
- * - createSquareLoyaltyReward: Legacy redirect to Customer Group Discount
  *
  * Extracted from loyalty-service.js and square-discount-service.js as part of
  * final P1-1 monolith elimination.
@@ -17,8 +16,7 @@ const logger = require('../../utils/logger');
 const { RewardStatus, AuditActions, RedemptionTypes } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const {
-    cleanupSquareCustomerGroupDiscount,
-    createSquareCustomerGroupDiscount
+    cleanupSquareCustomerGroupDiscount
 } = require('./square-discount-service');
 
 // Import from purchase-service.js (sibling)
@@ -666,19 +664,6 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
 }
 
 // ============================================================================
-// LEGACY REDIRECT (moved from square-discount-service.js)
-// ============================================================================
-
-/**
- * Legacy function for backward compatibility - now uses Customer Group Discounts
- * Keep the old name for any existing code references, but redirect to new implementation
- */
-async function createSquareLoyaltyReward({ merchantId, squareCustomerId, internalRewardId, offerId }) {
-    logger.info('createSquareLoyaltyReward called - redirecting to Customer Group Discount approach');
-    return createSquareCustomerGroupDiscount({ merchantId, squareCustomerId, internalRewardId, offerId });
-}
-
-// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -686,6 +671,5 @@ module.exports = {
     redeemReward,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
-    matchEarnedRewardByDiscountAmount,
-    createSquareLoyaltyReward
+    matchEarnedRewardByDiscountAmount
 };

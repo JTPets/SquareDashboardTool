@@ -78,8 +78,7 @@ const {
     addQualifyingVariations,
     getQualifyingVariations,
     getOfferForVariation,
-    removeQualifyingVariation,
-    getAllVariationAssignments
+    removeQualifyingVariation
 } = require('./variation-admin-service');
 
 // Customer cache service
@@ -140,8 +139,7 @@ const {
     redeemReward,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
-    matchEarnedRewardByDiscountAmount,
-    createSquareLoyaltyReward
+    matchEarnedRewardByDiscountAmount
 } = require('./reward-service');
 
 // Webhook processing service (NEW - extracted from loyalty-service.js)
@@ -188,7 +186,6 @@ module.exports = {
     getQualifyingVariations,
     getOfferForVariation,
     removeQualifyingVariation,
-    getAllVariationAssignments,
 
     // Purchase processing
     processQualifyingPurchase,
@@ -225,7 +222,6 @@ module.exports = {
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
     matchEarnedRewardByDiscountAmount,
-    createSquareLoyaltyReward,
 
     // Order intake (single entry point for all order processing)
     processLoyaltyOrder,

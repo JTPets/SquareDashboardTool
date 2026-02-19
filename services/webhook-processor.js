@@ -16,6 +16,55 @@ const webhookRetry = require('../utils/webhook-retry');
 const { routeEvent } = require('./webhook-handlers');
 
 class WebhookProcessor {
+    constructor() {
+        /**
+         * In-memory set of event IDs currently being processed.
+         * Guards against the race window between webhook receive and DB INSERT
+         * when rapid-fire webhooks arrive with the same event_id.
+         *
+         * This is per-process only — PM2 cluster mode would need Redis for
+         * cross-process dedup. The DB check remains the authoritative guard.
+         */
+        this._processingEvents = new Map(); // eventId -> timestamp
+    }
+
+    /**
+     * Check if an event is currently being processed in this process.
+     * Returns true if the event should be skipped (already in-flight).
+     *
+     * @param {string} eventId - The Square event ID
+     * @returns {boolean} Whether the event is currently in-flight
+     */
+    isEventInFlight(eventId) {
+        if (!eventId) return false;
+
+        // Clean up expired entries (older than 60 seconds)
+        const now = Date.now();
+        for (const [id, timestamp] of this._processingEvents) {
+            if (now - timestamp > 60000) {
+                this._processingEvents.delete(id);
+            }
+        }
+
+        if (this._processingEvents.has(eventId)) {
+            return true;
+        }
+
+        this._processingEvents.set(eventId, now);
+        return false;
+    }
+
+    /**
+     * Remove an event from the in-flight set after processing completes.
+     *
+     * @param {string} eventId - The Square event ID
+     */
+    clearEventInFlight(eventId) {
+        if (eventId) {
+            this._processingEvents.delete(eventId);
+        }
+    }
+
     /**
      * Verify Square HMAC-SHA256 signature using timing-safe comparison
      *
@@ -221,7 +270,15 @@ class WebhookProcessor {
             }
 
             // ==================== IDEMPOTENCY CHECK ====================
+            // In-memory lock: catches rapid-fire duplicates during the race window
+            // between receive and DB INSERT (per-process only; DB check is authoritative)
+            if (this.isEventInFlight(event.event_id)) {
+                logger.info('Duplicate webhook caught by in-flight lock', { eventId: event.event_id });
+                return res.json({ received: true, duplicate: true });
+            }
+
             if (await this.isDuplicateEvent(event.event_id)) {
+                this.clearEventInFlight(event.event_id);
                 logger.info('Duplicate webhook event ignored', { eventId: event.event_id });
                 return res.json({ received: true, duplicate: true });
             }
@@ -270,6 +327,7 @@ class WebhookProcessor {
             const processingTime = Date.now() - startTime;
             await this.updateEventResults(webhookEventId, syncResults, processingTime);
 
+            this.clearEventInFlight(event.event_id);
             res.json({ received: true, processingTimeMs: processingTime });
 
         } catch (error) {
@@ -304,6 +362,8 @@ class WebhookProcessor {
                     });
                 });
             }
+
+            this.clearEventInFlight(req.body?.event_id);
 
             // Return 200 to Square to prevent their automatic retries.
             // Failed events are stored in webhook_events and retried by our

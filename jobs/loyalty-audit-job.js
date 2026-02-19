@@ -124,24 +124,63 @@ async function getLocalRedemptions(merchantId, orderIds) {
 }
 
 /**
- * Fetch an order from Square API
+ * Batch fetch orders from Square API with controlled concurrency.
+ *
+ * Square Orders API has no batch-retrieve endpoint, so we fetch in parallel
+ * with a concurrency cap to stay within rate limits. Orders that fail to
+ * fetch (404 or transient error) are logged and mapped to null.
  *
  * @param {Object} squareClient - Square SDK client
- * @param {string} orderId - Square order ID
- * @returns {Promise<Object|null>} Order object or null if fetch fails
+ * @param {string[]} orderIds - Unique order IDs to fetch
+ * @param {Object} [options]
+ * @param {number} [options.concurrency=5] - Max parallel requests
+ * @returns {Promise<Map<string, Object|null>>} Map of orderId -> order or null
  */
-async function fetchSquareOrder(squareClient, orderId) {
-    try {
-        const response = await squareClient.orders.get({ orderId });
-        return response.order || null;
-    } catch (error) {
-        loyaltyLogger.error({
-            action: 'ORDER_FETCH_FAILED',
-            orderId,
-            error: error.message
-        });
-        return null;
+async function batchFetchSquareOrders(squareClient, orderIds, { concurrency = 5 } = {}) {
+    const uniqueIds = [...new Set(orderIds)];
+    const orderMap = new Map();
+    const errors = [];
+
+    for (let i = 0; i < uniqueIds.length; i += concurrency) {
+        const chunk = uniqueIds.slice(i, i + concurrency);
+
+        const results = await Promise.allSettled(
+            chunk.map(async (orderId) => {
+                const response = await squareClient.orders.get({ orderId });
+                return { orderId, order: response.order || null };
+            })
+        );
+
+        for (let j = 0; j < results.length; j++) {
+            const result = results[j];
+            const orderId = chunk[j];
+            if (result.status === 'fulfilled') {
+                orderMap.set(orderId, result.value.order);
+            } else {
+                errors.push({ orderId, error: result.reason?.message || 'Unknown error' });
+                orderMap.set(orderId, null);
+            }
+        }
     }
+
+    if (errors.length > 0) {
+        loyaltyLogger.warn({
+            action: 'ORDERS_BATCH_FETCH_PARTIAL_FAILURE',
+            totalRequested: uniqueIds.length,
+            succeeded: uniqueIds.length - errors.length,
+            failed: errors.length,
+            errors
+        });
+    }
+
+    loyaltyLogger.perf({
+        operation: 'BATCH_FETCH_ORDERS',
+        totalRequested: uniqueIds.length,
+        succeeded: uniqueIds.length - errors.length,
+        failed: errors.length
+    });
+
+    return orderMap;
 }
 
 /**
@@ -229,10 +268,14 @@ async function auditMerchant(merchant, hoursBack) {
         // Get local redemption records
         const localRedemptions = await getLocalRedemptions(merchantId, orderIds);
 
+        // Batch fetch all orders upfront (controlled concurrency, no individual API calls in loop)
+        const uniqueOrderIds = [...new Set(orderIds)];
+        const orderMap = await batchFetchSquareOrders(squareClient, uniqueOrderIds);
+
         // Track seen order IDs for double redemption detection (only among our system's events)
         const seenOrderIds = new Map();
 
-        // Cache detection results to avoid re-fetching for double redemptions
+        // Cache detection results to avoid re-running detection for same order
         const orderDetectionCache = new Map();
 
         for (const event of events) {
@@ -247,7 +290,7 @@ async function auditMerchant(merchant, hoursBack) {
             // This MUST happen before double redemption tracking to avoid false positives
             let detectionResult = orderDetectionCache.get(orderId);
             if (detectionResult === undefined) {
-                const order = await fetchSquareOrder(squareClient, orderId);
+                const order = orderMap.get(orderId) || null;
                 if (!order) {
                     // Could not fetch order — skip this event
                     orderDetectionCache.set(orderId, { detected: false });
