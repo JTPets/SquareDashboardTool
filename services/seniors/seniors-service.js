@@ -11,7 +11,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { SENIORS_DISCOUNT } = require('../../config/constants');
-const { LoyaltySquareClient } = require('../loyalty/square-client');
+const { SquareApiClient } = require('../loyalty-admin/square-api-client');
 const { calculateAge, isSenior, parseBirthday, formatBirthday } = require('./age-calculator');
 const { generateIdempotencyKey } = require('../square/api');
 
@@ -52,7 +52,7 @@ class SeniorsService {
      * @returns {Promise<SeniorsService>}
      */
     async initialize() {
-        this.squareClient = new LoyaltySquareClient(this.merchantId);
+        this.squareClient = new SquareApiClient(this.merchantId);
         await this.squareClient.initialize();
 
         // Load existing config if any

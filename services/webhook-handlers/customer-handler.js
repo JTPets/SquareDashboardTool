@@ -18,7 +18,7 @@ const logger = require('../../utils/logger');
 const db = require('../../utils/database');
 const loyaltyService = require('../../utils/loyalty-service');
 const { SeniorsService } = require('../seniors');
-const { LoyaltySquareClient } = require('../loyalty/square-client');
+const { SquareApiClient } = require('../loyalty-admin/square-api-client');
 const { cacheCustomerDetails } = require('../loyalty-admin/customer-cache-service');
 
 class CustomerHandler {
@@ -125,7 +125,7 @@ class CustomerHandler {
      */
     async _fetchAndCacheCustomer(merchantId, customerId) {
         try {
-            const squareClient = new LoyaltySquareClient(merchantId);
+            const squareClient = new SquareApiClient(merchantId);
             await squareClient.initialize();
             const customer = await squareClient.getCustomer(customerId);
 

@@ -19,7 +19,7 @@ const loyaltyService = require('../../utils/loyalty-service');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
-const { LoyaltySquareClient } = require('../loyalty/square-client');
+const { SquareApiClient } = require('../loyalty-admin/square-api-client');
 
 class LoyaltyHandler {
     /**
@@ -128,10 +128,10 @@ class LoyaltyHandler {
             merchantId
         });
 
-        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        // Use SquareApiClient with built-in retry logic for rate limiting
         let squareClient;
         try {
-            squareClient = new LoyaltySquareClient(merchantId);
+            squareClient = new SquareApiClient(merchantId);
             await squareClient.initialize();
         } catch (initError) {
             logger.error('Failed to initialize Square client for loyalty webhook', {
@@ -212,10 +212,10 @@ class LoyaltyHandler {
             eventType
         });
 
-        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        // Use SquareApiClient with built-in retry logic for rate limiting
         let squareClient;
         try {
-            squareClient = new LoyaltySquareClient(merchantId);
+            squareClient = new SquareApiClient(merchantId);
             await squareClient.initialize();
         } catch (initError) {
             logger.error('Failed to initialize Square client for reverse lookup', {
@@ -268,10 +268,10 @@ class LoyaltyHandler {
      * @private
      */
     async _processRedemptionEvent(orderId, loyaltyAccountId, merchantId, result) {
-        // Use LoyaltySquareClient with built-in retry logic for rate limiting
+        // Use SquareApiClient with built-in retry logic for rate limiting
         let squareClient;
         try {
-            squareClient = new LoyaltySquareClient(merchantId);
+            squareClient = new SquareApiClient(merchantId);
             await squareClient.initialize();
         } catch (initError) {
             logger.error('Failed to initialize Square client for redemption event', {
