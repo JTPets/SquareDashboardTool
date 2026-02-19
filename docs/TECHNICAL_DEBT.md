@@ -202,9 +202,9 @@ All loyalty tests pass. No circular dependencies remain.
 
 #### Success Criteria
 
-- [x] Feature flag `USE_NEW_LOYALTY_SERVICE` added (in `config/constants.js`)
-- [x] Modern service processes orders when flag is `true`
-- [x] Legacy service still works when flag is `false`
+- [x] Feature flag `USE_NEW_LOYALTY_SERVICE` removed (no longer needed — admin layer is sole implementation)
+- [x] Admin layer processes all orders directly (no feature flag branching)
+- [x] Dead modern layer removed (BACKLOG-31)
 - [x] Rate limiting handled with retry logic (commit 89b9a85)
 - [x] Phase 4 modular extraction complete (2026-02-05)
 - [x] Legacy monolith eliminated - all functions in dedicated modules

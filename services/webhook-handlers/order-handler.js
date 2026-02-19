@@ -25,7 +25,6 @@ const squareApi = require('../../utils/square-api');
 const deliveryApi = require('../../utils/delivery-api');
 const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
-const { FEATURE_FLAGS } = require('../../config/constants');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
