@@ -5,6 +5,9 @@
  * Individual handler logic is tested more thoroughly with the appropriate mocks.
  */
 
+// Mock modules that aren't available in test environment
+jest.mock('node-fetch', () => jest.fn(), { virtual: true });
+
 // Mock all external dependencies before imports
 jest.mock('../../utils/subscription-handler', () => ({
     handleSubscriptionWebhook: jest.fn().mockResolvedValue({ processed: true }),
@@ -49,7 +52,8 @@ const {
     getRegisteredEventTypes,
     oauthHandler,
     catalogHandler,
-    inventoryHandler
+    inventoryHandler,
+    subscriptionHandler
 } = require('../../services/webhook-handlers');
 const syncQueue = require('../../services/sync-queue');
 const squareApi = require('../../utils/square-api');
@@ -367,6 +371,84 @@ describe('Handler Integration', () => {
             const result = await routeEvent(eventConfig.type, context);
             expect(result.handled).toBe(true);
         }
+    });
+
+    describe('invoice.payment_made fan-out', () => {
+        it('should call both subscription and inventory handlers', async () => {
+            const subSpy = jest.spyOn(subscriptionHandler, 'handleInvoicePaymentMade')
+                .mockResolvedValue({ handled: true, subscriberId: 42 });
+            const invSpy = jest.spyOn(inventoryHandler, 'handleInvoiceChanged')
+                .mockResolvedValue({ handled: true, committedInventory: { invoiceId: 'inv-1', status: 'PAID', rowsRemoved: 2 } });
+
+            const context = {
+                event: { type: 'invoice.payment_made' },
+                data: { invoice: { id: 'inv-1', status: 'PAID', primary_recipient: { customer_id: 'cust-1' } } },
+                entityId: 'inv-1',
+                merchantId: 1
+            };
+
+            const result = await routeEvent('invoice.payment_made', context);
+
+            expect(result.handled).toBe(true);
+            expect(subSpy).toHaveBeenCalledTimes(1);
+            expect(invSpy).toHaveBeenCalledTimes(1);
+            expect(result.result.handlers.subscription).toEqual({ handled: true, subscriberId: 42 });
+            expect(result.result.handlers.inventory).toEqual({
+                handled: true,
+                committedInventory: { invoiceId: 'inv-1', status: 'PAID', rowsRemoved: 2 }
+            });
+
+            subSpy.mockRestore();
+            invSpy.mockRestore();
+        });
+
+        it('should not block inventory handler when subscription handler fails', async () => {
+            const subSpy = jest.spyOn(subscriptionHandler, 'handleInvoicePaymentMade')
+                .mockRejectedValue(new Error('Subscription DB error'));
+            const invSpy = jest.spyOn(inventoryHandler, 'handleInvoiceChanged')
+                .mockResolvedValue({ handled: true, committedInventory: { invoiceId: 'inv-2', status: 'PAID', rowsRemoved: 1 } });
+
+            const context = {
+                event: { type: 'invoice.payment_made' },
+                data: { invoice: { id: 'inv-2', status: 'PAID' } },
+                entityId: 'inv-2',
+                merchantId: 1
+            };
+
+            const result = await routeEvent('invoice.payment_made', context);
+
+            expect(result.handled).toBe(true);
+            expect(invSpy).toHaveBeenCalledTimes(1);
+            expect(result.result.handlers.subscription).toEqual({ error: 'Subscription DB error' });
+            expect(result.result.handlers.inventory.handled).toBe(true);
+
+            subSpy.mockRestore();
+            invSpy.mockRestore();
+        });
+
+        it('should not block subscription handler when inventory handler fails', async () => {
+            const subSpy = jest.spyOn(subscriptionHandler, 'handleInvoicePaymentMade')
+                .mockResolvedValue({ handled: true });
+            const invSpy = jest.spyOn(inventoryHandler, 'handleInvoiceChanged')
+                .mockRejectedValue(new Error('Inventory sync error'));
+
+            const context = {
+                event: { type: 'invoice.payment_made' },
+                data: { invoice: { id: 'inv-3', status: 'PAID' } },
+                entityId: 'inv-3',
+                merchantId: 1
+            };
+
+            const result = await routeEvent('invoice.payment_made', context);
+
+            expect(result.handled).toBe(true);
+            expect(subSpy).toHaveBeenCalledTimes(1);
+            expect(result.result.handlers.subscription).toEqual({ handled: true });
+            expect(result.result.handlers.inventory).toEqual({ error: 'Inventory sync error' });
+
+            subSpy.mockRestore();
+            invSpy.mockRestore();
+        });
     });
 
     it('should isolate sync state between merchants', async () => {

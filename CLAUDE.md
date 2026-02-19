@@ -288,6 +288,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
+| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription — re-register webhooks |
 
 #### BACKLOG-7: Loyalty Audit Job Per-Event Square API Calls
 
@@ -337,6 +338,21 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 **Effort**: M
 
 **Audit date**: 2026-02-17
+
+#### BACKLOG-29: Existing Tenants Missing `invoice.payment_made` Webhook Subscription
+
+**Context**: `invoice.payment_made` was only in the `subscriptions` webhook event group, not `invoices`. New tenants onboarded via `getRecommendedEventTypes()` (which includes `invoices` but not `subscriptions`) would never receive `invoice.payment_made`, so the committed inventory cleanup fix would be inert. Fixed in code for future tenants — `invoice.payment_made` is now in both groups, and `getAllEventTypes()` dedupes.
+
+**Remaining work**: Existing tenants' Square webhook subscriptions may not include `invoice.payment_made`. Need to re-register webhooks for all active merchants via the webhook management endpoint (or a one-time migration script).
+
+**Files involved**:
+- `utils/square-webhooks.js` (event groups — fixed)
+- `routes/webhooks.js` (webhook re-registration endpoint)
+
+**Priority**: Low (JTPets already has both groups enabled; affects future multi-tenant only)
+**Effort**: S
+
+**Audit date**: 2026-02-19
 
 ### Architectural Tech Debt
 
