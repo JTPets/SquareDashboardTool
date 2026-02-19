@@ -266,7 +266,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-3 | Response format standardization |
-| Low | BACKLOG-5 | Rapid-fire webhook duplicate processing |
+| ~~Low~~ | ~~BACKLOG-5~~ | ~~Rapid-fire webhook duplicate processing~~ **DONE** (2026-02-19) |
 | ~~Low~~ | ~~BACKLOG-7~~ | ~~Loyalty audit job per-event Square API calls (batch optimization)~~ **DONE** (2026-02-19) |
 | Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
@@ -296,6 +296,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
 | BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
 | BACKLOG-31 | Remove dead modern loyalty layer | 2026-02-19 (`services/loyalty/` deleted, active code migrated to `loyalty-admin/`) |
+| BACKLOG-5 | Rapid-fire webhook duplicate processing | 2026-02-19 (in-memory event lock in webhook-processor.js, 60s auto-expire) |
 | BACKLOG-7 | Loyalty audit job batch optimization | 2026-02-19 (`batchFetchSquareOrders()` with concurrency control, no per-event API calls) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
