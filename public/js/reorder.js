@@ -235,10 +235,10 @@ function enrichBundleChildren() {
       child.retail_price_cents = suggestion.retail_price_cents;
       child.gross_margin_percent = suggestion.gross_margin_percent;
       child.image_urls = suggestion.image_urls;
-      child.current_stock = suggestion.current_stock;
+      // Note: current_stock, committed_quantity, available_quantity are provided
+      // by the bundle query directly — do NOT overwrite from standalone suggestion
+      // (standalone may be for a different location or have stale committed data)
       child.pending_po_quantity = suggestion.pending_po_quantity;
-      child.committed_quantity = suggestion.committed_quantity;
-      child.available_quantity = suggestion.available_quantity;
     }
   }
 }
