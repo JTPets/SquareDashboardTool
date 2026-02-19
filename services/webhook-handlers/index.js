@@ -47,6 +47,40 @@ const loyaltyHandler = new LoyaltyHandler();
 const customerHandler = new CustomerHandler();
 
 /**
+ * Fan-out handler: calls multiple handlers for a single event type.
+ * Uses Promise.allSettled so a failure in one handler does not block the other.
+ * Merges results and logs individual failures without throwing.
+ *
+ * @param {Object} ctx - Webhook context
+ * @param {Array<{name: string, fn: Function}>} handlerList - Handlers to invoke
+ * @returns {Promise<Object>} Merged result with per-handler details
+ */
+async function fanOut(ctx, handlerList) {
+    const outcomes = await Promise.allSettled(
+        handlerList.map(h => h.fn(ctx))
+    );
+
+    const merged = { handled: true, handlers: {} };
+    for (let i = 0; i < handlerList.length; i++) {
+        const { name } = handlerList[i];
+        const outcome = outcomes[i];
+        if (outcome.status === 'fulfilled') {
+            merged.handlers[name] = outcome.value;
+        } else {
+            merged.handlers[name] = { error: outcome.reason?.message || 'Unknown error' };
+            logger.error('Fan-out handler failed', {
+                eventType: ctx.event?.type,
+                handler: name,
+                merchantId: ctx.merchantId,
+                error: outcome.reason?.message,
+                stack: outcome.reason?.stack
+            });
+        }
+    }
+    return merged;
+}
+
+/**
  * Handler registry mapping event types to handler methods.
  * Each entry maps an event type string to an async handler function.
  */
@@ -54,7 +88,13 @@ const handlers = {
     // Subscription events
     'subscription.created': (ctx) => subscriptionHandler.handleCreated(ctx),
     'subscription.updated': (ctx) => subscriptionHandler.handleUpdated(ctx),
-    'invoice.payment_made': (ctx) => subscriptionHandler.handleInvoicePaymentMade(ctx),
+    // invoice.payment_made triggers BOTH subscription payment recording AND
+    // committed inventory cleanup (RESERVED_FOR_SALE removal).
+    // Without the inventory handler, COMMITTED stock stays stuck until the 4 AM reconciliation.
+    'invoice.payment_made': (ctx) => fanOut(ctx, [
+        { name: 'subscription', fn: (c) => subscriptionHandler.handleInvoicePaymentMade(c) },
+        { name: 'inventory',    fn: (c) => inventoryHandler.handleInvoiceChanged(c) }
+    ]),
     'invoice.payment_failed': (ctx) => subscriptionHandler.handleInvoicePaymentFailed(ctx),
 
     // Customer events
