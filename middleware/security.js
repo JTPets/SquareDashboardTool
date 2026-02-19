@@ -18,9 +18,7 @@ function configureHelmet() {
 
     return helmet({
         // Content Security Policy
-        // P0-4 PARTIAL: Inline EVENT HANDLERS (onclick, onchange) migrated to event delegation.
-        // However, inline <script> blocks still exist in HTML files and require 'unsafe-inline'.
-        // TODO: Externalize inline scripts to complete CSP hardening (see P0-4 in CLAUDE.md).
+        // P0-4 COMPLETE: Inline event handlers migrated to event delegation (29/29 files).
         // 'unsafe-eval' was removed 2026-01-26 after confirming no eval()/new Function() usage.
         // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
