@@ -55,7 +55,14 @@ describe('InventoryHandler - Invoice Handlers', () => {
         // Default: transaction mock that executes callback
         db.transaction.mockImplementation(async (fn) => {
             const mockClient = {
-                query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 })
+                query: jest.fn().mockImplementation((sql, params) => {
+                    // Return queried variation IDs as known for orphan filter
+                    if (sql.includes('SELECT id FROM variations WHERE id = ANY')) {
+                        const ids = Array.isArray(params && params[0]) ? params[0] : [];
+                        return { rows: ids.map(id => ({ id })), rowCount: ids.length };
+                    }
+                    return { rows: [], rowCount: 0 };
+                })
             };
             return fn(mockClient);
         });
