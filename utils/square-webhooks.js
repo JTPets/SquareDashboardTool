@@ -62,6 +62,7 @@ const WEBHOOK_EVENT_TYPES = {
         'invoice.created',
         'invoice.updated',
         'invoice.published',
+        'invoice.payment_made',
         'invoice.canceled',
         'invoice.deleted',
         'invoice.refunded',
@@ -83,7 +84,7 @@ const WEBHOOK_EVENT_TYPES = {
  * @returns {string[]} All event types
  */
 function getAllEventTypes() {
-    return Object.values(WEBHOOK_EVENT_TYPES).flat();
+    return [...new Set(Object.values(WEBHOOK_EVENT_TYPES).flat())];
 }
 
 /**
