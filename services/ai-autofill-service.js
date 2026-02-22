@@ -333,7 +333,7 @@ ${variationInfo}`;
 // generateContentBatched) should extract to services/ai-autofill-batch.js.
 // Refactor-on-touch per CLAUDE.md policy.
 const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 7000;
+const BATCH_DELAY_MS = 12000;
 const RATE_LIMIT_RETRY_DELAY_MS = 60000;
 const MAX_RETRIES = 3;
 
@@ -399,10 +399,12 @@ async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
         }
 
         if (response.status === 429 && attempt < MAX_RETRIES - 1) {
+            // FIX: Anthropic's retry-after header returns small values (1-2s),
+            // which is too short for sustained batching against a 10 req/min limit.
+            // Enforce a minimum of RATE_LIMIT_RETRY_DELAY_MS (60s).
             const retryAfter = parseInt(response.headers.get('retry-after') || '0');
-            const delay = retryAfter > 0
-                ? retryAfter * 1000
-                : RATE_LIMIT_RETRY_DELAY_MS;
+            const retryAfterMs = retryAfter > 0 ? retryAfter * 1000 : 0;
+            const delay = Math.max(retryAfterMs, RATE_LIMIT_RETRY_DELAY_MS);
             logger.warn('AI Autofill: Claude API rate limited, retrying', {
                 attempt: attempt + 1,
                 maxRetries: MAX_RETRIES,

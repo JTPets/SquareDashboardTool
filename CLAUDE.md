@@ -48,6 +48,10 @@ res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
 
 > **Warning**: Response formats are inconsistent. Always check the actual route before writing frontend code.
 
+### Git Rules
+- When told "do not commit" or "show me before committing", do NOT run `git commit` or `git push`. Show the diff only. Wait for explicit approval before committing.
+- This rule has no exceptions. "Not committed, as requested" followed by committing is a violation.
+
 ### Code Organization
 ```
 routes/          → API endpoints (thin - validation + call service)
