@@ -10,7 +10,7 @@ const { handleValidationErrors } = require('./index');
 // Valid field types for generation
 const VALID_FIELD_TYPES = ['description', 'seo_title', 'seo_description'];
 const VALID_TONES = ['professional', 'friendly', 'technical'];
-const MAX_BATCH_SIZE = 10;
+const MAX_BATCH_SIZE = 100;
 
 // GET /api/ai-autofill/status
 const getStatus = [handleValidationErrors];

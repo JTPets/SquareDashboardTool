@@ -329,13 +329,120 @@ ${variationInfo}`;
     return content;
 }
 
+// VIOLATION: 630+ lines — batch machinery (callClaudeApi, mapChunkResults,
+// generateContentBatched) should extract to services/ai-autofill-batch.js.
+// Refactor-on-touch per CLAUDE.md policy.
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 7000;
+const RATE_LIMIT_RETRY_DELAY_MS = 60000;
+const MAX_RETRIES = 3;
+
 /**
- * Generate content using Claude API
- * @param {Object[]} items - Items to generate content for
+ * Call Claude API for a single chunk of items with retry logic
+ * @param {Object[]} chunkItems - Items in this chunk
  * @param {string} fieldType - description, seo_title, or seo_description
- * @param {Object} options - { context, keywords, tone }
+ * @param {string} systemPrompt - The pre-built system prompt
  * @param {string} apiKey - Claude API key
- * @returns {Promise<Object[]>} - Generated content results
+ * @returns {Promise<Object[]>} - Parsed JSON array from Claude
+ */
+async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
+    const messageContent = buildMessageContent(chunkItems, fieldType, systemPrompt);
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const response = await fetch(CLAUDE_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: CLAUDE_MODEL,
+                max_tokens: 4096,
+                messages: [{
+                    role: 'user',
+                    content: messageContent
+                }]
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const textContent = data.content?.find(c => c.type === 'text')?.text;
+            if (!textContent) {
+                throw new Error('No text content in Claude response');
+            }
+
+            let generated;
+            try {
+                generated = JSON.parse(textContent);
+            } catch {
+                const jsonMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (jsonMatch) {
+                    generated = JSON.parse(jsonMatch[1].trim());
+                } else {
+                    throw new Error('Could not parse Claude response as JSON');
+                }
+            }
+
+            if (!Array.isArray(generated)) {
+                throw new Error('Claude response is not an array');
+            }
+
+            return generated;
+        }
+
+        const errorText = await response.text();
+
+        if (response.status === 401) {
+            throw new Error('Invalid Claude API key');
+        }
+
+        if (response.status === 429 && attempt < MAX_RETRIES - 1) {
+            const retryAfter = parseInt(response.headers.get('retry-after') || '0');
+            const delay = retryAfter > 0
+                ? retryAfter * 1000
+                : RATE_LIMIT_RETRY_DELAY_MS;
+            logger.warn('AI Autofill: Claude API rate limited, retrying', {
+                attempt: attempt + 1,
+                maxRetries: MAX_RETRIES,
+                delayMs: delay
+            });
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+        }
+
+        logger.error('AI Autofill: Claude API error', {
+            status: response.status,
+            error: errorText
+        });
+
+        if (response.status === 429) {
+            throw new Error('Claude API rate limit exceeded. Please try again later.');
+        }
+        throw new Error(`Claude API error: ${response.status}`);
+    }
+}
+
+/**
+ * Map Claude response back to item results
+ */
+function mapChunkResults(chunkItems, generated, fieldType) {
+    return chunkItems.map(item => {
+        const match = generated.find(g => g.itemId === item.id);
+        return {
+            itemId: item.id,
+            name: item.name,
+            original: item[fieldType === 'seo_title' ? 'seo_title' :
+                        fieldType === 'seo_description' ? 'seo_description' : 'description'] || '',
+            generated: match?.generated || null
+        };
+    });
+}
+
+/**
+ * Generate content for a small batch (up to BATCH_SIZE items) in a single API call.
+ * Kept for backward compatibility with non-streaming callers.
  */
 async function generateContent(items, fieldType, options, apiKey) {
     if (!items || items.length === 0) {
@@ -346,7 +453,6 @@ async function generateContent(items, fieldType, options, apiKey) {
     }
 
     const systemPrompt = buildSystemPrompt(fieldType, options);
-    const messageContent = buildMessageContent(items, fieldType, systemPrompt);
 
     logger.info('AI Autofill: calling Claude API', {
         fieldType,
@@ -354,77 +460,8 @@ async function generateContent(items, fieldType, options, apiKey) {
         hasImages: items.filter(i => i.image_url).length
     });
 
-    const response = await fetch(CLAUDE_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-            model: CLAUDE_MODEL,
-            max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: messageContent
-            }]
-        })
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('AI Autofill: Claude API error', {
-            status: response.status,
-            error: errorText
-        });
-
-        if (response.status === 401) {
-            throw new Error('Invalid Claude API key');
-        }
-        if (response.status === 429) {
-            throw new Error('Claude API rate limit exceeded. Please try again later.');
-        }
-        throw new Error(`Claude API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // Extract text content from response
-    const textContent = data.content?.find(c => c.type === 'text')?.text;
-    if (!textContent) {
-        throw new Error('No text content in Claude response');
-    }
-
-    // Parse JSON from response (may be wrapped in markdown code block)
-    let generated;
-    try {
-        // Try direct parse first
-        generated = JSON.parse(textContent);
-    } catch {
-        // Try extracting from markdown code block
-        const jsonMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-            generated = JSON.parse(jsonMatch[1].trim());
-        } else {
-            throw new Error('Could not parse Claude response as JSON');
-        }
-    }
-
-    if (!Array.isArray(generated)) {
-        throw new Error('Claude response is not an array');
-    }
-
-    // Map results back to items with original values
-    const results = items.map(item => {
-        const match = generated.find(g => g.itemId === item.id);
-        return {
-            itemId: item.id,
-            name: item.name,
-            original: item[fieldType === 'seo_title' ? 'seo_title' :
-                        fieldType === 'seo_description' ? 'seo_description' : 'description'] || '',
-            generated: match?.generated || null
-        };
-    });
+    const generated = await callClaudeApi(items, fieldType, systemPrompt, apiKey);
+    const results = mapChunkResults(items, generated, fieldType);
 
     logger.info('AI Autofill: generation complete', {
         fieldType,
@@ -433,6 +470,122 @@ async function generateContent(items, fieldType, options, apiKey) {
     });
 
     return results;
+}
+
+/**
+ * Generate content in batches of BATCH_SIZE with pacing.
+ * Calls onBatch(results, batchIndex, totalBatches) after each chunk completes.
+ * @param {Object[]} items - All items to generate content for
+ * @param {string} fieldType - description, seo_title, or seo_description
+ * @param {Object} options - { context, keywords, tone, storeName }
+ * @param {string} apiKey - Claude API key
+ * @param {Function} onBatch - Callback invoked with (batchResults, batchIndex, totalBatches)
+ * @param {Object} [signal] - { cancelled: boolean } — checked before each batch to abort early
+ * @returns {Promise<Object[]>} - All results concatenated
+ */
+async function generateContentBatched(items, fieldType, options, apiKey, onBatch, signal) {
+    if (!items || items.length === 0) {
+        return [];
+    }
+    if (!apiKey) {
+        throw new Error('API key is required');
+    }
+
+    const systemPrompt = buildSystemPrompt(fieldType, options);
+
+    // Split items into chunks of BATCH_SIZE
+    const chunks = [];
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        chunks.push(items.slice(i, i + BATCH_SIZE));
+    }
+
+    logger.info('AI Autofill: starting batched generation', {
+        fieldType,
+        totalItems: items.length,
+        totalBatches: chunks.length,
+        batchSize: BATCH_SIZE
+    });
+
+    const allResults = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+        // Abort if caller signals cancellation (e.g. client disconnected)
+        if (signal && signal.cancelled) {
+            logger.info('AI Autofill: batch generation cancelled', {
+                batch: i + 1,
+                totalBatches: chunks.length,
+                completedItems: allResults.length
+            });
+            break;
+        }
+
+        const chunk = chunks[i];
+
+        // Pace API calls: wait between batches (not before the first)
+        if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+
+            // Re-check after the delay in case client disconnected while waiting
+            if (signal && signal.cancelled) {
+                logger.info('AI Autofill: batch generation cancelled during pacing', {
+                    batch: i + 1,
+                    totalBatches: chunks.length,
+                    completedItems: allResults.length
+                });
+                break;
+            }
+        }
+
+        logger.info('AI Autofill: processing batch', {
+            batch: i + 1,
+            totalBatches: chunks.length,
+            itemCount: chunk.length
+        });
+
+        try {
+            const generated = await callClaudeApi(chunk, fieldType, systemPrompt, apiKey);
+            const batchResults = mapChunkResults(chunk, generated, fieldType);
+            allResults.push(...batchResults);
+
+            if (onBatch) {
+                onBatch(batchResults, i, chunks.length);
+            }
+        } catch (error) {
+            // On fatal error for a chunk, mark items as failed and continue
+            logger.error('AI Autofill: batch failed', {
+                batch: i + 1,
+                totalBatches: chunks.length,
+                error: error.message
+            });
+
+            const failedResults = chunk.map(item => ({
+                itemId: item.id,
+                name: item.name,
+                original: item[fieldType === 'seo_title' ? 'seo_title' :
+                            fieldType === 'seo_description' ? 'seo_description' : 'description'] || '',
+                generated: null,
+                error: error.message
+            }));
+            allResults.push(...failedResults);
+
+            if (onBatch) {
+                onBatch(failedResults, i, chunks.length);
+            }
+
+            // If auth error, abort remaining batches
+            if (error.message === 'Invalid Claude API key') {
+                throw error;
+            }
+        }
+    }
+
+    logger.info('AI Autofill: batched generation complete', {
+        fieldType,
+        successCount: allResults.filter(r => r.generated).length,
+        totalCount: allResults.length
+    });
+
+    return allResults;
 }
 
 /**
@@ -481,5 +634,7 @@ module.exports = {
     getItemsWithReadiness,
     getItemsForGeneration,
     generateContent,
-    validateReadiness
+    generateContentBatched,
+    validateReadiness,
+    BATCH_SIZE
 };

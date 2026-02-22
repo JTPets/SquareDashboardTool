@@ -386,11 +386,11 @@ function toggleItemSeoDesc(element) {
 function toggleItem(element, fieldType) {
     const itemId = element.dataset.itemId;
     if (element.checked) {
-        if (selectedItems[fieldType].size < 10) {
+        if (selectedItems[fieldType].size < 100) {
             selectedItems[fieldType].add(itemId);
         } else {
             element.checked = false;
-            showAlert('Maximum 10 items can be selected at once.', 'warning');
+            showAlert('Maximum 100 items can be selected at once.', 'warning');
         }
     } else {
         selectedItems[fieldType].delete(itemId);
@@ -417,7 +417,7 @@ function toggleSelectAll(selectAllElement, fieldType, tbodyId) {
     selectedItems[fieldType].clear();
 
     checkboxes.forEach((cb, index) => {
-        if (shouldSelect && index < 10) {
+        if (shouldSelect && index < 100) {
             cb.checked = true;
             selectedItems[fieldType].add(cb.dataset.itemId);
         } else {
@@ -456,8 +456,6 @@ async function generateSeoDescriptions() {
 }
 
 async function generateContent(fieldType, itemIds) {
-    // API key is stored server-side, no need to pass it from frontend
-
     if (itemIds.length === 0) {
         showAlert('Please select at least one item.', 'warning');
         return;
@@ -466,7 +464,6 @@ async function generateContent(fieldType, itemIds) {
     currentFieldType = fieldType;
     const options = getGenerationOptions();
 
-    // Show loading state
     const fieldLabels = {
         'description': 'descriptions',
         'seo_title': 'SEO titles',
@@ -479,9 +476,7 @@ async function generateContent(fieldType, itemIds) {
         const response = await fetch('/api/ai-autofill/generate', {
             method: 'POST',
             credentials: 'include',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 itemIds,
                 fieldType,
@@ -491,16 +486,70 @@ async function generateContent(fieldType, itemIds) {
             })
         });
 
-        const result = await response.json();
+        const contentType = response.headers.get('content-type') || '';
 
-        if (!response.ok || !result.success) {
-            throw new Error(result.error || result.details?.join(', ') || 'Generation failed');
+        // Small batch: standard JSON response
+        if (contentType.includes('application/json')) {
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || result.details?.join(', ') || 'Generation failed');
+            }
+            generatedResults = result.data.results;
+            renderReviewTab(fieldType);
+            switchTab(null, null, 'review');
+            showAlert(`Generated ${fieldLabels[fieldType]} for ${generatedResults.length} item(s). Review and apply.`, 'success');
+            return;
         }
 
-        generatedResults = result.data.results;
-        renderReviewTab(fieldType);
+        // Large batch: SSE streaming
+        generatedResults = [];
         switchTab(null, null, 'review');
-        showAlert(`Generated ${fieldLabels[fieldType]} for ${generatedResults.length} item(s). Review and apply.`, 'success');
+        renderReviewTab(fieldType); // Render empty review tab, batches will append
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Parse SSE events from buffer
+            const events = buffer.split('\n\n');
+            buffer = events.pop(); // Keep incomplete event in buffer
+
+            for (const eventBlock of events) {
+                if (!eventBlock.trim()) continue;
+
+                let eventType = 'message';
+                let eventData = '';
+
+                for (const line of eventBlock.split('\n')) {
+                    if (line.startsWith('event: ')) {
+                        eventType = line.slice(7);
+                    } else if (line.startsWith('data: ')) {
+                        eventData = line.slice(6);
+                    }
+                }
+
+                if (!eventData) continue;
+
+                if (eventType === 'batch') {
+                    const batch = JSON.parse(eventData);
+                    generatedResults.push(...batch.results);
+                    appendBatchToReview(batch.results, fieldType);
+                    showAlert(`Generating ${fieldLabels[fieldType]}: batch ${batch.batch} of ${batch.totalBatches} complete (${generatedResults.length} items so far)...`, 'info');
+                } else if (eventType === 'done') {
+                    const summary = JSON.parse(eventData);
+                    showAlert(`Generated ${fieldLabels[fieldType]} for ${summary.successCount} of ${summary.totalResults} item(s). Review and apply.`, 'success');
+                } else if (eventType === 'error') {
+                    const err = JSON.parse(eventData);
+                    throw new Error(err.error);
+                }
+            }
+        }
 
     } catch (error) {
         console.error('Generation failed:', error);
@@ -509,6 +558,67 @@ async function generateContent(fieldType, itemIds) {
 }
 
 // ==================== Review Tab ====================
+
+/**
+ * Append a batch of results to an already-rendered review tab (SSE streaming).
+ * Each call adds new items at the end without clearing existing ones.
+ */
+function appendBatchToReview(batchResults, fieldType) {
+    const container = document.getElementById('review-items');
+    if (!container) return;
+
+    const fieldLabels = {
+        'description': 'Description',
+        'seo_title': 'SEO Title',
+        'seo_description': 'SEO Description'
+    };
+    const charLimits = {
+        'description': { warn: 200, max: 5000 },
+        'seo_title': { warn: 55, max: 60 },
+        'seo_description': { warn: 155, max: 160 }
+    };
+    const limit = charLimits[fieldType];
+
+    // Starting index is current total minus this batch (already pushed to generatedResults)
+    const startIndex = generatedResults.length - batchResults.length;
+
+    const html = batchResults.map((item, i) => {
+        const index = startIndex + i;
+        return `
+            <div class="generated-item" data-index="${index}">
+                <div class="generated-item-header">
+                    <input type="checkbox" checked class="review-checkbox" data-index="${index}" data-change="toggleReviewItem">
+                    <strong>${escapeHtml(item.name)}</strong>
+                    ${item.error ? `<span class="missing-badge image">${escapeHtml(item.error)}</span>` : ''}
+                </div>
+                <div class="generated-item-body">
+                    <div class="field-group">
+                        <label>Original ${fieldLabels[fieldType]}</label>
+                        <div class="original">${escapeHtml(item.original) || '<em>None</em>'}</div>
+                    </div>
+                    <div class="field-group">
+                        <label>Generated ${fieldLabels[fieldType]}</label>
+                        <textarea class="generated-textarea" data-index="${index}" data-input="updateCharCount">${escapeHtml(item.generated || '')}</textarea>
+                        <div class="char-count" id="char-count-${index}">${(item.generated || '').length} / ${limit.max} chars</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.insertAdjacentHTML('beforeend', html);
+
+    // Update char count styling for new items
+    batchResults.forEach((item, i) => {
+        updateCharCountForIndex(startIndex + i, limit);
+    });
+
+    // Update review count
+    const countEl = document.getElementById('review-count');
+    if (countEl) {
+        countEl.textContent = `${generatedResults.length} item(s)`;
+    }
+}
 
 function renderReviewTab(fieldType) {
     const container = document.getElementById('review-content');
