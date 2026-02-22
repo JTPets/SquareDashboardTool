@@ -12,6 +12,7 @@ let selectedItems = {
 };
 let generatedResults = [];
 let currentFieldType = null;
+let batchAbortController = null;
 
 // LocalStorage keys (API key is now stored server-side, not in localStorage)
 const STORAGE_CONTEXT = 'ai_autofill_context';
@@ -472,7 +473,13 @@ async function generateContent(fieldType, itemIds) {
 
     showAlert(`Generating ${fieldLabels[fieldType]} for ${itemIds.length} item(s)... This may take a moment.`, 'info');
 
+    // Cancel any in-progress batch generation
+    if (batchAbortController) {
+        batchAbortController.abort();
+    }
+
     try {
+        batchAbortController = new AbortController();
         const response = await fetch('/api/ai-autofill/generate', {
             method: 'POST',
             credentials: 'include',
@@ -483,7 +490,8 @@ async function generateContent(fieldType, itemIds) {
                 context: options.context,
                 keywords: options.keywords,
                 tone: options.tone
-            })
+            }),
+            signal: batchAbortController.signal
         });
 
         const contentType = response.headers.get('content-type') || '';
@@ -495,6 +503,7 @@ async function generateContent(fieldType, itemIds) {
                 throw new Error(result.error || result.details?.join(', ') || 'Generation failed');
             }
             generatedResults = result.data.results;
+            batchAbortController = null;
             renderReviewTab(fieldType);
             switchTab(null, null, 'review');
             showAlert(`Generated ${fieldLabels[fieldType]} for ${generatedResults.length} item(s). Review and apply.`, 'success');
@@ -502,9 +511,12 @@ async function generateContent(fieldType, itemIds) {
         }
 
         // Large batch: SSE streaming
+        // FIX: renderReviewTab() with empty results rendered only the empty state,
+        // which omitted #review-items — so appendBatchToReview() silently no-oped.
+        // Use initReviewForStreaming() to render the full skeleton with progress bar.
         generatedResults = [];
         switchTab(null, null, 'review');
-        renderReviewTab(fieldType); // Render empty review tab, batches will append
+        initReviewForStreaming(fieldType, itemIds.length);
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -540,9 +552,10 @@ async function generateContent(fieldType, itemIds) {
                     const batch = JSON.parse(eventData);
                     generatedResults.push(...batch.results);
                     appendBatchToReview(batch.results, fieldType);
-                    showAlert(`Generating ${fieldLabels[fieldType]}: batch ${batch.batch} of ${batch.totalBatches} complete (${generatedResults.length} items so far)...`, 'info');
+                    updateBatchProgress(batch.batch, batch.totalBatches, generatedResults.length, itemIds.length);
                 } else if (eventType === 'done') {
                     const summary = JSON.parse(eventData);
+                    finishBatchProgress(true, `Generated ${summary.successCount} of ${summary.totalResults} items`);
                     showAlert(`Generated ${fieldLabels[fieldType]} for ${summary.successCount} of ${summary.totalResults} item(s). Review and apply.`, 'success');
                 } else if (eventType === 'error') {
                     const err = JSON.parse(eventData);
@@ -551,8 +564,17 @@ async function generateContent(fieldType, itemIds) {
             }
         }
 
+        batchAbortController = null;
+
     } catch (error) {
+        batchAbortController = null;
+        if (error.name === 'AbortError') {
+            finishBatchProgress(false, `Cancelled \u2014 ${generatedResults.length} items generated`);
+            showAlert('Generation cancelled.', 'info');
+            return;
+        }
         console.error('Generation failed:', error);
+        finishBatchProgress(false, 'Generation failed: ' + error.message);
         showAlert('Generation failed: ' + error.message, 'error');
     }
 }
@@ -617,6 +639,76 @@ function appendBatchToReview(batchResults, fieldType) {
     const countEl = document.getElementById('review-count');
     if (countEl) {
         countEl.textContent = `${generatedResults.length} item(s)`;
+    }
+}
+
+/**
+ * Initialize the review tab for SSE streaming.
+ * Renders the full skeleton with progress bar and empty #review-items container
+ * so that appendBatchToReview() can append results incrementally.
+ */
+function initReviewForStreaming(fieldType, totalItems) {
+    const container = document.getElementById('review-content');
+    container.innerHTML = `
+        <div id="batch-progress" class="batch-progress">
+            <div class="batch-progress-header">
+                <span id="batch-progress-text">Starting generation... (0/${totalItems} items)</span>
+                <button class="btn btn-danger" data-action="cancelBatchGeneration"
+                        style="padding: 4px 12px; font-size: 12px;">Cancel</button>
+            </div>
+            <div class="batch-progress-bar">
+                <div class="batch-progress-fill" id="batch-progress-fill" style="width: 0%"></div>
+            </div>
+        </div>
+        <div class="selection-controls">
+            <input type="checkbox" id="select-all-review" checked data-change="toggleSelectAllReview">
+            <label for="select-all-review">Include All</label>
+            <span id="review-count">0 item(s)</span>
+            <button class="btn btn-success" data-action="applyGenerated" id="btn-apply">
+                Apply to Square
+            </button>
+        </div>
+        <div id="review-items"></div>
+    `;
+}
+
+function updateBatchProgress(batch, totalBatches, itemsSoFar, totalItems) {
+    const textEl = document.getElementById('batch-progress-text');
+    const fillEl = document.getElementById('batch-progress-fill');
+    if (textEl) {
+        textEl.textContent = `Generating: batch ${batch} of ${totalBatches} (${itemsSoFar}/${totalItems} items)`;
+    }
+    if (fillEl) {
+        fillEl.style.width = `${Math.round((batch / totalBatches) * 100)}%`;
+    }
+}
+
+function finishBatchProgress(success, message) {
+    const progressEl = document.getElementById('batch-progress');
+    if (!progressEl) return;
+
+    const textEl = document.getElementById('batch-progress-text');
+    const fillEl = document.getElementById('batch-progress-fill');
+    const cancelBtn = progressEl.querySelector('[data-action="cancelBatchGeneration"]');
+
+    if (textEl) textEl.textContent = message;
+    if (cancelBtn) cancelBtn.remove();
+
+    if (success) {
+        progressEl.className = 'batch-progress batch-progress-done';
+        if (fillEl) {
+            fillEl.style.width = '100%';
+            fillEl.style.background = '#059669';
+        }
+    } else {
+        progressEl.className = 'batch-progress batch-progress-cancelled';
+        if (fillEl) fillEl.style.background = '#f59e0b';
+    }
+}
+
+function cancelBatchGeneration() {
+    if (batchAbortController) {
+        batchAbortController.abort();
     }
 }
 
