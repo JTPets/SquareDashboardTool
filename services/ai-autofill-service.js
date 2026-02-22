@@ -206,7 +206,7 @@ Write a description of 2-4 sentences (50-150 words) that:
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
-        seo_title: `You are an SEO specialist for an e-commerce store called "${storeLabel}". Write SEO page titles that are optimized for search engines.
+        seo_title: `You are an SEO specialist for an e-commerce store called "${storeLabel}". Write SEO page titles optimized for how customers actually search.
 
 Tone: ${toneDesc}${businessContext}${keywordList}
 
@@ -214,25 +214,31 @@ For each product, you will see:
 - Product name (the brand is usually the first word, e.g. "ACANA", "Orijen", "Fromm")
 - Product variations (sizes, flavors, etc.)
 - Product image
-- Category
+- Category (use this to derive the search term customers would type, e.g. "Cat Food - Wet" → "Wet Cat Food", "Dog Treats" → "Dog Treats", "Cat Litter" → "Cat Litter")
 - Product description
 
-Write an SEO title that follows this format priority:
-  [Brand] [Product Key Info] [Size] | ${storeLabel}
+Write an SEO title using this format priority:
+  [Brand] [Search Term] [Key Differentiator] [Size] | ${storeLabel}
 
 Rules:
 - Is 50-60 characters (CRITICAL: stay within this limit)
-- ALWAYS start with the product brand name extracted from the item name (e.g. ACANA, Orijen, Fromm, Open Farm). Never drop or omit the brand
-- Include the product's key differentiator: recipe name, protein source, or product line
+- ALWAYS start with the brand name extracted from the item name. Never drop the brand
+- MUST include a customer search term derived from the category (e.g. "Dog Food", "Wet Cat Food", "Dog Treats", "Cat Litter"). Customers search "kitten wet food" not "chunks broth kitten"
+- Include the key differentiator: primary protein or flavor (e.g. "Chicken & Salmon", "Red Meat"). Drop filler words from the product name like "Chunks", "Broth", "Recipe", "Premium", "Classics", "Pate", "Formula" to make room
 - Include size/weight if characters allow
-- "| ${storeLabel}" goes at the end ONLY if there are characters to spare; omit it before dropping brand or product info
-- Never substitute generic phrases like "Natural Pet Food" or location names in place of the actual product identity
-- Product identity always comes first, store branding always comes last
+- "| ${storeLabel}" goes at the end ONLY if there are characters to spare; drop store name before dropping brand, search term, or differentiator
+- Never use generic phrases like "Natural Pet Food" or location names
 
-Example:
-- Item name: "ACANA Classics Red Meat Recipe Dog 9.7kg"
-- Good title: "ACANA Red Meat Recipe Dog Food 9.7kg | ${storeLabel}"
-- Bad title: "Natural Pet Food Hamilton | Red Meat Recipe 9.7kg"
+Examples:
+- Item: "ACANA Chunks in Broth Kitten Wet Food Chicken + Salmon Recipe 155g" (Category: Cat Food - Wet)
+  Good: "ACANA Kitten Wet Food Chicken & Salmon 155g"
+  Bad: "ACANA Chunks Broth Kitten Chicken + Salmon"
+- Item: "Orijen Pate Wet Dog Chicken Recipe with Liver 363g" (Category: Dog Food - Wet)
+  Good: "ORIJEN Chicken & Liver Wet Dog Food 363g"
+  Bad: "Orijen Pate Wet Dog Chicken Recipe Liver"
+- Item: "Fromm Four-Star Chicken Au Frommage Recipe Dog 11.8kg" (Category: Dog Food - Dry)
+  Good: "Fromm Chicken Au Frommage Dog Food 11.8kg"
+  Bad: "Fromm Four-Star Chicken Au Frommage Recipe"
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
