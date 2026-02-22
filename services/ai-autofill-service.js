@@ -354,40 +354,60 @@ async function generateContent(items, fieldType, options, apiKey) {
         hasImages: items.filter(i => i.image_url).length
     });
 
-    const response = await fetch(CLAUDE_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-            model: CLAUDE_MODEL,
-            max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: messageContent
-            }]
-        })
-    });
+    const MAX_RETRIES = 3;
+    const BASE_DELAY_MS = 2000;
+    let data;
 
-    if (!response.ok) {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const response = await fetch(CLAUDE_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: CLAUDE_MODEL,
+                max_tokens: 4096,
+                messages: [{
+                    role: 'user',
+                    content: messageContent
+                }]
+            })
+        });
+
+        if (response.ok) {
+            data = await response.json();
+            break;
+        }
+
         const errorText = await response.text();
+
+        if (response.status === 401) {
+            throw new Error('Invalid Claude API key');
+        }
+
+        if (response.status === 429 && attempt < MAX_RETRIES - 1) {
+            const retryAfter = parseInt(response.headers.get('retry-after') || '0');
+            const delay = retryAfter > 0 ? retryAfter * 1000 : BASE_DELAY_MS * Math.pow(2, attempt);
+            logger.warn('AI Autofill: Claude API rate limited, retrying', {
+                attempt: attempt + 1,
+                delayMs: delay
+            });
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+        }
+
         logger.error('AI Autofill: Claude API error', {
             status: response.status,
             error: errorText
         });
 
-        if (response.status === 401) {
-            throw new Error('Invalid Claude API key');
-        }
         if (response.status === 429) {
             throw new Error('Claude API rate limit exceeded. Please try again later.');
         }
         throw new Error(`Claude API error: ${response.status}`);
     }
-
-    const data = await response.json();
 
     // Extract text content from response
     const textContent = data.content?.find(c => c.type === 'text')?.text;

@@ -102,7 +102,11 @@ function configureRateLimit() {
         },
         skip: (req) => {
             // Skip rate limiting for health checks
-            return req.path === '/api/health';
+            if (req.path === '/api/health') return true;
+            // Skip for AI autofill — authenticated batch operations that make
+            // server-side API calls; throttled by Claude API limits, not ours
+            if (req.path.startsWith('/api/ai-autofill/')) return true;
+            return false;
         }
     });
 }
