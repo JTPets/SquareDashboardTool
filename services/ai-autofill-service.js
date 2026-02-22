@@ -184,14 +184,14 @@ function buildSystemPrompt(fieldType, options = {}) {
     };
 
     const toneDesc = toneDescriptions[tone] || toneDescriptions.professional;
-    const keywordList = keywords.length > 0 ? `\nTarget keywords to include where natural: ${keywords.join(', ')}` : '';
-    const businessContext = context ? `\nBusiness context: ${context}` : '';
+    const keywordList = keywords.length > 0 ? keywords.join(', ') : '';
+    const businessContext = context || '';
     const storeLabel = storeName || 'the store';
 
     const prompts = {
         description: `You are a product copywriter for an e-commerce store. Write compelling product descriptions that highlight key features and benefits.
 
-Tone: ${toneDesc}${businessContext}${keywordList}
+Tone: ${toneDesc}
 
 For each product, you will see:
 - Product name
@@ -202,13 +202,13 @@ For each product, you will see:
 Write a description of 2-4 sentences (50-150 words) that:
 - Describes what the product is and its key benefits
 - Mentions relevant details visible in the image (brand, ingredients, etc.)
-- Is suitable for an e-commerce product page
+- Is suitable for an e-commerce product page${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When natural, incorporate these target keywords: ${keywordList}` : ''}
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
         seo_title: `You are an SEO specialist for an e-commerce store called "${storeLabel}". Write SEO page titles optimized for how customers actually search.
 
-Tone: ${toneDesc}${businessContext}${keywordList}
+Tone: ${toneDesc}
 
 For each product, you will see:
 - Product name (the brand is usually the first word, e.g. "ACANA", "Orijen", "Fromm")
@@ -227,7 +227,7 @@ Rules:
 - Include the key differentiator: primary protein or flavor (e.g. "Chicken & Salmon", "Red Meat"). Drop filler words from the product name like "Chunks", "Broth", "Recipe", "Premium", "Classics", "Pate", "Formula" to make room
 - Include size/weight if characters allow
 - "| ${storeLabel}" goes at the end ONLY if there are characters to spare; drop store name before dropping brand, search term, or differentiator
-- Never use generic phrases like "Natural Pet Food" or location names
+- Never use generic phrases like "Natural Pet Food" or location names${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When space allows, incorporate these target keywords: ${keywordList}` : ''}
 
 Examples:
 - Item: "ACANA Chunks in Broth Kitten Wet Food Chicken + Salmon Recipe 155g" (Category: Cat Food - Wet)
@@ -244,7 +244,7 @@ Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
         seo_description: `You are an SEO specialist for an e-commerce store. Write meta descriptions that drive clicks from search results.
 
-Tone: ${toneDesc}${businessContext}${keywordList}
+Tone: ${toneDesc}
 
 For each product, you will see:
 - Product name
@@ -262,7 +262,7 @@ Rules:
 - Focus on what differentiates THIS product from competitors (unique ingredients, recipe style, sourcing)
 - Use the category to include search terms customers type (e.g. "dry dog food", "wet cat food")
 - Tone should match the merchant's tone setting
-- Complement the SEO title without repeating it
+- Complement the SEO title without repeating it${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When space allows, incorporate these target keywords: ${keywordList}` : ''}
 
 Examples:
 - Item: "ACANA Classics Wild Coast Recipe Dog 9.7kg" (Category: Dog Food - Dry, Description mentions: fresh salmon 21%, herring meal)
