@@ -6,9 +6,9 @@
  * - Generate descriptions and SEO content via Claude API
  *
  * Workflow phases:
- * 1. Description - requires image + category
- * 2. SEO Title - requires image + category + description
- * 3. SEO Description - requires image + category + description + SEO title
+ * 1. Description - requires image + category (image sent to Claude for visual context)
+ * 2. SEO Title - requires category + description (no image — text context sufficient)
+ * 3. SEO Description - requires category + description + SEO title (no image)
  */
 
 const db = require('../utils/database');
@@ -213,7 +213,6 @@ Tone: ${toneDesc}
 For each product, you will see:
 - Product name (the brand is usually the first word, e.g. "ACANA", "Orijen", "Fromm")
 - Product variations (sizes, flavors, etc.)
-- Product image
 - Category (use this to derive the search term customers would type, e.g. "Cat Food - Wet" → "Wet Cat Food", "Dog Treats" → "Dog Treats", "Cat Litter" → "Cat Litter")
 - Product description
 
@@ -249,7 +248,6 @@ Tone: ${toneDesc}
 For each product, you will see:
 - Product name
 - Product variations (sizes, flavors, etc.)
-- Product image
 - Category (use this to include search terms customers type, e.g. "dry dog food", "wet cat food")
 - Product description
 - SEO title (your description should complement this, not duplicate it)
@@ -293,8 +291,10 @@ function buildMessageContent(items, fieldType) {
             ? `Variations: ${item.variations.map(v => v.name).join(', ')}`
             : '';
 
-        // Add image if available
-        if (item.image_url) {
+        // Only include images for description generation — SEO fields
+        // don't need visual context and images consume massive token budgets,
+        // causing 10K input token/min rate limit hits on batches of 10.
+        if (item.image_url && fieldType === 'description') {
             content.push({
                 type: 'image',
                 source: { type: 'url', url: item.image_url }
