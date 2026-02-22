@@ -471,6 +471,13 @@ async function generateContent(fieldType, itemIds) {
         'seo_description': 'SEO descriptions'
     };
 
+    // Disable all generate buttons to prevent concurrent runs
+    const generateBtnIds = ['btn-generate-descriptions', 'btn-generate-seo-titles', 'btn-generate-seo-desc'];
+    generateBtnIds.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = true;
+    });
+
     showAlert(`Generating ${fieldLabels[fieldType]} for ${itemIds.length} item(s)... This may take a moment.`, 'info');
 
     // Cancel any in-progress batch generation
@@ -576,6 +583,9 @@ async function generateContent(fieldType, itemIds) {
         console.error('Generation failed:', error);
         finishBatchProgress(false, 'Generation failed: ' + error.message);
         showAlert('Generation failed: ' + error.message, 'error');
+    } finally {
+        // Re-enable generate buttons based on current selection counts
+        Object.keys(selectedItems).forEach(ft => updateSelectionCount(ft));
     }
 }
 
