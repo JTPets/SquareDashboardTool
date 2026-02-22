@@ -4,7 +4,7 @@
  * Validation middleware for catalog AI autofill endpoints using express-validator.
  */
 
-const { body, header, query } = require('express-validator');
+const { body, query } = require('express-validator');
 const { handleValidationErrors } = require('./index');
 
 // Valid field types for generation
@@ -16,11 +16,8 @@ const MAX_BATCH_SIZE = 10;
 const getStatus = [handleValidationErrors];
 
 // POST /api/ai-autofill/generate
+// Note: API key is retrieved from server-side encrypted storage, not from request headers
 const generate = [
-    header('x-claude-api-key')
-        .exists().withMessage('x-claude-api-key header is required')
-        .isString()
-        .isLength({ min: 20 }).withMessage('Invalid API key format'),
     body('itemIds')
         .isArray({ min: 1, max: MAX_BATCH_SIZE })
         .withMessage(`itemIds must be an array of 1-${MAX_BATCH_SIZE} items`),
