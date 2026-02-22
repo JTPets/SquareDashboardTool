@@ -333,7 +333,7 @@ ${variationInfo}`;
 // generateContentBatched) should extract to services/ai-autofill-batch.js.
 // Refactor-on-touch per CLAUDE.md policy.
 const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 12000;
+const BATCH_DELAY_MS = 20000;
 const RATE_LIMIT_RETRY_DELAY_MS = 60000;
 const MAX_RETRIES = 3;
 
