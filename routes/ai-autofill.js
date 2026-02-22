@@ -201,7 +201,7 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
     const results = await aiAutofillService.generateContent(
         items,
         fieldType,
-        { context, keywords, tone },
+        { context, keywords, tone, storeName: req.merchantContext.businessName },
         apiKey
     );
 
