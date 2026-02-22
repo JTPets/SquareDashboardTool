@@ -175,7 +175,7 @@ async function getItemsForGeneration(merchantId, itemIds) {
  * @returns {string} - System prompt
  */
 function buildSystemPrompt(fieldType, options = {}) {
-    const { context = '', keywords = [], tone = 'professional' } = options;
+    const { context = '', keywords = [], tone = 'professional', storeName = '' } = options;
 
     const toneDescriptions = {
         professional: 'professional and informative',
@@ -186,6 +186,7 @@ function buildSystemPrompt(fieldType, options = {}) {
     const toneDesc = toneDescriptions[tone] || toneDescriptions.professional;
     const keywordList = keywords.length > 0 ? `\nTarget keywords to include where natural: ${keywords.join(', ')}` : '';
     const businessContext = context ? `\nBusiness context: ${context}` : '';
+    const storeLabel = storeName || 'the store';
 
     const prompts = {
         description: `You are a product copywriter for an e-commerce store. Write compelling product descriptions that highlight key features and benefits.
@@ -205,22 +206,33 @@ Write a description of 2-4 sentences (50-150 words) that:
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
-        seo_title: `You are an SEO specialist for an e-commerce store. Write SEO page titles that are optimized for search engines.
+        seo_title: `You are an SEO specialist for an e-commerce store called "${storeLabel}". Write SEO page titles that are optimized for search engines.
 
 Tone: ${toneDesc}${businessContext}${keywordList}
 
 For each product, you will see:
-- Product name
+- Product name (the brand is usually the first word, e.g. "ACANA", "Orijen", "Fromm")
 - Product variations (sizes, flavors, etc.)
 - Product image
 - Category
 - Product description
 
-Write an SEO title that:
+Write an SEO title that follows this format priority:
+  [Brand] [Product Key Info] [Size] | ${storeLabel}
+
+Rules:
 - Is 50-60 characters (CRITICAL: stay within this limit)
-- Includes the primary keyword near the beginning
-- Is compelling to click on in search results
-- Does NOT include the store/brand name at the end
+- ALWAYS start with the product brand name extracted from the item name (e.g. ACANA, Orijen, Fromm, Open Farm). Never drop or omit the brand
+- Include the product's key differentiator: recipe name, protein source, or product line
+- Include size/weight if characters allow
+- "| ${storeLabel}" goes at the end ONLY if there are characters to spare; omit it before dropping brand or product info
+- Never substitute generic phrases like "Natural Pet Food" or location names in place of the actual product identity
+- Product identity always comes first, store branding always comes last
+
+Example:
+- Item name: "ACANA Classics Red Meat Recipe Dog 9.7kg"
+- Good title: "ACANA Red Meat Recipe Dog Food 9.7kg | ${storeLabel}"
+- Bad title: "Natural Pet Food Hamilton | Red Meat Recipe 9.7kg"
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
