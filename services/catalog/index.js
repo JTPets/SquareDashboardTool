@@ -42,6 +42,7 @@ module.exports = {
     getCatalogAudit: auditService.getCatalogAudit,
     fixLocationMismatches: auditService.fixLocationMismatches,
     enableItemAtAllLocations: auditService.enableItemAtAllLocations,
+    fixInventoryAlerts: auditService.fixInventoryAlerts,
 
     // Reorder Math
     calculateReorderQuantity: reorderMath.calculateReorderQuantity,

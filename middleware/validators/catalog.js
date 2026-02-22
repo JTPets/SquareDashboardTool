@@ -154,6 +154,9 @@ const enableItemAtLocations = [
 // POST /api/catalog-audit/fix-locations
 const fixLocations = [handleValidationErrors];
 
+// POST /api/catalog-audit/fix-inventory-alerts
+const fixInventoryAlerts = [handleValidationErrors];
+
 module.exports = {
     getCategories,
     getItems,
@@ -171,5 +174,6 @@ module.exports = {
     getDeletedItems,
     getCatalogAudit,
     enableItemAtLocations,
-    fixLocations
+    fixLocations,
+    fixInventoryAlerts
 };

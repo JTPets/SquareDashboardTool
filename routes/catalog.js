@@ -357,4 +357,34 @@ router.post('/catalog-audit/fix-locations', requireAuth, requireMerchant, valida
     }
 }));
 
+/**
+ * POST /api/catalog-audit/fix-inventory-alerts
+ * Enable LOW_QUANTITY inventory alerts (threshold 0) on all variations with alerts off
+ */
+router.post('/catalog-audit/fix-inventory-alerts', requireAuth, requireMerchant, validators.fixInventoryAlerts, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    logger.info('Starting inventory alerts fix from API', { merchantId });
+
+    const result = await catalogService.fixInventoryAlerts(merchantId);
+
+    if (result.success) {
+        res.json({
+            success: true,
+            message: result.message,
+            variationsFixed: result.variationsFixed,
+            totalFound: result.totalFound,
+            details: result.details
+        });
+    } else {
+        res.status(500).json({
+            success: false,
+            message: result.message,
+            variationsFixed: result.variationsFixed,
+            totalFound: result.totalFound,
+            errors: result.errors,
+            details: result.details
+        });
+    }
+}));
+
 module.exports = router;

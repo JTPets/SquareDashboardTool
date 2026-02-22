@@ -353,8 +353,43 @@ async function enableItemAtAllLocations(itemId, merchantId) {
     }
 }
 
+/**
+ * Enable LOW_QUANTITY inventory alerts on all variations with alerts off
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
+ * @returns {Promise<Object>} - Result with success status and fix details
+ */
+async function fixInventoryAlerts(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for fixInventoryAlerts');
+    }
+
+    logger.info('Starting inventory alerts fix from service', { merchantId });
+
+    const result = await squareApi.fixInventoryAlerts(merchantId);
+
+    if (result.success) {
+        return {
+            success: true,
+            message: `Enabled alerts for ${result.variationsFixed} of ${result.totalFound} variations`,
+            variationsFixed: result.variationsFixed,
+            totalFound: result.totalFound,
+            details: result.details
+        };
+    } else {
+        return {
+            success: false,
+            message: 'Some variations could not be updated',
+            variationsFixed: result.variationsFixed,
+            totalFound: result.totalFound,
+            errors: result.errors,
+            details: result.details
+        };
+    }
+}
+
 module.exports = {
     getCatalogAudit,
     fixLocationMismatches,
-    enableItemAtAllLocations
+    enableItemAtAllLocations,
+    fixInventoryAlerts
 };
