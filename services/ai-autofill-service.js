@@ -329,6 +329,9 @@ ${variationInfo}`;
     return content;
 }
 
+// VIOLATION: 630+ lines — batch machinery (callClaudeApi, mapChunkResults,
+// generateContentBatched) should extract to services/ai-autofill-batch.js.
+// Refactor-on-touch per CLAUDE.md policy.
 const BATCH_SIZE = 10;
 const BATCH_DELAY_MS = 7000;
 const RATE_LIMIT_RETRY_DELAY_MS = 60000;
@@ -477,9 +480,10 @@ async function generateContent(items, fieldType, options, apiKey) {
  * @param {Object} options - { context, keywords, tone, storeName }
  * @param {string} apiKey - Claude API key
  * @param {Function} onBatch - Callback invoked with (batchResults, batchIndex, totalBatches)
+ * @param {Object} [signal] - { cancelled: boolean } — checked before each batch to abort early
  * @returns {Promise<Object[]>} - All results concatenated
  */
-async function generateContentBatched(items, fieldType, options, apiKey, onBatch) {
+async function generateContentBatched(items, fieldType, options, apiKey, onBatch, signal) {
     if (!items || items.length === 0) {
         return [];
     }
@@ -505,11 +509,31 @@ async function generateContentBatched(items, fieldType, options, apiKey, onBatch
     const allResults = [];
 
     for (let i = 0; i < chunks.length; i++) {
+        // Abort if caller signals cancellation (e.g. client disconnected)
+        if (signal && signal.cancelled) {
+            logger.info('AI Autofill: batch generation cancelled', {
+                batch: i + 1,
+                totalBatches: chunks.length,
+                completedItems: allResults.length
+            });
+            break;
+        }
+
         const chunk = chunks[i];
 
         // Pace API calls: wait between batches (not before the first)
         if (i > 0) {
             await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+
+            // Re-check after the delay in case client disconnected while waiting
+            if (signal && signal.cancelled) {
+                logger.info('AI Autofill: batch generation cancelled during pacing', {
+                    batch: i + 1,
+                    totalBatches: chunks.length,
+                    completedItems: allResults.length
+                });
+                break;
+            }
         }
 
         logger.info('AI Autofill: processing batch', {

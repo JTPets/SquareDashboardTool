@@ -229,9 +229,13 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
         'X-Accel-Buffering': 'no'
     });
 
-    // Detect client disconnect
+    // Detect client disconnect and signal cancellation to batch loop
+    const signal = { cancelled: false };
     let clientDisconnected = false;
-    req.on('close', () => { clientDisconnected = true; });
+    req.on('close', () => {
+        clientDisconnected = true;
+        signal.cancelled = true;
+    });
 
     try {
         const allResults = await aiAutofillService.generateContentBatched(
@@ -244,7 +248,8 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
                     totalBatches
                 });
                 res.write(`event: batch\ndata: ${payload}\n\n`);
-            }
+            },
+            signal
         );
 
         if (!clientDisconnected) {
