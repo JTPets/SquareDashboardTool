@@ -150,8 +150,9 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
 
 /**
  * POST /api/ai-autofill/generate
- * Generate content for selected items using Claude API
- * Uses server-side stored API key (encrypted per merchant)
+ * Generate content for selected items using Claude API.
+ * Uses SSE to stream batch results incrementally for large batches.
+ * Falls back to standard JSON for small batches (<= BATCH_SIZE).
  *
  * Body: {
  *   itemIds: string[],
@@ -160,6 +161,11 @@ router.get('/status', requireAuth, requireMerchant, validators.getStatus, asyncH
  *   keywords?: string[],
  *   tone?: 'professional' | 'friendly' | 'technical'
  * }
+ *
+ * SSE events (when items > BATCH_SIZE):
+ *   event: batch   — { results: [...], batch: 1, totalBatches: 10 }
+ *   event: done    — { fieldType, totalResults, successCount }
+ *   event: error   — { error: "message" }
  */
 router.post('/generate', requireAuth, requireMerchant, validators.generate, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
@@ -197,28 +203,72 @@ router.post('/generate', requireAuth, requireMerchant, validators.generate, asyn
         });
     }
 
-    // Generate content
-    const results = await aiAutofillService.generateContent(
-        items,
-        fieldType,
-        { context, keywords, tone, storeName: req.merchantContext.businessName },
-        apiKey
-    );
+    const options = { context, keywords, tone, storeName: req.merchantContext.businessName };
 
-    logger.info('AI Autofill: content generated', {
-        merchantId,
-        fieldType,
-        itemCount: items.length,
-        successCount: results.filter(r => r.generated).length
+    // Small batch: standard JSON response (backward compatible)
+    if (items.length <= aiAutofillService.BATCH_SIZE) {
+        const results = await aiAutofillService.generateContent(items, fieldType, options, apiKey);
+
+        logger.info('AI Autofill: content generated', {
+            merchantId, fieldType,
+            itemCount: items.length,
+            successCount: results.filter(r => r.generated).length
+        });
+
+        return res.json({
+            success: true,
+            data: { fieldType, results }
+        });
+    }
+
+    // Large batch: SSE streaming
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
     });
 
-    res.json({
-        success: true,
-        data: {
-            fieldType,
-            results
+    // Detect client disconnect
+    let clientDisconnected = false;
+    req.on('close', () => { clientDisconnected = true; });
+
+    try {
+        const allResults = await aiAutofillService.generateContentBatched(
+            items, fieldType, options, apiKey,
+            (batchResults, batchIndex, totalBatches) => {
+                if (clientDisconnected) return;
+                const payload = JSON.stringify({
+                    results: batchResults,
+                    batch: batchIndex + 1,
+                    totalBatches
+                });
+                res.write(`event: batch\ndata: ${payload}\n\n`);
+            }
+        );
+
+        if (!clientDisconnected) {
+            const successCount = allResults.filter(r => r.generated).length;
+            res.write(`event: done\ndata: ${JSON.stringify({ fieldType, totalResults: allResults.length, successCount })}\n\n`);
+
+            logger.info('AI Autofill: batched content generated', {
+                merchantId, fieldType,
+                itemCount: items.length,
+                successCount
+            });
         }
-    });
+    } catch (error) {
+        logger.error('AI Autofill: batch generation failed', {
+            merchantId, fieldType, error: error.message
+        });
+        if (!clientDisconnected) {
+            res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+        }
+    } finally {
+        if (!clientDisconnected) {
+            res.end();
+        }
+    }
 }));
 
 /**
