@@ -411,6 +411,7 @@ async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
                 delayMs: delay
             });
             await new Promise(resolve => setTimeout(resolve, delay));
+            logger.info('AI Autofill: 429 retry wait completed', { attempt: attempt + 1, delayMs: delay });
             continue;
         }
 
