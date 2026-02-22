@@ -3119,6 +3119,180 @@ async function fixLocationMismatches(merchantId) {
 }
 
 /**
+ * Enable LOW_QUANTITY inventory alerts (threshold 0) on all variations with alerts off.
+ * Reads variation IDs from local DB, fetches current versions from Square via batch-retrieve,
+ * then batch-upserts with inventory_alert_type = LOW_QUANTITY.
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
+ * @returns {Promise<Object>} Summary of fixes applied
+ */
+async function fixInventoryAlerts(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for fixInventoryAlerts');
+    }
+    logger.info('Starting inventory alerts fix', { merchantId });
+
+    const summary = {
+        success: true,
+        variationsFixed: 0,
+        totalFound: 0,
+        errors: [],
+        details: []
+    };
+
+    try {
+        const accessToken = await getMerchantToken(merchantId);
+
+        // Step 1: Query local DB for variations with alerts off (physical products only)
+        const dbResult = await db.query(
+            `SELECT v.id, v.name, v.sku
+             FROM variations v
+             JOIN items i ON v.item_id = i.id AND i.merchant_id = v.merchant_id
+             WHERE v.merchant_id = $1
+               AND (i.product_type IS NULL OR i.product_type = 'REGULAR')
+               AND (v.inventory_alert_type IS NULL OR v.inventory_alert_type != 'LOW_QUANTITY')`,
+            [merchantId]
+        );
+
+        const variationsToFix = dbResult.rows;
+        summary.totalFound = variationsToFix.length;
+
+        if (variationsToFix.length === 0) {
+            logger.info('No variations need inventory alert fixes', { merchantId });
+            return summary;
+        }
+
+        logger.info('Found variations needing inventory alerts', {
+            merchantId,
+            count: variationsToFix.length
+        });
+
+        // Step 2: Batch-retrieve current objects from Square (need version + full data)
+        const batchSize = 100;
+        const retrievedObjects = new Map();
+
+        for (let i = 0; i < variationsToFix.length; i += batchSize) {
+            const batch = variationsToFix.slice(i, i + batchSize);
+            const objectIds = batch.map(v => v.id);
+
+            const data = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                method: 'POST',
+                body: JSON.stringify({ object_ids: objectIds, include_related_objects: false }),
+                accessToken
+            });
+
+            for (const obj of (data.objects || [])) {
+                retrievedObjects.set(obj.id, obj);
+            }
+
+            if (i + batchSize < variationsToFix.length) {
+                await sleep(500);
+            }
+        }
+
+        // Step 3: Batch-upsert with alerts enabled
+        const objectsToUpdate = [];
+        for (const variation of variationsToFix) {
+            const squareObj = retrievedObjects.get(variation.id);
+            if (!squareObj) {
+                summary.details.push({
+                    id: variation.id,
+                    name: variation.name,
+                    sku: variation.sku || '',
+                    status: 'skipped',
+                    error: 'Not found in Square'
+                });
+                continue;
+            }
+
+            objectsToUpdate.push({
+                id: squareObj.id,
+                version: squareObj.version,
+                name: variation.name,
+                sku: variation.sku || '',
+                item_variation_data: squareObj.item_variation_data
+            });
+        }
+
+        for (let i = 0; i < objectsToUpdate.length; i += batchSize) {
+            const batch = objectsToUpdate.slice(i, i + batchSize);
+            const batchNumber = Math.floor(i / batchSize) + 1;
+
+            const objectsForBatch = batch.map(obj => ({
+                type: 'ITEM_VARIATION',
+                id: obj.id,
+                version: obj.version,
+                item_variation_data: {
+                    ...obj.item_variation_data,
+                    inventory_alert_type: 'LOW_QUANTITY',
+                    inventory_alert_threshold: 0
+                }
+            }));
+
+            try {
+                await makeSquareRequest('/v2/catalog/batch-upsert', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        idempotency_key: generateIdempotencyKey('fix-alerts-batch'),
+                        batches: [{ objects: objectsForBatch }]
+                    }),
+                    accessToken
+                });
+
+                for (const obj of batch) {
+                    summary.variationsFixed++;
+                    summary.details.push({
+                        id: obj.id,
+                        name: obj.name,
+                        sku: obj.sku,
+                        status: 'fixed'
+                    });
+                }
+
+                logger.info('Inventory alerts batch updated', { batchNumber, count: batch.length });
+            } catch (batchError) {
+                logger.error('Inventory alerts batch failed', {
+                    batchNumber,
+                    error: batchError.message
+                });
+                summary.errors.push(`Batch ${batchNumber} failed: ${batchError.message}`);
+
+                for (const obj of batch) {
+                    summary.details.push({
+                        id: obj.id,
+                        name: obj.name,
+                        sku: obj.sku,
+                        status: 'failed',
+                        error: batchError.message
+                    });
+                }
+            }
+
+            if (i + batchSize < objectsToUpdate.length) {
+                await sleep(500);
+            }
+        }
+
+        logger.info('Inventory alerts fix complete', {
+            variationsFixed: summary.variationsFixed,
+            totalFound: summary.totalFound,
+            errors: summary.errors.length
+        });
+
+        if (summary.errors.length > 0) {
+            summary.success = false;
+        }
+
+        return summary;
+
+    } catch (error) {
+        logger.error('Inventory alerts fix failed', { error: error.message, stack: error.stack });
+        summary.success = false;
+        summary.errors.push(error.message);
+        return summary;
+    }
+}
+
+/**
  * Enable a single parent item at all locations in Square
  * Used when a variation is active at a location but its parent item is not
  * @param {string} itemId - The Square catalog item ID to enable
@@ -4499,6 +4673,7 @@ module.exports = {
     setSquareInventoryCount,
     setSquareInventoryAlertThreshold,
     fixLocationMismatches,
+    fixInventoryAlerts,
     enableItemAtAllLocations,
     // Custom attribute functions
     listCustomAttributeDefinitions,

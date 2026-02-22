@@ -444,6 +444,7 @@ function exportCSV() {
 async function fixLocationMismatches() {
   const btn = document.getElementById('fixLocationsBtn');
   const originalText = btn.textContent;
+  document.getElementById('bulkEditsMenu').classList.remove('open');
 
   if (!confirm('This will set ALL items and variations to be available at ALL locations in Square.\n\nThis fixes "Location Mismatch" errors but may affect which locations can see/sell items.\n\nContinue?')) {
     return;
@@ -452,7 +453,6 @@ async function fixLocationMismatches() {
   try {
     btn.disabled = true;
     btn.textContent = 'Fixing...';
-    btn.style.background = '#9ca3af';
 
     const response = await fetch('/api/catalog-audit/fix-locations', {
       method: 'POST',
@@ -463,7 +463,7 @@ async function fixLocationMismatches() {
 
     if (result.success) {
       alert(`Success!\n\nFixed ${result.itemsFixed} items and ${result.variationsFixed} variations.\n\nPlease run a full sync to update local data.`);
-      loadData(); // Refresh the audit data
+      loadData();
     } else {
       alert(`Partial success:\n\nFixed ${result.itemsFixed} items and ${result.variationsFixed} variations.\n\nErrors:\n${result.errors?.join('\n') || 'Unknown error'}`);
       loadData();
@@ -474,7 +474,47 @@ async function fixLocationMismatches() {
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
-    btn.style.background = '#dc2626';
+  }
+}
+
+function toggleBulkEdits() {
+  var menu = document.getElementById('bulkEditsMenu');
+  menu.classList.toggle('open');
+}
+
+async function fixInventoryAlerts() {
+  var btn = document.getElementById('fixAlertsBtn');
+  var originalText = btn.textContent;
+  document.getElementById('bulkEditsMenu').classList.remove('open');
+
+  if (!confirm('This will enable LOW_QUANTITY inventory alerts (threshold 0) on all variations that currently have alerts off.\n\nContinue?')) {
+    return;
+  }
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Fixing...';
+
+    var response = await fetch('/api/catalog-audit/fix-inventory-alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    var result = await response.json();
+
+    if (result.success) {
+      alert('Success!\n\nEnabled alerts for ' + result.variationsFixed + ' of ' + result.totalFound + ' items.\n\nPlease run a full sync to update local data.');
+      loadData();
+    } else {
+      alert('Partial success:\n\nEnabled alerts for ' + result.variationsFixed + ' of ' + result.totalFound + ' items.\n\nErrors:\n' + (result.errors ? result.errors.join('\n') : 'Unknown error'));
+      loadData();
+    }
+  } catch (error) {
+    console.error('Fix inventory alerts error:', error);
+    alert('Failed to fix inventory alerts: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
   }
 }
 
@@ -489,6 +529,14 @@ document.addEventListener('error', function(e) {
   }
 }, true);
 
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  var dropdown = document.getElementById('bulkEditsDropdown');
+  if (dropdown && !dropdown.contains(e.target)) {
+    document.getElementById('bulkEditsMenu').classList.remove('open');
+  }
+});
+
 // Load data on page load
 loadData();
 
@@ -496,6 +544,8 @@ loadData();
 window.loadData = loadData;
 window.exportCSV = exportCSV;
 window.fixLocationMismatches = fixLocationMismatches;
+window.fixInventoryAlerts = fixInventoryAlerts;
+window.toggleBulkEdits = toggleBulkEdits;
 window.sortTable = sortTable;
 window.filterByIssue = filterByIssue;
 window.filterData = filterData;

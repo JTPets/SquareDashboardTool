@@ -77,6 +77,34 @@
       background: #6b7280;
     }
     .controls button.secondary:hover { background: #4b5563; }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      background: white;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      z-index: 100;
+      min-width: 220px;
+    }
+    .dropdown-menu.open { display: block; }
+    .dropdown-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 16px;
+      background: white;
+      color: #111827;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .dropdown-menu button:hover { background: #f3f4f6; }
+    .dropdown-menu button:not(:last-child) { border-bottom: 1px solid #e5e7eb; }
     .info-badge {
       background: #dbeafe;
       color: #1e40af;
@@ -393,7 +421,13 @@
       </select>
       <button data-action="loadData">Refresh</button>
       <button data-action="exportCSV" class="export-btn">Export CSV</button>
-      <button data-action="fixLocationMismatches" class="fix-btn" style="background: #dc2626;" id="fixLocationsBtn">Fix Location Mismatches</button>
+      <div class="dropdown" id="bulkEditsDropdown">
+        <button data-action="toggleBulkEdits" class="fix-btn" style="background: #dc2626;">Bulk Edits &#9662;</button>
+        <div class="dropdown-menu" id="bulkEditsMenu">
+          <button data-action="fixLocationMismatches" id="fixLocationsBtn">Fix Location Mismatches</button>
+          <button data-action="fixInventoryAlerts" id="fixAlertsBtn">Fix Inventory Alerts</button>
+        </div>
+      </div>
       <div class="info-badge" id="statusBadge">Loading...</div>
     </div>
 
