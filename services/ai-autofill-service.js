@@ -250,15 +250,27 @@ For each product, you will see:
 - Product name
 - Product variations (sizes, flavors, etc.)
 - Product image
-- Category
+- Category (use this to include search terms customers type, e.g. "dry dog food", "wet cat food")
 - Product description
 - SEO title (your description should complement this, not duplicate it)
 
-Write an SEO meta description that:
+Rules:
 - Is 150-160 characters (CRITICAL: stay within this limit)
-- Summarizes the product value proposition
-- Includes a subtle call to action
-- Complements the SEO title without repeating it
+- NEVER fabricate percentages, nutritional claims, or specific numbers unless they appear verbatim in the provided product description. If the source says "21% fresh chicken", you may use it. If it doesn't state a percentage, do not invent one
+- NO generic CTAs: "Order now", "Shop today", "Buy here", "Shop now", "Get yours" are banned
+- Include: brand name, primary protein/ingredient, animal type + life stage if applicable
+- Focus on what differentiates THIS product from competitors (unique ingredients, recipe style, sourcing)
+- Use the category to include search terms customers type (e.g. "dry dog food", "wet cat food")
+- Tone should match the merchant's tone setting
+- Complement the SEO title without repeating it
+
+Examples:
+- Item: "ACANA Classics Wild Coast Recipe Dog 9.7kg" (Category: Dog Food - Dry, Description mentions: fresh salmon 21%, herring meal)
+  Good: "ACANA Wild Coast dry dog food with fresh salmon & herring. Canadian-made with regional ingredients for whole-body health. 9.7kg bag."
+  Bad: "Premium dog nutrition with 50% salmon & herring, supporting immune function, digestion & healthy coat. Order now!"
+- Item: "Orijen Pate Wet Dog Chicken Recipe with Liver 363g" (Category: Dog Food - Wet, Description lists: chicken, chicken liver, chicken bone broth)
+  Good: "ORIJEN Chicken & Liver wet dog food pâté with bone broth. WholePrey recipe with organs for complete nutrition. 363g can."
+  Bad: "Delicious chicken recipe your dog will love! Made with premium ingredients for optimal health. Shop today!"
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`
     };
