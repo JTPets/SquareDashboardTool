@@ -202,7 +202,7 @@ For each product, you will see:
 Write a description of 2-4 sentences (50-150 words) that:
 - Describes what the product is and its key benefits
 - Mentions relevant details visible in the image (brand, ingredients, etc.)
-- Is suitable for an e-commerce product page${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When natural, incorporate these target keywords: ${keywordList}` : ''}
+- Is suitable for an e-commerce product page${businessContext ? `\n\nBusiness context (use this to inform tone, positioning, and local relevance): ${businessContext}` : ''}${keywordList ? `\n\nTarget keywords — MUST incorporate at least one of these naturally into every description: ${keywordList}` : ''}
 
 Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`,
 
@@ -227,7 +227,7 @@ Rules:
 - Include the key differentiator: primary protein or flavor (e.g. "Chicken & Salmon", "Red Meat"). Drop filler words from the product name like "Chunks", "Broth", "Recipe", "Premium", "Classics", "Pate", "Formula" to make room
 - Include size/weight if characters allow
 - "| ${storeLabel}" goes at the end ONLY if there are characters to spare; drop store name before dropping brand, search term, or differentiator
-- Never use generic phrases like "Natural Pet Food" or location names${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When space allows, incorporate these target keywords: ${keywordList}` : ''}
+- Never use generic phrases like "Natural Pet Food" or location names${businessContext ? `\n\nBusiness context (use this to inform tone, positioning, and local relevance): ${businessContext}` : ''}${keywordList ? `\n\nTarget keywords — incorporate at least one of these into every SEO title where character limit allows: ${keywordList}` : ''}
 
 Examples:
 - Item: "ACANA Chunks in Broth Kitten Wet Food Chicken + Salmon Recipe 155g" (Category: Cat Food - Wet)
@@ -262,7 +262,7 @@ Rules:
 - Focus on what differentiates THIS product from competitors (unique ingredients, recipe style, sourcing)
 - Use the category to include search terms customers type (e.g. "dry dog food", "wet cat food")
 - Tone should match the merchant's tone setting
-- Complement the SEO title without repeating it${businessContext ? `\n- Business context to inform tone and positioning: ${businessContext}` : ''}${keywordList ? `\n- When space allows, incorporate these target keywords: ${keywordList}` : ''}
+- Complement the SEO title without repeating it${businessContext ? `\n\nBusiness context (use this to inform tone, positioning, and local relevance): ${businessContext}` : ''}${keywordList ? `\n\nTarget keywords — MUST incorporate at least one of these naturally into every meta description: ${keywordList}` : ''}
 
 Examples:
 - Item: "ACANA Classics Wild Coast Recipe Dog 9.7kg" (Category: Dog Food - Dry, Description mentions: fresh salmon 21%, herring meal)
@@ -282,13 +282,10 @@ Respond with a JSON array: [{"itemId": "...", "generated": "..."}]`
  * Build message content for Claude with images
  * @param {Object[]} items - Items with context
  * @param {string} fieldType - The field being generated
- * @param {string} systemPrompt - The system prompt
- * @returns {Object[]} - Content array for Claude message
+ * @returns {Object[]} - Content array for Claude user message
  */
-function buildMessageContent(items, fieldType, systemPrompt) {
-    const content = [
-        { type: 'text', text: systemPrompt }
-    ];
+function buildMessageContent(items, fieldType) {
+    const content = [];
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -346,7 +343,7 @@ const MAX_RETRIES = 3;
  * @returns {Promise<Object[]>} - Parsed JSON array from Claude
  */
 async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
-    const messageContent = buildMessageContent(chunkItems, fieldType, systemPrompt);
+    const messageContent = buildMessageContent(chunkItems, fieldType);
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const response = await fetch(CLAUDE_API_URL, {
@@ -359,6 +356,7 @@ async function callClaudeApi(chunkItems, fieldType, systemPrompt, apiKey) {
             body: JSON.stringify({
                 model: CLAUDE_MODEL,
                 max_tokens: 4096,
+                system: systemPrompt,
                 messages: [{
                     role: 'user',
                     content: messageContent
