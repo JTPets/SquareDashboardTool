@@ -932,6 +932,10 @@ async function ensureSchema() {
                 discount_applied_at TIMESTAMPTZ,
                 last_evaluated_at TIMESTAMPTZ DEFAULT NOW(),
                 needs_pull BOOLEAN DEFAULT FALSE,
+                needs_manual_review BOOLEAN DEFAULT FALSE,
+                manually_overridden BOOLEAN DEFAULT FALSE,
+                manual_override_at TIMESTAMPTZ,
+                manual_override_note TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
@@ -939,6 +943,8 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_tier ON variation_discount_status(current_tier_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_needs_pull ON variation_discount_status(needs_pull) WHERE needs_pull = TRUE');
         await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_days ON variation_discount_status(days_until_expiry)');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_manual_review ON variation_discount_status(needs_manual_review) WHERE needs_manual_review = TRUE');
+        await query('CREATE INDEX IF NOT EXISTS idx_variation_discount_overridden ON variation_discount_status(manually_overridden) WHERE manually_overridden = TRUE');
 
         // 3. Expiry Discount Audit Log - tracks all changes for accountability
         await query(`

@@ -18,6 +18,44 @@ const expandedBundles = new Set();
 const editedBundleChildQtys = new Map();
 // Set of variation_ids that belong to a bundle (filtered from main table)
 let bundleChildVariationIds = new Set();
+// Expiry tier config loaded from API (BACKLOG-32: replaces hardcoded thresholds)
+let expiryTierRanges = {};
+
+// Load expiry tier configuration from API
+async function loadExpiryTierConfig() {
+  try {
+    const response = await fetch('/api/expiry-discounts/tiers');
+    const data = await response.json();
+    expiryTierRanges = {};
+    for (const tier of data.tiers || []) {
+      expiryTierRanges[tier.tier_code] = {
+        min: tier.min_days_to_expiry,
+        max: tier.max_days_to_expiry,
+        discount_percent: tier.discount_percent
+      };
+    }
+  } catch (error) {
+    console.error('Failed to load expiry tier config, using defaults:', error);
+    expiryTierRanges = {
+      'EXPIRED': { min: null, max: 0 },
+      'AUTO50': { min: 1, max: 30 },
+      'AUTO25': { min: 31, max: 89 },
+      'REVIEW': { min: 90, max: 120 },
+      'OK': { min: 121, max: null }
+    };
+  }
+}
+
+// Get expiry tier from days using API-loaded config
+function getExpiryTierFromDays(daysUntilExpiry) {
+  if (daysUntilExpiry === null || daysUntilExpiry === undefined) return null;
+  for (const [tierCode, range] of Object.entries(expiryTierRanges)) {
+    const minOk = range.min === null || daysUntilExpiry >= range.min;
+    const maxOk = range.max === null || daysUntilExpiry <= range.max;
+    if (minOk && maxOk) return tierCode;
+  }
+  return null;
+}
 
 // Load configuration from server
 async function loadConfig() {
@@ -552,7 +590,7 @@ function renderTable() {
     const expiresWithin120Days = item.days_until_expiry !== null && item.days_until_expiry <= 120;
     const expiryRowClass = expiresWithin120Days ? 'expiry-warning' : '';
 
-    // Determine expiry tier for visual indicators
+    // Determine expiry tier for visual indicators (uses API-loaded tier config)
     const daysLeft = item.days_until_expiry;
     let expiryTier = null;
     let expiryTierLabel = '';
@@ -561,25 +599,10 @@ function renderTable() {
     if (item.does_not_expire) {
       expiryTier = null;
     } else if (daysLeft !== null) {
-      if (daysLeft <= 0) {
-        expiryTier = 'EXPIRED';
-        expiryTierLabel = 'EXP';
-        needsReorderResistance = true;
-      } else if (daysLeft <= 30) {
-        expiryTier = 'AUTO50';
-        expiryTierLabel = '50%';
-        needsReorderResistance = true;
-      } else if (daysLeft <= 89) {
-        expiryTier = 'AUTO25';
-        expiryTierLabel = '25%';
-        needsReorderResistance = true;
-      } else if (daysLeft <= 120) {
-        expiryTier = 'REVIEW';
-        expiryTierLabel = 'REV';
-      } else {
-        expiryTier = 'OK';
-        expiryTierLabel = 'OK';
-      }
+      expiryTier = getExpiryTierFromDays(daysLeft) || 'OK';
+      const tierLabelMap = { 'EXPIRED': 'EXP', 'AUTO50': '50%', 'AUTO25': '25%', 'REVIEW': 'REV', 'OK': 'OK' };
+      expiryTierLabel = tierLabelMap[expiryTier] || expiryTier;
+      needsReorderResistance = expiryTier === 'EXPIRED' || expiryTier === 'AUTO50' || expiryTier === 'AUTO25';
     }
 
     // Add reorder resistance class for expiring items
@@ -609,9 +632,10 @@ function renderTable() {
     } else if (item.expiration_date) {
       const expiryDate = new Date(item.expiration_date);
       const formattedDate = expiryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      if (daysLeft !== null && daysLeft <= 30) {
+      const expiryBadgeTier = getExpiryTierFromDays(daysLeft);
+      if (expiryBadgeTier === 'EXPIRED' || expiryBadgeTier === 'AUTO50') {
         expiryHtml = `<span class="expiry-badge critical" title="${daysLeft} days until expiry">${formattedDate}</span>`;
-      } else if (daysLeft !== null && daysLeft <= 120) {
+      } else if (expiryBadgeTier === 'AUTO25' || expiryBadgeTier === 'REVIEW') {
         expiryHtml = `<span class="expiry-badge warning" title="${daysLeft} days until expiry">${formattedDate}</span>`;
       } else {
         expiryHtml = `<span class="expiry-ok">${formattedDate}</span>`;
@@ -623,7 +647,8 @@ function renderTable() {
     // Build expiry info section showing days + tier
     let expiryInfoHtml = '';
     if (expiryTier && daysLeft !== null) {
-      const daysClass = daysLeft <= 30 ? 'critical' : daysLeft <= 89 ? 'warning' : daysLeft <= 120 ? 'review' : 'ok';
+      const daysClassTier = getExpiryTierFromDays(daysLeft) || 'OK';
+      const daysClass = (daysClassTier === 'EXPIRED' || daysClassTier === 'AUTO50') ? 'critical' : daysClassTier === 'AUTO25' ? 'warning' : daysClassTier === 'REVIEW' ? 'review' : 'ok';
       expiryInfoHtml = `
         <div class="expiry-info">
           <span class="expiry-days ${daysClass}">${daysLeft}d</span>
@@ -967,21 +992,23 @@ async function createPurchaseOrder() {
     }
   }
 
-  // Check for expiring items (standalone) and warn
+  // Check for expiring items (standalone) and warn — uses API-loaded tier config
   const expiringItems = standaloneItems.filter(item => {
     const daysLeft = item.days_until_expiry;
-    return daysLeft !== null && daysLeft <= 89;
+    if (daysLeft === null) return false;
+    const tier = getExpiryTierFromDays(daysLeft);
+    return tier === 'EXPIRED' || tier === 'AUTO50' || tier === 'AUTO25';
   });
 
   if (expiringItems.length > 0) {
-    const expiredCount = expiringItems.filter(i => i.days_until_expiry <= 0).length;
-    const auto50Count = expiringItems.filter(i => i.days_until_expiry > 0 && i.days_until_expiry <= 30).length;
-    const auto25Count = expiringItems.filter(i => i.days_until_expiry > 30 && i.days_until_expiry <= 89).length;
+    const expiredCount = expiringItems.filter(i => getExpiryTierFromDays(i.days_until_expiry) === 'EXPIRED').length;
+    const auto50Count = expiringItems.filter(i => getExpiryTierFromDays(i.days_until_expiry) === 'AUTO50').length;
+    const auto25Count = expiringItems.filter(i => getExpiryTierFromDays(i.days_until_expiry) === 'AUTO25').length;
 
     let warningMessage = `⚠️ WARNING: You are about to create a PO with ${expiringItems.length} expiring item(s):\n\n`;
     if (expiredCount > 0) warningMessage += `• ${expiredCount} EXPIRED item(s) - should be pulled from shelves\n`;
-    if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) on clearance sale (expiring within 30 days)\n`;
-    if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) with discount applied (expiring within 31-89 days)\n`;
+    if (auto50Count > 0) warningMessage += `• ${auto50Count} item(s) on clearance sale\n`;
+    if (auto25Count > 0) warningMessage += `• ${auto25Count} item(s) with discount applied\n`;
     warningMessage += '\n📋 IMPORTANT: Expiry dates and discounts will be REMOVED for these items when the PO is created.\n';
     warningMessage += 'Remember to enter new expiry dates after receiving the stock.\n';
     warningMessage += '\nAre you sure you want to proceed?';
@@ -1686,6 +1713,7 @@ function showToast(message, type = '') {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
+  await loadExpiryTierConfig();
   await loadLocations();
   await loadVendors();
   // Auto-load suggestions on page load

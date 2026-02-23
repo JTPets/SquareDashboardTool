@@ -416,4 +416,47 @@ router.post('/expiry-discounts/validate-and-fix', requireAuth, requireMerchant, 
     res.json(result);
 }));
 
+/**
+ * GET /api/expiry-discounts/flagged
+ * Get variations flagged for manual review (tier regression detected)
+ */
+router.get('/expiry-discounts/flagged', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const flagged = await expiryDiscount.getFlaggedVariations(merchantId);
+    res.json({ flagged });
+}));
+
+/**
+ * POST /api/expiry-discounts/flagged/resolve
+ * Resolve a flagged variation: apply new tier or keep current
+ */
+router.post('/expiry-discounts/flagged/resolve', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const { variation_id, action, note } = req.body;
+
+    if (!variation_id) {
+        return res.status(400).json({ success: false, error: 'variation_id is required' });
+    }
+    if (!action || !['apply_new', 'keep_current'].includes(action)) {
+        return res.status(400).json({ success: false, error: 'action must be "apply_new" or "keep_current"' });
+    }
+    if (!note || note.trim().length === 0) {
+        return res.status(400).json({ success: false, error: 'note is required' });
+    }
+
+    const result = await expiryDiscount.resolveFlaggedVariation({
+        merchantId,
+        variationId: variation_id,
+        action,
+        note
+    });
+
+    if (!result.success) {
+        return res.status(400).json(result);
+    }
+
+    logger.info('Resolved flagged variation', { merchantId, variation_id, action, note });
+    res.json(result);
+}));
+
 module.exports = router;
