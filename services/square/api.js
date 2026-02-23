@@ -2546,6 +2546,11 @@ async function syncCommittedInventory(merchantId) {
 
     // Fetch ALL invoices from Square (paginated) and classify by status
     const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID', 'PARTIALLY_REFUNDED'];
+    logger.info('Committed inventory reconciliation — invoice statuses treated as "open"', {
+        merchantId,
+        openStatuses,
+        note: 'PARTIALLY_REFUNDED is currently included — may warrant separate handling (see backlog)'
+    });
     const openInvoiceIds = new Set();
     // Map<invoiceId, { orderId, status, locationId }> for open invoices
     const openInvoiceDetails = new Map();
@@ -2647,6 +2652,9 @@ async function syncCommittedInventory(merchantId) {
     // For each open invoice, fetch order line items and upsert into committed_inventory
     let invoicesProcessed = 0;
     let invoiceErrors = 0;
+    const matchCategories = { fullyMatched: 0, partiallyMatched: 0, fullyUnmatched: 0 };
+    const committedQtyByVariation = new Map(); // variationId -> total quantity
+
     for (const [invoiceId, details] of openInvoiceDetails) {
         try {
             const invoiceDetail = await makeSquareRequest(`/v2/invoices/${invoiceId}`, {
@@ -2657,6 +2665,25 @@ async function syncCommittedInventory(merchantId) {
             const fullInvoice = invoiceDetail.invoice;
             if (!fullInvoice || !fullInvoice.order_id) continue;
 
+            // Extract invoice metadata for logging
+            const primaryRecipient = fullInvoice.primary_recipient || {};
+            const paymentRequest = (fullInvoice.payment_requests || [])[0] || {};
+            const totalMoney = paymentRequest.computed_amount_money
+                || paymentRequest.total_completed_amount_money || {};
+
+            logger.info('Processing open invoice for committed inventory', {
+                merchantId,
+                invoiceId,
+                orderId: fullInvoice.order_id,
+                invoiceStatus: fullInvoice.status,
+                customerId: primaryRecipient.customer_id || null,
+                createdAt: fullInvoice.created_at || null,
+                dueDate: paymentRequest.due_date || null,
+                totalAmount: totalMoney.amount != null
+                    ? `${totalMoney.amount} ${totalMoney.currency || ''}`
+                    : null
+            });
+
             const orderData = await makeSquareRequest(`/v2/orders/${fullInvoice.order_id}`, {
                 method: 'GET',
                 accessToken
@@ -2666,6 +2693,10 @@ async function syncCommittedInventory(merchantId) {
             if (!order || !order.line_items) continue;
 
             // Upsert committed_inventory rows for this invoice (transaction)
+            let invoiceMatchedCount = 0;
+            let invoiceSkippedCount = 0;
+            let invoiceTotalLineItems = 0;
+
             await db.transaction(async (client) => {
                 // Delete existing rows for this invoice (handles line item changes)
                 await client.query(
@@ -2686,18 +2717,47 @@ async function syncCommittedInventory(merchantId) {
                     knownVariationIds = new Set(knownResult.rows.map(r => r.id));
                 }
 
-                const skippedOrphans = [];
                 for (const lineItem of order.line_items) {
                     const variationId = lineItem.catalog_object_id;
                     const locationId = order.location_id || details.locationId;
                     const quantity = parseInt(lineItem.quantity) || 0;
+                    const itemName = lineItem.name || '(unnamed)';
 
                     if (!variationId || quantity <= 0 || !locationId) continue;
 
-                    if (!knownVariationIds.has(variationId)) {
-                        skippedOrphans.push(variationId);
+                    invoiceTotalLineItems++;
+                    const matched = knownVariationIds.has(variationId);
+
+                    logger.info('Invoice line item', {
+                        merchantId,
+                        invoiceId,
+                        variationId,
+                        itemName,
+                        quantity,
+                        matchedLocalVariation: matched
+                    });
+
+                    if (!matched) {
+                        invoiceSkippedCount++;
+                        logger.warn('ACTION REQUIRED: Invoice line item skipped — variation not in local catalog. Run catalog sync to resolve.', {
+                            merchantId,
+                            invoiceId,
+                            orderId: fullInvoice.order_id,
+                            invoiceStatus: fullInvoice.status,
+                            variationId,
+                            itemName,
+                            quantity,
+                            customerId: primaryRecipient.customer_id || null,
+                            dueDate: paymentRequest.due_date || null
+                        });
                         continue;
                     }
+
+                    invoiceMatchedCount++;
+
+                    // Track committed quantities for end-of-reconciliation summary
+                    const prevQty = committedQtyByVariation.get(variationId) || 0;
+                    committedQtyByVariation.set(variationId, prevQty + quantity);
 
                     await client.query(`
                         INSERT INTO committed_inventory
@@ -2711,13 +2771,18 @@ async function syncCommittedInventory(merchantId) {
                     `, [merchantId, invoiceId, fullInvoice.order_id, variationId,
                         locationId, quantity, details.status]);
                 }
-
-                if (skippedOrphans.length > 0) {
-                    logger.warn('Skipped invoice line items with catalog variations not in local catalog — run a catalog sync to resolve', {
-                        merchantId, invoiceId, orderId: fullInvoice.order_id, skippedVariationIds: skippedOrphans
-                    });
-                }
             });
+
+            // Categorize invoice match result
+            if (invoiceTotalLineItems > 0) {
+                if (invoiceSkippedCount === 0) {
+                    matchCategories.fullyMatched++;
+                } else if (invoiceMatchedCount === 0) {
+                    matchCategories.fullyUnmatched++;
+                } else {
+                    matchCategories.partiallyMatched++;
+                }
+            }
 
             invoicesProcessed++;
         } catch (error) {
@@ -2779,6 +2844,28 @@ async function syncCommittedInventory(merchantId) {
             `Committed inventory references ${orphanIds.length} variation(s) not in local catalog — these items are excluded from RESERVED_FOR_SALE. Run a catalog sync to resolve.`,
             { merchantId, orphanVariationIds: orphanIds, invoiceIds }
         );
+    }
+
+    // Log reconciliation match summary
+    logger.info('Committed inventory reconciliation — invoice match summary', {
+        merchantId,
+        invoicesFullyMatched: matchCategories.fullyMatched,
+        invoicesPartiallyMatched: matchCategories.partiallyMatched,
+        invoicesFullyUnmatched: matchCategories.fullyUnmatched,
+        invoicesProcessed,
+        invoiceErrors
+    });
+
+    if (committedQtyByVariation.size > 0) {
+        const quantities = {};
+        for (const [varId, qty] of committedQtyByVariation) {
+            quantities[varId] = qty;
+        }
+        logger.info('Committed inventory reconciliation — total committed quantities by variation', {
+            merchantId,
+            variationCount: committedQtyByVariation.size,
+            quantities
+        });
     }
 
     // Count rows AFTER reconciliation
