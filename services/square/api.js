@@ -2545,11 +2545,10 @@ async function syncCommittedInventory(merchantId) {
     const rowsBefore = beforeResult.rows[0].cnt;
 
     // Fetch ALL invoices from Square (paginated) and classify by status
-    const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID', 'PARTIALLY_REFUNDED'];
+    const openStatuses = ['DRAFT', 'UNPAID', 'SCHEDULED', 'PARTIALLY_PAID'];
     logger.info('Committed inventory reconciliation — invoice statuses treated as "open"', {
         merchantId,
-        openStatuses,
-        note: 'PARTIALLY_REFUNDED is currently included — may warrant separate handling (see backlog)'
+        openStatuses
     });
     const openInvoiceIds = new Set();
     // Map<invoiceId, { orderId, status, locationId }> for open invoices
