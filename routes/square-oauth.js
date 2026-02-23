@@ -265,7 +265,7 @@ router.get('/callback', async (req, res) => {
         // Initialize custom attributes for this new merchant (async, don't block redirect)
         // This ensures expiration_date, brand, case_pack_quantity, etc. are available
         squareApi.initializeCustomAttributes({ merchantId: newMerchantId })
-            .then(result => {
+            .then(async (result) => {
                 const created = result.definitions?.filter(d => d.status === 'created').length || 0;
                 const updated = result.definitions?.filter(d => d.status === 'updated').length || 0;
                 if (created > 0 || updated > 0) {
@@ -276,6 +276,11 @@ router.get('/callback', async (req, res) => {
                         updated
                     });
                 }
+                // Mark merchant as initialized so startup skips it (BACKLOG-13)
+                await db.query(
+                    'UPDATE merchants SET custom_attributes_initialized_at = NOW() WHERE id = $1',
+                    [newMerchantId]
+                );
             })
             .catch(err => {
                 logger.warn('Could not auto-initialize custom attributes for new merchant', {
