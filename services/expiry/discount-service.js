@@ -1694,12 +1694,9 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
 /**
  * Clear expiry discount for a variation when it's being reordered
  *
- * TECH DEBT: Duplicate discount cleanup logic exists in:
- * - services/loyalty-admin/loyalty-service.js:deleteRewardDiscountObjects() (loyalty path)
- * - services/expiry/discount-service.js:upsertPricingRule() (expiry path)
- * - This function (reorder path)
- * All three should be consolidated into a shared utils/square-catalog-cleanup.js utility.
- * See tech debt entry in CLAUDE.md.
+ * Note: Discount catalog object deletion is consolidated in utils/square-catalog-cleanup.js
+ * (BACKLOG-6, completed 2026-02-06). Both the loyalty and expiry systems use
+ * deleteCatalogObjects() for Square cleanup.
  *
  * This function resets the variation's discount status to the OK tier and clears
  * the expiration date. The next applyDiscounts() call will rebuild the Square

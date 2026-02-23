@@ -283,6 +283,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
+| Low | BACKLOG-32 | Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js |
 
 ### Backlog — Archive (Completed)
 
@@ -356,6 +357,27 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 **Effort**: S
 
 **Audit date**: 2026-02-19
+
+#### BACKLOG-32: Frontend Hardcoded Expiry Tier Thresholds
+
+**Context**: `public/js/reorder.js:977-979` and `public/js/expiry-discounts.js:161,175` hardcode the default expiry tier boundaries (0, 30, 89 days) instead of reading from the API-loaded tier configuration. If a merchant customizes their tier ranges via the settings UI, these frontends will show incorrect tier assignment counts and CSS color coding.
+
+**Contrast**: `public/js/expiry-audit.js` does this correctly — it loads tier ranges from the `/api/expiry-discounts/tiers` endpoint on page init and evaluates `getTierFromDays()` dynamically.
+
+**Files involved**:
+- `public/js/reorder.js:977-979` (hardcoded tier count thresholds)
+- `public/js/expiry-discounts.js:161,175` (hardcoded day-range CSS class checks)
+- `public/js/expiry-audit.js:118-125,169-179` (correct pattern — API-loaded ranges)
+
+**Proposed solution**:
+- Have reorder.js and expiry-discounts.js fetch tiers from the API on load (like expiry-audit.js already does)
+- Replace hardcoded thresholds with API-loaded min/max ranges
+- Minimal risk — display-only change, no backend impact
+
+**Priority**: Low (only matters if merchants customize tier ranges, which is uncommon)
+**Effort**: S
+
+**Audit date**: 2026-02-23
 
 ### Architectural Tech Debt
 
