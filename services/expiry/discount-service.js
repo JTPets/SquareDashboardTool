@@ -112,6 +112,27 @@ function calculateDaysUntilExpiry(expirationDate, timezone = 'America/Toronto') 
 }
 
 /**
+ * Build a tier rank map from DB tiers, ordered by urgency (most urgent = highest rank).
+ * Uses min_days_to_expiry ascending: EXPIRED (null/lowest min) = rank N, OK (highest min) = rank 0.
+ * @param {Array} tiers - Array of tier objects from getActiveTiers()
+ * @returns {Map<number, number>} Map of tier ID → rank (higher rank = more urgent)
+ */
+function buildTierRankMap(tiers) {
+    // Sort by min_days_to_expiry descending (OK first, EXPIRED last)
+    // so that rank index increases with urgency
+    const sorted = [...tiers].sort((a, b) => {
+        const aMin = a.min_days_to_expiry ?? -Infinity;
+        const bMin = b.min_days_to_expiry ?? -Infinity;
+        return bMin - aMin; // descending: highest min_days first (OK), lowest last (EXPIRED)
+    });
+    const rankMap = new Map();
+    sorted.forEach((tier, index) => {
+        rankMap.set(tier.id, index); // OK=0, REVIEW=1, AUTO25=2, AUTO50=3, EXPIRED=4
+    });
+    return rankMap;
+}
+
+/**
  * Determine which tier a variation belongs to based on days until expiry
  * @param {number|null} daysUntilExpiry - Days until expiry
  * @param {Array} tiers - Array of tier objects (sorted by priority DESC)
@@ -160,6 +181,7 @@ async function evaluateAllVariations(options = {}) {
         totalEvaluated: 0,
         tierChanges: [],
         newAssignments: [],
+        regressionsFlagged: [],
         unchanged: 0,
         errors: [],
         byTier: {}
@@ -168,6 +190,9 @@ async function evaluateAllVariations(options = {}) {
     try {
         // Get active tiers for this merchant
         const tiers = await getActiveTiers(merchantId);
+
+        // Build rank map: tier ID → urgency rank (higher = more urgent)
+        const tierRankMap = buildTierRankMap(tiers);
 
         // Initialize tier counts
         for (const tier of tiers) {
@@ -233,6 +258,11 @@ async function evaluateAllVariations(options = {}) {
                 const newTierId = newTier.id;
 
                 if (oldTierId !== newTierId) {
+                    // Tier regression guard: detect downgrade (moving to less urgent tier)
+                    const oldRank = oldTierId !== null ? (tierRankMap.get(oldTierId) ?? -1) : -1;
+                    const newRank = tierRankMap.get(newTierId) ?? -1;
+                    const isRegression = oldTierId !== null && newRank < oldRank;
+
                     const change = {
                         variationId: row.variation_id,
                         itemName: row.item_name,
@@ -247,11 +277,48 @@ async function evaluateAllVariations(options = {}) {
                         discountPercent: newTier.discount_percent,
                         isAutoApply: newTier.is_auto_apply,
                         requiresReview: newTier.requires_review,
-                        needsPull: newTier.tier_code === 'EXPIRED'
+                        needsPull: newTier.tier_code === 'EXPIRED',
+                        isRegression
                     };
 
                     if (oldTierId === null) {
                         results.newAssignments.push(change);
+                    } else if (isRegression) {
+                        // Regression: flag for manual review instead of auto-downgrading
+                        results.regressionsFlagged.push(change);
+
+                        if (!dryRun) {
+                            logger.warn('Tier regression detected', {
+                                variationId: row.variation_id,
+                                sku: row.sku,
+                                oldTierId,
+                                newTierId,
+                                newTierCode: newTier.tier_code,
+                                daysUntilExpiry,
+                                merchantId
+                            });
+
+                            // Flag for manual review — do NOT change the tier
+                            await db.query(`
+                                UPDATE variation_discount_status
+                                SET needs_manual_review = TRUE,
+                                    days_until_expiry = $1,
+                                    last_evaluated_at = NOW(),
+                                    updated_at = NOW()
+                                WHERE variation_id = $2 AND merchant_id = $3
+                            `, [daysUntilExpiry, row.variation_id, merchantId]);
+
+                            await logAuditEvent({
+                                merchantId,
+                                variationId: row.variation_id,
+                                action: 'REGRESSION_FLAGGED',
+                                oldTierId,
+                                newTierId,
+                                daysUntilExpiry,
+                                triggeredBy
+                            });
+                        }
+                        continue; // Skip normal tier update
                     } else {
                         results.tierChanges.push(change);
                     }
@@ -261,14 +328,16 @@ async function evaluateAllVariations(options = {}) {
                         await db.query(`
                             INSERT INTO variation_discount_status (
                                 variation_id, current_tier_id, days_until_expiry,
-                                original_price_cents, needs_pull, merchant_id, last_evaluated_at, updated_at
+                                original_price_cents, needs_pull, needs_manual_review,
+                                merchant_id, last_evaluated_at, updated_at
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                            VALUES ($1, $2, $3, $4, $5, FALSE, $6, NOW(), NOW())
                             ON CONFLICT (variation_id, merchant_id) DO UPDATE SET
                                 current_tier_id = EXCLUDED.current_tier_id,
                                 days_until_expiry = EXCLUDED.days_until_expiry,
                                 original_price_cents = COALESCE(variation_discount_status.original_price_cents, EXCLUDED.original_price_cents),
                                 needs_pull = EXCLUDED.needs_pull,
+                                needs_manual_review = FALSE,
                                 last_evaluated_at = NOW(),
                                 updated_at = NOW()
                         `, [
@@ -320,6 +389,7 @@ async function evaluateAllVariations(options = {}) {
             totalEvaluated: results.totalEvaluated,
             tierChanges: results.tierChanges.length,
             newAssignments: results.newAssignments.length,
+            regressionsFlagged: results.regressionsFlagged.length,
             unchanged: results.unchanged,
             errors: results.errors.length,
             byTier: results.byTier
@@ -1694,12 +1764,9 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
 /**
  * Clear expiry discount for a variation when it's being reordered
  *
- * TECH DEBT: Duplicate discount cleanup logic exists in:
- * - services/loyalty-admin/loyalty-service.js:deleteRewardDiscountObjects() (loyalty path)
- * - services/expiry/discount-service.js:upsertPricingRule() (expiry path)
- * - This function (reorder path)
- * All three should be consolidated into a shared utils/square-catalog-cleanup.js utility.
- * See tech debt entry in CLAUDE.md.
+ * Note: Discount catalog object deletion is consolidated in utils/square-catalog-cleanup.js
+ * (BACKLOG-6, completed 2026-02-06). Both the loyalty and expiry systems use
+ * deleteCatalogObjects() for Square cleanup.
  *
  * This function resets the variation's discount status to the OK tier and clears
  * the expiration date. The next applyDiscounts() call will rebuild the Square
@@ -1818,6 +1885,170 @@ async function clearExpiryDiscountForReorder(merchantId, variationId) {
     }
 }
 
+/**
+ * Get variations flagged for manual review (tier regression detected)
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<Array>} Flagged variations with tier info
+ */
+async function getFlaggedVariations(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getFlaggedVariations');
+    }
+
+    const result = await db.query(`
+        SELECT
+            vds.variation_id,
+            vds.days_until_expiry,
+            vds.original_price_cents,
+            vds.discounted_price_cents,
+            vds.needs_manual_review,
+            vds.manually_overridden,
+            vds.manual_override_at,
+            vds.manual_override_note,
+            vds.last_evaluated_at,
+            v.sku,
+            v.name as variation_name,
+            i.name as item_name,
+            edt.id as current_tier_id,
+            edt.tier_code as current_tier_code,
+            edt.tier_name as current_tier_name,
+            edt.discount_percent as current_discount_percent,
+            ve.expiration_date
+        FROM variation_discount_status vds
+        JOIN variations v ON vds.variation_id = v.id AND v.merchant_id = $1
+        JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+        LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+        LEFT JOIN variation_expiration ve ON v.id = ve.variation_id AND ve.merchant_id = $1
+        WHERE vds.needs_manual_review = TRUE AND vds.merchant_id = $1
+          AND v.is_deleted = FALSE
+        ORDER BY vds.days_until_expiry ASC NULLS LAST
+    `, [merchantId]);
+
+    // For each flagged item, also compute what the calculated tier would be
+    const tiers = await getActiveTiers(merchantId);
+    const timezone = await getSetting('timezone', merchantId) || 'America/Toronto';
+
+    return result.rows.map(row => {
+        const calculatedDays = row.expiration_date
+            ? calculateDaysUntilExpiry(row.expiration_date, timezone)
+            : row.days_until_expiry;
+        const calculatedTier = determineTier(calculatedDays, tiers);
+        return {
+            ...row,
+            calculated_tier_code: calculatedTier?.tier_code || null,
+            calculated_tier_name: calculatedTier?.tier_name || null,
+            calculated_tier_id: calculatedTier?.id || null,
+            calculated_discount_percent: calculatedTier?.discount_percent || 0
+        };
+    });
+}
+
+/**
+ * Resolve a flagged variation: apply new tier or keep current
+ * @param {Object} params
+ * @param {number} params.merchantId - Merchant ID
+ * @param {string} params.variationId - Variation ID
+ * @param {string} params.action - 'apply_new' or 'keep_current'
+ * @param {string} params.note - Required note explaining the decision
+ * @returns {Promise<Object>} Result
+ */
+async function resolveFlaggedVariation({ merchantId, variationId, action, note }) {
+    if (!merchantId) throw new Error('merchantId is required');
+    if (!variationId) throw new Error('variationId is required');
+    if (!note || note.trim().length === 0) throw new Error('note is required for manual override resolution');
+
+    // Get current state
+    const current = await db.query(`
+        SELECT vds.*, edt.tier_code as current_tier_code
+        FROM variation_discount_status vds
+        LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+        WHERE vds.variation_id = $1 AND vds.merchant_id = $2
+    `, [variationId, merchantId]);
+
+    if (current.rows.length === 0) {
+        return { success: false, error: 'Variation not found' };
+    }
+
+    const row = current.rows[0];
+
+    if (action === 'apply_new') {
+        // Recalculate the tier and apply it
+        const tiers = await getActiveTiers(merchantId);
+        const timezone = await getSetting('timezone', merchantId) || 'America/Toronto';
+
+        const veResult = await db.query(
+            'SELECT expiration_date FROM variation_expiration WHERE variation_id = $1 AND merchant_id = $2',
+            [variationId, merchantId]
+        );
+        const expirationDate = veResult.rows[0]?.expiration_date;
+        const daysUntilExpiry = calculateDaysUntilExpiry(expirationDate, timezone);
+        const newTier = determineTier(daysUntilExpiry, tiers);
+
+        if (!newTier) {
+            return { success: false, error: 'Could not determine tier' };
+        }
+
+        await db.query(`
+            UPDATE variation_discount_status
+            SET current_tier_id = $1,
+                days_until_expiry = $2,
+                needs_manual_review = FALSE,
+                manually_overridden = TRUE,
+                manual_override_at = NOW(),
+                manual_override_note = $3,
+                updated_at = NOW()
+            WHERE variation_id = $4 AND merchant_id = $5
+        `, [newTier.id, daysUntilExpiry, note.trim(), variationId, merchantId]);
+
+        await logAuditEvent({
+            merchantId,
+            variationId,
+            action: 'MANUAL_TIER_APPLY',
+            oldTierId: row.current_tier_id,
+            newTierId: newTier.id,
+            daysUntilExpiry,
+            triggeredBy: 'MANUAL_REVIEW'
+        });
+
+        return {
+            success: true,
+            action: 'applied',
+            previousTier: row.current_tier_code,
+            newTier: newTier.tier_code
+        };
+
+    } else if (action === 'keep_current') {
+        // Keep the current tier, clear the flag
+        await db.query(`
+            UPDATE variation_discount_status
+            SET needs_manual_review = FALSE,
+                manually_overridden = TRUE,
+                manual_override_at = NOW(),
+                manual_override_note = $1,
+                updated_at = NOW()
+            WHERE variation_id = $2 AND merchant_id = $3
+        `, [note.trim(), variationId, merchantId]);
+
+        await logAuditEvent({
+            merchantId,
+            variationId,
+            action: 'MANUAL_TIER_KEEP',
+            oldTierId: row.current_tier_id,
+            newTierId: row.current_tier_id,
+            daysUntilExpiry: row.days_until_expiry,
+            triggeredBy: 'MANUAL_REVIEW'
+        });
+
+        return {
+            success: true,
+            action: 'kept',
+            currentTier: row.current_tier_code
+        };
+    }
+
+    return { success: false, error: 'Invalid action. Use "apply_new" or "keep_current".' };
+}
+
 module.exports = {
     // Tier management
     getActiveTiers,
@@ -1826,6 +2057,7 @@ module.exports = {
     getTierByCode,
     determineTier,
     calculateDaysUntilExpiry,
+    buildTierRankMap,
 
     // Settings
     getSetting,
@@ -1852,6 +2084,10 @@ module.exports = {
     getDiscountStatusSummary,
     getVariationsInTier,
     getAuditLog,
+
+    // Flagged items (manual review)
+    getFlaggedVariations,
+    resolveFlaggedVariation,
 
     // Validation
     validateExpiryDiscounts,

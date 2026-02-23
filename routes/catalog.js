@@ -222,7 +222,8 @@ router.post('/expirations', requireAuth, requireMerchant, validators.saveExpirat
     res.json({
         success: true,
         message: result.message,
-        squarePush: result.squarePush
+        squarePush: result.squarePush,
+        tierOverrides: result.tierOverrides
     });
 }));
 

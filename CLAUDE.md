@@ -283,6 +283,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
+| ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
 
 ### Backlog — Archive (Completed)
 
@@ -290,6 +291,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 |------|-------------|-----------|
 | BACKLOG-2 | Delivery routing webhook sync | 2026-02-12 (investigated — all working correctly) |
 | BACKLOG-6 | Consolidate Square discount/pricing rule deletion code | 2026-02-06 (shared `utils/square-catalog-cleanup.js`, 21 tests) |
+| BACKLOG-32 | Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js | 2026-02-23 (reorder.js and expiry-discounts.js now load tier config from API, matching expiry-audit.js pattern) |
 | BACKLOG-10 | Invoice-driven committed inventory | 2026-02-19 (invoice webhooks + daily reconciliation) |
 | BACKLOG-11 | Subscribe to `customer.created` webhook | 2026-02-19 (handler + config wired) |
 | BACKLOG-14 | Reorder formula duplication (DEDUP R-1) | 2026-02-17 (shared `services/catalog/reorder-math.js`, 31 tests) |
@@ -356,6 +358,10 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 **Effort**: S
 
 **Audit date**: 2026-02-19
+
+#### ~~BACKLOG-32: Frontend Hardcoded Expiry Tier Thresholds~~ (RESOLVED 2026-02-23)
+
+Both `reorder.js` and `expiry-discounts.js` now load tier config from `/api/expiry-discounts/tiers` on page init, matching the correct pattern in `expiry-audit.js`. Hardcoded thresholds replaced with `getExpiryTierFromDays()` / `getTierFromDays()` using API-loaded `tierRanges`. Falls back to default thresholds if API call fails.
 
 ### Architectural Tech Debt
 

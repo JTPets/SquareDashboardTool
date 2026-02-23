@@ -6,6 +6,56 @@
 // State
 let currentTierFilter = null;
 let statusData = null;
+let tierRanges = {};
+let tierNames = {};
+
+// Load tier configuration from API for dynamic tier evaluation
+async function loadTierRanges() {
+  try {
+    const response = await fetch('/api/expiry-discounts/tiers');
+    const data = await response.json();
+    tierRanges = {};
+    tierNames = {};
+    for (const tier of data.tiers || []) {
+      tierRanges[tier.tier_code] = {
+        min: tier.min_days_to_expiry,
+        max: tier.max_days_to_expiry
+      };
+      tierNames[tier.tier_code] = tier.tier_name || tier.tier_code;
+    }
+  } catch (error) {
+    console.error('Failed to load tier ranges, using defaults:', error);
+    tierRanges = {
+      'EXPIRED': { min: null, max: 0 },
+      'AUTO50': { min: 1, max: 30 },
+      'AUTO25': { min: 31, max: 89 },
+      'REVIEW': { min: 90, max: 120 },
+      'OK': { min: 121, max: null }
+    };
+  }
+}
+
+// Get tier code from days until expiry using API-loaded config
+function getTierFromDays(daysUntilExpiry) {
+  if (daysUntilExpiry === null || daysUntilExpiry === undefined) return null;
+  for (const [tierCode, range] of Object.entries(tierRanges)) {
+    const minOk = range.min === null || daysUntilExpiry >= range.min;
+    const maxOk = range.max === null || daysUntilExpiry <= range.max;
+    if (minOk && maxOk) return tierCode;
+  }
+  return null;
+}
+
+// Get CSS class for days badge using API-loaded tier config
+function getDaysClassFromTier(days) {
+  if (days === null) return '';
+  const tier = getTierFromDays(days);
+  if (!tier) return '';
+  if (tier === 'EXPIRED' || tier === 'AUTO50') return 'critical';
+  if (tier === 'AUTO25') return 'warning';
+  if (tier === 'REVIEW') return 'review';
+  return 'ok';
+}
 
 function switchTab(element, event, tabName) {
   // Support both direct call and event delegation
@@ -19,6 +69,8 @@ function switchTab(element, event, tabName) {
 
   if (tabName === 'upcoming') {
     loadUpcoming();
+  } else if (tabName === 'flagged') {
+    loadFlagged();
   }
 }
 
@@ -44,11 +96,24 @@ async function loadStatus() {
     const response = await fetch('/api/expiry-discounts/status');
     statusData = await response.json();
 
-    // Update tier counts
+    // Update tier counts from status data
     for (const tier of statusData.tiers) {
       const countEl = document.getElementById(`count-${tier.tier_code}`);
       if (countEl) {
         countEl.textContent = tier.variation_count || 0;
+      }
+    }
+
+    // Update tier card day range labels from API-loaded tier config
+    for (const [tierCode, range] of Object.entries(tierRanges)) {
+      const card = document.querySelector(`.tier-card.tier-${tierCode} .discount`);
+      if (!card) continue;
+      if (tierCode === 'EXPIRED') {
+        card.textContent = 'Remove from shelf';
+      } else if (tierCode === 'OK') {
+        card.textContent = range.min ? `>${range.min - 1} days` : '>120 days';
+      } else if (range.min !== null && range.max !== null) {
+        card.textContent = `${range.min}-${range.max} days`;
       }
     }
 
@@ -156,14 +221,24 @@ async function loadUpcoming() {
     const response = await fetch('/api/expiry-discounts/variations?limit=500');
     const data = await response.json();
 
+    // Build tier boundaries from API-loaded config
+    const boundaries = [];
+    for (const [tierCode, range] of Object.entries(tierRanges)) {
+      if (range.max !== null && tierCode !== 'OK') {
+        boundaries.push({ boundary: range.max, tierCode });
+      }
+      if (range.min !== null && range.min > 0) {
+        boundaries.push({ boundary: range.min - 1, tierCode: null }); // approaching from above
+      }
+    }
+    // Deduplicate boundary values
+    const boundaryValues = [...new Set(boundaries.map(b => b.boundary))];
+
     // Filter to items approaching tier boundaries
     const upcoming = data.variations.filter(item => {
       const days = item.days_until_expiry;
       if (days === null) return false;
-
-      // Check if within 5 days of a tier boundary
-      const boundaries = [0, 30, 89, 120];
-      return boundaries.some(b => days > b && days <= b + 5);
+      return boundaryValues.some(b => days > b && days <= b + 5);
     });
 
     if (upcoming.length === 0) {
@@ -173,18 +248,17 @@ async function loadUpcoming() {
 
     tbody.innerHTML = upcoming.map(item => {
       const days = item.days_until_expiry;
-      let nextTier = 'OK';
-      let daysUntilChange = 0;
+      // Calculate what tier they'll move to using API-loaded config
+      const nextTier = getTierFromDays(days - 5) || 'OK';
+      const currentTier = getTierFromDays(days) || item.tier_code;
 
-      if (days > 0 && days <= 35) {
-        nextTier = 'AUTO50';
-        daysUntilChange = days - 30;
-      } else if (days > 30 && days <= 94) {
-        nextTier = 'AUTO25';
-        daysUntilChange = days - 89;
-      } else if (days > 89 && days <= 125) {
-        nextTier = 'REVIEW';
-        daysUntilChange = days - 120;
+      // Find the closest boundary this item is approaching
+      let daysUntilChange = 0;
+      for (const bv of boundaryValues.sort((a, b) => a - b)) {
+        if (days > bv && days <= bv + 5) {
+          daysUntilChange = days - bv;
+          break;
+        }
       }
 
       return `
@@ -202,6 +276,120 @@ async function loadUpcoming() {
   } catch (error) {
     console.error('Failed to load upcoming:', error);
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Failed to load upcoming changes.</td></tr>';
+  }
+}
+
+async function loadFlagged() {
+  const tbody = document.getElementById('flagged-table-body');
+
+  try {
+    const response = await fetch('/api/expiry-discounts/flagged');
+    const data = await response.json();
+
+    // Update badge
+    const badge = document.getElementById('flagged-count-badge');
+    if (data.flagged.length > 0) {
+      badge.textContent = data.flagged.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    if (data.flagged.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No items flagged for review. All tier changes are normal.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.flagged.map(item => {
+      const overrideDate = item.manual_override_at
+        ? new Date(item.manual_override_at).toLocaleString()
+        : '-';
+
+      return `
+        <tr data-flagged-id="${item.variation_id}">
+          <td>
+            <strong>${escapeHtml(item.item_name)}</strong>
+            ${item.variation_name ? `<br><small style="color: #6b7280;">${escapeHtml(item.variation_name)}</small>` : ''}
+          </td>
+          <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || '-')}</td>
+          <td><span class="tier-badge tier-${item.current_tier_code || 'OK'}">${item.current_tier_code || '-'}</span></td>
+          <td><span class="tier-badge tier-${item.calculated_tier_code || 'OK'}">${item.calculated_tier_code || '-'}</span>
+              <br><small style="color: #6b7280;">${item.calculated_discount_percent}% off</small></td>
+          <td><span class="days-badge ${getDaysClass(item.days_until_expiry)}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
+          <td style="font-size: 12px;">${overrideDate}</td>
+          <td>
+            <input type="text" class="resolve-note-input" placeholder="Note (required)..."
+                   id="note-${item.variation_id}">
+            <div class="resolve-actions">
+              <button class="btn-resolve-apply" data-action="resolveFlagged"
+                      data-action-param="${item.variation_id}|apply_new"
+                      title="Apply the calculated tier">Apply New</button>
+              <button class="btn-resolve-keep" data-action="resolveFlagged"
+                      data-action-param="${item.variation_id}|keep_current"
+                      title="Keep the current tier">Keep Current</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (error) {
+    console.error('Failed to load flagged items:', error);
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Failed to load flagged items.</td></tr>';
+  }
+}
+
+async function resolveFlagged(element, event, param) {
+  const [variationId, action] = param.split('|');
+  const noteInput = document.getElementById(`note-${variationId}`);
+  const note = noteInput ? noteInput.value.trim() : '';
+
+  if (!note) {
+    alert('Please enter a note explaining your decision.');
+    if (noteInput) noteInput.focus();
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/expiry-discounts/flagged/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variation_id: variationId, action, note })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to resolve');
+    }
+
+    // Remove the row
+    const row = document.querySelector(`tr[data-flagged-id="${variationId}"]`);
+    if (row) {
+      row.style.transition = 'opacity 0.3s';
+      row.style.opacity = '0';
+      setTimeout(() => {
+        row.remove();
+        // Update badge count
+        const remaining = document.querySelectorAll('#flagged-table-body tr[data-flagged-id]').length;
+        const badge = document.getElementById('flagged-count-badge');
+        if (remaining > 0) {
+          badge.textContent = remaining;
+        } else {
+          badge.style.display = 'none';
+          document.getElementById('flagged-table-body').innerHTML =
+            '<tr><td colspan="7" class="empty-state">No items flagged for review. All tier changes are normal.</td></tr>';
+        }
+      }, 300);
+    }
+
+    // Refresh related data
+    loadStatus();
+    loadAuditLog();
+
+  } catch (error) {
+    console.error('Failed to resolve flagged item:', error);
+    alert('Failed to resolve: ' + error.message);
   }
 }
 
@@ -550,6 +738,11 @@ async function validateDiscountsInternal(fix) {
 }
 
 function getDaysClass(days) {
+  // Delegate to API-loaded tier config when available, fall back to hardcoded
+  if (Object.keys(tierRanges).length > 0) {
+    return getDaysClassFromTier(days);
+  }
+  // Fallback if tiers not yet loaded
   if (days === null) return '';
   if (days <= 0) return 'critical';
   if (days <= 30) return 'critical';
@@ -559,9 +752,11 @@ function getDaysClass(days) {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadTierRanges();
   loadStatus();
   loadItems();
+  loadFlagged(); // Load flagged count for badge
   loadAuditLog();
   loadSettings();
   loadTierConfig();
@@ -578,3 +773,4 @@ window.saveTierConfig = saveTierConfig;
 window.saveSettings = saveSettings;
 window.validateDiscounts = validateDiscounts;
 window.validateDiscountsFix = validateDiscountsFix;
+window.resolveFlagged = resolveFlagged;

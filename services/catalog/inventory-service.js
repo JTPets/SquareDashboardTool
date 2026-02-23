@@ -401,6 +401,7 @@ async function saveExpirations(merchantId, changes) {
 
     let updatedCount = 0;
     let squarePushResults = { success: 0, failed: 0, errors: [] };
+    const tierOverrides = [];
 
     for (const change of changes) {
         const { variation_id, expiration_date, does_not_expire } = change;
@@ -464,6 +465,45 @@ async function saveExpirations(merchantId, changes) {
                     merchantId
                 });
             }
+
+            // Check for tier override: if item had a non-OK tier, mark as manually overridden
+            const existingStatus = await db.query(`
+                SELECT vds.current_tier_id, edt.tier_code
+                FROM variation_discount_status vds
+                LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
+                WHERE vds.variation_id = $1 AND vds.merchant_id = $2
+            `, [variation_id, merchantId]);
+
+            if (existingStatus.rows.length > 0) {
+                const existing = existingStatus.rows[0];
+                if (existing.tier_code && existing.tier_code !== 'OK') {
+                    // Item had a non-OK tier — mark override on the record
+                    const overrideNote = change.override_note || `Expiry date changed to ${expiration_date}`;
+                    await db.query(`
+                        UPDATE variation_discount_status
+                        SET manually_overridden = TRUE,
+                            manual_override_at = NOW(),
+                            manual_override_note = $1,
+                            updated_at = NOW()
+                        WHERE variation_id = $2 AND merchant_id = $3
+                    `, [overrideNote, variation_id, merchantId]);
+
+                    tierOverrides.push({
+                        variation_id,
+                        previous_tier: existing.tier_code,
+                        new_expiry_date: expiration_date,
+                        calculated_tier: newTier?.tier_code || 'OK'
+                    });
+
+                    logger.info('Manual expiry override on discounted item', {
+                        variation_id,
+                        previousTier: existing.tier_code,
+                        newExpiryDate: expiration_date,
+                        calculatedTier: newTier?.tier_code,
+                        merchantId
+                    });
+                }
+            }
         }
 
         updatedCount++;
@@ -504,7 +544,8 @@ async function saveExpirations(merchantId, changes) {
     return {
         success: true,
         message: `Updated ${updatedCount} expiration record(s)`,
-        squarePush: squarePushResults
+        squarePush: squarePushResults,
+        tierOverrides: tierOverrides.length > 0 ? tierOverrides : undefined
     };
 }
 

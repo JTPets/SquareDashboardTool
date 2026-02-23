@@ -353,6 +353,42 @@
       color: #374151;
     }
 
+    /* Flagged badge */
+    .flagged-badge {
+      background: #dc2626;
+      color: white;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .resolve-note-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .resolve-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .resolve-actions button {
+      padding: 4px 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-resolve-apply { background: #059669; color: white; }
+    .btn-resolve-apply:hover { background: #047857; }
+    .btn-resolve-keep { background: #6b7280; color: white; }
+    .btn-resolve-keep:hover { background: #4b5563; }
+
     /* Alert box */
     .alert {
       padding: 12px 20px;
@@ -450,6 +486,7 @@
     <!-- Tabs -->
     <div class="tabs">
       <div class="tab active" data-tab="items" data-action="switchTab" data-action-param="items">Items by Tier</div>
+      <div class="tab" data-tab="flagged" data-action="switchTab" data-action-param="flagged">Flagged <span id="flagged-count-badge" class="flagged-badge" style="display:none;">0</span></div>
       <div class="tab" data-tab="upcoming" data-action="switchTab" data-action-param="upcoming">Upcoming Changes</div>
       <div class="tab" data-tab="audit" data-action="switchTab" data-action-param="audit">Audit Log</div>
       <div class="tab" data-tab="settings" data-action="switchTab" data-action-param="settings">Settings</div>
@@ -474,6 +511,32 @@
           </thead>
           <tbody id="items-table-body">
             <tr><td colspan="9" class="loading"><div class="spinner"></div><br>Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab Content: Flagged -->
+    <div class="tab-content" id="tab-flagged">
+      <div class="alert alert-warning">
+        These items had a tier regression detected (calculated tier is less urgent than current tier).
+        Review each item and choose to apply the new tier or keep the current one.
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>SKU</th>
+              <th>Current Tier</th>
+              <th>Calculated Tier</th>
+              <th>Days Left</th>
+              <th>Last Override</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="flagged-table-body">
+            <tr><td colspan="7" class="loading">Loading flagged items...</td></tr>
           </tbody>
         </table>
       </div>

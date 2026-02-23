@@ -267,13 +267,24 @@ async function updateExpiration(id, value) {
       }])
     });
 
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Failed to save expiration date');
+      throw new Error(result.error || 'Failed to save expiration date');
     }
 
     const row = document.querySelector(`tr[data-id="${id}"]`);
     if (row) row.classList.add('row-changed');
+
+    // Show tier override warning if item had a non-OK discount tier
+    if (result.tierOverrides && result.tierOverrides.length > 0) {
+      const override = result.tierOverrides[0];
+      alert(
+        `Note: This item was in the "${override.previous_tier}" discount tier.\n\n` +
+        `The expiry date has been updated. The new calculated tier is "${override.calculated_tier}".\n\n` +
+        `Run "Evaluate All Items" on the Expiry Discount Manager page to recalculate discount tiers.`
+      );
+    }
 
   } catch (error) {
     alert('Failed to save: ' + error.message);
