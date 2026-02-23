@@ -88,6 +88,14 @@ async function getCatalogAudit(merchantId, filters = {}) {
                    AND ic.merchant_id = v.merchant_id
                    AND ($2::text IS NULL OR ic.location_id = $2)
                 ) as current_stock,
+                -- Committed inventory (RESERVED_FOR_SALE from purchase orders)
+                (SELECT COALESCE(SUM(ic.quantity), 0)
+                 FROM inventory_counts ic
+                 WHERE ic.catalog_object_id = v.id
+                   AND ic.state = 'RESERVED_FOR_SALE'
+                   AND ic.merchant_id = v.merchant_id
+                   AND ($2::text IS NULL OR ic.location_id = $2)
+                ) as committed_quantity,
                 -- Check if ANY location has a stock_alert_min set (for reorder threshold check)
                 (SELECT MAX(vls.stock_alert_min)
                  FROM variation_location_settings vls
@@ -113,10 +121,12 @@ async function getCatalogAudit(merchantId, filters = {}) {
         )
         SELECT
             *,
-            -- Calculate days of stock remaining
+            -- Available quantity = on-hand minus committed (RESERVED_FOR_SALE)
+            current_stock - committed_quantity as available_quantity,
+            -- Calculate days of stock remaining (uses available quantity)
             CASE
-                WHEN daily_velocity > 0 AND current_stock > 0
-                THEN ROUND(current_stock / daily_velocity, 1)
+                WHEN daily_velocity > 0 AND (current_stock - committed_quantity) > 0
+                THEN ROUND((current_stock - committed_quantity) / daily_velocity, 1)
                 ELSE NULL
             END as days_of_stock,
             -- Calculate audit flags (focused on actual data quality issues)
@@ -141,7 +151,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
             -- No reorder threshold: Out of stock AND no minimum threshold set anywhere
             -- Check: Square's inventory_alert, global stock_alert_min, OR location-specific stock_alert_min
             (
-                current_stock <= 0
+                (current_stock - committed_quantity) <= 0
                 AND (inventory_alert_type IS NULL OR inventory_alert_type != 'LOW_QUANTITY' OR inventory_alert_threshold IS NULL OR inventory_alert_threshold = 0)
                 AND (stock_alert_min IS NULL OR stock_alert_min = 0)
                 AND (location_stock_alert_min IS NULL)

@@ -114,13 +114,15 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
     const bundleVariationIds = [...new Set(bundlesResult.rows.map(r => r.bundle_variation_id))];
     const allVariationIds = [...new Set([...childVariationIds, ...bundleVariationIds])];
 
-    // Batch fetch inventory and velocity
+    // Batch fetch inventory and velocity (includes committed/RESERVED_FOR_SALE)
     let inventoryQuery = `
-        SELECT catalog_object_id, COALESCE(SUM(quantity), 0) as stock
+        SELECT catalog_object_id,
+            COALESCE(SUM(CASE WHEN state = 'IN_STOCK' THEN quantity ELSE 0 END), 0) as stock,
+            COALESCE(SUM(CASE WHEN state = 'RESERVED_FOR_SALE' THEN quantity ELSE 0 END), 0) as committed
         FROM inventory_counts
         WHERE catalog_object_id = ANY($1)
           AND merchant_id = $2
-          AND state = 'IN_STOCK'
+          AND state IN ('IN_STOCK', 'RESERVED_FOR_SALE')
     `;
     const inventoryParams = [allVariationIds, merchantId];
 
@@ -173,6 +175,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
     ]);
 
     const stockMap = new Map(inventoryResult.rows.map(r => [r.catalog_object_id, parseInt(r.stock) || 0]));
+    const committedMap = new Map(inventoryResult.rows.map(r => [r.catalog_object_id, parseInt(r.committed) || 0]));
     const velocityMap = new Map(velocityResult.rows.map(r => [r.variation_id, parseFloat(r.daily_avg_quantity) || 0]));
     const minStockMap = new Map(minStockResult.rows.map(r => [r.id, parseInt(r.stock_alert_min) || 0]));
     const deletedMap = new Map(minStockResult.rows.map(r => [r.id, r.is_deleted === true]));
@@ -213,13 +216,15 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
 
         const childDetails = bundle.children.map(child => {
             const stock = stockMap.get(child.child_variation_id) || 0;
+            const committed = committedMap.get(child.child_variation_id) || 0;
+            const availableStock = stock - committed;
             const minStock = minStockMap.get(child.child_variation_id) || 0;
             const childIndividualVelocity = velocityMap.get(child.child_variation_id) || 0;
             const bundleDrivenDaily = bundleVelocity * child.quantity_in_bundle;
             const totalDailyVelocity = childIndividualVelocity + bundleDrivenDaily;
 
-            // Available stock for bundles = stock - safety stock (stock_alert_min)
-            const availableForBundles = Math.max(0, stock - minStock);
+            // Available stock for bundles = available (on-hand minus committed) - safety stock
+            const availableForBundles = Math.max(0, availableStock - minStock);
             const canAssemble = child.quantity_in_bundle > 0
                 ? Math.floor(availableForBundles / child.quantity_in_bundle)
                 : 0;
@@ -230,7 +235,7 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
             }
 
             const childDaysOfStock = totalDailyVelocity > 0
-                ? Math.round((stock / totalDailyVelocity) * 10) / 10
+                ? Math.round((availableStock / totalDailyVelocity) * 10) / 10
                 : 999;
 
             return {
@@ -240,6 +245,8 @@ router.get('/availability', requireAuth, requireMerchant, validators.getAvailabi
                 quantity_in_bundle: child.quantity_in_bundle,
                 individual_cost_cents: child.individual_cost_cents,
                 stock,
+                committed_quantity: committed,
+                available_quantity: availableStock,
                 stock_alert_min: minStock,
                 available_for_bundles: availableForBundles,
                 can_assemble: canAssemble,
