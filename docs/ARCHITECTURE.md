@@ -23,8 +23,7 @@
 │   ├── webhook-processor.js  # Webhook routing
 │   ├── sync-queue.js         # Sync state (persisted to DB)
 │   ├── webhook-handlers/     # 8 event handlers
-│   ├── loyalty/              # Dead code — feature flag routes all traffic to loyalty-admin/ (BACKLOG-31)
-│   ├── loyalty-admin/        # Modular loyalty admin (19 modules)
+│   ├── loyalty-admin/        # Modular loyalty admin (21 modules, 61 exports)
 │   ├── seniors/              # Seniors discount automation
 │   ├── catalog/              # Catalog data management
 │   ├── merchant/             # Settings service
