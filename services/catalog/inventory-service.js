@@ -54,11 +54,14 @@ async function getInventory(merchantId, filters = {}) {
             sv91.weekly_avg_quantity as weekly_avg_91d,
             sv182.weekly_avg_quantity as weekly_avg_182d,
             sv365.weekly_avg_quantity as weekly_avg_365d,
-            -- Days until stockout calculation
+            -- Committed inventory (RESERVED_FOR_SALE)
+            COALESCE(ic_committed.quantity, 0) as committed_quantity,
+            COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0) as available_quantity,
+            -- Days until stockout calculation (uses available quantity)
             CASE
-                WHEN sv91.daily_avg_quantity > 0 AND COALESCE(ic.quantity, 0) > 0
-                THEN ROUND(COALESCE(ic.quantity, 0) / sv91.daily_avg_quantity, 1)
-                WHEN COALESCE(ic.quantity, 0) <= 0
+                WHEN sv91.daily_avg_quantity > 0 AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
+                THEN ROUND((COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity, 1)
+                WHEN (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= 0
                 THEN 0
                 ELSE 999
             END as days_until_stockout,
@@ -92,6 +95,9 @@ async function getInventory(merchantId, filters = {}) {
             AND (sv182.location_id = ic.location_id OR (sv182.location_id IS NULL AND ic.location_id IS NULL))
         LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $1
             AND (sv365.location_id = ic.location_id OR (sv365.location_id IS NULL AND ic.location_id IS NULL))
+        LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id AND ic_committed.merchant_id = $1
+            AND ic_committed.state = 'RESERVED_FOR_SALE'
+            AND ic_committed.location_id = ic.location_id
         WHERE ic.state = 'IN_STOCK'
           AND ic.merchant_id = $1
           AND COALESCE(v.is_deleted, FALSE) = FALSE

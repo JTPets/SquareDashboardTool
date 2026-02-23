@@ -102,6 +102,7 @@ CREATE TABLE merchants (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     last_sync_at TIMESTAMPTZ,
+    custom_attributes_initialized_at TIMESTAMPTZ DEFAULT NULL,
     CONSTRAINT valid_subscription_status CHECK (
         subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
     )

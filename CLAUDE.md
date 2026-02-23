@@ -266,8 +266,8 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 |----------|------|-------------|
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
-| Medium | BACKLOG-13 | Move custom attribute initialization from startup to tenant onboarding |
-| Medium | BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (DEDUP R-3) |
+| ~~Medium~~ | ~~BACKLOG-13~~ | ~~Move custom attribute initialization from startup to tenant onboarding~~ **DONE** (2026-02-23) |
+| ~~Medium~~ | ~~BACKLOG-22~~ | ~~Available vs total stock inconsistency in days-of-stock (DEDUP R-3)~~ **DONE** (2026-02-23) |
 | Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
 | Low | BACKLOG-3 | Response format standardization |
 | ~~Low~~ | ~~BACKLOG-5~~ | ~~Rapid-fire webhook duplicate processing~~ **DONE** (2026-02-19) |
@@ -276,7 +276,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
-| Low | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) |
+| ~~Low~~ | ~~BACKLOG-21~~ | ~~Days-of-stock calculation — 5 implementations (DEDUP R-2)~~ **DONE** (2026-02-23) |
 | Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
 | ~~Low~~ | ~~BACKLOG-24~~ | ~~Order normalization boilerplate in order-handler.js (DEDUP G-4)~~ **CLOSED** (2026-02-19, intentional — see archive) |
 | Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
@@ -305,6 +305,9 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-5 | Rapid-fire webhook duplicate processing | 2026-02-19 (in-memory event lock in webhook-processor.js, 60s auto-expire) |
 | BACKLOG-24 | Order normalization boilerplate (DEDUP G-4) | 2026-02-19 (investigated — intentional; 3 call sites in order-handler.js serve different workflows with different pre-checks; `_fetchFullOrder()` already encapsulates common case) |
 | BACKLOG-7 | Loyalty audit job batch optimization | 2026-02-19 (`batchFetchSquareOrders()` with concurrency control, no per-event API calls) |
+| BACKLOG-13 | Move custom attribute init from startup to onboarding | 2026-02-23 (added `custom_attributes_initialized_at` column; startup skips initialized merchants) |
+| BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) | 2026-02-23 (all 4 pages now subtract RESERVED_FOR_SALE committed inventory) |
+| BACKLOG-22 | Available vs total stock inconsistency (DEDUP R-3) | 2026-02-23 (inventory-service, audit-service, bundles now use available_quantity like analytics.js) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 

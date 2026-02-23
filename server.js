@@ -744,15 +744,15 @@ async function startServer() {
         // The startup backfill for NULL merchant_id and orphan user linking has been removed.
         // Multi-tenant migration is complete. Records without merchant_id will fail as expected.
 
-        // Ensure Square custom attributes exist for all active merchants
-        // (expiry tracking, brands, case_pack_quantity, etc.)
+        // Ensure Square custom attributes exist for uninitialized merchants
+        // BACKLOG-13: Only run for merchants missing the initialized_at flag
         try {
             const merchantsResult = await db.query(
-                'SELECT id, business_name FROM merchants WHERE is_active = TRUE'
+                'SELECT id, business_name FROM merchants WHERE is_active = TRUE AND custom_attributes_initialized_at IS NULL'
             );
 
             if (merchantsResult.rows.length > 0) {
-                logger.info('Initializing Square custom attributes for all merchants...', {
+                logger.info('Initializing Square custom attributes for new merchants...', {
                     merchantCount: merchantsResult.rows.length
                 });
 
@@ -778,6 +778,12 @@ async function startServer() {
                                 });
                             }
                         }
+
+                        // Mark merchant as initialized so we skip on next restart
+                        await db.query(
+                            'UPDATE merchants SET custom_attributes_initialized_at = NOW() WHERE id = $1',
+                            [merchant.id]
+                        );
                     } catch (merchantError) {
                         totalErrors++;
                         logger.warn('Could not initialize custom attributes for merchant', {
@@ -795,7 +801,7 @@ async function startServer() {
                     totalErrors
                 });
             } else {
-                logger.info('No active merchants - skipping custom attribute initialization');
+                logger.info('All merchants have custom attributes initialized - skipping');
             }
         } catch (squareAttrError) {
             // Don't fail startup if Square attributes can't be created
