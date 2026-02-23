@@ -267,12 +267,12 @@ async function updateExpiration(id, value) {
       }])
     });
 
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Failed to save expiration date');
+      throw new Error(result.error || 'Failed to save expiration date');
     }
 
-    const result = await response.json();
     const row = document.querySelector(`tr[data-id="${id}"]`);
     if (row) row.classList.add('row-changed');
 

@@ -96,24 +96,24 @@ async function loadStatus() {
     const response = await fetch('/api/expiry-discounts/status');
     statusData = await response.json();
 
-    // Update tier counts and labels from API data
+    // Update tier counts from status data
     for (const tier of statusData.tiers) {
       const countEl = document.getElementById(`count-${tier.tier_code}`);
       if (countEl) {
         countEl.textContent = tier.variation_count || 0;
       }
-      // Update the tier card day range labels dynamically
-      const card = document.querySelector(`.tier-card.tier-${tier.tier_code} .discount`);
-      if (card && tier.min_days !== undefined) {
-        const minDays = tier.min_days ?? '';
-        const maxDays = tier.max_days ?? '';
-        if (tier.tier_code === 'EXPIRED') {
-          card.textContent = 'Remove from shelf';
-        } else if (tier.tier_code === 'OK') {
-          card.textContent = minDays ? `>${minDays - 1} days` : '>120 days';
-        } else if (minDays && maxDays) {
-          card.textContent = `${minDays}-${maxDays} days`;
-        }
+    }
+
+    // Update tier card day range labels from API-loaded tier config
+    for (const [tierCode, range] of Object.entries(tierRanges)) {
+      const card = document.querySelector(`.tier-card.tier-${tierCode} .discount`);
+      if (!card) continue;
+      if (tierCode === 'EXPIRED') {
+        card.textContent = 'Remove from shelf';
+      } else if (tierCode === 'OK') {
+        card.textContent = range.min ? `>${range.min - 1} days` : '>120 days';
+      } else if (range.min !== null && range.max !== null) {
+        card.textContent = `${range.min}-${range.max} days`;
       }
     }
 
