@@ -2357,6 +2357,7 @@ async function setSquareInventoryCount(catalogObjectId, locationId, quantity, re
             quantity,
             merchantId,
             error: error.message,
+            squareErrors: error.squareErrors || [],
             stack: error.stack
         });
         throw error;

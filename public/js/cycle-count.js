@@ -282,7 +282,11 @@ async function submitCount() {
       })
     });
 
-    if (!response.ok) throw new Error('Failed to mark item as counted');
+    if (!response.ok) {
+      const errData = await response.json().catch(() => null);
+      const errMsg = errData?.error || errData?.details?.map(d => d.message).join(', ') || 'Failed to mark item as counted';
+      throw new Error(errMsg);
+    }
 
     const result = await response.json();
 
