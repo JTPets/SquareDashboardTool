@@ -16,6 +16,15 @@ const isNonNegativeInt = (value, fieldName) => {
     return true;
 };
 
+// Helper to validate any integer (allows negative — for system quantities like expected_quantity)
+const isInteger = (value, fieldName) => {
+    const num = Number(value);
+    if (!Number.isInteger(num)) {
+        throw new Error(`${fieldName} must be an integer`);
+    }
+    return true;
+};
+
 /**
  * POST /api/cycle-counts/:id/complete
  */
@@ -38,7 +47,7 @@ const complete = [
         .custom((value) => isNonNegativeInt(value, 'actual_quantity')),
     body('expected_quantity')
         .optional()
-        .custom((value) => isNonNegativeInt(value, 'expected_quantity')),
+        .custom((value) => isInteger(value, 'expected_quantity')),
     body('notes')
         .optional()
         .trim()
