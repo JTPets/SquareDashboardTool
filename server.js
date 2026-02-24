@@ -890,6 +890,15 @@ async function startServer() {
             });
         });
 
+        httpServer.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                logger.error(`Port ${PORT} already in use. Is another instance running?`);
+                process.exit(1);
+            } else {
+                throw err;
+            }
+        });
+
         // Initialize all cron jobs (cycle count, webhook retry, sync, backup, expiry discount)
         // See jobs/cron-scheduler.js for individual job configurations
         cronTasks = jobs.initializeCronJobs();
