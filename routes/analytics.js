@@ -232,7 +232,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                          AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= COALESCE(vls.stock_alert_min, v.stock_alert_min)
                     THEN TRUE
                     ELSE FALSE
-                END as below_minimum
+                END as below_minimum,
+                EXTRACT(DAY FROM NOW() - v.created_at)::INTEGER as variation_age_days
             FROM variations v
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
             LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
@@ -456,7 +457,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     // Expiration data
                     expiration_date: row.expiration_date,
                     does_not_expire: row.does_not_expire || false,
-                    days_until_expiry: row.days_until_expiry
+                    days_until_expiry: row.days_until_expiry,
+                    variation_age_days: row.variation_age_days !== null ? parseInt(row.variation_age_days) : null
                 };
             })
             .filter(item => item !== null);

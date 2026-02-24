@@ -283,6 +283,8 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
 | Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
+| ~~Low~~ | ~~BACKLOG-33~~ | ~~New variation velocity warning badge on reorder page~~ **DONE** (2026-02-24) |
+| Low | BACKLOG-34 | Documentation: Square reuses variation IDs when POS reorders delete/recreate variations. New variation may inherit historical order data on next velocity sync. Workaround: BACKLOG-33 flag. |
 | ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
 
 ### Backlog — Archive (Completed)
@@ -309,6 +311,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) | 2026-02-23 (all 4 pages now subtract RESERVED_FOR_SALE committed inventory) |
 | BACKLOG-22 | Available vs total stock inconsistency (DEDUP R-3) | 2026-02-23 (inventory-service, audit-service, bundles now use available_quantity like analytics.js) |
 | BACKLOG-28 | Wire vendor per-vendor config into reorder formula | 2026-02-24 (reorder suggestions now pass per-vendor lead_time_days to formula; SQL + JS threshold include lead time; Lead Time column in reorder.html) |
+| BACKLOG-33 | New variation velocity warning badge on reorder page | 2026-02-24 (display-only badge next to velocity for variations <7 days old; warns about unreliable velocity from Square ID reassignment) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 
