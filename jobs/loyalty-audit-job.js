@@ -21,7 +21,7 @@
 const db = require('../utils/database');
 const { getSquareClientForMerchant } = require('../middleware/merchant');
 const { loyaltyLogger } = require('../utils/loyalty-logger');
-const { detectRewardRedemptionFromOrder } = require('../services/loyalty-admin');
+const { detectRewardRedemptionFromOrder, syncRewardDiscountPrices } = require('../services/loyalty-admin');
 
 /**
  * Get all merchants with active loyalty offers
@@ -409,7 +409,8 @@ async function runLoyaltyAudit(options = {}) {
         totalMissingRedemptions: 0,
         totalPhantomRewards: 0,
         totalDoubleRedemptions: 0,
-        merchantErrors: []
+        merchantErrors: [],
+        priceSync: { totalUpdated: 0, totalFailed: 0 }
     };
 
     try {
@@ -458,6 +459,19 @@ async function runLoyaltyAudit(options = {}) {
                     missingRedemptions: results.missingRedemptions,
                     phantomRewards: results.phantomRewards,
                     doubleRedemptions: results.doubleRedemptions
+                });
+            }
+
+            // Sync reward discount caps with current catalog prices
+            try {
+                const syncResult = await syncRewardDiscountPrices({ merchantId: merchant.id });
+                aggregateResults.priceSync.totalUpdated += syncResult.updated;
+                aggregateResults.priceSync.totalFailed += syncResult.failed;
+            } catch (syncError) {
+                loyaltyLogger.error({
+                    action: 'PRICE_SYNC_MERCHANT_FAILED',
+                    merchantId: merchant.id,
+                    error: syncError.message
                 });
             }
         }

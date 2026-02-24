@@ -123,6 +123,8 @@ const {
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
+    updateRewardDiscountAmount,
+    syncRewardDiscountPrices,
     validateEarnedRewardsDiscounts,
     updateCustomerRewardNote
 } = require('./square-discount-service');
@@ -244,7 +246,9 @@ module.exports = {
     // Background Loyalty Catchup
     runLoyaltyCatchup,
 
-    // Discount Validation & Expiration
+    // Discount Validation, Price Sync & Expiration
+    updateRewardDiscountAmount,
+    syncRewardDiscountPrices,
     validateEarnedRewardsDiscounts,
     processExpiredEarnedRewards,
 

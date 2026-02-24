@@ -543,24 +543,37 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
             return addResult;
         }
 
-        // Step 3: Calculate max discount from purchase history
-        // Uses the highest unit price from purchases linked to this reward.
-        // Falls back to highest price from ANY qualifying purchase for this offer.
-        // Refuses to create a discount if no price data exists ($0 fail-safe).
+        // Step 3: Calculate max discount from purchase history AND current catalog price.
+        // Uses the GREATER of:
+        //   a) highest unit price from purchases linked to this reward (or any for this offer)
+        //   b) highest current catalog price among qualifying variations
+        // This ensures the discount cap always covers the current retail price,
+        // even if prices increased since the customer's qualifying purchases.
         const priceResult = await db.query(`
-            SELECT COALESCE(
-                (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
-                 WHERE reward_id = $1 AND merchant_id = $2 AND unit_price_cents > 0),
-                (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
-                 WHERE offer_id = $3 AND merchant_id = $2 AND unit_price_cents > 0),
-                0
-            ) as max_price_cents
+            SELECT
+                COALESCE(
+                    (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
+                     WHERE reward_id = $1 AND merchant_id = $2 AND unit_price_cents > 0),
+                    (SELECT MAX(unit_price_cents) FROM loyalty_purchase_events
+                     WHERE offer_id = $3 AND merchant_id = $2 AND unit_price_cents > 0),
+                    0
+                ) as max_purchase_price_cents,
+                COALESCE(
+                    (SELECT MAX(v.price_money) FROM variations v
+                     INNER JOIN loyalty_qualifying_variations qv
+                         ON v.square_variation_id = qv.variation_id AND qv.is_active = TRUE
+                     WHERE qv.offer_id = $3 AND qv.merchant_id = $2
+                       AND v.merchant_id = $2 AND v.price_money > 0),
+                    0
+                ) as max_catalog_price_cents
         `, [internalRewardId, merchantId, offerId]);
 
-        const maxDiscountAmountCents = parseInt(priceResult.rows[0].max_price_cents, 10) || 0;
+        const maxPurchasePrice = parseInt(priceResult.rows[0].max_purchase_price_cents, 10) || 0;
+        const maxCatalogPrice = parseInt(priceResult.rows[0].max_catalog_price_cents, 10) || 0;
+        const maxDiscountAmountCents = Math.max(maxPurchasePrice, maxCatalogPrice);
 
         if (maxDiscountAmountCents <= 0) {
-            logger.error('Cannot determine discount amount for reward - no purchase price data', {
+            logger.error('Cannot determine discount amount for reward - no purchase or catalog price data', {
                 merchantId, internalRewardId, offerId
             });
             // Cleanup group since we can't create the discount
@@ -568,12 +581,14 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
             await deleteCustomerGroup({ merchantId, groupId: groupResult.groupId });
             return {
                 success: false,
-                error: 'Cannot determine discount amount - no purchase price data available'
+                error: 'Cannot determine discount amount - no purchase or catalog price data available'
             };
         }
 
         logger.info('Calculated max discount amount for reward', {
             merchantId, internalRewardId, offerId,
+            maxPurchasePrice,
+            maxCatalogPrice,
             maxDiscountAmountCents,
             maxDiscountFormatted: `$${(maxDiscountAmountCents / 100).toFixed(2)}`
         });
@@ -595,21 +610,23 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
             return discountResult;
         }
 
-        // Step 5: Store Square object IDs in our reward record for cleanup later
+        // Step 5: Store Square object IDs and discount cap in our reward record
         await db.query(`
             UPDATE loyalty_rewards SET
                 square_group_id = $1,
                 square_discount_id = $2,
                 square_product_set_id = $3,
                 square_pricing_rule_id = $4,
+                discount_amount_cents = $5,
                 square_pos_synced_at = NOW(),
                 updated_at = NOW()
-            WHERE id = $5
+            WHERE id = $6
         `, [
             groupResult.groupId,
             discountResult.discountId,
             discountResult.productSetId,
             discountResult.pricingRuleId,
+            maxDiscountAmountCents,
             internalRewardId
         ]);
 
@@ -739,6 +756,123 @@ async function cleanupSquareCustomerGroupDiscount({ merchantId, squareCustomerId
 }
 
 /**
+ * Update the maximum_amount_money on a Square DISCOUNT catalog object.
+ * Used when the current catalog price exceeds the discount cap set at earn time.
+ *
+ * Fetches the existing object (to get its version), then upserts with the new amount.
+ *
+ * @param {Object} params
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {string} params.squareDiscountId - Square catalog DISCOUNT object ID
+ * @param {number} params.newAmountCents - New maximum_amount_money in cents
+ * @param {string} params.rewardId - Internal reward ID (for logging/DB update)
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmountCents, rewardId }) {
+    try {
+        const accessToken = await getSquareAccessToken(merchantId);
+        if (!accessToken) {
+            return { success: false, error: 'No access token available' };
+        }
+
+        // Step 1: Fetch existing discount object to get its version and current data
+        const getResponse = await fetchWithTimeout(
+            `https://connect.squareup.com/v2/catalog/object/${squareDiscountId}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': '2025-01-16'
+                }
+            },
+            10000
+        );
+
+        if (!getResponse.ok) {
+            const errText = await getResponse.text();
+            logger.error('Failed to fetch discount object for price update', {
+                merchantId, squareDiscountId, rewardId, status: getResponse.status, error: errText
+            });
+            return { success: false, error: `Square API error: ${getResponse.status}` };
+        }
+
+        const catalogData = await getResponse.json();
+        const discountObj = catalogData.object;
+
+        if (!discountObj || discountObj.is_deleted) {
+            return { success: false, error: 'Discount object not found or deleted' };
+        }
+
+        // Step 2: Upsert with updated maximum_amount_money
+        const updatedObject = {
+            type: 'DISCOUNT',
+            id: squareDiscountId,
+            version: discountObj.version,
+            discount_data: {
+                ...discountObj.discount_data,
+                maximum_amount_money: {
+                    amount: newAmountCents,
+                    currency: discountObj.discount_data?.maximum_amount_money?.currency || 'CAD'
+                }
+            }
+        };
+
+        const upsertResponse = await fetch('https://connect.squareup.com/v2/catalog/batch-upsert', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Square-Version': '2025-01-16'
+            },
+            body: JSON.stringify({
+                idempotency_key: generateIdempotencyKey(`loyalty-discount-price-update-${rewardId}-${newAmountCents}`),
+                batches: [{ objects: [updatedObject] }]
+            })
+        });
+
+        loyaltyLogger.squareApi({
+            endpoint: '/catalog/batch-upsert',
+            method: 'POST',
+            status: upsertResponse.status,
+            success: upsertResponse.ok,
+            merchantId,
+            context: 'updateRewardDiscountAmount',
+        });
+
+        if (!upsertResponse.ok) {
+            const errorData = await upsertResponse.json();
+            logger.error('Failed to update discount amount in Square', {
+                merchantId, squareDiscountId, rewardId, newAmountCents, error: errorData
+            });
+            return { success: false, error: `Square API error: ${JSON.stringify(errorData)}` };
+        }
+
+        // Step 3: Update local record
+        await db.query(`
+            UPDATE loyalty_rewards SET
+                discount_amount_cents = $1,
+                updated_at = NOW()
+            WHERE id = $2
+        `, [newAmountCents, rewardId]);
+
+        logger.info('Updated reward discount amount in Square', {
+            merchantId, rewardId, squareDiscountId,
+            newAmountCents,
+            newAmountFormatted: `$${(newAmountCents / 100).toFixed(2)}`
+        });
+
+        return { success: true };
+
+    } catch (error) {
+        logger.error('Error updating reward discount amount', {
+            error: error.message, stack: error.stack, merchantId, rewardId
+        });
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Validate earned rewards and their Square discount objects
  * Checks that discounts exist in Square and match database state
  * Optionally fixes discrepancies
@@ -818,6 +952,117 @@ async function validateEarnedRewardsDiscounts({ merchantId, fixIssues = false })
         success: true,
         ...results
     };
+}
+
+/**
+ * Sync discount caps for all earned (unredeemed) rewards with current catalog prices.
+ *
+ * For each earned reward that has a Square discount object:
+ *   1. Fetch the current MAX(price_money) from qualifying variations
+ *   2. Compare against discount_amount_cents stored locally
+ *   3. If current price > stored cap, update the Square DISCOUNT object
+ *
+ * This ensures free-item rewards always cover the full current price,
+ * even if prices increased after the customer earned the reward.
+ *
+ * @param {Object} params
+ * @param {number} params.merchantId - Internal merchant ID
+ * @returns {Promise<Object>} Sync results with counts and details
+ */
+async function syncRewardDiscountPrices({ merchantId }) {
+    if (!merchantId) {
+        throw new Error('merchantId is required');
+    }
+
+    logger.info('Starting reward discount price sync', { merchantId });
+
+    // Get all earned rewards with Square discount IDs, joined with
+    // the current max catalog price for their qualifying variations
+    const rewardsResult = await db.query(`
+        SELECT r.id as reward_id,
+               r.square_discount_id,
+               r.discount_amount_cents,
+               r.offer_id,
+               o.offer_name,
+               (SELECT MAX(v.price_money) FROM variations v
+                INNER JOIN loyalty_qualifying_variations qv
+                    ON v.square_variation_id = qv.variation_id AND qv.is_active = TRUE
+                WHERE qv.offer_id = r.offer_id AND qv.merchant_id = r.merchant_id
+                  AND v.merchant_id = r.merchant_id AND v.price_money > 0
+               ) as current_max_price_cents
+        FROM loyalty_rewards r
+        JOIN loyalty_offers o ON r.offer_id = o.id
+        WHERE r.merchant_id = $1
+          AND r.status = 'earned'
+          AND r.square_discount_id IS NOT NULL
+        ORDER BY r.earned_at DESC
+    `, [merchantId]);
+
+    const results = {
+        totalChecked: rewardsResult.rows.length,
+        upToDate: 0,
+        updated: 0,
+        failed: 0,
+        skipped: 0,
+        details: []
+    };
+
+    for (const reward of rewardsResult.rows) {
+        const currentPrice = parseInt(reward.current_max_price_cents, 10) || 0;
+        const storedCap = parseInt(reward.discount_amount_cents, 10) || 0;
+
+        if (currentPrice <= 0) {
+            results.skipped++;
+            continue;
+        }
+
+        if (storedCap >= currentPrice) {
+            results.upToDate++;
+            continue;
+        }
+
+        // Current catalog price exceeds the discount cap — update Square
+        logger.info('Reward discount cap below current price, updating', {
+            merchantId,
+            rewardId: reward.reward_id,
+            offerName: reward.offer_name,
+            storedCap,
+            currentPrice,
+            delta: currentPrice - storedCap
+        });
+
+        const updateResult = await updateRewardDiscountAmount({
+            merchantId,
+            squareDiscountId: reward.square_discount_id,
+            newAmountCents: currentPrice,
+            rewardId: reward.reward_id
+        });
+
+        if (updateResult.success) {
+            results.updated++;
+            results.details.push({
+                rewardId: reward.reward_id,
+                offerName: reward.offer_name,
+                oldCap: storedCap,
+                newCap: currentPrice
+            });
+        } else {
+            results.failed++;
+            results.details.push({
+                rewardId: reward.reward_id,
+                offerName: reward.offer_name,
+                error: updateResult.error
+            });
+        }
+    }
+
+    logger.info('Reward discount price sync complete', {
+        merchantId,
+        ...results,
+        details: undefined // omit per-reward details from summary log
+    });
+
+    return { success: true, ...results };
 }
 
 /**
@@ -1211,6 +1456,8 @@ module.exports = {
     deleteRewardDiscountObjects,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
+    updateRewardDiscountAmount,
+    syncRewardDiscountPrices,
     validateEarnedRewardsDiscounts,
     validateSingleRewardDiscount,
     updateCustomerRewardNote
