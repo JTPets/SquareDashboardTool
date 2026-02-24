@@ -29,6 +29,7 @@ const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 // Rate limiting and retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+const { SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
@@ -387,6 +388,7 @@ async function syncVendors(merchantId) {
             cursor = data.cursor;
             logger.info('Vendor sync progress', { merchantId, count: totalSynced });
 
+            if (cursor) await sleep(BATCH_DELAY_MS);
         } while (cursor);
 
         logger.info('Vendor sync complete', { merchantId, count: totalSynced });
@@ -481,6 +483,7 @@ async function syncCatalog(merchantId) {
 
             cursor = data.cursor;
 
+            if (cursor) await sleep(BATCH_DELAY_MS);
         } while (cursor);
 
         // Log category details for debugging
@@ -1544,7 +1547,7 @@ async function syncInventory(merchantId) {
             }
 
             // Small delay to avoid rate limiting
-            await sleep(100);
+            await sleep(BATCH_DELAY_MS);
         }
 
         logger.info('Inventory sync complete', {
@@ -1608,7 +1611,7 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                         }
                     }
                 },
-                limit: 50
+                limit: 200
             };
 
             if (cursor) {
@@ -1654,6 +1657,7 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
             cursor = data.cursor;
             logger.info('Sales velocity sync progress', { orders_processed: ordersProcessed });
 
+            if (cursor) await sleep(BATCH_DELAY_MS);
         } while (cursor);
 
         // Validate which variations exist in our database before inserting
@@ -1854,7 +1858,7 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                         }
                     }
                 },
-                limit: 50
+                limit: 200
             };
 
             if (cursor) {
@@ -1936,6 +1940,7 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                 });
             }
 
+            if (cursor) await sleep(BATCH_DELAY_MS);
         } while (cursor);
 
         summary.ordersProcessed = ordersProcessed;
@@ -2601,6 +2606,8 @@ async function syncCommittedInventory(merchantId) {
                 });
             }
         }
+
+        if (cursor) await sleep(BATCH_DELAY_MS);
     } while (cursor);
 
     logger.info('Fetched invoices from Square for reconciliation', {
@@ -2794,7 +2801,7 @@ async function syncCommittedInventory(merchantId) {
             });
         }
 
-        await sleep(50);
+        await sleep(INTER_BATCH_DELAY_MS);
     }
 
     // Rebuild RESERVED_FOR_SALE aggregate from committed_inventory
