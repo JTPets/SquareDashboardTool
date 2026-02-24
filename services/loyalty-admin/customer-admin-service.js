@@ -516,11 +516,13 @@ async function getCustomerLoyaltyHistory(squareCustomerId, merchantId, options =
             o.offer_name,
             o.brand_name,
             o.size_group,
-            pe_info.item_name as redeemed_item_name,
-            pe_info.variation_name as redeemed_variation_name,
-            pe_info.avg_price as redeemed_value_cents
+            COALESCE(lr.redeemed_item_name, pe_info.item_name) as redeemed_item_name,
+            COALESCE(lr.redeemed_variation_name, pe_info.variation_name) as redeemed_variation_name,
+            COALESCE(lr.redeemed_value_cents, pe_info.avg_price) as redeemed_value_cents
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id
+        LEFT JOIN loyalty_redemptions lr
+            ON r.redemption_id = lr.id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,
