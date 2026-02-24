@@ -248,6 +248,27 @@ class CatalogHandler {
                         'UPDATE bundle_definitions SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
                         [vendorId, existingId, merchantId]
                     );
+                    await client.query(
+                        'UPDATE loyalty_offers SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                        [vendorId, existingId, merchantId]
+                    );
+
+                    // Safety: purchase_orders has ON DELETE RESTRICT — verify none remain
+                    // (rows with NULL merchant_id would be missed by the filtered UPDATE above)
+                    const remainingPOs = await client.query(
+                        'SELECT COUNT(*) as cnt FROM purchase_orders WHERE vendor_id = $1',
+                        [existingId]
+                    );
+                    if (parseInt(remainingPOs.rows[0].cnt) > 0) {
+                        logger.warn('Found unmigrated purchase_orders during vendor ID change', {
+                            oldId: existingId, newId: vendorId, merchantId,
+                            count: remainingPOs.rows[0].cnt
+                        });
+                        await client.query(
+                            'UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2',
+                            [vendorId, existingId]
+                        );
+                    }
 
                     await client.query(
                         'DELETE FROM vendors WHERE id = $1 AND merchant_id = $2',
