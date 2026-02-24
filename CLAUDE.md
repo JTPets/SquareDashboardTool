@@ -268,7 +268,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Medium | BACKLOG-1 | Frontend polling rate limits |
 | ~~Medium~~ | ~~BACKLOG-13~~ | ~~Move custom attribute initialization from startup to tenant onboarding~~ **DONE** (2026-02-23) |
 | ~~Medium~~ | ~~BACKLOG-22~~ | ~~Available vs total stock inconsistency in days-of-stock (DEDUP R-3)~~ **DONE** (2026-02-23) |
-| Medium | BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula |
+| ~~Medium~~ | ~~BACKLOG-28~~ | ~~Wire vendor dashboard per-vendor config into reorder formula~~ **DONE** (2026-02-24) |
 | Low | BACKLOG-3 | Response format standardization |
 | ~~Low~~ | ~~BACKLOG-5~~ | ~~Rapid-fire webhook duplicate processing~~ **DONE** (2026-02-19) |
 | ~~Low~~ | ~~BACKLOG-7~~ | ~~Loyalty audit job per-event Square API calls (batch optimization)~~ **DONE** (2026-02-19) |
@@ -308,6 +308,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-13 | Move custom attribute init from startup to onboarding | 2026-02-23 (added `custom_attributes_initialized_at` column; startup skips initialized merchants) |
 | BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) | 2026-02-23 (all 4 pages now subtract RESERVED_FOR_SALE committed inventory) |
 | BACKLOG-22 | Available vs total stock inconsistency (DEDUP R-3) | 2026-02-23 (inventory-service, audit-service, bundles now use available_quantity like analytics.js) |
+| BACKLOG-28 | Wire vendor per-vendor config into reorder formula | 2026-02-24 (reorder suggestions now pass per-vendor lead_time_days to formula; SQL + JS threshold include lead time; Lead Time column in reorder.html) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 
@@ -325,27 +326,9 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 **Audit date**: 2026-02-02
 
-#### BACKLOG-28: Wire Vendor Dashboard Per-Vendor Config Into Reorder Formula
+#### ~~BACKLOG-28: Wire Vendor Dashboard Per-Vendor Config Into Reorder Formula~~ (RESOLVED 2026-02-24)
 
-**Context**: `services/catalog/reorder-math.js` now accepts `leadTimeDays` and `safetyDays` (defaulting to 0). The vendor dashboard already passes per-vendor `lead_time_days` into the formula. The reorder suggestions page (`reorder.html`) does not yet read per-vendor config.
-
-**Files involved**:
-- `services/catalog/reorder-math.js` (shared formula — ready)
-- `routes/analytics.js` (reorder suggestions — currently passes `safetyDays` only)
-- `services/vendor-dashboard.js` (vendor dashboard — already passes `leadTimeDays`)
-- `public/js/reorder.js` (frontend — no vendor config yet)
-
-**Proposed solution**:
-- Vendor dashboard stores per-vendor: `lead_time_days`, `default_supply_days`, `safety_days`
-- `reorder.html` reads vendor config when calculating order quantities via `reorder-math.js`
-- When a vendor filter is selected, the reorder endpoint uses that vendor's settings
-
-**Depends on**: R-1 complete (done), vendor dashboard data model finalized
-
-**Priority**: Medium
-**Effort**: M
-
-**Audit date**: 2026-02-17
+Reorder suggestions endpoint (`routes/analytics.js`) now passes per-vendor `lead_time_days` from the vendors table into `calculateReorderQuantity()`. SQL WHERE clause includes per-vendor lead time in the threshold filter (`$1 + COALESCE(ve.lead_time_days, 0)`). JS-side filtering also uses per-vendor threshold. Response includes `vendor_default_supply_days` for visibility. Frontend `reorder.html` displays a "Lead Time" column showing each item's vendor lead time. Items without a vendor default to 0 lead time (matching vendor dashboard pattern). `reorder-math.js` JSDoc updated to reflect wiring is complete.
 
 #### BACKLOG-29: Existing Tenants Missing `invoice.payment_made` Webhook Subscription
 

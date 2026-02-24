@@ -6,15 +6,10 @@
  *   - routes/analytics.js        (reorder suggestions page)
  *   - services/vendor-dashboard.js (vendor dashboard reorder value)
  *
- * Current effective formula (leadTimeDays and safetyDays default to 0):
- *   threshold = supplyDays * velocity
+ * Formula: threshold = (supplyDays + leadTimeDays + safetyDays) * velocity
  *
- * Full formula (when vendor config is wired):
- *   threshold = (supplyDays + leadTimeDays + safetyDays) * velocity
- *
- * @todo BACKLOG-28 Wire vendor dashboard per-vendor config
- *       (lead_time_days, target_supply_days, safety_days) into
- *       reorder.html calculations via this function.
+ * Both callers (reorder suggestions + vendor dashboard) pass per-vendor
+ * lead_time_days from the vendors table. safetyDays comes from merchant settings.
  */
 
 'use strict';
@@ -26,8 +21,7 @@
  * @param {number} params.velocity        - Daily avg units sold (91-day window)
  * @param {number} params.supplyDays      - Target supply days (active now)
  * @param {number} [params.leadTimeDays=0]    - Vendor lead time in days.
- *     Defaults to 0 — not yet wired from vendor config.
- *     When wired, adds buffer for delivery wait time.
+ *     Sourced from vendors.lead_time_days; defaults to 0 if no vendor.
  * @param {number} [params.safetyDays=0]      - Safety stock buffer in days.
  *     Defaults to 0 here; callers pass merchant setting (typically 7).
  * @param {number} [params.reorderMultiple=1] - Round up to this multiple

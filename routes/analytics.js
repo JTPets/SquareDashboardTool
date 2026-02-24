@@ -215,6 +215,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 COALESCE(vls.stock_alert_max, v.stock_alert_max) as stock_alert_max,
                 COALESCE(vls.preferred_stock_level, v.preferred_stock_level) as preferred_stock_level,
                 ve.lead_time_days,
+                ve.default_supply_days,
                 -- Calculate days until stockout based on AVAILABLE quantity (not total on-hand)
                 CASE
                     WHEN sv91.daily_avg_quantity > 0 AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
@@ -267,11 +268,11 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
 
                   OR
 
-                  -- APPLY SUPPLY_DAYS + SAFETY_DAYS: Items with available stock that will run out within threshold period
+                  -- APPLY SUPPLY_DAYS + SAFETY_DAYS + LEAD_TIME: Items with available stock that will run out within threshold period
                   -- Only applies to items with active sales velocity (sv91.daily_avg_quantity > 0)
-                  -- $1 is (supply_days + safety_days) to include safety buffer
+                  -- $1 is (supply_days + safety_days); per-vendor lead_time_days added dynamically
                   (sv91.daily_avg_quantity > 0
-                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity < $1)
+                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity < $1 + COALESCE(ve.lead_time_days, 0))
               )
         `;
 
@@ -327,7 +328,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 const stockAlertMax = row.stock_alert_max ? parseInt(row.stock_alert_max) : null;  // Keep null as null for infinity
                 const locationId = row.location_id || null;
                 const locationName = row.location_name || null;
-                const leadTime = parseInt(row.lead_time_days) || 7;
+                const leadTime = parseInt(row.lead_time_days) || 0;
                 const daysUntilStockout = parseFloat(row.days_until_stockout) || 999;
 
                 // Don't suggest if AVAILABLE already above max (null = unlimited, so skip this check)
@@ -340,7 +341,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 // 2. ALWAYS include items below alert threshold based on available, regardless of supply_days
                 // 3. Include items that will stockout within supply_days + safety_days period (only if has velocity)
                 const isOutOfStock = availableQty <= 0;
-                const reorderThreshold = supplyDaysNum + safetyDays; // Include safety buffer
+                const reorderThreshold = supplyDaysNum + leadTime + safetyDays; // Include lead time + safety buffer
                 const needsReorder = isOutOfStock || row.below_minimum || daysUntilStockout < reorderThreshold;
                 if (!needsReorder) {
                     return null;
@@ -381,6 +382,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                 const finalQty = calculateReorderQuantity({
                     velocity: dailyAvg,
                     supplyDays: supplyDaysNum,
+                    leadTimeDays: leadTime,
                     safetyDays,
                     casePack,
                     reorderMultiple,
@@ -447,6 +449,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
                     primary_vendor_name: row.primary_vendor_name,
                     primary_vendor_cost: parseInt(row.primary_vendor_cost) || 0,
                     lead_time_days: leadTime,
+                    vendor_default_supply_days: parseInt(row.default_supply_days) || null,
                     has_velocity: dailyAvg > 0,
                     images: row.images,  // Include images for URL resolution
                     item_images: row.item_images,  // Include item images for fallback
