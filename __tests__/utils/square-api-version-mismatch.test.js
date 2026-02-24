@@ -15,7 +15,7 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn()
 }));
 
-jest.mock('node-fetch');
+jest.mock('node-fetch', () => jest.fn());
 
 const fetch = require('node-fetch');
 const db = require('../../utils/database');
