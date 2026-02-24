@@ -150,7 +150,7 @@ async function getSuggestions() {
   if (vendorId) url += `&vendor_id=${vendorId}`;
 
   const tbody = document.getElementById('suggestions-body');
-  tbody.innerHTML = '<tr><td colspan="19" class="loading">Loading suggestions...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="20" class="loading">Loading suggestions...</td></tr>';
 
   try {
     const response = await fetch(url);
@@ -190,7 +190,7 @@ async function getSuggestions() {
     if (allSuggestions.length === 0 && bundleAnalysis.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="19" class="empty-state">
+          <td colspan="20" class="empty-state">
             <h3>No Reorder Suggestions</h3>
             <p>No items need reordering for the selected vendor and supply days.</p>
             <p>Try different filters or run a sync to update inventory data.</p>
@@ -215,7 +215,7 @@ async function getSuggestions() {
     const friendlyMsg = window.ErrorHelper
       ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
       : 'Unable to load reorder suggestions. Please refresh the page.';
-    tbody.innerHTML = `<tr><td colspan="17" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="20" class="loading">${escapeHtml(friendlyMsg)}</td></tr>`;
   }
 }
 
@@ -348,7 +348,7 @@ function renderBundleRows() {
     // Parent header row
     let html = `
       <tr class="bundle-parent-row" data-bundle-id="${bundle.bundle_id}">
-        <td colspan="19" data-action="toggleBundleExpand" data-action-param="${bundle.bundle_id}">
+        <td colspan="20" data-action="toggleBundleExpand" data-action-param="${bundle.bundle_id}">
           <span class="bundle-toggle">${toggle}</span>
           <strong>Bundle: ${escapeHtml(bundle.bundle_item_name)}</strong>
           <span class="bundle-header-meta">
@@ -375,7 +375,7 @@ function renderBundleRows() {
           <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Order Qty</td>
           <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Unit Cost</td>
           <td class="text-right" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Line Total</td>
-          <td colspan="5" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Vendor Code</td>
+          <td colspan="6" style="font-weight:600;font-size:11px;text-transform:uppercase;color:#6b7280;">Vendor Code</td>
           <td></td>
         </tr>`;
 
@@ -443,7 +443,7 @@ function renderBundleRows() {
             </td>
             <td class="text-right">${costStr}</td>
             <td class="text-right"><strong>$${(lineTotalCents / 100).toFixed(2)}</strong></td>
-            <td colspan="5" class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(child.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(child.vendor_code || '-')}</td>
+            <td colspan="6" class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(child.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(child.vendor_code || '-')}</td>
             <td></td>
           </tr>`;
       }).join('');
@@ -457,12 +457,12 @@ function renderBundleRows() {
           <td class="text-right" style="font-weight:700;color:#059669;font-size:15px;">
             $${(bundleGroupCost / 100).toFixed(2)}
           </td>
-          <td colspan="6"></td>
+          <td colspan="7"></td>
         </tr>`;
     }
 
     // Separator
-    html += `<tr class="bundle-separator"><td colspan="19"></td></tr>`;
+    html += `<tr class="bundle-separator"><td colspan="20"></td></tr>`;
 
     return html;
   }).join('');
@@ -753,6 +753,7 @@ function renderTable() {
         <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
         <td>${escapeHtml(item.vendor_name)}</td>
         <td class="clickable ${needsReorderResistance ? 'vendor-code-expiring' : ''}" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="${needsReorderResistance ? 'EXPIRING ITEM - Click to copy Vendor Code (still works)' : 'Click to copy Vendor Code'}">${escapeHtml(item.vendor_code)}</td>
+        <td class="text-right">${item.lead_time_days > 0 ? item.lead_time_days + 'd' : '-'}</td>
       </tr>
     `;
   }).join('');
