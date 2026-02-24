@@ -1478,6 +1478,9 @@ CREATE TABLE IF NOT EXISTS loyalty_rewards (
     vendor_credit_resolved_at TIMESTAMPTZ,
     vendor_credit_notes TEXT,
 
+    -- Square discount cap (cents) — tracks maximum_amount_money on the DISCOUNT object
+    discount_amount_cents INTEGER DEFAULT NULL,
+
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

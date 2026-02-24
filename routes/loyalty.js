@@ -747,7 +747,9 @@ router.get('/redemptions', requireAuth, requireMerchant, validators.listRedempti
     const merchantId = req.merchantContext.id;
     const { offerId, customerId, startDate, endDate, limit, offset } = req.query;
 
-    // Query redeemed rewards with item details from purchase events
+    // Query redeemed rewards with item details from loyalty_redemptions
+    // (the actual redeemed item), falling back to purchase events only
+    // when the redemption record has no item name
     let query = `
         SELECT
             r.id,
@@ -765,12 +767,11 @@ router.get('/redemptions', requireAuth, requireMerchant, validators.listRedempti
             o.size_group,
             lc.phone_number as customer_phone,
             lc.display_name as customer_name,
-            -- Get item details from first linked purchase event
-            pe_info.item_name as redeemed_item_name,
-            pe_info.variation_name as redeemed_variation_name,
-            pe_info.variation_id as redeemed_variation_id,
-            -- Calculate value from average of linked purchase events
-            pe_info.avg_price as redeemed_value_cents,
+            -- Redeemed item: prefer redemption record, fall back to purchase events
+            COALESCE(lr.redeemed_item_name, pe_info.item_name) as redeemed_item_name,
+            COALESCE(lr.redeemed_variation_name, pe_info.variation_name) as redeemed_variation_name,
+            COALESCE(lr.redeemed_variation_id, pe_info.variation_id) as redeemed_variation_id,
+            COALESCE(lr.redeemed_value_cents, pe_info.avg_price) as redeemed_value_cents,
             -- Get source from processed orders (WEBHOOK, CATCHUP_JOB, BACKFILL)
             COALESCE(lpo.source, 'WEBHOOK') as redemption_type
         FROM loyalty_rewards r
@@ -778,6 +779,8 @@ router.get('/redemptions', requireAuth, requireMerchant, validators.listRedempti
         LEFT JOIN loyalty_customers lc
             ON r.square_customer_id = lc.square_customer_id
             AND r.merchant_id = lc.merchant_id
+        LEFT JOIN loyalty_redemptions lr
+            ON r.redemption_id = lr.id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,

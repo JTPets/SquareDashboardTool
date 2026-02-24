@@ -65,17 +65,19 @@ async function getBrandRedemptions(merchantId, options = {}) {
             lc.family_name,
             lc.phone_number,
             lc.email_address,
-            -- Redeemed item info
-            pe_info.item_name as redeemed_item_name,
-            pe_info.variation_name as redeemed_variation_name,
+            -- Redeemed item: prefer redemption record, fall back to purchase events
+            COALESCE(lr.redeemed_item_name, pe_info.item_name) as redeemed_item_name,
+            COALESCE(lr.redeemed_variation_name, pe_info.variation_name) as redeemed_variation_name,
             pe_info.sku as redeemed_sku,
-            pe_info.avg_price as redeemed_value_cents
+            COALESCE(lr.redeemed_value_cents, pe_info.avg_price) as redeemed_value_cents
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id
         JOIN merchants m ON r.merchant_id = m.id
         LEFT JOIN loyalty_customers lc
             ON r.square_customer_id = lc.square_customer_id
             AND r.merchant_id = lc.merchant_id
+        LEFT JOIN loyalty_redemptions lr
+            ON r.redemption_id = lr.id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,
