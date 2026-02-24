@@ -37,6 +37,7 @@ module.exports = {
         INVENTORY_BATCH_SIZE: 100,
         BATCH_DELAY_MS: 100,                         // Delay between batches to avoid rate limiting
         INTER_BATCH_DELAY_MS: 200,                   // Delay for write operations
+        NEW_VARIATION_DAYS: 7,                        // Variations younger than this show velocity warning
     },
 
     // Time intervals (in milliseconds)

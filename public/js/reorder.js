@@ -540,7 +540,13 @@ function renderTable() {
       return weeklyVal.toFixed(2);
     };
 
-    const velocityText = `<span class="${velocityClass}">${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}</span>`;
+    // New variation warning badge (BACKLOG-30): velocity data may be unreliable
+    const NEW_VARIATION_DAYS = 7;
+    const newVariationBadge = (item.variation_age_days !== null && item.variation_age_days < NEW_VARIATION_DAYS)
+      ? '<span class="new-variation-badge" title="Variation created within the last 7 days. Velocity data may be unreliable due to Square ID reassignment when variations are reordered in POS.">&#9888;&#65039; &lt;7d</span> '
+      : '';
+
+    const velocityText = `${newVariationBadge}<span class="${velocityClass}">${formatVelocity(item.weekly_avg_91d)} / ${formatVelocity(item.weekly_avg_182d)} / ${formatVelocity(item.weekly_avg_365d)}</span>`;
 
     // Calculate order quantity respecting stock maximum
     let suggestedQty = item.final_suggested_qty;
