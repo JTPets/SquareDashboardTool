@@ -286,6 +286,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | ~~Low~~ | ~~BACKLOG-33~~ | ~~New variation velocity warning badge on reorder page~~ **DONE** (2026-02-24) |
 | Low | BACKLOG-34 | Documentation: Square reuses variation IDs when POS reorders delete/recreate variations. New variation may inherit historical order data on next velocity sync. Workaround: BACKLOG-33 flag. |
 | ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
+| Low | BACKLOG-35 | Sales velocity does not subtract refunds — `syncSalesVelocity` fetches orders only, ignores refunds; net sales should be order qty minus refunded qty; impact low (~2 refunds/day), velocity slightly inflated on refunded items |
 
 ### Backlog — Archive (Completed)
 
