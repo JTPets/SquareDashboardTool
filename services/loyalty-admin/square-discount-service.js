@@ -561,7 +561,7 @@ async function createSquareCustomerGroupDiscount({ merchantId, squareCustomerId,
                 COALESCE(
                     (SELECT MAX(v.price_money) FROM variations v
                      INNER JOIN loyalty_qualifying_variations qv
-                         ON v.square_variation_id = qv.variation_id AND qv.is_active = TRUE
+                         ON v.id = qv.variation_id AND qv.is_active = TRUE
                      WHERE qv.offer_id = $3 AND qv.merchant_id = $2
                        AND v.merchant_id = $2 AND v.price_money > 0),
                     0
@@ -986,7 +986,7 @@ async function syncRewardDiscountPrices({ merchantId }) {
                o.offer_name,
                (SELECT MAX(v.price_money) FROM variations v
                 INNER JOIN loyalty_qualifying_variations qv
-                    ON v.square_variation_id = qv.variation_id AND qv.is_active = TRUE
+                    ON v.id = qv.variation_id AND qv.is_active = TRUE
                 WHERE qv.offer_id = r.offer_id AND qv.merchant_id = r.merchant_id
                   AND v.merchant_id = r.merchant_id AND v.price_money > 0
                ) as current_max_price_cents
