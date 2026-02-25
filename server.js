@@ -218,7 +218,13 @@ app.use((req, res, next) => {
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/output', express.static(path.join(__dirname, 'output'))); // Serve generated files
+// S-2: Require authentication for /output directory (contains backups, logs, generated files)
+app.use('/output', (req, res, next) => {
+    if (!req.session || !req.session.user) {
+        return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+    next();
+}, express.static(path.join(__dirname, 'output')));
 
 // Configure multer for POD photo uploads
 const podUpload = multer({
@@ -407,14 +413,35 @@ app.use('/api/v1', labelsRoutes);
 
 /**
  * GET /api/health
- * Check system health and database connection
+ * S-8: Public health check — returns minimal status (no internal details)
  */
 app.get('/api/health', async (req, res) => {
     try {
         const dbConnected = await db.testConnection();
 
+        res.json({
+            status: dbConnected ? 'ok' : 'degraded',
+            timestamp: new Date().toISOString(),
+            version: '1.0.0'
+        });
+    } catch (error) {
+        logger.error('Health check failed', { error: error.message, stack: error.stack });
+        res.status(500).json({
+            status: 'error',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+/**
+ * GET /api/health/detailed
+ * S-8: Authenticated health check — full diagnostics for operators
+ */
+app.get('/api/health/detailed', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const dbConnected = await db.testConnection();
+
         // Check Square connection status from database
-        // (Uses synced data rather than live API call for faster health checks)
         let squareStatus = 'not_configured';
         let squareError = null;
         try {
@@ -422,7 +449,6 @@ app.get('/api/health', async (req, res) => {
                 'SELECT id FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE LIMIT 1'
             );
             if (merchantResult.rows.length > 0) {
-                // Check if we have synced locations for this merchant
                 const locationsResult = await db.query(
                     'SELECT COUNT(*) as count FROM locations WHERE merchant_id = $1 AND active = TRUE',
                     [merchantResult.rows[0].id]
@@ -472,7 +498,7 @@ app.get('/api/health', async (req, res) => {
             version: '1.0.0'
         });
     } catch (error) {
-        logger.error('Health check failed', { error: error.message, stack: error.stack });
+        logger.error('Detailed health check failed', { error: error.message, stack: error.stack });
         res.status(500).json({
             status: 'error',
             database: 'error',

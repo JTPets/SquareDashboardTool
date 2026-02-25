@@ -19,14 +19,15 @@ function configureHelmet() {
     return helmet({
         // Content Security Policy
         // P0-4 COMPLETE: Inline event handlers migrated to event delegation (29/29 files).
+        // S-4 COMPLETE: Last inline <script> in cart-activity.html externalized to /js/cart-activity.js.
         // 'unsafe-eval' was removed 2026-01-26 after confirming no eval()/new Function() usage.
+        // 'unsafe-inline' removed 2026-02-25 — all scripts now external.
         // Includes Cloudflare domains for tunnel/proxy compatibility
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
                 scriptSrc: [
                     "'self'",
-                    "'unsafe-inline'",  // Required until inline <script> blocks externalized
                     // Cloudflare scripts (Rocket Loader, Analytics, Challenge pages)
                     "https://*.cloudflare.com",
                     "https://*.cloudflareinsights.com",

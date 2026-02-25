@@ -294,14 +294,26 @@ router.post('/change-password', requireAuth, validators.changePassword, asyncHan
 
 /**
  * GET /api/auth/users
- * List all users (admin only)
+ * List users scoped to the admin's active merchant (S-6: multi-tenant isolation)
  */
 router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+    const merchantId = req.session.activeMerchantId;
+
+    if (!merchantId) {
+        return res.status(403).json({
+            success: false,
+            error: 'No active merchant selected'
+        });
+    }
+
+    // Only return users who belong to the same merchant as the admin
     const result = await db.query(`
-        SELECT id, email, name, role, is_active, last_login, created_at
-        FROM users
-        ORDER BY created_at DESC
-    `);
+        SELECT u.id, u.email, u.name, u.role, u.is_active, u.last_login, u.created_at, um.role as merchant_role
+        FROM users u
+        JOIN user_merchants um ON um.user_id = u.id
+        WHERE um.merchant_id = $1
+        ORDER BY u.created_at DESC
+    `, [merchantId]);
 
     res.json({
         success: true,
@@ -645,8 +657,9 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
     });
 
     // In production, you'd send an email here
-    // For now, we'll return the token in the response (development mode)
-    const isDev = process.env.NODE_ENV !== 'production';
+    // For now, we'll return the token in the response (development mode only)
+    // S-5: Positive opt-in — only expose token when NODE_ENV is explicitly 'development'
+    const isDev = process.env.NODE_ENV === 'development';
 
     res.json({
         success: true,

@@ -19,6 +19,7 @@ const squareApi = require('../utils/square-api');
 const asyncHandler = require('../middleware/async-handler');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
+const { loadMerchantContext, requireMerchant, requireMerchantRole } = require('../middleware/merchant');
 
 // OAuth configuration
 const SQUARE_APPLICATION_ID = process.env.SQUARE_APPLICATION_ID;
@@ -75,8 +76,8 @@ router.get('/connect', requireAuth, async (req, res) => {
         // Store state in database with expiry
         await db.query(`
             INSERT INTO oauth_states (state, user_id, redirect_uri, expires_at)
-            VALUES ($1, $2, $3, NOW() + INTERVAL '${STATE_EXPIRY_MINUTES} minutes')
-        `, [state, req.session.user.id, redirectAfter]);
+            VALUES ($1, $2, $3, NOW() + INTERVAL '1 minute' * $4)
+        `, [state, req.session.user.id, redirectAfter, STATE_EXPIRY_MINUTES]);
 
         logger.info('OAuth flow initiated', {
             userId: req.session.user.id,
@@ -134,6 +135,17 @@ router.get('/callback', async (req, res) => {
         }
 
         const stateRecord = stateResult.rows[0];
+
+        // S-3: Verify the current session user matches the user who initiated OAuth
+        // Prevents binding a merchant to the wrong user if session expired/changed
+        if (!req.session?.user?.id || req.session.user.id !== stateRecord.user_id) {
+            logger.warn('OAuth callback session user mismatch', {
+                sessionUserId: req.session?.user?.id || null,
+                stateUserId: stateRecord.user_id,
+                state: state.substring(0, 10) + '...'
+            });
+            return res.redirect('/login.html?error=' + encodeURIComponent('Session expired. Please log in and try connecting again.'));
+        }
 
         // Mark state as used (prevent replay)
         await db.query(
@@ -238,10 +250,22 @@ router.get('/callback', async (req, res) => {
                 is_primary = EXCLUDED.is_primary
         `, [stateRecord.user_id, newMerchantId]);
 
-        // Set this as the active merchant in session if user has session
-        if (req.session) {
-            req.session.activeMerchantId = newMerchantId;
-        }
+        // S-11: Regenerate session to prevent session fixation after OAuth state change
+        await new Promise((resolve, reject) => {
+            const userData = req.session.user;
+            req.session.regenerate((err) => {
+                if (err) {
+                    logger.warn('Session regeneration failed during OAuth callback', { error: err.message });
+                    // Continue even if regeneration fails — don't block the OAuth flow
+                    req.session.activeMerchantId = newMerchantId;
+                    return resolve();
+                }
+                // Restore user data and set new merchant on the fresh session
+                req.session.user = userData;
+                req.session.activeMerchantId = newMerchantId;
+                resolve();
+            });
+        });
 
         // Log the successful connection
         await logAuthEvent(db, {
@@ -316,86 +340,70 @@ router.get('/callback', async (req, res) => {
  * POST /api/square/oauth/revoke
  * Disconnect a merchant's Square account
  * Revokes OAuth tokens and deactivates merchant
+ * S-7: Uses standard requireMerchant + requireMerchantRole('owner') middleware
  */
-router.post('/revoke', requireAuth, asyncHandler(async (req, res) => {
-    const { merchantId } = req.body;
+router.post('/revoke', requireAuth, loadMerchantContext, requireMerchant, requireMerchantRole('owner'), asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
 
-    if (!merchantId) {
-        return res.status(400).json({
+    // Fetch merchant token for Square revocation
+    const merchantData = await db.query(
+        'SELECT square_access_token, square_merchant_id FROM merchants WHERE id = $1 AND is_active = TRUE',
+        [merchantId]
+    );
+
+    if (merchantData.rows.length === 0) {
+        return res.status(404).json({
             success: false,
-            error: 'Merchant ID is required'
+            error: 'Merchant not found'
         });
     }
 
-    // Verify user has access to this merchant
-    const accessCheck = await db.query(`
-            SELECT um.role, m.square_access_token, m.square_merchant_id
-            FROM user_merchants um
-            JOIN merchants m ON m.id = um.merchant_id
-            WHERE um.user_id = $1 AND um.merchant_id = $2 AND m.is_active = TRUE
-        `, [req.session.user.id, merchantId]);
+    // Attempt to revoke token with Square (best effort)
+    try {
+        const accessToken = decryptToken(merchantData.rows[0].square_access_token);
+        const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
+            ? SquareEnvironment.Sandbox
+            : SquareEnvironment.Production;
 
-        if (accessCheck.rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: 'Merchant not found'
-            });
-        }
-
-        // Only owners can revoke
-        if (accessCheck.rows[0].role !== 'owner') {
-            return res.status(403).json({
-                success: false,
-                error: 'Only the account owner can disconnect Square'
-            });
-        }
-
-        // Attempt to revoke token with Square (best effort)
-        try {
-            const accessToken = decryptToken(accessCheck.rows[0].square_access_token);
-            const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
-                ? SquareEnvironment.Sandbox
-                : SquareEnvironment.Production;
-
-            const client = new SquareClient({ environment: squareEnv });
-            await client.oAuth.revokeToken({
-                clientId: SQUARE_APPLICATION_ID,
-                clientSecret: SQUARE_APPLICATION_SECRET,
-                accessToken: accessToken
-            });
-
-            logger.info('Square token revoked successfully', { merchantId });
-        } catch (revokeError) {
-            // Log but don't fail - token may already be invalid
-            logger.warn('Failed to revoke Square token:', revokeError.message);
-        }
-
-        // Deactivate merchant (soft delete)
-        await db.query(`
-            UPDATE merchants SET
-                is_active = FALSE,
-                square_access_token = 'REVOKED',
-                square_refresh_token = NULL,
-                updated_at = NOW()
-            WHERE id = $1
-        `, [merchantId]);
-
-        // Clear session if this was the active merchant
-        if (req.session.activeMerchantId === parseInt(merchantId)) {
-            req.session.activeMerchantId = null;
-        }
-
-        // Log the disconnection
-        await logAuthEvent(db, {
-            userId: req.session.user.id,
-            eventType: 'merchant_disconnected',
-            ipAddress: getClientIp(req),
-            userAgent: req.headers['user-agent'],
-            merchantId: merchantId,
-            details: {
-                squareMerchantId: accessCheck.rows[0].square_merchant_id
-            }
+        const client = new SquareClient({ environment: squareEnv });
+        await client.oAuth.revokeToken({
+            clientId: SQUARE_APPLICATION_ID,
+            clientSecret: SQUARE_APPLICATION_SECRET,
+            accessToken: accessToken
         });
+
+        logger.info('Square token revoked successfully', { merchantId });
+    } catch (revokeError) {
+        // Log but don't fail - token may already be invalid
+        logger.warn('Failed to revoke Square token:', revokeError.message);
+    }
+
+    // Deactivate merchant (soft delete)
+    await db.query(`
+        UPDATE merchants SET
+            is_active = FALSE,
+            square_access_token = 'REVOKED',
+            square_refresh_token = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+    `, [merchantId]);
+
+    // Clear session if this was the active merchant
+    if (req.session.activeMerchantId === merchantId) {
+        req.session.activeMerchantId = null;
+    }
+
+    // Log the disconnection
+    await logAuthEvent(db, {
+        userId: req.session.user.id,
+        eventType: 'merchant_disconnected',
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+        merchantId: merchantId,
+        details: {
+            squareMerchantId: merchantData.rows[0].square_merchant_id
+        }
+    });
 
     res.json({
         success: true,

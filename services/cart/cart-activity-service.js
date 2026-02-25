@@ -282,11 +282,11 @@ async function markAbandoned(merchantId, daysThreshold = 7) {
                 updated_at = NOW()
             WHERE status = 'pending'
               AND merchant_id = $1
-              AND created_at < NOW() - INTERVAL '${daysThreshold} days'
+              AND created_at < NOW() - INTERVAL '1 day' * $2
             RETURNING id, merchant_id, square_order_id
         `;
 
-        const result = await db.query(query, [merchantId]);
+        const result = await db.query(query, [merchantId, daysThreshold]);
 
         if (result.rows.length > 0) {
             logger.info('Carts marked as abandoned', {
@@ -321,10 +321,10 @@ async function purgeOld(merchantId, daysThreshold = 30) {
         const query = `
             DELETE FROM cart_activity
             WHERE merchant_id = $1
-              AND created_at < NOW() - INTERVAL '${daysThreshold} days'
+              AND created_at < NOW() - INTERVAL '1 day' * $2
         `;
 
-        const result = await db.query(query, [merchantId]);
+        const result = await db.query(query, [merchantId, daysThreshold]);
 
         if (result.rowCount > 0) {
             logger.info('Old cart activity records purged', {
@@ -422,15 +422,15 @@ async function getStats(merchantId, days = 7) {
     const result = await db.query(`
         SELECT
             COUNT(*) FILTER (WHERE status = 'pending') as pending,
-            COUNT(*) FILTER (WHERE status = 'converted' AND converted_at >= NOW() - INTERVAL '${days} days') as converted,
+            COUNT(*) FILTER (WHERE status = 'converted' AND converted_at >= NOW() - INTERVAL '1 day' * $2) as converted,
             COUNT(*) FILTER (WHERE status = 'abandoned') as abandoned,
             COUNT(*) FILTER (WHERE status = 'canceled') as canceled,
-            COUNT(*) FILTER (WHERE status IN ('converted', 'abandoned', 'canceled') AND created_at >= NOW() - INTERVAL '${days} days') as total_resolved,
+            COUNT(*) FILTER (WHERE status IN ('converted', 'abandoned', 'canceled') AND created_at >= NOW() - INTERVAL '1 day' * $2) as total_resolved,
             AVG(cart_total_cents) FILTER (WHERE status = 'pending') as avg_pending_cart,
             AVG(cart_total_cents) FILTER (WHERE status = 'converted') as avg_converted_cart
         FROM cart_activity
         WHERE merchant_id = $1
-    `, [merchantId]);
+    `, [merchantId, days]);
 
     const stats = result.rows[0];
     const totalResolved = parseInt(stats.total_resolved, 10) || 0;

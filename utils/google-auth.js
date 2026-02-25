@@ -122,8 +122,8 @@ async function getAuthUrl(merchantId, userId) {
     // Store state in database with user binding, merchant binding, and expiry
     await db.query(`
         INSERT INTO oauth_states (state, user_id, merchant_id, redirect_uri, expires_at)
-        VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${STATE_EXPIRY_MINUTES} minutes')
-    `, [state, userId, merchantId, '/gmc-feed.html']);
+        VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 minute' * $5)
+    `, [state, userId, merchantId, '/gmc-feed.html', STATE_EXPIRY_MINUTES]);
 
     const authUrl = client.generateAuthUrl({
         access_type: 'offline',
