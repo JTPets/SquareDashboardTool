@@ -16,32 +16,167 @@
 
 ---
 
+## Timeline Summary
+
+**Start date**: 2026-02-25
+**Assumption**: ~2-3 Claude Code sessions per week
+
+### Effort Key
+
+| Size | Sessions | Calendar |
+|------|----------|----------|
+| S | 1-2 | ~1 day |
+| M | 3-5 | ~1 week |
+| L | 6-10 | ~2 weeks |
+| XL | 10+ | ~3-4 weeks |
+
+### Parallel Tracks
+
+```
+Week 1-2 (Feb 25 – Mar 10):
+  Track A: Pkg 1 Security Hardening [M, ~1 week]
+  Track B: Pkg 7 Database [S, ~1 day]  ──then──► Pkg 13 Test Infra [S, ~1 day]
+  Track C: Pkg 9 Expiry Logging [S, ~1 day]
+
+Week 2-4 (Mar 3 – Mar 17):
+  Track A: Pkg 2a Square API Quick Fixes [S, ~1 day]
+  Track B: Pkg 3 Loyalty Services [L, ~2 weeks]    ◄── no Pkg 2 dependency
+  Track C: Pkg 4a Reorder/Analytics [M, ~1 week]   ◄── no Pkg 2 dependency
+  Track D: Pkg 10 GMC Integration [M, ~1 week]
+
+Week 4-8 (Mar 17 – Apr 14):
+  Track A: Pkg 2b Square API Monolith Split [XL, ~3-4 weeks]
+  Track B: Pkg 4b Velocity Refactor [XL, ~3-4 weeks + 72h validation waits]
+  Track C: Pkg 6 Webhook Handler Tests [L, ~2 weeks]
+  Track D: Pkg 5 Bundle System [M, ~1 week]
+
+Week 8+ (Apr 14 onward):
+  Pkg 11 Config/DevOps [L, ~2 weeks]
+  Pkg 12 Frontend Cleanup [M, ~1 week]
+  Pkg 14 Code Cleanup [L, ~2 weeks]
+  Pkg 15 Vendor/Feature Work [M, ~1 week]
+  Pkg 8 Delivery Services [M, ~1 week]
+```
+
+**Estimated total**: ~16-20 weeks for all packages (many run in parallel)
+**P0-P1 complete by**: ~Week 4 (mid-March)
+**P2 complete by**: ~Week 8 (mid-April)
+**P3 complete by**: ~Week 16-20 (June-July)
+
+---
+
 ## Dependency Graph
 
 ```
-P0: Security Hardening ──────────────────────────────────► (unblocks everything)
-         │
-         ▼
-P1: Database Schema & Indexes ────────────────────────────► Square API Refactor
-         │                                                        │
-         ▼                                                        ▼
-P1: Test Infrastructure ──────────► All P2 test packages    Loyalty Dedup (A-4)
-                                                                  │
-                                                                  ▼
-                                                           Reorder/Analytics cleanup
-                                                                  │
-                                                                  ▼
-                                                           Velocity Refactor (BACKLOG-35/36)
+CORRECTED 2026-02-25 — see Pre-Execution Investigation below
 
-P2: Webhook Handler Tests ─────► (no blockers, parallel with other P2)
-P2: Loyalty/Financial Tests ───► (depends on Loyalty Dedup for stable API surface)
-P2: Logging Fixes ─────────────► (no blockers, parallel)
+P0: Security Hardening (Pkg 1) ──────────────────────► (unblocks everything)
 
-P3: Config Centralization ─────► (no blockers)
-P3: Frontend Cleanup ──────────► (no blockers)
-P3: Response Format ───────────► (depends on route tests existing)
-P3: Backward-Compat Shim Removal ► (depends on route tests existing)
+P1: Database (Pkg 7) ───────────────► (parallel, no blockers)
+
+P1: Pkg 2a Quick Fixes ─────────────► (parallel with Pkg 3/4a, no blockers)
+P1: Pkg 2b API Split ───────────────► (XL, runs parallel with everything — NOT a blocker)
+
+P1: Pkg 3 Loyalty Dedup ────────────► (NO dependency on Pkg 2 — import chain verified)
+P1: Pkg 4a Reorder/Analytics ───────► (NO dependency on Pkg 2 — import chain verified)
+
+P1: Pkg 4b Velocity Refactor ───────► (independent of Pkg 4a — extract as standalone)
+                                       Phase 1-2 → 24-48h validation → Phase 3-4 → 1wk monitor → Phase 5
+
+P2: Pkg 13 Test Infra ─────────────► unblocks Pkg 6 (Webhook Tests)
+P2: Pkg 6 Webhook Tests ───────────► (depends on Pkg 13 for email mock)
+P2: Pkg 5 Bundle System ───────────► (no blockers)
+P2: Pkg 9 Expiry Logging ──────────► (no blockers, parallel)
+P2: Pkg 10 GMC Integration ────────► (no blockers, parallel)
+
+P3: Pkg 11 Config/DevOps ──────────► (no blockers)
+P3: Pkg 12 Frontend Cleanup ───────► (no blockers)
+P3: Pkg 14 Code Cleanup ───────────► (route tests should exist first)
+P3: Pkg 15 Vendor/Feature Work ────► (no blockers)
+P3: Pkg 8 Delivery Services ───────► (no blockers)
 ```
+
+---
+
+## Pre-Execution Investigation
+
+Findings from investigating 5 flagged discrepancies in the original plan (2026-02-25).
+
+### Flag 1: BACKLOG-21/22 — CONFIRMED COMPLETED
+
+**Evidence**: Commit `bcc136a` (2026-02-23) titled "fix: subtract committed inventory (RESERVED_FOR_SALE) from available stock (BACKLOG-22, BACKLOG-21)" modified 4 files:
+- `services/catalog/inventory-service.js` — added RESERVED_FOR_SALE subquery, changed days-of-stock to use `current_stock - committed_quantity`
+- `services/catalog/audit-service.js` — added committed_quantity CTE column, changed days-of-stock to use `(current_stock - committed_quantity) / daily_velocity`
+- `routes/bundles.js` — fetches both IN_STOCK and RESERVED_FOR_SALE, subtracts committed from available, uses available for days-of-stock
+- `CLAUDE.md` — updated BACKLOG-21/22 to DONE
+
+**Plan changes**:
+- Inventory table: BACKLOG-21/DEDUP R-2 and BACKLOG-22/DEDUP R-3 changed from OPEN to **DONE** (2026-02-23)
+- Pkg 4a: Removed tasks 1 and 2 (days-of-stock standardization). Remaining tasks: pagination (P-1), BACKLOG-34 documentation.
+- Retirement table: Already correct (listed as COMPLETED)
+
+### Flag 2: BACKLOG-28 — CONFIRMED COMPLETED
+
+**Evidence**: Commit `b4768cc` (2026-02-24) titled "feat: wire per-vendor lead_time_days into reorder suggestions (BACKLOG-28)". Verified full wiring:
+
+| Component | File:Line | Status |
+|-----------|-----------|--------|
+| DB column | `database/schema.sql:157` — `lead_time_days INTEGER DEFAULT 7` | Exists |
+| Validator | `middleware/validators/vendor-catalog.js:211-213` | Exists |
+| UI input | `public/js/vendor-dashboard.js:266` — `<input type="number" id="field-lead_time_days-...">` | Exists |
+| UI save | `public/js/vendor-dashboard.js:373` — `lead_time_days: parseInt(getVal('lead_time_days'))` | Exists |
+| SQL read (reorder) | `routes/analytics.js:217,276` — `ve.lead_time_days` in SELECT and WHERE | Exists |
+| JS threshold | `routes/analytics.js:332` — `const leadTime = parseInt(row.lead_time_days) \|\| 0` | Exists |
+| SQL read (vendor) | `services/vendor-dashboard.js:99,127,213,234` — used in reorder calc | Exists |
+| Frontend display | `public/js/reorder.js:762` — `${item.lead_time_days > 0 ? item.lead_time_days + 'd' : '-'}` | Exists |
+| Service update | `services/vendor-dashboard.js:450` — in `allowedFields` for vendor config update | Exists |
+
+**Conclusion**: Fully wired. Vendors can edit lead time in vendor dashboard. Reorder suggestions and vendor dashboard both use per-vendor lead time. Default is 7 days.
+
+**Plan changes**: None — retirement table was already correct.
+
+### Flag 3: Pkg 2 Does NOT Block Pkg 3 or Pkg 4 — DEPENDENCY REMOVED
+
+**Evidence**: Verified actual import chains for all Pkg 3 and Pkg 4 files:
+
+| File | Imports `services/square/api.js`? | Imports `utils/square-api.js`? |
+|------|-----------------------------------|-------------------------------|
+| `routes/analytics.js` | NO | NO |
+| `routes/loyalty.js` | NO | NO |
+| `services/loyalty-admin/customer-admin-service.js` | NO | NO |
+| `services/loyalty-admin/customer-identification-service.js` | NO (uses `./square-api-client`) | NO |
+| `services/loyalty-admin/redemption-audit-service.js` | NO | NO |
+| `services/catalog/inventory-service.js` | NO | YES (but Pkg 4 tasks don't modify Square API calls) |
+| `services/catalog/audit-service.js` | NO | YES (but Pkg 4 tasks don't modify Square API calls) |
+| `services/catalog/reorder-math.js` | NO | NO |
+
+The original plan listed "Dependencies: Pkg 2 (Square API) for I-2 fix" on Pkg 3 and "Dependencies: Pkg 2 (Square API) for split api.js" on Pkg 4. Both are **false dependencies** — I-2 (API version unification) only affects `services/square/api.js:25` and `services/loyalty-admin/shared-utils.js:18`, neither of which is touched by Pkg 3 or Pkg 4 tasks.
+
+**Plan changes**:
+- Pkg 2 split into **Pkg 2a** (quick fixes, S effort) and **Pkg 2b** (monolith split, XL effort)
+- Pkg 3 dependency on Pkg 2: **REMOVED**
+- Pkg 4a dependency on Pkg 2: **REMOVED**
+- Dependency graph: CORRECTED (see above)
+- This unblocks ~4 weeks of work that was unnecessarily sequenced behind the XL api.js split
+
+### Flag 4: Velocity Refactor Extracted to Pkg 4b
+
+**Evidence**: Full analysis of `docs/PLAN-sales-velocity-refactor.md` confirms:
+- The velocity refactor creates new files (`services/inventory-changes.js`, migration, job) — none shared with Pkg 4a tasks
+- `routes/analytics.js` is a consumer of `sales_velocity` but the velocity refactor doesn't modify it (only changes how data is populated)
+- No dependency on the api.js split — new module makes its own Square API calls
+- Internal phases must be sequential (schema → backfill → webhook → recalculation → cutover)
+- Requires 24-48h validation wait between Phase 2 and Phase 3, and 1 week monitoring between Phase 4 and Phase 5
+
+**Plan changes**:
+- BACKLOG-35/36 extracted from Pkg 4 task 5 into new **Pkg 4b: Sales Velocity Refactor**
+- Pkg 4a is now M effort (down from L) — just pagination + documentation
+- Pkg 4b is XL effort (25-35 active hours + 72h validation waits)
+- Pkg 4b has NO dependency on Pkg 4a and can run in parallel
+
+### Flag 5: Calendar Estimates Added
+
+See **Timeline Summary** section at top of document.
 
 ---
 
@@ -187,8 +322,8 @@ Every finding from every source, merged and deduplicated.
 | L-6 | DEDUP | Medium | Square API client — two wrapper layers | **DONE** (2026-02-19) |
 | L-7 | DEDUP | Low | Redemption detection asymmetry | **DONE** (2026-02-19) |
 | R-1 | DEDUP | Critical | Reorder quantity formula — JS vs SQL | **DONE** (2026-02-17) |
-| R-2 | DEDUP | High | Days-of-stock — 5 implementations (= BACKLOG-21) | **OPEN** |
-| R-3 | DEDUP | High | Available vs total stock inconsistency (= BACKLOG-22) | **OPEN** |
+| R-2 | DEDUP | High | Days-of-stock — 5 implementations (= BACKLOG-21) | **DONE** (2026-02-23) |
+| R-3 | DEDUP | High | Available vs total stock inconsistency (= BACKLOG-22) | **DONE** (2026-02-23) |
 | G-1 | DEDUP | Medium | escapeHtml() — 26 copies | **DONE** |
 | G-2 | DEDUP | Medium | Idempotency key generation — 4 patterns | **DONE** |
 | G-3 | DEDUP | Medium | Currency formatting — no shared helper (= BACKLOG-23) | **OPEN** |
@@ -214,9 +349,9 @@ Every finding from every source, merged and deduplicated.
 | BACKLOG-26 | Low | Date string formatting (= DEDUP G-7) | Pkg 12: Frontend Cleanup |
 | BACKLOG-27 | Low | Inconsistent toLocaleString (= DEDUP G-8) | Pkg 12: Frontend Cleanup |
 | BACKLOG-29 | Low | Existing tenants missing `invoice.payment_made` webhook | Pkg 6: Webhook Handlers |
-| BACKLOG-34 | Low | Documentation: Square reuses variation IDs | Pkg 4: Reorder/Analytics |
-| BACKLOG-35 | Medium | Sales velocity does not subtract refunds | Pkg 4: Reorder/Analytics |
-| BACKLOG-36 | Medium | Phantom velocity rows never self-correct | Pkg 4: Reorder/Analytics |
+| BACKLOG-34 | Low | Documentation: Square reuses variation IDs | Pkg 4a: Reorder/Analytics |
+| BACKLOG-35 | Medium | Sales velocity does not subtract refunds | Pkg 4b: Velocity Refactor |
+| BACKLOG-36 | Medium | Phantom velocity rows never self-correct | Pkg 4b: Velocity Refactor |
 
 ### Conflicts and Duplicates
 
@@ -224,8 +359,8 @@ Every finding from every source, merged and deduplicated.
 |-------|------|------------|
 | S-4 vs P0-4 (TECH_DEBT) | **CONFLICT** | P0-4 claims 29/29 inline scripts externalized and `'unsafe-inline'` should be removable. S-4 says it's still in the CSP config. **NEEDS_DECISION**: Verify no remaining inline scripts; if clean, remove `'unsafe-inline'`. |
 | A-4, BACKLOG-17, DEDUP L-4 | Duplicate | Merged → Pkg 3 (Loyalty Services) |
-| BACKLOG-21, DEDUP R-2 | Duplicate | Merged → Pkg 4 (Reorder/Analytics) |
-| BACKLOG-22, DEDUP R-3 | Duplicate | Merged → Pkg 4 (Reorder/Analytics) |
+| BACKLOG-21, DEDUP R-2 | ~~Duplicate~~ DONE | ~~Merged → Pkg 4~~ COMPLETED (2026-02-23, commit `bcc136a`) |
+| BACKLOG-22, DEDUP R-3 | ~~Duplicate~~ DONE | ~~Merged → Pkg 4~~ COMPLETED (2026-02-23, commit `bcc136a`) |
 | BACKLOG-23, DEDUP G-3 | Duplicate | Merged → Pkg 12 (Frontend Cleanup) |
 | BACKLOG-25, DEDUP G-5 | Duplicate | Merged → Pkg 14 (Code Cleanup) |
 | BACKLOG-26, DEDUP G-7 | Duplicate | Merged → Pkg 12 (Frontend Cleanup) |
@@ -296,35 +431,72 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 2: Square API Service Refactor — P1
+### Package 2a: Square API Quick Fixes — P1
 
-**Estimated effort**: XL
-**Dependencies**: Pkg 1 (Security) should complete first
+**Estimated effort**: S (~1 day)
+**Dependencies**: None
 **Files touched**:
-- `services/square/api.js` (4,793 lines → split into 4-5 modules + facade)
+- `services/square/api.js` (targeted edits only — no structural split)
 - `services/loyalty-admin/shared-utils.js`
+- `services/webhook-handlers/order-handler.js`
+- `utils/square-webhooks.js`
 - `config/constants.js`
-- All files that import from `services/square/api.js` or `utils/square-api.js`
+- `middleware/merchant.js`
+- `services/sync-queue.js`
 
-**Pre-work**: Read `services/square/api.js` fully. Map all 38 exports by domain. Understand the `makeSquareRequest()` retry logic (lines 117-216). Read `config/constants.js` to understand existing namespaces.
+**Pre-work**: Read `config/constants.js` to understand existing namespaces. Grep for `SQUARE_API_VERSION` and `generateIdempotencyKey` to find all instances.
 
 #### Tasks (in execution order):
 
-1. [ ] **I-2**: Centralize `SQUARE_API_VERSION` — move to `config/constants.js`, update `services/square/api.js:25` (currently `'2025-10-16'`) and `services/loyalty-admin/shared-utils.js:18` (currently `'2025-01-16'`) to import from constants. Use `'2025-10-16'` (newer).
+1. [ ] **I-2**: Centralize `SQUARE_API_VERSION` — move to `config/constants.js`, update **4 locations**:
+   - `services/square/api.js:25` (currently `'2025-10-16'`)
+   - `services/loyalty-admin/shared-utils.js:18` (currently `'2025-01-16'` — **9 months stale**)
+   - `services/webhook-handlers/order-handler.js` (hardcoded `'2025-01-16'`)
+   - `utils/square-webhooks.js` (hardcoded `'2025-01-16'`)
+   Use `'2025-10-16'` (newest).
 2. [ ] **I-3**: Consolidate `generateIdempotencyKey()` — extract to `utils/idempotency.js`, update imports in `services/square/api.js:107-109` and `services/loyalty-admin/shared-utils.js:176-184`.
 3. [ ] **P-4**: Add `MAX_ITERATIONS` guard to all 8 pagination loops — `services/square/api.js` at lines 331, 445, 770, 1598, 1845, 2566, 3028, 3479. Add constant `MAX_PAGINATION_ITERATIONS = 500` to `config/constants.js`. Break with `logger.warn()` if exceeded.
-4. [ ] **MED-4**: Clear `setInterval` on shutdown — `services/square/api.js:51` — store reference and export a `cleanup()` function; call from `server.js` graceful shutdown handler. (Note: `.unref()` is already present, so this is LOW urgency but clean.)
-5. [ ] **A-1**: Split `services/square/api.js` into domain modules:
+4. [ ] **MED-4**: Clear `setInterval` on shutdown — `services/square/api.js:51` — store reference and export a `cleanup()` function; call from `server.js` graceful shutdown handler.
+5. [ ] **P-3**: Narrow `SELECT *` on merchants table — `middleware/merchant.js:210` — select only needed columns.
+6. [ ] **P-7**: Add LRU eviction to `clientCache` — `middleware/merchant.js:19` — add `MAX_CLIENTS = 100`.
+7. [ ] **A-3**: Extract `refreshMerchantToken()` to `utils/square-token.js` — fix cross-tier dependency (middleware importing from routes).
+8. [ ] **P-8**: Fire follow-up sync async — `services/sync-queue.js:232-242` — change to fire-and-forget with error logging.
+
+#### Tests required:
+- [ ] Test `MAX_ITERATIONS` guard breaks pagination and logs warning
+- [ ] Test merchant query returns only needed columns
+- [ ] Test clientCache eviction when MAX_CLIENTS exceeded
+- [ ] Test `refreshMerchantToken()` works from new location
+
+#### Definition of done:
+- Single `SQUARE_API_VERSION` in `config/constants.js` — zero hardcoded duplicates
+- Single `generateIdempotencyKey()` in `utils/idempotency.js`
+- All 8 pagination loops have iteration guards
+- All existing tests pass
+
+---
+
+### Package 2b: Square API Monolith Split — P1
+
+**Estimated effort**: XL (~3-4 weeks)
+**Dependencies**: Pkg 2a (quick fixes applied to monolith first, then re-distributed during split)
+**Files touched**:
+- `services/square/api.js` (4,793 lines → split into 4-5 modules + facade)
+- `utils/square-api.js` (backward-compat shim update)
+- All 50+ files that import from `services/square/api.js` or `utils/square-api.js`
+
+**Pre-work**: Read `services/square/api.js` fully. Map all 38 exports by domain. Ensure Pkg 2a is complete so quick fixes are already in place.
+
+#### Tasks (in execution order):
+
+1. [ ] **A-1**: Split `services/square/api.js` into domain modules:
    - `services/square/catalog-sync.js` — catalog, delta, category, image, item, variation sync
    - `services/square/inventory-sync.js` — inventory counts, velocity, committed inventory
    - `services/square/catalog-operations.js` — prices, costs, attributes, content updates
    - `services/square/diagnostics.js` — fix location mismatches, inventory alerts, item enabling
    - `services/square/api.js` — thin facade re-exporting from sub-modules + `makeSquareRequest()`
-6. [ ] Update `utils/square-api.js` backward-compat shim to re-export from new facade
-7. [ ] **P-3**: Narrow `SELECT *` on merchants table — `middleware/merchant.js:210` — select only `id, square_access_token, square_refresh_token, square_token_expires_at`
-8. [ ] **P-7**: Add LRU eviction to `clientCache` — `middleware/merchant.js:19` — add `MAX_CLIENTS = 100` and evict oldest when full. Consider using Node's built-in Map with a size check.
-9. [ ] **A-3**: Extract `refreshMerchantToken()` to `utils/square-token.js` — eliminate circular dependency between `middleware/merchant.js:227` and `routes/square-oauth.js`
-10. [ ] **P-8**: Fire follow-up sync async — `services/sync-queue.js:232-242` — change to `syncFn().catch(err => logger.error(...))` without await
+2. [ ] Update `utils/square-api.js` backward-compat shim to re-export from new facade
+3. [ ] Migrate direct importers to import from specific sub-modules where beneficial
 
 #### Monolith breakdown:
 - **Current**: `services/square/api.js` (4,793 lines, 38 exports)
@@ -336,19 +508,13 @@ Every finding from every source, merged and deduplicated.
   - `api.js` (facade) — `makeSquareRequest()`, shared constants, re-exports (~400 lines)
 
 #### Tests required:
-- [ ] Test `MAX_ITERATIONS` guard breaks pagination and logs warning
 - [ ] Test each new sub-module exports the same functions as original api.js
 - [ ] Test `utils/square-api.js` shim still works after split
-- [ ] Test merchant query returns only needed columns
-- [ ] Test clientCache eviction when MAX_CLIENTS exceeded
-- [ ] Test `refreshMerchantToken()` works from new location without circular import
+- [ ] Test no circular dependencies in new module graph
 
 #### Definition of done:
 - `services/square/api.js` reduced to <500 lines (facade only)
 - All sub-modules under 1,500 lines
-- Single `SQUARE_API_VERSION` in `config/constants.js`
-- Single `generateIdempotencyKey()` in `utils/idempotency.js`
-- All 8 pagination loops have iteration guards
 - All existing tests pass
 - No circular dependencies in module graph
 
@@ -357,7 +523,7 @@ Every finding from every source, merged and deduplicated.
 ### Package 3: Loyalty Services — P1
 
 **Estimated effort**: L
-**Dependencies**: Pkg 2 (Square API) for I-2 fix; Pkg 13 (Test Infra) for testing
+**Dependencies**: None (Pkg 2 dependency removed — see Pre-Execution Investigation Flag 3)
 **Files touched**:
 - `services/loyalty-admin/customer-identification-service.js`
 - `services/loyalty-admin/customer-admin-service.js`
@@ -387,49 +553,77 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 4: Reorder/Analytics — P1
+### Package 4a: Reorder/Analytics — P1
 
-**Estimated effort**: L
-**Dependencies**: Pkg 2 (Square API) for split api.js; Pkg 7 (Database) for index on inventory_counts
+**Estimated effort**: M (~1 week) — reduced from L after extracting velocity refactor and confirming BACKLOG-21/22 done
+**Dependencies**: Pkg 7 (Database) for index on inventory_counts. NO dependency on Pkg 2 (verified — see Pre-Execution Investigation Flag 3).
 **Files touched**:
 - `routes/analytics.js`
-- `routes/bundles.js` (availability extraction only — see Pkg 5 for full bundle work)
-- `services/catalog/inventory-service.js`
-- `services/catalog/audit-service.js`
-- `services/catalog/reorder-math.js`
-- `services/vendor-dashboard.js`
-- `public/js/reorder.js`
+- `services/square/api.js` (documentation comment only)
 
-**Pre-work**: Read `docs/PLAN-sales-velocity-refactor.md` for BACKLOG-35/36 context. Read `services/catalog/reorder-math.js` for existing shared formula.
+**Pre-work**: Read `routes/analytics.js:95-760` to understand the reorder suggestions SQL query.
 
 #### Tasks (in execution order):
 
-1. [ ] **BACKLOG-22 / DEDUP R-3**: Standardize stock base to available quantity — update two files:
-   - `services/catalog/inventory-service.js:58-64` — change from `on_hand` to `on_hand - committed`
-   - `services/catalog/audit-service.js:116-121` — change from `current_stock` to `current_stock - committed`
-2. [ ] **BACKLOG-21 / DEDUP R-2**: Consolidate days-of-stock calculation — add `calculateDaysOfStock()` to `services/catalog/reorder-math.js` (partially exists already) and update all 5 call sites to use it
-3. [ ] **P-1**: Add pagination to reorder suggestions — `routes/analytics.js:95-760` — add `LIMIT $X OFFSET $Y` to main SQL query (currently no LIMIT). Add `page` and `pageSize` query params with defaults (page=1, pageSize=100). Return `{ items, total, page, pageSize }`.
-4. [ ] **BACKLOG-34**: Document Square variation ID reassignment behavior — add comment in `services/square/api.js` velocity sync functions
-5. [ ] **BACKLOG-35 / BACKLOG-36**: Implement sales velocity refactor — follow `docs/PLAN-sales-velocity-refactor.md` phases. This is a large sub-project:
-   - Phase 1: Create `inventory_changes` table (migration)
-   - Phase 2: Backfill historical data from Square Inventory Changes API
-   - Phase 3: Wire `inventory.count.updated` webhook to capture changes
-   - Phase 4: Rewrite velocity calculation from `inventory_changes` table
-   - Phase 5: Parallel-run both systems, validate accuracy
-   - Phase 6: Cut over, remove old velocity sync code
-   **NEEDS_DECISION**: This is the largest single work item. Confirm approach before starting.
+1. [ ] **P-1**: Add pagination to reorder suggestions — `routes/analytics.js:95-760` — add `LIMIT $X OFFSET $Y` to main SQL query (currently no LIMIT). Add `page` and `pageSize` query params with defaults (page=1, pageSize=100). Return `{ items, total, page, pageSize }`.
+2. [ ] **BACKLOG-34**: Document Square variation ID reassignment behavior — add comment in `services/square/api.js` velocity sync functions
+
+#### Completed tasks (removed from plan):
+- ~~BACKLOG-22 / DEDUP R-3~~: **DONE** (2026-02-23, commit `bcc136a`) — inventory-service.js, audit-service.js, bundles.js all subtract RESERVED_FOR_SALE
+- ~~BACKLOG-21 / DEDUP R-2~~: **DONE** (2026-02-23, same commit) — all pages use available quantity
 
 #### Tests required:
-- [ ] Test days-of-stock uses available quantity (on_hand - committed) consistently
 - [ ] Test reorder suggestions pagination returns correct page/total
 - [ ] Test reorder suggestions with pageSize=10 returns max 10 items
-- [ ] Test velocity calculation from inventory_changes matches expected values (Phase 5)
+- [ ] Test default pagination (no params) returns reasonable page size
 
 #### Definition of done:
-- All pages show same days-of-stock for same item
 - Reorder suggestions endpoint has working pagination
-- BACKLOG-35/36 either implemented or documented as separate phase
-- AUDIT.md findings P-1 marked resolved
+- AUDIT.md finding P-1 marked resolved
+
+---
+
+### Package 4b: Sales Velocity Refactor — P1
+
+**Estimated effort**: XL (~3-4 weeks active + 72h validation waits between phases)
+**Dependencies**: None — fully independent of Pkg 4a, Pkg 2, and all other packages (verified — see Pre-Execution Investigation Flag 4)
+**Files touched** (all exclusive to this package):
+- `database/migrations/XXX_inventory_changes.sql` (new)
+- `database/schema.sql` (add table definition)
+- `services/inventory-changes.js` (new — backfill, recalculation)
+- `routes/inventory-changes.js` (new — admin/comparison endpoints)
+- `jobs/inventory-changes-gap-fill.js` (new — gap detection cron)
+- `services/webhook-handlers/inventory-handler.js` (add change capture)
+- `server.js` (register new route)
+
+**Pre-work**: Read `docs/PLAN-sales-velocity-refactor.md` fully. Understand the 3 defects: variation ID remapping, refunds not subtracted, phantom velocity rows.
+
+**Resolves**: BACKLOG-35 (refunds not subtracted), BACKLOG-36 (phantom velocity rows), variation ID remapping corruption
+
+#### Phases (must be sequential):
+
+1. [ ] **Phase 1 — Schema + Service** [S-M, 6-8h]: Create `inventory_changes` table (migration). Build `services/inventory-changes.js` with backfill, recalculation, and comparison functions. Add admin route for manual operations. Write unit tests.
+2. [ ] **Phase 2 — Data Collection** [S-M, 4-6h + **24-48h validation wait**]: Modify `inventory-handler.js` to capture change details on `inventory.count.updated` webhook. Create `inventory-changes-gap-fill.js` cron job for daily reconciliation. Deploy and collect 24-48h of real data before proceeding.
+3. [ ] **Phase 3 — New Calculation** [M, 6-8h]: Build new velocity calculation from `inventory_changes` table. Add comparison endpoint showing old vs new values per variation. Validate accuracy against existing system.
+4. [ ] **Phase 4 — Cutover** [S, 2-3h + **1 week monitoring**]: Switch sync source from Orders API to `inventory_changes`. Monitor for 1 week for accuracy drift.
+5. [ ] **Phase 5 — Cleanup** [S, 1-2h]: Deprecate old velocity sync code. Update documentation. Remove old comparison endpoints.
+
+**NEEDS_DECISION**: Confirm this approach before starting Phase 1. Key risk: Square Inventory Changes API data retention is undocumented.
+
+#### Tests required:
+- [ ] Test backfill correctly populates inventory_changes from Square API
+- [ ] Test webhook handler captures change details atomically
+- [ ] Test gap-fill job detects and fills missing changes
+- [ ] Test new velocity calculation matches expected values for known scenarios
+- [ ] Test comparison endpoint shows old vs new velocity with acceptable delta
+
+#### Definition of done:
+- Sales velocity calculated from immutable inventory change records
+- Variation ID remapping no longer corrupts historical data
+- Refunds properly subtracted from velocity
+- Zero phantom velocity rows (variations with 0 sales cleaned up)
+- Old and new systems agree within ±5% after 1 week parallel run
+- BACKLOG-35 and BACKLOG-36 marked resolved
 
 ---
 
@@ -883,9 +1077,9 @@ Every item from prior planning documents with its disposition in this remediatio
 | BACKLOG-31 | COMPLETED | Already done (2026-02-19, `services/loyalty/` deleted) |
 | BACKLOG-32 | COMPLETED | Already done (2026-02-23, frontend loads tier config from API) |
 | BACKLOG-33 | COMPLETED | Already done (2026-02-24, new variation velocity badge) |
-| BACKLOG-34 | OPEN | MERGED → Pkg 4 (Reorder/Analytics — documentation task) |
-| BACKLOG-35 | OPEN | MERGED → Pkg 4 (Reorder/Analytics — velocity refactor) |
-| BACKLOG-36 | OPEN | MERGED → Pkg 4 (Reorder/Analytics — velocity refactor) |
+| BACKLOG-34 | OPEN | MERGED → Pkg 4a (Reorder/Analytics — documentation task) |
+| BACKLOG-35 | OPEN | MERGED → Pkg 4b (Sales Velocity Refactor) |
+| BACKLOG-36 | OPEN | MERGED → Pkg 4b (Sales Velocity Refactor) |
 
 ### DEDUP-AUDIT Items
 
@@ -969,7 +1163,7 @@ Items requiring human judgment before execution:
 |---------|------|----------|
 | Pkg 1 | S-4 | Are all inline `<script>` blocks truly eliminated? If yes, remove `'unsafe-inline'`. If not, switch to nonce-based CSP. |
 | Pkg 1 | S-9 | Is CSRF token middleware needed given `sameSite: 'lax'` + CORS? Cost/benefit for admin operations? |
-| Pkg 4 | BACKLOG-35/36 | Confirm sales velocity refactor approach (inventory changes API). This is the largest single work item. |
+| Pkg 4b | BACKLOG-35/36 | Confirm sales velocity refactor approach (inventory changes API). This is the largest single work item. Key risk: Square Inventory Changes API data retention is undocumented. |
 | Pkg 7 | D-7 | Is `subscription_plans.square_plan_id` dead or planned for future use? Drop or keep? |
 | Pkg 11 | C-4 | Encryption key management approach for backup files — GPG keyring vs env var vs separate key file? |
 | Pkg 15 | E-4 | Is a fallback buffer for audit log writes worth the complexity for single-tenant? |
