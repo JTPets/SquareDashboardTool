@@ -427,6 +427,31 @@ CREATE INDEX idx_purchase_order_items_variation ON purchase_order_items(variatio
 -- Items lookups
 CREATE INDEX idx_items_category ON items(category_id);
 
+-- Multi-tenant merchant_id indexes (from migration 005)
+CREATE INDEX IF NOT EXISTS idx_locations_merchant ON locations(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_categories_merchant ON categories(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_items_merchant ON items(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_variations_merchant ON variations(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_images_merchant ON images(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_counts_merchant ON inventory_counts(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_merchant ON vendors(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_variation_vendors_merchant ON variation_vendors(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_merchant ON purchase_orders(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_merchant ON purchase_order_items(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_sales_velocity_merchant ON sales_velocity(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_variation_location_settings_merchant ON variation_location_settings(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_sync_history_merchant ON sync_history(merchant_id);
+
+-- Multi-tenant composite indexes (from migration 005)
+CREATE INDEX IF NOT EXISTS idx_items_merchant_deleted ON items(merchant_id, is_deleted);
+CREATE INDEX IF NOT EXISTS idx_variations_merchant_item ON variations(merchant_id, item_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_merchant_location ON inventory_counts(merchant_id, location_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_counts_merchant_location_state ON inventory_counts(merchant_id, location_id, state);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_merchant_status ON purchase_orders(merchant_id, status);
+CREATE INDEX IF NOT EXISTS idx_sales_velocity_merchant_location ON sales_velocity(merchant_id, location_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_merchant_name ON vendors(merchant_id, name);
+CREATE INDEX IF NOT EXISTS idx_categories_merchant_name ON categories(merchant_id, name);
+
 -- Comments for documentation
 COMMENT ON TABLE sync_history IS 'Tracks sync operations for smart sync optimization';
 COMMENT ON TABLE locations IS 'Store locations synchronized from Square';
@@ -522,6 +547,7 @@ CREATE INDEX IF NOT EXISTS idx_variation_expiration_date
 CREATE INDEX IF NOT EXISTS idx_variation_does_not_expire
     ON variation_expiration(does_not_expire)
     WHERE does_not_expire = TRUE;
+CREATE INDEX IF NOT EXISTS idx_variation_expiration_merchant ON variation_expiration(merchant_id);
 
 -- Add comments
 COMMENT ON TABLE variation_expiration IS 'Product expiration dates for perishable items';
@@ -560,6 +586,7 @@ CREATE TABLE IF NOT EXISTS count_history (
 CREATE INDEX IF NOT EXISTS idx_count_history_catalog_id ON count_history(catalog_object_id);
 CREATE INDEX IF NOT EXISTS idx_count_history_last_counted ON count_history(last_counted_date DESC);
 CREATE INDEX IF NOT EXISTS idx_count_history_accuracy ON count_history(is_accurate) WHERE is_accurate = FALSE;
+CREATE INDEX IF NOT EXISTS idx_count_history_merchant ON count_history(merchant_id);
 
 -- Table for priority queue ("Send Now" items)
 CREATE TABLE IF NOT EXISTS count_queue_priority (
@@ -576,6 +603,7 @@ CREATE TABLE IF NOT EXISTS count_queue_priority (
 
 CREATE INDEX IF NOT EXISTS idx_count_queue_catalog_id ON count_queue_priority(catalog_object_id);
 CREATE INDEX IF NOT EXISTS idx_count_queue_completed ON count_queue_priority(completed) WHERE completed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_count_queue_priority_merchant ON count_queue_priority(merchant_id);
 
 -- Table for daily batch queue (accumulates uncompleted items)
 CREATE TABLE IF NOT EXISTS count_queue_daily (
@@ -594,6 +622,7 @@ CREATE TABLE IF NOT EXISTS count_queue_daily (
 CREATE INDEX IF NOT EXISTS idx_count_queue_daily_catalog_id ON count_queue_daily(catalog_object_id);
 CREATE INDEX IF NOT EXISTS idx_count_queue_daily_batch_date ON count_queue_daily(batch_date DESC);
 CREATE INDEX IF NOT EXISTS idx_count_queue_daily_completed ON count_queue_daily(completed) WHERE completed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_count_queue_daily_merchant ON count_queue_daily(merchant_id);
 
 -- Table to track count sessions for reporting
 CREATE TABLE IF NOT EXISTS count_sessions (
@@ -610,6 +639,7 @@ CREATE TABLE IF NOT EXISTS count_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_count_sessions_date ON count_sessions(session_date DESC);
+CREATE INDEX IF NOT EXISTS idx_count_sessions_merchant ON count_sessions(merchant_id);
 
 -- Comments for documentation
 COMMENT ON TABLE count_history IS 'Tracks when each variation was last cycle counted';
@@ -691,6 +721,8 @@ CREATE TABLE IF NOT EXISTS vendor_catalog_items (
     import_batch_id TEXT,                         -- Groups items from same import
     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Multi-tenant support
+    merchant_id INTEGER REFERENCES merchants(id),
     -- Ensure unique vendor item per vendor per batch (allows updates)
     UNIQUE(vendor_id, vendor_item_number, import_batch_id)
 );
@@ -702,6 +734,7 @@ CREATE INDEX IF NOT EXISTS idx_vendor_catalog_vendor_item ON vendor_catalog_item
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_matched ON vendor_catalog_items(matched_variation_id) WHERE matched_variation_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_batch ON vendor_catalog_items(import_batch_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_catalog_imported ON vendor_catalog_items(imported_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_catalog_items_merchant ON vendor_catalog_items(merchant_id);
 
 -- Comments for documentation
 COMMENT ON TABLE vendor_catalog_items IS 'Imported vendor product catalogs for lookup and margin tracking';
@@ -806,6 +839,12 @@ CREATE INDEX IF NOT EXISTS idx_item_brands_item ON item_brands(item_id);
 CREATE INDEX IF NOT EXISTS idx_item_brands_brand ON item_brands(brand_id);
 CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name);
 
+-- Multi-tenant merchant_id indexes for GMC tables (from migration 005)
+CREATE INDEX IF NOT EXISTS idx_brands_merchant ON brands(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_category_taxonomy_mapping_merchant ON category_taxonomy_mapping(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_item_brands_merchant ON item_brands(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_gmc_settings_merchant ON gmc_settings(merchant_id);
+
 -- Comments for documentation
 COMMENT ON TABLE brands IS 'Product brands for Google Merchant Center feeds';
 COMMENT ON TABLE google_taxonomy IS 'Google Product Taxonomy categories for GMC feeds';
@@ -876,6 +915,7 @@ CREATE TABLE IF NOT EXISTS expiry_discount_audit_log (
     square_sync_status TEXT,                   -- 'PENDING', 'SUCCESS', 'FAILED'
     square_error_message TEXT,
     triggered_by TEXT DEFAULT 'SYSTEM',        -- 'SYSTEM', 'MANUAL', 'CRON'
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -900,6 +940,12 @@ CREATE INDEX IF NOT EXISTS idx_variation_discount_status_needs_pull ON variation
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_variation ON expiry_discount_audit_log(variation_id);
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_created ON expiry_discount_audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_tiers_active ON expiry_discount_tiers(is_active, priority DESC);
+
+-- Multi-tenant merchant_id indexes for expiry discount tables (from migration 005)
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_tiers_merchant ON expiry_discount_tiers(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_variation_discount_status_merchant ON variation_discount_status(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_log_merchant ON expiry_discount_audit_log(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_expiry_discount_settings_merchant ON expiry_discount_settings(merchant_id);
 
 -- Comments for documentation
 COMMENT ON TABLE expiry_discount_tiers IS 'Configurable discount tiers based on days until product expiration';

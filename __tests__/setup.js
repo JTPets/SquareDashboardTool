@@ -22,6 +22,14 @@ jest.mock('../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
+// Mock email notifier to prevent real emails during tests
+jest.mock('../utils/email-notifier', () => ({
+    sendCritical: jest.fn().mockResolvedValue(),
+    sendAlert: jest.fn().mockResolvedValue(),
+    sendInfo: jest.fn().mockResolvedValue(),
+    enabled: false,
+}));
+
 // Mock database to prevent actual PostgreSQL connections during tests
 // Individual tests can override this mock as needed
 jest.mock('../utils/database', () => ({

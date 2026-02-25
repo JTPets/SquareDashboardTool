@@ -23,6 +23,9 @@ const { getSquareClientForMerchant } = require('../middleware/merchant');
 const { loyaltyLogger } = require('../utils/loyalty-logger');
 const { detectRewardRedemptionFromOrder, syncRewardDiscountPrices } = require('../services/loyalty-admin');
 
+// Per-merchant timeout: 5 minutes (Ref: REMEDIATION-PLAN MED-5)
+const PER_MERCHANT_TIMEOUT_MS = 5 * 60 * 1000;
+
 /**
  * Get all merchants with active loyalty offers
  *
@@ -431,48 +434,76 @@ async function runLoyaltyAudit(options = {}) {
         });
 
         for (const merchant of merchants) {
-            const results = await auditMerchant(merchant, hoursBack);
+            const ac = new AbortController();
+            const timeout = setTimeout(() => ac.abort(), PER_MERCHANT_TIMEOUT_MS);
 
-            aggregateResults.merchantsAudited++;
-            aggregateResults.totalEventsChecked += results.eventsChecked;
-            aggregateResults.totalSkippedNativePoints += results.skippedNativePoints;
-            aggregateResults.totalOrphansFound += results.orphansFound;
-            aggregateResults.totalMissingRedemptions += results.missingRedemptions;
-            aggregateResults.totalPhantomRewards += results.phantomRewards;
-            aggregateResults.totalDoubleRedemptions += results.doubleRedemptions;
+            try {
+                const merchantWork = async () => {
+                    const results = await auditMerchant(merchant, hoursBack);
 
-            if (results.errors.length > 0) {
+                    aggregateResults.merchantsAudited++;
+                    aggregateResults.totalEventsChecked += results.eventsChecked;
+                    aggregateResults.totalSkippedNativePoints += results.skippedNativePoints;
+                    aggregateResults.totalOrphansFound += results.orphansFound;
+                    aggregateResults.totalMissingRedemptions += results.missingRedemptions;
+                    aggregateResults.totalPhantomRewards += results.phantomRewards;
+                    aggregateResults.totalDoubleRedemptions += results.doubleRedemptions;
+
+                    if (results.errors.length > 0) {
+                        aggregateResults.merchantErrors.push({
+                            merchantId: merchant.id,
+                            errors: results.errors
+                        });
+                    }
+
+                    // Log per-merchant if issues found or native points skipped
+                    if (results.orphansFound > 0 || results.skippedNativePoints > 0) {
+                        loyaltyLogger.audit({
+                            action: results.orphansFound > 0 ? 'MERCHANT_AUDIT_ISSUES' : 'MERCHANT_AUDIT_SKIPPED_NATIVE',
+                            merchantId: merchant.id,
+                            eventsChecked: results.eventsChecked,
+                            skippedNativePoints: results.skippedNativePoints,
+                            orphansFound: results.orphansFound,
+                            missingRedemptions: results.missingRedemptions,
+                            phantomRewards: results.phantomRewards,
+                            doubleRedemptions: results.doubleRedemptions
+                        });
+                    }
+
+                    // Sync reward discount caps with current catalog prices
+                    try {
+                        const syncResult = await syncRewardDiscountPrices({ merchantId: merchant.id });
+                        aggregateResults.priceSync.totalUpdated += syncResult.updated;
+                        aggregateResults.priceSync.totalFailed += syncResult.failed;
+                    } catch (syncError) {
+                        loyaltyLogger.error({
+                            action: 'PRICE_SYNC_MERCHANT_FAILED',
+                            merchantId: merchant.id,
+                            error: syncError.message
+                        });
+                    }
+                };
+
+                const abortPromise = new Promise((_, reject) => {
+                    ac.signal.addEventListener('abort', () =>
+                        reject(new Error(`Merchant ${merchant.id} audit timed out after ${PER_MERCHANT_TIMEOUT_MS / 1000}s`))
+                    );
+                });
+
+                await Promise.race([merchantWork(), abortPromise]);
+            } catch (timeoutError) {
+                loyaltyLogger.error({
+                    action: 'MERCHANT_AUDIT_TIMEOUT',
+                    merchantId: merchant.id,
+                    timeoutMs: PER_MERCHANT_TIMEOUT_MS,
+                    error: timeoutError.message
+                });
                 aggregateResults.merchantErrors.push({
                     merchantId: merchant.id,
-                    errors: results.errors
+                    errors: [{ error: timeoutError.message }]
                 });
-            }
-
-            // Log per-merchant if issues found or native points skipped
-            if (results.orphansFound > 0 || results.skippedNativePoints > 0) {
-                loyaltyLogger.audit({
-                    action: results.orphansFound > 0 ? 'MERCHANT_AUDIT_ISSUES' : 'MERCHANT_AUDIT_SKIPPED_NATIVE',
-                    merchantId: merchant.id,
-                    eventsChecked: results.eventsChecked,
-                    skippedNativePoints: results.skippedNativePoints,
-                    orphansFound: results.orphansFound,
-                    missingRedemptions: results.missingRedemptions,
-                    phantomRewards: results.phantomRewards,
-                    doubleRedemptions: results.doubleRedemptions
-                });
-            }
-
-            // Sync reward discount caps with current catalog prices
-            try {
-                const syncResult = await syncRewardDiscountPrices({ merchantId: merchant.id });
-                aggregateResults.priceSync.totalUpdated += syncResult.updated;
-                aggregateResults.priceSync.totalFailed += syncResult.failed;
-            } catch (syncError) {
-                loyaltyLogger.error({
-                    action: 'PRICE_SYNC_MERCHANT_FAILED',
-                    merchantId: merchant.id,
-                    error: syncError.message
-                });
+            } finally {
+                clearTimeout(timeout);
             }
         }
 

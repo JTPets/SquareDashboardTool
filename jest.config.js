@@ -24,6 +24,7 @@ module.exports = {
         'utils/**/*.js',
         'middleware/**/*.js',
         'routes/**/*.js',
+        'services/**/*.js',
         '!**/node_modules/**',
         '!**/__tests__/**'
     ],
@@ -57,9 +58,21 @@ module.exports = {
             functions: 40,
             lines: 25,
             statements: 25
+        },
+        // Directory aggregate thresholds — ratchet up as coverage improves (Ref: REMEDIATION-PLAN T-5)
+        // Current: services ~14%, routes ~2.5%. Targets: services 30%, routes 20%
+        './services/': {
+            branches: 8,
+            functions: 10,
+            lines: 10,
+            statements: 10
+        },
+        './routes/': {
+            branches: 1,
+            functions: 0,
+            lines: 2,
+            statements: 2
         }
-        // Add more files here as tests are written:
-        // './routes/auth.js': { branches: 60, functions: 60, lines: 60, statements: 60 },
     },
 
     // Coverage reporters
