@@ -384,7 +384,7 @@
       if (validationErrors && validationErrors.length > 0) {
         html += '<ul style="margin-top: 10px; font-size: 13px;">';
         validationErrors.slice(0, 10).forEach(err => {
-          html += `<li>Row ${err.row}: ${err.errors.join(', ')}</li>`;
+          html += `<li>Row ${err.row}: ${err.errors.map(e => escapeHtml(e)).join(', ')}</li>`;
         });
         if (validationErrors.length > 10) {
           html += `<li>...and ${validationErrors.length - 10} more errors</li>`;
