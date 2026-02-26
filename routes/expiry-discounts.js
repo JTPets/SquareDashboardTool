@@ -299,7 +299,7 @@ router.post('/expiry-discounts/run', requireAuth, requireMerchant, validators.ru
                         `Duration: ${result.duration}ms`
                     );
                 } catch (emailError) {
-                    logger.error('Failed to send automation email', { error: emailError.message });
+                    logger.error('Failed to send automation email', { error: emailError.message, merchantId });
                 }
             }
         }
