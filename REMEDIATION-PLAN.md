@@ -231,8 +231,10 @@ Every finding from every source, merged and deduplicated.
 | A-4 | Audit+DEDUP | HIGH | Duplicate customer lookup implementations (BACKLOG-17, DEDUP L-4) | **OPEN** |
 | A-5 | Audit+BACKLOG | MEDIUM | Inconsistent response formats (BACKLOG-3) | **OPEN** |
 | A-6 | Audit | MEDIUM | 66 files over 300-line limit (beyond 2 approved) | **OPEN** — refactor-on-touch |
+| A-4b | Pkg 3 finding | MEDIUM | `getCustomerDetails()` exists in both `customer-admin-service.js` (standalone, 6 callers, cache-first) and `customer-identification-service.js` (class method, 4 callers, direct API, no caching). Different signatures, different caching behavior. Not covered by A-4 consolidation which only addressed lookup helpers. | **NEEDS_DECISION** |
 | A-7 | Audit+DEDUP | LOW | Open deduplication debt: G-3, G-5, G-7, G-8 (BACKLOG-23,25,26,27) | **OPEN** |
 | DC-1 | Audit | LOW | 9 backward-compatibility re-export stubs in utils/ | **OPEN** |
+| DC-3 | Pkg 3 finding | LOW | `redemption-audit-service.js:15` imports `encryptToken` from `token-encryption.js` but never uses it. Dead import. | **OPEN** — refactor-on-touch (Pkg 14) |
 
 ### Database Findings
 
@@ -545,6 +547,10 @@ Every finding from every source, merged and deduplicated.
 - No duplicate lookup logic between the two service files
 - N+1 queries eliminated in loyalty.js and redemption-audit-service.js
 - All existing loyalty tests pass
+
+#### Follow-up findings (discovered during execution):
+- **A-4b** (MEDIUM, NEEDS_DECISION): `getCustomerDetails()` still has two implementations — standalone in `customer-admin-service.js` (cache-first, 6 callers) vs class method in `customer-identification-service.js` (direct API, no caching, 4 callers). These have different signatures and different caching behavior. Consolidating requires a decision: unify caching strategy (always cache? always direct?) or keep both intentionally. See NEEDS_DECISION table.
+- **DC-3** (LOW, refactor-on-touch): Dead import `encryptToken` in `redemption-audit-service.js:15`. Assigned to Pkg 14.
 
 ---
 
@@ -976,6 +982,7 @@ Every finding from every source, merged and deduplicated.
    - `routes/loyalty.js` (2,100 lines)
    - `services/expiry/discount-service.js` (2,097 lines)
    - `services/delivery/delivery-service.js` (1,918 lines)
+6. [ ] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified.
 
 #### Tests required:
 - [ ] Test location helpers return correct results for each function
@@ -1150,5 +1157,6 @@ Items requiring human judgment before execution:
 | Pkg 4b | BACKLOG-35/36 | Confirm sales velocity refactor approach (inventory changes API). This is the largest single work item. Key risk: Square Inventory Changes API data retention is undocumented. |
 | ~~Pkg 7~~ | ~~D-7~~ | ~~Is `subscription_plans.square_plan_id` dead or planned for future use? Drop or keep?~~ **RESOLVED**: NOT dead — actively used in square-subscriptions.js, routes/subscriptions.js, admin-subscriptions.js. Keep. |
 | Pkg 11 | C-4 | Encryption key management approach for backup files — GPG keyring vs env var vs separate key file? |
+| Pkg 14 | A-4b | `getCustomerDetails()` has two implementations with different caching behavior: `customer-admin-service.js` (standalone, cache-first, 6 callers) vs `customer-identification-service.js` (class method, direct API, no caching, 4 callers). Unify to always-cache, always-direct, or keep both intentionally? |
 | Pkg 15 | E-4 | Is a fallback buffer for audit log writes worth the complexity for single-tenant? |
 | Pre-deploy | API version | Update `SQUARE_API_VERSION` from `2025-10-16` to `2026-01-22` and SDK from `^43.2.1` to `^44.0.0`. 2026-01-22 affects Catalog, Orders, Payments, OAuth APIs (all heavily used). 203 regenerated SDK files. **Must read changelog first** at https://developer.squareup.com/docs/changelog/connect and test in Square Sandbox before production. See Pkg 2a completion notes. |
