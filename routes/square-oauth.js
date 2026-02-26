@@ -433,68 +433,8 @@ router.post('/refresh', requireAuth, requireAdmin, asyncHandler(async (req, res)
     });
 }));
 
-/**
- * Refresh a merchant's Square OAuth token
- * @param {number} merchantId - The merchant ID
- * @returns {Object} New token info
- */
-async function refreshMerchantToken(merchantId) {
-    const merchant = await db.query(
-        'SELECT * FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-
-    if (merchant.rows.length === 0) {
-        throw new Error('Merchant not found or inactive');
-    }
-
-    const refreshToken = decryptToken(merchant.rows[0].square_refresh_token);
-
-    if (!refreshToken) {
-        throw new Error('No refresh token available');
-    }
-
-    const squareEnv = SQUARE_ENVIRONMENT === 'sandbox'
-        ? SquareEnvironment.Sandbox
-        : SquareEnvironment.Production;
-
-    const client = new SquareClient({ environment: squareEnv });
-
-    const response = await client.oAuth.obtainToken({
-        clientId: SQUARE_APPLICATION_ID,
-        clientSecret: SQUARE_APPLICATION_SECRET,
-        grantType: 'refresh_token',
-        refreshToken: refreshToken
-    });
-
-    const {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        expiresAt
-    } = response;
-
-    // Encrypt and store new tokens
-    await db.query(`
-        UPDATE merchants SET
-            square_access_token = $1,
-            square_refresh_token = $2,
-            square_token_expires_at = $3,
-            updated_at = NOW()
-        WHERE id = $4
-    `, [
-        encryptToken(newAccessToken),
-        newRefreshToken ? encryptToken(newRefreshToken) : merchant.rows[0].square_refresh_token,
-        expiresAt,
-        merchantId
-    ]);
-
-    logger.info('Token refreshed for merchant', { merchantId, expiresAt });
-
-    return {
-        accessToken: newAccessToken,
-        expiresAt
-    };
-}
+// Delegate to shared utility (extracted from here to fix circular dependency A-3)
+const { refreshMerchantToken } = require('../utils/square-token');
 
 /**
  * Get a valid access token for a merchant

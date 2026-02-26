@@ -34,8 +34,8 @@ const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identifica
 // Cart activity tracking for DRAFT orders
 const cartActivityService = require('../cart/cart-activity-service');
 
-// Square API version for direct API calls
-const SQUARE_API_VERSION = '2025-01-16';
+// Square API version from centralized config
+const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../../config/constants');
 
 /**
  * Normalize Square SDK order fields from camelCase to snake_case.

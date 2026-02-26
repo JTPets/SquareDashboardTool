@@ -9,13 +9,14 @@
  * Extracted from loyalty-service.js as part of P1-1 Phase 4 refactoring.
  */
 
-const crypto = require('crypto');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
+const { generateIdempotencyKey } = require('../../utils/idempotency');
+
+const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../../config/constants');
 
 const SQUARE_API_BASE = 'https://connect.squareup.com/v2';
-const SQUARE_API_VERSION = '2025-01-16';
 
 /**
  * Custom error class for Square API errors
@@ -170,17 +171,6 @@ function getSquareApi() {
         squareApi = require('../../utils/square-api');
     }
     return squareApi;
-}
-
-/**
- * Generate a unique idempotency key for Square API requests.
- * Mirrors services/square/api.js:generateIdempotencyKey — kept here
- * to avoid pulling in the full Square API module (which requires node-fetch).
- * @param {string} prefix - Prefix to identify the operation type
- * @returns {string} Unique idempotency key
- */
-function generateIdempotencyKey(prefix) {
-    return `${prefix}-${crypto.randomUUID()}`;
 }
 
 module.exports = {

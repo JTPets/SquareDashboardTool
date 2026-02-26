@@ -107,7 +107,7 @@ describe('SyncQueue', () => {
             expect(syncQueue.isCatalogSyncPending(1)).toBe(true);
         });
 
-        it('should run follow-up sync if webhooks arrived during sync', async () => {
+        it('should fire follow-up sync async if webhooks arrived during sync', async () => {
             const syncFn = jest.fn()
                 .mockImplementationOnce(async () => {
                     // Simulate webhook arriving during first sync
@@ -118,11 +118,14 @@ describe('SyncQueue', () => {
 
             const result = await syncQueue.executeWithQueue('catalog', 1, syncFn);
 
-            expect(syncFn).toHaveBeenCalledTimes(2);
+            // Follow-up fires async (non-blocking), so result only contains first run
             expect(result).toEqual({
-                result: { items: 10, firstRun: true },
-                followUpResult: { items: 15, secondRun: true }
+                result: { items: 10, firstRun: true }
             });
+
+            // Wait a tick for the async follow-up to fire
+            await new Promise(resolve => setImmediate(resolve));
+            expect(syncFn).toHaveBeenCalledTimes(2);
             expect(syncQueue.isCatalogSyncInProgress(1)).toBe(false);
             expect(syncQueue.isCatalogSyncPending(1)).toBe(false);
         });

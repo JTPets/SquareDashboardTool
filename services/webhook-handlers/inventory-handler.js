@@ -87,10 +87,8 @@ class InventoryHandler {
             };
             logger.info('Inventory sync completed via webhook', { count: syncResult.result });
 
-            if (syncResult.followUpResult) {
-                result.followUpSync = { count: syncResult.followUpResult };
-                logger.info('Follow-up inventory sync completed', { count: syncResult.followUpResult });
-            }
+            // Follow-up syncs (when webhooks arrive during sync) now fire async
+            // and do not block the result — no followUpResult to process
         }
 
         return result;

@@ -98,13 +98,8 @@ class CatalogHandler {
             };
             logger.info('Catalog delta sync completed via webhook', result.catalog);
 
-            if (syncResult.followUpResult) {
-                result.followUpSync = {
-                    items: syncResult.followUpResult.items,
-                    variations: syncResult.followUpResult.variations
-                };
-                logger.info('Follow-up catalog sync completed', result.followUpSync);
-            }
+            // Follow-up syncs (when webhooks arrive during sync) now fire async
+            // and do not block the result — no followUpResult to process
         }
 
         // Reconcile bundle components that reference deleted/replaced variations

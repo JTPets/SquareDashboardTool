@@ -7,9 +7,9 @@ const db = require('./database');
 const logger = require('./logger');
 const { decryptToken, isEncryptedToken } = require('./token-encryption');
 const { generateIdempotencyKey } = require('./square-api');
+const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../config/constants');
 
 // Square API configuration
-const SQUARE_API_VERSION = '2025-01-16';
 const SQUARE_BASE_URL = 'https://connect.squareup.com';
 
 /**
