@@ -57,6 +57,10 @@ async function generateDailyBatch(merchantId) {
               AND v.track_inventory = TRUE
               AND cqp.id IS NULL
               AND NOT EXISTS (
+                  SELECT 1 FROM bundle_definitions bd
+                  WHERE bd.bundle_variation_id = ch.catalog_object_id AND bd.merchant_id = $1 AND bd.is_active = true
+              )
+              AND NOT EXISTS (
                 SELECT 1 FROM count_history ch2
                 WHERE ch2.catalog_object_id = ch.catalog_object_id
                   AND ch2.merchant_id = $1
@@ -115,6 +119,10 @@ async function generateDailyBatch(merchantId) {
               AND v.track_inventory = TRUE
               AND cqd.id IS NULL
               AND cqp.id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM bundle_definitions bd
+                  WHERE bd.bundle_variation_id = v.id AND bd.merchant_id = $2 AND bd.is_active = true
+              )
             ORDER BY ch.last_counted_date ASC NULLS FIRST, i.name, v.name
             LIMIT $1
         `;
