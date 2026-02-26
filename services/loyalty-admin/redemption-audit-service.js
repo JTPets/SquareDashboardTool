@@ -118,19 +118,33 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
     const rewardOrderMap = new Map(); // orderId -> Set<rewardId>
     const orderCustomerMap = new Map(); // orderId -> squareCustomerId
 
+    // D-4: Single batch query replaces per-reward N+1 queries
+    const uniqueCustomerIds = [...new Set(earnedRewards.map(r => r.square_customer_id))];
+    const allOrdersResult = await db.query(`
+        SELECT DISTINCT lpo.square_order_id, lpo.processed_at, lpo.created_at,
+                        lpo.result_type, lpo.source, lpo.square_customer_id
+        FROM loyalty_processed_orders lpo
+        WHERE lpo.merchant_id = $1
+          AND lpo.square_customer_id = ANY($2)
+    `, [merchantId, uniqueCustomerIds]);
+
+    // Group orders by customer ID
+    const ordersByCustomer = new Map();
+    for (const row of allOrdersResult.rows) {
+        if (!ordersByCustomer.has(row.square_customer_id)) {
+            ordersByCustomer.set(row.square_customer_id, []);
+        }
+        ordersByCustomer.get(row.square_customer_id).push(row);
+    }
+
+    // Process results identically to previous per-reward loop
     for (const reward of earnedRewards) {
-        const ordersResult = await db.query(`
-            SELECT DISTINCT lpo.square_order_id, lpo.processed_at, lpo.created_at,
-                            lpo.result_type, lpo.source
-            FROM loyalty_processed_orders lpo
-            WHERE lpo.merchant_id = $1
-              AND lpo.square_customer_id = $2
-        `, [merchantId, reward.square_customer_id]);
+        const customerOrders = ordersByCustomer.get(reward.square_customer_id) || [];
 
         const withinWindow = [];
         const outsideWindow = [];
 
-        for (const row of ordersResult.rows) {
+        for (const row of customerOrders) {
             if (new Date(row.processed_at) >= cutoffDate) {
                 withinWindow.push(row);
             } else {
@@ -142,10 +156,10 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
             merchantId,
             reward_id: reward.reward_id,
             square_customer_id: reward.square_customer_id,
-            totalOrders: ordersResult.rows.length,
+            totalOrders: customerOrders.length,
             withinWindow: withinWindow.length,
             outsideWindow: outsideWindow.length,
-            orders: ordersResult.rows.map(r => ({
+            orders: customerOrders.map(r => ({
                 square_order_id: r.square_order_id,
                 processed_at: r.processed_at,
                 created_at: r.created_at,
