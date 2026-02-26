@@ -102,10 +102,25 @@
       background: #4b5563 !important;
     }
 
+    .reorder-section-header {
+      padding: 12px 20px;
+      background: #f9fafb;
+      cursor: pointer;
+      user-select: none;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .reorder-section-header:hover {
+      background: #f3f4f6;
+    }
     .table-container {
       overflow-x: auto;
       max-height: 65vh;
+      min-height: 120px;
       overflow-y: auto;
+      resize: vertical;
     }
     table {
       width: 100%;
@@ -765,7 +780,9 @@
     }
     .other-items-body {
       max-height: 50vh;
+      min-height: 120px;
       overflow-y: auto;
+      resize: vertical;
     }
     .other-items-table {
       width: 100%;
@@ -876,7 +893,13 @@
       <p>Or select "All Vendors" to view the complete inventory.</p>
     </div>
 
-    <div class="table-container" id="table-container" style="display:none;">
+    <div id="reorder-section" class="reorder-section" style="display:none;">
+      <div class="reorder-section-header" data-action="toggleReorderSection">
+        <span id="reorder-section-toggle" class="other-items-toggle">&#9660;</span>
+        <span id="reorder-section-title">Needs Reorder (0 items)</span>
+      </div>
+      <div id="reorder-section-body" class="reorder-section-body">
+        <div class="table-container" id="table-container">
       <table>
         <thead>
           <tr>
@@ -943,6 +966,8 @@
         <tbody id="suggestions-body">
         </tbody>
       </table>
+        </div>
+      </div>
     </div>
 
     <!-- All Other Vendor Items (Feature 3) — collapsible -->

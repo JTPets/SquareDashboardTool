@@ -30,8 +30,9 @@ let otherVendorItems = [];
 let manualItems = [];
 // Current vendor's minimum order amount (cents)
 let currentVendorMinimum = 0;
-// Track whether the "other items" section is expanded
+// Track whether sections are expanded
 let otherItemsExpanded = false;
+let reorderSectionExpanded = true;
 
 // Load expiry tier configuration from API
 async function loadExpiryTierConfig() {
@@ -241,6 +242,7 @@ async function getSuggestions() {
           </td>
         </tr>
       `;
+      updateReorderSectionTitle();
       updateFooter();
       renderOtherItemsSection();
       return;
@@ -819,6 +821,7 @@ function renderTable() {
   }
 
   tbody.innerHTML = bundleHtml + itemsHtml + manualHtml;
+  updateReorderSectionTitle();
 }
 
 function toggleSelectAll(checked) {
@@ -1867,7 +1870,7 @@ function onVendorChange() {
 // Show the "Select vendor" prompt, hide table
 function showVendorPrompt() {
   document.getElementById('vendor-prompt').style.display = '';
-  document.getElementById('table-container').style.display = 'none';
+  document.getElementById('reorder-section').style.display = 'none';
   document.getElementById('other-items-section').style.display = 'none';
   document.getElementById('vendor-info-bar').style.display = 'none';
   currentVendorMinimum = 0;
@@ -1881,7 +1884,7 @@ function showVendorPrompt() {
 // Hide the prompt, show table
 function hideVendorPrompt() {
   document.getElementById('vendor-prompt').style.display = 'none';
-  document.getElementById('table-container').style.display = '';
+  document.getElementById('reorder-section').style.display = '';
 }
 
 // ==================== VENDOR INFO BAR (Feature 2) ====================
@@ -1977,6 +1980,28 @@ function updateVendorRunningTotal(totalCost) {
 function capitalizeFirst(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+// ==================== OTHER VENDOR ITEMS SECTION (Feature 3) ====================
+
+// ==================== COLLAPSIBLE REORDER SECTION ====================
+
+function toggleReorderSection() {
+  reorderSectionExpanded = !reorderSectionExpanded;
+  const body = document.getElementById('reorder-section-body');
+  const toggle = document.getElementById('reorder-section-toggle');
+  body.style.display = reorderSectionExpanded ? '' : 'none';
+  toggle.innerHTML = reorderSectionExpanded ? '&#9660;' : '&#9654;';
+}
+
+function updateReorderSectionTitle() {
+  const titleEl = document.getElementById('reorder-section-title');
+  if (!titleEl) return;
+  const standaloneCount = allSuggestions.filter(
+    s => !bundleChildVariationIds.has(s.variation_id)
+  ).length;
+  const total = standaloneCount + manualItems.length;
+  titleEl.textContent = 'Needs Reorder (' + total + ' items)';
 }
 
 // ==================== OTHER VENDOR ITEMS SECTION (Feature 3) ====================
@@ -2323,6 +2348,7 @@ window.updateBundleChildQty = updateBundleChildQty;
 // Vendor-first workflow functions
 window.onVendorChange = onVendorChange;
 window.toggleOtherItems = toggleOtherItems;
+window.toggleReorderSection = toggleReorderSection;
 window.addManualItem = addManualItem;
 window.removeManualItem = removeManualItem;
 window.updateManualOrderQty = updateManualOrderQty;
