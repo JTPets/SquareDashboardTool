@@ -1599,24 +1599,58 @@ router.post('/refresh-customers', requireAuth, requireMerchant, requireWriteAcce
     let failed = 0;
     const errors = [];
 
-    // Fetch each customer from Square and cache (with throttling)
-    for (const customerId of customerIds) {
-        try {
-            const customer = await loyaltyService.getCustomerDetails(customerId, merchantId);
-            if (customer) {
-                refreshed++;
-                logger.debug('Refreshed customer', { customerId, phone: customer.phone ? 'yes' : 'no' });
-            } else {
-                failed++;
-                errors.push({ customerId, error: 'Customer not found in Square' });
-            }
-        } catch (err) {
-            failed++;
-            errors.push({ customerId, error: err.message });
-        }
+    // Concurrent customer fetch with semaphore (D-3: replaces N+1 sequential loop)
+    const CONCURRENCY = 5;
+    let active = 0;
+    const queue = [];
 
-        // Throttle to avoid rate limiting (100ms between requests)
-        await new Promise(resolve => setTimeout(resolve, 100));
+    function runWithLimit(fn) {
+        return new Promise((resolve, reject) => {
+            const execute = async () => {
+                active++;
+                try {
+                    resolve(await fn());
+                } catch (err) {
+                    reject(err);
+                } finally {
+                    active--;
+                    if (queue.length > 0) {
+                        queue.shift()();
+                    }
+                }
+            };
+            if (active < CONCURRENCY) {
+                execute();
+            } else {
+                queue.push(execute);
+            }
+        });
+    }
+
+    const results = await Promise.allSettled(
+        customerIds.map(customerId =>
+            runWithLimit(async () => {
+                const customer = await loyaltyService.getCustomerDetails(customerId, merchantId);
+                return { customerId, customer };
+            })
+        )
+    );
+
+    for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.customer) {
+            refreshed++;
+            logger.debug('Refreshed customer', {
+                customerId: result.value.customerId,
+                phone: result.value.customer.phone ? 'yes' : 'no'
+            });
+        } else {
+            failed++;
+            const customerId = result.status === 'fulfilled'
+                ? result.value.customerId : 'unknown';
+            const error = result.status === 'rejected'
+                ? result.reason.message : 'Customer not found in Square';
+            errors.push({ customerId, error });
+        }
     }
 
     logger.info('Customer refresh complete', { merchantId, refreshed, failed });

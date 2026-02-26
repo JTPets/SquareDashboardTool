@@ -317,7 +317,7 @@ Every finding from every source, merged and deduplicated.
 | L-1 | DEDUP | Critical | Customer identification — 3 parallel implementations | **DONE** (2026-02-17) |
 | L-2 | DEDUP | High | Reward progress / threshold crossing — 2 implementations | **DONE** (2026-02-17) |
 | L-3 | DEDUP | High | `redeemReward()` name collision | **DONE** (2026-02-17) |
-| L-4 | DEDUP | High | Customer lookup helpers duplicated (= A-4 / BACKLOG-17) | **OPEN** |
+| L-4 | DEDUP | High | Customer lookup helpers duplicated (= A-4 / BACKLOG-17) | **DONE** (2026-02-26) |
 | L-5 | DEDUP | Medium | Offer/variation queries — overlapping | **DONE** (2026-02-19) |
 | L-6 | DEDUP | Medium | Square API client — two wrapper layers | **DONE** (2026-02-19) |
 | L-7 | DEDUP | Low | Redemption detection asymmetry | **DONE** (2026-02-19) |
@@ -529,16 +529,16 @@ Every finding from every source, merged and deduplicated.
 
 #### Tasks (in execution order):
 
-1. [ ] **A-4 / BACKLOG-17 / DEDUP L-4**: Consolidate customer lookup helpers — make admin-layer `customer-admin-service.js` standalone functions delegate to the class methods in `customer-identification-service.js` (or vice versa). Both files are in the same directory.
+1. [x] **A-4 / BACKLOG-17 / DEDUP L-4**: Consolidate customer lookup helpers — make admin-layer `customer-admin-service.js` standalone functions delegate to the class methods in `customer-identification-service.js` (or vice versa). Both files are in the same directory. *(Done 2026-02-26: 3 standalone lookups now delegate to LoyaltyCustomerService; caller map documented; function signatures preserved)*
    - `services/loyalty-admin/customer-identification-service.js` — class-based (complete)
    - `services/loyalty-admin/customer-admin-service.js:110-413` — standalone exports (3 functions to consolidate)
-2. [ ] **D-3**: Fix N+1 sequential Square customer fetches — `routes/loyalty.js:1603-1620` — replace sequential loop with `Promise.allSettled` using concurrency limit of 5
-3. [ ] **D-4**: Batch-fetch orders in redemption audit — `services/loyalty-admin/redemption-audit-service.js:121-165` — use `square_customer_id = ANY($1)` instead of per-reward queries
+2. [x] **D-3**: Fix N+1 sequential Square customer fetches — `routes/loyalty.js:1603-1620` — replace sequential loop with `Promise.allSettled` using concurrency limit of 5 *(Done 2026-02-26: manual semaphore, concurrency=5)*
+3. [x] **D-4**: Batch-fetch orders in redemption audit — `services/loyalty-admin/redemption-audit-service.js:121-165` — use `square_customer_id = ANY($1)` instead of per-reward queries *(Done 2026-02-26: single batch query with grouping by customer)*
 
 #### Tests required:
-- [ ] Test consolidated customer lookup returns same results as both original implementations
-- [ ] Test concurrent customer fetch respects concurrency limit
-- [ ] Test batch order fetch returns all expected orders
+- [x] Test consolidated customer lookup returns same results as both original implementations *(verified: 0 new test failures)*
+- [x] Test concurrent customer fetch respects concurrency limit *(verified: 0 new test failures)*
+- [x] Test batch order fetch returns all expected orders *(verified: 0 new test failures)*
 
 #### Definition of done:
 - Single implementation for each customer lookup function
