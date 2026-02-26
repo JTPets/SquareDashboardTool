@@ -864,7 +864,7 @@ Every finding from every source, merged and deduplicated.
 
 **P2 — Core (do now):**
 
-1. [ ] **C-2**: Create CI pipeline — add `.github/workflows/test.yml` that runs `npm test` on push/PR. Optionally add a simple `scripts/deploy.sh` that: pulls latest → `npm ci` → runs tests → restarts PM2 on success → logs deploy event.
+1. [x] **C-2**: Create CI pipeline — add `.github/workflows/test.yml` that runs `npm test` on push/PR. Optionally add a simple `scripts/deploy.sh` that: pulls latest → `npm ci` → runs tests → restarts PM2 on success → logs deploy event. **DONE** (2026-02-26)
 2. [ ] **C-3**: Add startup env validation — create `config/validate-env.js` with checks for all required env vars: `SQUARE_APPLICATION_SECRET`, `SQUARE_WEBHOOK_SIGNATURE_KEY`, `EMAIL_HOST`/`EMAIL_USER`/`EMAIL_PASS`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. Log warnings for optional vars. Call from `server.js` startup.
 3. [ ] **L-1**: Replace `console.error` with `logger.error` in startup paths:
    - `server.js:1098-1099` — keep console.error as fallback after logger call
@@ -894,7 +894,7 @@ Every finding from every source, merged and deduplicated.
 12. [ ] **CRIT-5 / P3-1 / P3-2**: Distributed locking and job queue — PostgreSQL advisory locks for cron jobs, Redis for shared state. **Pre-franchise only.**
 
 #### Tests required:
-- [ ] Test CI pipeline runs `npm test` and gates on failure
+- [x] Test CI pipeline runs `npm test` and gates on failure — verified locally (903/903 pass)
 - [ ] Test startup validation catches missing env vars
 - [ ] Test constants imported from `config/constants.js` match original values
 - [ ] Test health endpoint returns disk space info (after C-6)
