@@ -555,33 +555,43 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 4a: Reorder/Analytics — P1
+### Package 4a: Reorder/Analytics — P1 (REFRAMED)
 
-**Estimated effort**: M (~1 week) — reduced from L after extracting velocity refactor and confirming BACKLOG-21/22 done
+**Estimated effort**: L (~1.5 weeks) — reframed from pagination-only to vendor-first workflow + manual item addition
 **Dependencies**: Pkg 7 (Database) for index on inventory_counts. NO dependency on Pkg 2 (verified — see Pre-Execution Investigation Flag 3).
 **Files touched**:
-- `routes/analytics.js`
-- `services/square/api.js` (documentation comment only)
+- `routes/analytics.js` (added `include_other` parameter, other vendor items query)
+- `middleware/validators/analytics.js` (added `include_other` validation)
+- `public/reorder.html` (vendor info bar, other items section, manual item styles, updated footer)
+- `public/js/reorder.js` (vendor-first workflow, info bar, manual addition, state preservation)
+- `services/square/api.js` (documentation comment only — BACKLOG-34)
 
-**Pre-work**: Read `routes/analytics.js:95-760` to understand the reorder suggestions SQL query.
+**Scope change**: Original Pkg 4a was pagination + documentation. Reframed to include vendor-first workflow enhancement (5 features) to make the reorder page usable for daily ordering. Pagination deferred — vendor filtering reduces result set naturally.
 
 #### Tasks (in execution order):
 
-1. [ ] **P-1**: Add pagination to reorder suggestions — `routes/analytics.js:95-760` — add `LIMIT $X OFFSET $Y` to main SQL query (currently no LIMIT). Add `page` and `pageSize` query params with defaults (page=1, pageSize=100). Return `{ items, total, page, pageSize }`.
-2. [ ] **BACKLOG-34**: Document Square variation ID reassignment behavior — add comment in `services/square/api.js` velocity sync functions
+1. [x] **Vendor-First Default**: Vendor dropdown defaults to "Select vendor...", no API call until vendor selected, sessionStorage persists last vendor
+2. [x] **Vendor Info Bar**: Shows order day, receive day, lead time, minimum order amount; running total vs minimum (green/red)
+3. [x] **All Other Vendor Items**: Collapsible section below suggestions table; new `include_other=true` API parameter; "+" Add button per row
+4. [x] **Manual Item Addition**: Move items from "Other" into main table with MANUAL badge; blue divider; × remove; included in PO creation
+5. [x] **State Preservation**: sessionStorage persists vendor, supply days, sort order, scroll position
+6. [x] **Footer Enhancement**: Item count + manual count + running total + shortfall badge; PO button disabled below minimum
+7. [ ] **P-1**: Add pagination to reorder suggestions (deferred — vendor filtering achieves similar result)
+8. [ ] **BACKLOG-34**: Document Square variation ID reassignment behavior
 
 #### Completed tasks (removed from plan):
 - ~~BACKLOG-22 / DEDUP R-3~~: **DONE** (2026-02-23, commit `bcc136a`) — inventory-service.js, audit-service.js, bundles.js all subtract RESERVED_FOR_SALE
 - ~~BACKLOG-21 / DEDUP R-2~~: **DONE** (2026-02-23, same commit) — all pages use available quantity
 
 #### Tests required:
-- [ ] Test reorder suggestions pagination returns correct page/total
-- [ ] Test reorder suggestions with pageSize=10 returns max 10 items
-- [ ] Test default pagination (no params) returns reasonable page size
+- [x] Test reorder-math calculations (31 existing tests — all passing)
+- [ ] Test `include_other=true` returns non-suggested vendor items
+- [ ] Test P-1 pagination returns correct page/total (deferred)
 
 #### Definition of done:
-- Reorder suggestions endpoint has working pagination
-- AUDIT.md finding P-1 marked resolved
+- Vendor-first workflow functional with all 5 features
+- Manual items included in PO creation
+- AUDIT.md finding P-1 deferred with justification
 
 ---
 

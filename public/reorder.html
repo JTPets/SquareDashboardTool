@@ -648,6 +648,171 @@
     .toast.warning {
       background: #f59e0b;
     }
+
+    /* Vendor prompt (shown when no vendor selected) */
+    .vendor-prompt {
+      text-align: center;
+      padding: 60px 20px;
+      color: #6b7280;
+    }
+    .vendor-prompt h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #374151;
+    }
+
+    /* Vendor Info Bar (Feature 2) */
+    .vendor-info-bar {
+      padding: 12px 20px;
+      background: #f0f9ff;
+      border-bottom: 1px solid #bae6fd;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .vendor-info-items {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      font-size: 13px;
+      color: #374151;
+    }
+    .vendor-info-item {
+      white-space: nowrap;
+    }
+    .vendor-info-value {
+      color: #1e40af;
+    }
+    .vendor-info-running-total {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .vendor-minimum-met {
+      color: #059669;
+    }
+    .vendor-minimum-short {
+      color: #dc2626;
+    }
+
+    /* Shortfall badge in footer */
+    .shortfall-badge {
+      display: inline-block;
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    .shortfall-badge.met {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    /* Manual item rows (Feature 4) */
+    .manual-divider td {
+      height: 3px;
+      background: #3b82f6;
+      padding: 0;
+      border: none;
+    }
+    .manual-row {
+      border-left: 4px solid #3b82f6 !important;
+    }
+    .priority-MANUAL {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .manual-remove-btn {
+      display: inline-block;
+      margin-left: 4px;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+      vertical-align: middle;
+    }
+    .manual-remove-btn:hover {
+      color: #dc2626;
+    }
+
+    /* All Other Vendor Items section (Feature 3) */
+    .other-items-section {
+      border-top: 2px solid #e5e7eb;
+    }
+    .other-items-header {
+      padding: 12px 20px;
+      background: #f9fafb;
+      cursor: pointer;
+      user-select: none;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .other-items-header:hover {
+      background: #f3f4f6;
+    }
+    .other-items-toggle {
+      display: inline-block;
+      margin-right: 8px;
+      font-size: 12px;
+      transition: transform 0.2s;
+    }
+    .other-items-body {
+      max-height: 50vh;
+      overflow-y: auto;
+    }
+    .other-items-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    .other-items-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .other-items-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .other-items-table tr:hover {
+      background: #f0f9ff;
+    }
+    .add-item-btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .add-item-btn:hover {
+      background: #1d4ed8;
+    }
+    .other-items-empty {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -668,8 +833,8 @@
       </select>
 
       <label for="vendor-select">Vendor:</label>
-      <select id="vendor-select" data-change="getSuggestions">
-        <option value="">Loading vendors...</option>
+      <select id="vendor-select" data-change="onVendorChange">
+        <option value="__none__">Select vendor...</option>
       </select>
 
       <label for="supply-days">Supply Days:</label>
@@ -683,7 +848,35 @@
       </select>
     </div>
 
-    <div class="table-container">
+    <!-- Vendor Info Bar (Feature 2) -->
+    <div id="vendor-info-bar" class="vendor-info-bar" style="display:none;">
+      <div class="vendor-info-items">
+        <span id="vendor-info-order-day" class="vendor-info-item" style="display:none;">
+          <strong>Order Day:</strong> <span class="vendor-info-value"></span>
+        </span>
+        <span id="vendor-info-receive-day" class="vendor-info-item" style="display:none;">
+          <strong>Receive Day:</strong> <span class="vendor-info-value"></span>
+        </span>
+        <span id="vendor-info-lead-time" class="vendor-info-item" style="display:none;">
+          <strong>Lead Time:</strong> <span class="vendor-info-value"></span>
+        </span>
+        <span id="vendor-info-minimum" class="vendor-info-item" style="display:none;">
+          <strong>Minimum Order:</strong> <span class="vendor-info-value"></span>
+        </span>
+      </div>
+      <div id="vendor-info-running-total" class="vendor-info-running-total" style="display:none;">
+        <span id="vendor-minimum-status"></span>
+      </div>
+    </div>
+
+    <!-- Vendor prompt (shown when no vendor selected) -->
+    <div id="vendor-prompt" class="vendor-prompt">
+      <h3>Select a Vendor</h3>
+      <p>Choose a vendor from the dropdown above to view reorder suggestions.</p>
+      <p>Or select "All Vendors" to view the complete inventory.</p>
+    </div>
+
+    <div class="table-container" id="table-container" style="display:none;">
       <table>
         <thead>
           <tr>
@@ -748,17 +941,47 @@
           </tr>
         </thead>
         <tbody id="suggestions-body">
-          <tr>
-            <td colspan="20" class="loading">Loading suggestions...</td>
-          </tr>
         </tbody>
       </table>
     </div>
 
+    <!-- All Other Vendor Items (Feature 3) — collapsible -->
+    <div id="other-items-section" class="other-items-section" style="display:none;">
+      <div class="other-items-header" data-action="toggleOtherItems">
+        <span id="other-items-toggle" class="other-items-toggle">&#9654;</span>
+        <span id="other-items-title">All Other Items (0)</span>
+      </div>
+      <div id="other-items-body" class="other-items-body" style="display:none;">
+        <table class="other-items-table">
+          <thead>
+            <tr>
+              <th style="width:50px;"></th>
+              <th>Product</th>
+              <th>SKU</th>
+              <th class="text-right">Stock</th>
+              <th class="text-right">Min</th>
+              <th class="text-right">Days Left</th>
+              <th class="text-right">Velocity</th>
+              <th class="text-right">Cost</th>
+              <th class="text-right">Retail</th>
+              <th class="text-right">Margin</th>
+              <th class="text-right">Case Pack</th>
+              <th>Vendor Code</th>
+            </tr>
+          </thead>
+          <tbody id="other-items-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="footer">
       <div class="footer-summary">
-        <span id="selected-count">0</span> items selected |
-        Total: <strong id="total-cost">$0.00</strong>
+        <span id="selected-count">0</span> items selected
+        <span id="manual-count-display" style="display:none;">
+          (<span id="manual-count">0</span> manual)
+        </span>
+        | Total: <strong id="total-cost">$0.00</strong>
+        <span id="shortfall-badge" class="shortfall-badge" style="display:none;"></span>
       </div>
       <button id="create-po-btn" data-action="createPurchaseOrder" disabled>
         Create Purchase Order

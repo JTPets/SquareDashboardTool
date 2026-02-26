@@ -98,7 +98,8 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
             vendor_id,
             supply_days,
             location_id,
-            min_cost
+            min_cost,
+            include_other
         } = req.query;
 
         // Load merchant settings for reorder calculations
@@ -749,14 +750,125 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
         logger.error('Bundle analysis failed', { error: bundleErr.message, merchantId });
     }
 
-    res.json({
+    // ==================== OTHER VENDOR ITEMS ====================
+    // When include_other=true and a specific vendor is selected, return all
+    // vendor items NOT in the suggestion set for manual addition to orders
+    let otherVendorItems = [];
+    if (include_other === 'true' && vendor_id && vendor_id !== 'none') {
+        try {
+            const suggestedVarIds = suggestionsWithImages.map(s => s.variation_id);
+
+            let otherQuery = `
+                SELECT
+                    v.id as variation_id,
+                    i.name as item_name,
+                    v.name as variation_name,
+                    v.sku,
+                    COALESCE(ic.quantity, 0) as current_stock,
+                    COALESCE(ic_committed.quantity, 0) as committed_quantity,
+                    COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0) as available_quantity,
+                    COALESCE(vls.stock_alert_min, v.stock_alert_min, 0) as stock_alert_min,
+                    COALESCE(vls.stock_alert_max, v.stock_alert_max) as stock_alert_max,
+                    sv91.weekly_avg_quantity as weekly_avg_91d,
+                    CASE
+                        WHEN sv91.daily_avg_quantity > 0
+                             AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
+                        THEN ROUND((COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0))
+                             / sv91.daily_avg_quantity, 1)
+                        WHEN (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= 0
+                        THEN 0
+                        ELSE 999
+                    END as days_until_stockout,
+                    vv.unit_cost_money as unit_cost_cents,
+                    v.price_money as retail_price_cents,
+                    CASE
+                        WHEN v.price_money > 0 AND vv.unit_cost_money > 0
+                        THEN ROUND(((v.price_money - vv.unit_cost_money)::NUMERIC / v.price_money) * 100, 1)
+                        ELSE NULL
+                    END as gross_margin_percent,
+                    v.case_pack_quantity,
+                    vv.vendor_code,
+                    ve.name as vendor_name
+                FROM variations v
+                JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $1
+                JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $1
+                LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $1
+                    AND ic.state = 'IN_STOCK'
+                LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id
+                    AND ic_committed.merchant_id = $1
+                    AND ic_committed.state = 'RESERVED_FOR_SALE'
+                    AND ic_committed.location_id = ic.location_id
+                LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91
+                    AND sv91.merchant_id = $1
+                    AND (sv91.location_id = ic.location_id
+                         OR (sv91.location_id IS NULL AND ic.location_id IS NULL))
+                LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id
+                    AND vls.merchant_id = $1
+                    AND ic.location_id = vls.location_id
+                WHERE v.merchant_id = $1
+                  AND vv.vendor_id = $2
+                  AND v.discontinued = FALSE
+                  AND COALESCE(v.is_deleted, FALSE) = FALSE
+                  AND COALESCE(i.is_deleted, FALSE) = FALSE
+            `;
+            const otherParams = [merchantId, vendor_id];
+
+            // Exclude items already in suggestions
+            if (suggestedVarIds.length > 0) {
+                otherParams.push(suggestedVarIds);
+                otherQuery += ` AND v.id != ALL($${otherParams.length})`;
+            }
+
+            if (location_id) {
+                otherParams.push(location_id);
+                otherQuery += ` AND (ic.location_id = $${otherParams.length} OR ic.location_id IS NULL)`;
+            }
+
+            otherQuery += ` ORDER BY i.name, v.name`;
+
+            const otherResult = await db.query(otherQuery, otherParams);
+            otherVendorItems = otherResult.rows.map(row => ({
+                variation_id: row.variation_id,
+                item_name: row.item_name,
+                variation_name: row.variation_name,
+                sku: row.sku,
+                current_stock: parseInt(row.current_stock) || 0,
+                committed_quantity: parseInt(row.committed_quantity) || 0,
+                available_quantity: parseInt(row.available_quantity) || 0,
+                stock_alert_min: parseInt(row.stock_alert_min) || 0,
+                stock_alert_max: row.stock_alert_max != null ? parseInt(row.stock_alert_max) : null,
+                days_until_stockout: parseFloat(row.days_until_stockout) || 999,
+                weekly_avg_91d: parseFloat(row.weekly_avg_91d) || 0,
+                unit_cost_cents: parseInt(row.unit_cost_cents) || 0,
+                retail_price_cents: parseInt(row.retail_price_cents) || 0,
+                gross_margin_percent: row.gross_margin_percent != null
+                    ? parseFloat(row.gross_margin_percent) : null,
+                case_pack_quantity: parseInt(row.case_pack_quantity) || 1,
+                vendor_code: row.vendor_code || 'N/A',
+                vendor_name: row.vendor_name
+            }));
+        } catch (otherErr) {
+            logger.error('Other vendor items query failed', {
+                error: otherErr.message, merchantId
+            });
+        }
+    }
+
+    const responsePayload = {
         count: suggestionsWithImages.length,
         supply_days: supplyDaysNum,
         safety_days: safetyDays,
         suggestions: suggestionsWithImages,
         bundle_analysis: bundleAnalysis,
         bundle_affiliations: bundleAffiliations
-    });
+    };
+
+    if (include_other === 'true') {
+        responsePayload.other_vendor_items = otherVendorItems;
+    }
+
+    res.json(responsePayload);
 }));
 
 module.exports = router;

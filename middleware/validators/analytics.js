@@ -52,6 +52,10 @@ const getReorderSuggestions = [
         .optional()
         .isFloat({ min: 0 })
         .withMessage('min_cost must be a positive number'),
+    query('include_other')
+        .optional()
+        .isIn(['true', 'false'])
+        .withMessage('include_other must be true or false'),
     handleValidationErrors
 ];
 
