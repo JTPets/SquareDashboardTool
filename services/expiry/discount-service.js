@@ -380,7 +380,8 @@ async function evaluateAllVariations(options = {}) {
                 });
                 logger.error('Error evaluating variation', {
                     variationId: row.variation_id,
-                    error: error.message
+                    error: error.message,
+                    merchantId
                 });
             }
         }
@@ -398,7 +399,7 @@ async function evaluateAllVariations(options = {}) {
         return results;
 
     } catch (error) {
-        logger.error('Expiry tier evaluation failed', { error: error.message, stack: error.stack });
+        logger.error('Expiry tier evaluation failed', { error: error.message, stack: error.stack, merchantId });
         throw error;
     }
 }
@@ -547,7 +548,8 @@ async function upsertSquareDiscount(tier) {
     } catch (error) {
         logger.error('Failed to upsert Square discount', {
             tierCode: tier.tier_code,
-            error: error.message
+            error: error.message,
+            merchantId: tier.merchant_id
         });
         throw error;
     }
@@ -612,7 +614,7 @@ async function initializeSquareDiscounts(merchantId) {
         return results;
 
     } catch (error) {
-        logger.error('Square discount initialization failed', { error: error.message, stack: error.stack });
+        logger.error('Square discount initialization failed', { error: error.message, stack: error.stack, merchantId });
         throw error;
     }
 }
@@ -730,7 +732,8 @@ async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
     } catch (error) {
         logger.error('Failed to update discount applies_to', {
             tierCode,
-            error: error.message
+            error: error.message,
+            merchantId
         });
         throw error;
     }
@@ -850,7 +853,8 @@ async function applyDiscounts(options = {}) {
                     });
                     logger.error('Failed to apply discount for tier', {
                         tierCode: tier.tier_code,
-                        error: error.message
+                        error: error.message,
+                        merchantId
                     });
                 }
             }
@@ -914,7 +918,7 @@ async function applyDiscounts(options = {}) {
         return results;
 
     } catch (error) {
-        logger.error('Discount application failed', { error: error.message, stack: error.stack });
+        logger.error('Discount application failed', { error: error.message, stack: error.stack, merchantId });
         throw error;
     }
 }
@@ -1166,7 +1170,8 @@ async function upsertPricingRule(tier, variationIds) {
     } catch (error) {
         logger.error('Failed to upsert pricing rule', {
             tierCode: tier.tier_code,
-            error: error.message
+            error: error.message,
+            merchantId: tier.merchant_id
         });
         throw error;
     }
@@ -1207,7 +1212,7 @@ async function runExpiryDiscountAutomation(options = {}) {
                 results.discountInit = await initializeSquareDiscounts(merchantId);
             } catch (error) {
                 results.errors.push({ step: 'discountInit', error: error.message });
-                logger.error('Discount initialization failed', { error: error.message, stack: error.stack });
+                logger.error('Discount initialization failed', { error: error.message, stack: error.stack, merchantId });
             }
         }
 
@@ -1231,7 +1236,7 @@ async function runExpiryDiscountAutomation(options = {}) {
                 results.discountApplication = await applyDiscounts({ merchantId, dryRun });
             } catch (error) {
                 results.errors.push({ step: 'discountApplication', error: error.message });
-                logger.error('Discount application failed', { error: error.message, stack: error.stack });
+                logger.error('Discount application failed', { error: error.message, stack: error.stack, merchantId });
             }
         }
 
@@ -1262,7 +1267,8 @@ async function runExpiryDiscountAutomation(options = {}) {
 
         logger.error('Expiry discount automation failed', {
             error: error.message,
-            stack: error.stack
+            stack: error.stack,
+            merchantId
         });
 
         return results;
@@ -1756,7 +1762,7 @@ async function validateExpiryDiscounts({ merchantId, fix = false }) {
         return results;
 
     } catch (error) {
-        logger.error('Expiry discount validation failed', { error: error.message, stack: error.stack });
+        logger.error('Expiry discount validation failed', { error: error.message, stack: error.stack, merchantId });
         throw error;
     }
 }
