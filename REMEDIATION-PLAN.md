@@ -1151,3 +1151,4 @@ Items requiring human judgment before execution:
 | ~~Pkg 7~~ | ~~D-7~~ | ~~Is `subscription_plans.square_plan_id` dead or planned for future use? Drop or keep?~~ **RESOLVED**: NOT dead — actively used in square-subscriptions.js, routes/subscriptions.js, admin-subscriptions.js. Keep. |
 | Pkg 11 | C-4 | Encryption key management approach for backup files — GPG keyring vs env var vs separate key file? |
 | Pkg 15 | E-4 | Is a fallback buffer for audit log writes worth the complexity for single-tenant? |
+| Pre-deploy | API version | Update `SQUARE_API_VERSION` from `2025-10-16` to `2026-01-22` and SDK from `^43.2.1` to `^44.0.0`. 2026-01-22 affects Catalog, Orders, Payments, OAuth APIs (all heavily used). 203 regenerated SDK files. **Must read changelog first** at https://developer.squareup.com/docs/changelog/connect and test in Square Sandbox before production. See Pkg 2a completion notes. |
