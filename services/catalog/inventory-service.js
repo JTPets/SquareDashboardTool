@@ -510,6 +510,40 @@ async function saveExpirations(merchantId, changes) {
                     });
                 }
             }
+
+            // Update variation_discount_status to reflect new tier from explicit date change
+            // This bypasses the evaluation job's regression guard (which prevents auto-downgrades)
+            if (newTier) {
+                await db.query(`
+                    INSERT INTO variation_discount_status (
+                        variation_id, current_tier_id, days_until_expiry,
+                        original_price_cents, needs_pull, needs_manual_review,
+                        merchant_id, last_evaluated_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, NULL, $4, FALSE, $5, NOW(), NOW())
+                    ON CONFLICT (variation_id, merchant_id) DO UPDATE SET
+                        current_tier_id = $2,
+                        days_until_expiry = $3,
+                        needs_pull = $4,
+                        needs_manual_review = FALSE,
+                        last_evaluated_at = NOW(),
+                        updated_at = NOW()
+                `, [variation_id, newTier.id, daysUntilExpiry, newTier.tier_code === 'EXPIRED', merchantId]);
+
+                logger.info('Updated discount status for date change', {
+                    variation_id,
+                    newTierCode: newTier.tier_code,
+                    daysUntilExpiry,
+                    merchantId
+                });
+            }
+        } else if (does_not_expire === true) {
+            // Item marked as "does not expire" — remove from discount tracking
+            // so it no longer appears in any audit tier
+            await db.query(`
+                DELETE FROM variation_discount_status
+                WHERE variation_id = $1 AND merchant_id = $2
+            `, [variation_id, merchantId]);
         }
 
         updatedCount++;
