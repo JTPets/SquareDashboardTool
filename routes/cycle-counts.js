@@ -67,6 +67,10 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(a
             WHERE cqp.completed = FALSE AND cqp.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE
+              AND NOT EXISTS (
+                  SELECT 1 FROM bundle_definitions bd
+                  WHERE bd.bundle_variation_id = v.id AND bd.merchant_id = $1 AND bd.is_active = true
+              )
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by, cqp.added_date, cqp.notes
             ORDER BY i.name ASC, v.name ASC
         `;
@@ -92,6 +96,10 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(a
             WHERE cqd.completed = FALSE AND cqd.merchant_id = $1
               AND COALESCE(v.is_deleted, FALSE) = FALSE AND COALESCE(i.is_deleted, FALSE) = FALSE
               AND v.track_inventory = TRUE AND cqp.id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM bundle_definitions bd
+                  WHERE bd.bundle_variation_id = v.id AND bd.merchant_id = $1 AND bd.is_active = true
+              )
             GROUP BY v.id, i.name, i.category_name, i.images, ch.last_counted_date, ch.counted_by, cqd.batch_date, cqd.added_date
             ORDER BY i.name ASC, v.name ASC
         `;
