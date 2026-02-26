@@ -21,6 +21,18 @@ let bundleChildVariationIds = new Set();
 // Expiry tier config loaded from API (BACKLOG-32: replaces hardcoded thresholds)
 let expiryTierRanges = {};
 
+// --- Vendor-First Workflow State ---
+// Cached vendor records from /api/vendors (includes schedule, minimum, etc.)
+let vendorRecords = [];
+// Other vendor items (not in suggestion set) for manual addition
+let otherVendorItems = [];
+// Manually added items (moved from "other" to main table)
+let manualItems = [];
+// Current vendor's minimum order amount (cents)
+let currentVendorMinimum = 0;
+// Track whether the "other items" section is expanded
+let otherItemsExpanded = false;
+
 // Load expiry tier configuration from API
 async function loadExpiryTierConfig() {
   try {
@@ -116,9 +128,18 @@ async function loadVendors() {
     const data = await response.json();
 
     const vendors = Array.isArray(data) ? data : (data.vendors || []);
+    vendorRecords = vendors;
     const select = document.getElementById('vendor-select');
 
-    select.innerHTML = '<option value="">All Vendors</option>';
+    // Default: "Select vendor..." (no data fetch until vendor chosen)
+    select.innerHTML = '<option value="__none__">Select vendor...</option>';
+
+    // Add "All Vendors" option
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = '── All Vendors ──';
+    select.appendChild(allOption);
+
     // Add "No Vendor" option for items without vendor assignments
     const noVendorOption = document.createElement('option');
     noVendorOption.value = 'none';
@@ -131,6 +152,15 @@ async function loadVendors() {
       option.textContent = vendor.name;
       select.appendChild(option);
     });
+
+    // Restore last selected vendor from sessionStorage
+    const savedState = getReorderState();
+    if (savedState && savedState.vendorId) {
+      const savedOption = select.querySelector(`option[value="${savedState.vendorId}"]`);
+      if (savedOption) {
+        select.value = savedState.vendorId;
+      }
+    }
   } catch (error) {
     console.error('Failed to load vendors:', error);
     const friendlyMsg = window.ErrorHelper
@@ -145,10 +175,21 @@ async function getSuggestions() {
   const vendorId = document.getElementById('vendor-select').value;
   const supplyDays = document.getElementById('supply-days').value;
 
+  // Don't fetch if no vendor selected yet (vendor-first workflow)
+  if (vendorId === '__none__') {
+    showVendorPrompt();
+    return;
+  }
+
   let url = `/api/reorder-suggestions?supply_days=${supplyDays}`;
   if (locationId) url += `&location_id=${locationId}`;
   if (vendorId) url += `&vendor_id=${vendorId}`;
+  // Request other vendor items for manual addition when a specific vendor is selected
+  if (vendorId && vendorId !== '' && vendorId !== 'none') {
+    url += '&include_other=true';
+  }
 
+  hideVendorPrompt();
   const tbody = document.getElementById('suggestions-body');
   tbody.innerHTML = '<tr><td colspan="20" class="loading">Loading suggestions...</td></tr>';
 
@@ -159,6 +200,9 @@ async function getSuggestions() {
     allSuggestions = data.suggestions || [];
     bundleAnalysis = data.bundle_analysis || [];
     bundleAffiliations = data.bundle_affiliations || {};
+    otherVendorItems = data.other_vendor_items || [];
+    // Clear manual items on new fetch (transient per session)
+    manualItems = [];
 
     // Enrich bundle children with fields from allSuggestions
     enrichBundleChildren();
@@ -198,6 +242,7 @@ async function getSuggestions() {
         </tr>
       `;
       updateFooter();
+      renderOtherItemsSection();
       return;
     }
 
@@ -209,6 +254,8 @@ async function getSuggestions() {
       // Default: sort by priority descending (URGENT first)
       sortTable('priority', false); // false = descending
     }
+
+    renderOtherItemsSection();
 
   } catch (error) {
     console.error('Failed to load suggestions:', error);
@@ -764,7 +811,14 @@ function renderTable() {
     `;
   }).join('');
 
-  tbody.innerHTML = bundleHtml + itemsHtml;
+  // Manual items divider and rows (Feature 4)
+  let manualHtml = '';
+  if (manualItems.length > 0) {
+    manualHtml += '<tr class="manual-divider"><td colspan="20"></td></tr>';
+    manualHtml += manualItems.map(item => renderManualItemRow(item)).join('');
+  }
+
+  tbody.innerHTML = bundleHtml + itemsHtml + manualHtml;
 }
 
 function toggleSelectAll(checked) {
@@ -938,10 +992,67 @@ function updateFooter() {
     }
   }
 
-  const totalItems = standaloneItems.length + bundleChildCount;
+  // Manual items cost
+  let manualCost = 0;
+  const manualCount = manualItems.length;
+  for (const item of manualItems) {
+    const casePack = item.case_pack_quantity || 1;
+    const casesToOrder = editedOrderQtys.has(item.variation_id)
+      ? editedOrderQtys.get(item.variation_id)
+      : 1;
+    const actualUnits = casesToOrder * casePack;
+    manualCost += (actualUnits * (item.unit_cost_cents || 0)) / 100;
+  }
+
+  const totalItems = standaloneItems.length + bundleChildCount + manualCount;
+  const totalCost = standaloneCost + bundleCost + manualCost;
+
   document.getElementById('selected-count').textContent = totalItems;
-  document.getElementById('total-cost').textContent = '$' + (standaloneCost + bundleCost).toFixed(2);
-  document.getElementById('create-po-btn').disabled = totalItems === 0;
+  document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
+
+  // Manual count display
+  const manualCountDisplay = document.getElementById('manual-count-display');
+  const manualCountEl = document.getElementById('manual-count');
+  if (manualCountDisplay && manualCountEl) {
+    if (manualCount > 0) {
+      manualCountDisplay.style.display = '';
+      manualCountEl.textContent = manualCount;
+    } else {
+      manualCountDisplay.style.display = 'none';
+    }
+  }
+
+  // Vendor minimum shortfall badge
+  const shortfallBadge = document.getElementById('shortfall-badge');
+  if (shortfallBadge && currentVendorMinimum > 0) {
+    const totalCostCents = Math.round(totalCost * 100);
+    const minimumCents = Math.round(currentVendorMinimum * 100);
+    if (totalCostCents >= minimumCents) {
+      shortfallBadge.style.display = '';
+      shortfallBadge.className = 'shortfall-badge met';
+      shortfallBadge.textContent = 'Minimum met';
+    } else {
+      const shortfall = ((minimumCents - totalCostCents) / 100).toFixed(2);
+      shortfallBadge.style.display = '';
+      shortfallBadge.className = 'shortfall-badge';
+      shortfallBadge.textContent = '$' + shortfall + ' below minimum';
+    }
+  } else if (shortfallBadge) {
+    shortfallBadge.style.display = 'none';
+  }
+
+  // Update vendor info bar running total
+  updateVendorRunningTotal(totalCost);
+
+  // Disable PO button if no items or below vendor minimum
+  const createBtn = document.getElementById('create-po-btn');
+  const belowMinimum = currentVendorMinimum > 0 && totalCost < currentVendorMinimum;
+  createBtn.disabled = totalItems === 0 || belowMinimum;
+  if (belowMinimum && totalItems > 0) {
+    createBtn.title = 'Order total is below vendor minimum ($' + currentVendorMinimum.toFixed(2) + ')';
+  } else {
+    createBtn.title = '';
+  }
 }
 
 async function createPurchaseOrder() {
@@ -1061,7 +1172,21 @@ async function createPurchaseOrder() {
     };
   }).filter(item => item.quantity_ordered > 0);
 
-  // Merge standalone + bundle items, aggregating duplicates
+  // Build manual item entries
+  const manualEntries = manualItems.map(item => {
+    const casePack = item.case_pack_quantity || 1;
+    const casesToOrder = editedOrderQtys.has(item.variation_id)
+      ? editedOrderQtys.get(item.variation_id)
+      : 1;
+    const actualUnits = casesToOrder * casePack;
+    return {
+      variation_id: item.variation_id,
+      quantity_ordered: actualUnits,
+      unit_cost_cents: item.unit_cost_cents || 0
+    };
+  }).filter(item => item.quantity_ordered > 0);
+
+  // Merge standalone + bundle + manual items, aggregating duplicates
   const mergedMap = new Map();
   for (const item of standaloneEntries) {
     mergedMap.set(item.variation_id, { ...item });
@@ -1071,6 +1196,13 @@ async function createPurchaseOrder() {
       mergedMap.get(vid).quantity_ordered += item.quantity_ordered;
     } else {
       mergedMap.set(vid, { ...item });
+    }
+  }
+  for (const item of manualEntries) {
+    if (mergedMap.has(item.variation_id)) {
+      mergedMap.get(item.variation_id).quantity_ordered += item.quantity_ordered;
+    } else {
+      mergedMap.set(item.variation_id, { ...item });
     }
   }
 
@@ -1083,9 +1215,11 @@ async function createPurchaseOrder() {
 
   const bundleCount = bundleItemMap.size;
   const standaloneCount = standaloneEntries.filter(i => i.quantity_ordered > 0).length;
+  const manualEntryCount = manualEntries.filter(i => i.quantity_ordered > 0).length;
   const noteParts = [];
   if (standaloneCount > 0) noteParts.push(`${standaloneCount} standalone`);
   if (bundleCount > 0) noteParts.push(`${bundleCount} bundle components`);
+  if (manualEntryCount > 0) noteParts.push(`${manualEntryCount} manual`);
 
   const poData = {
     vendor_id: vendorId,
@@ -1137,8 +1271,14 @@ async function createPurchaseOrder() {
     selectedItems.clear();
     editedOrderQtys.clear();
     editedBundleChildQtys.clear();
+    // Return manual items to "other" pool and clear
+    for (const item of manualItems) {
+      otherVendorItems.push(item);
+    }
+    manualItems = [];
     document.getElementById('select-all').checked = false;
     renderTable();
+    renderOtherItemsSection();
     updateFooter();
 
   } catch (error) {
@@ -1235,6 +1375,7 @@ function sortTable(element, event, param) {
   // Re-render table with sorted data
   renderTable();
   updateFooter();
+  saveReorderState();
 }
 
 // Save editable field to database
@@ -1706,6 +1847,415 @@ function escapeJsString(str) {
 }
 
 
+// ==================== VENDOR-FIRST WORKFLOW ====================
+
+// Handle vendor dropdown change (Feature 1)
+function onVendorChange() {
+  const vendorId = document.getElementById('vendor-select').value;
+  // Save vendor selection to sessionStorage
+  saveReorderState();
+  // Update vendor info bar (Feature 2)
+  updateVendorInfoBar(vendorId);
+  // Reset manual items on vendor change
+  manualItems = [];
+  otherVendorItems = [];
+  otherItemsExpanded = false;
+  // Fetch data or show prompt
+  getSuggestions();
+}
+
+// Show the "Select vendor" prompt, hide table
+function showVendorPrompt() {
+  document.getElementById('vendor-prompt').style.display = '';
+  document.getElementById('table-container').style.display = 'none';
+  document.getElementById('other-items-section').style.display = 'none';
+  document.getElementById('vendor-info-bar').style.display = 'none';
+  currentVendorMinimum = 0;
+  manualItems = [];
+  otherVendorItems = [];
+  allSuggestions = [];
+  bundleAnalysis = [];
+  updateFooter();
+}
+
+// Hide the prompt, show table
+function hideVendorPrompt() {
+  document.getElementById('vendor-prompt').style.display = 'none';
+  document.getElementById('table-container').style.display = '';
+}
+
+// ==================== VENDOR INFO BAR (Feature 2) ====================
+
+function updateVendorInfoBar(vendorId) {
+  const bar = document.getElementById('vendor-info-bar');
+  if (!vendorId || vendorId === '' || vendorId === '__none__' || vendorId === 'none') {
+    bar.style.display = 'none';
+    currentVendorMinimum = 0;
+    return;
+  }
+
+  const vendor = vendorRecords.find(v => v.id === vendorId);
+  if (!vendor) {
+    bar.style.display = 'none';
+    currentVendorMinimum = 0;
+    return;
+  }
+
+  // Check if vendor has any info to show
+  const hasOrderDay = vendor.order_day;
+  const hasReceiveDay = vendor.receive_day;
+  const hasLeadTime = vendor.lead_time_days != null && vendor.lead_time_days > 0;
+  const hasMinimum = vendor.minimum_order_amount != null && vendor.minimum_order_amount > 0;
+
+  if (!hasOrderDay && !hasReceiveDay && !hasLeadTime && !hasMinimum) {
+    bar.style.display = 'none';
+    currentVendorMinimum = 0;
+    return;
+  }
+
+  bar.style.display = '';
+  currentVendorMinimum = hasMinimum ? parseFloat(vendor.minimum_order_amount) : 0;
+
+  // Update individual info items
+  const orderDayEl = document.getElementById('vendor-info-order-day');
+  if (hasOrderDay) {
+    orderDayEl.style.display = '';
+    orderDayEl.querySelector('.vendor-info-value').textContent = capitalizeFirst(vendor.order_day);
+  } else {
+    orderDayEl.style.display = 'none';
+  }
+
+  const receiveDayEl = document.getElementById('vendor-info-receive-day');
+  if (hasReceiveDay) {
+    receiveDayEl.style.display = '';
+    receiveDayEl.querySelector('.vendor-info-value').textContent = capitalizeFirst(vendor.receive_day);
+  } else {
+    receiveDayEl.style.display = 'none';
+  }
+
+  const leadTimeEl = document.getElementById('vendor-info-lead-time');
+  if (hasLeadTime) {
+    leadTimeEl.style.display = '';
+    leadTimeEl.querySelector('.vendor-info-value').textContent = vendor.lead_time_days + ' days';
+  } else {
+    leadTimeEl.style.display = 'none';
+  }
+
+  const minimumEl = document.getElementById('vendor-info-minimum');
+  if (hasMinimum) {
+    minimumEl.style.display = '';
+    minimumEl.querySelector('.vendor-info-value').textContent =
+      '$' + parseFloat(vendor.minimum_order_amount).toFixed(2);
+  } else {
+    minimumEl.style.display = 'none';
+  }
+
+  // Show running total section only when minimum exists
+  const runningTotalEl = document.getElementById('vendor-info-running-total');
+  runningTotalEl.style.display = hasMinimum ? '' : 'none';
+}
+
+function updateVendorRunningTotal(totalCost) {
+  const statusEl = document.getElementById('vendor-minimum-status');
+  if (!statusEl || currentVendorMinimum <= 0) return;
+
+  const runningTotalEl = document.getElementById('vendor-info-running-total');
+  if (runningTotalEl) runningTotalEl.style.display = '';
+
+  if (totalCost >= currentVendorMinimum) {
+    statusEl.className = 'vendor-minimum-met';
+    statusEl.textContent = '$' + totalCost.toFixed(2) + ' / $' +
+      currentVendorMinimum.toFixed(2) + ' minimum met';
+  } else {
+    const shortfall = (currentVendorMinimum - totalCost).toFixed(2);
+    statusEl.className = 'vendor-minimum-short';
+    statusEl.textContent = '$' + totalCost.toFixed(2) + ' / $' +
+      currentVendorMinimum.toFixed(2) + ' — $' + shortfall + ' short';
+  }
+}
+
+function capitalizeFirst(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+// ==================== OTHER VENDOR ITEMS SECTION (Feature 3) ====================
+
+function renderOtherItemsSection() {
+  const section = document.getElementById('other-items-section');
+  const vendorId = document.getElementById('vendor-select').value;
+
+  // Only show for specific vendor selection (not All Vendors or No Vendor)
+  if (!vendorId || vendorId === '' || vendorId === '__none__' || vendorId === 'none') {
+    section.style.display = 'none';
+    return;
+  }
+
+  // Filter out items already in manual list
+  const manualIds = new Set(manualItems.map(m => m.variation_id));
+  const availableOther = otherVendorItems.filter(i => !manualIds.has(i.variation_id));
+
+  const vendor = vendorRecords.find(v => v.id === vendorId);
+  const vendorName = vendor ? vendor.name : 'Vendor';
+
+  section.style.display = '';
+  document.getElementById('other-items-title').textContent =
+    'All Other ' + escapeHtml(vendorName) + ' Items (' + availableOther.length + ')';
+
+  const toggle = document.getElementById('other-items-toggle');
+  const body = document.getElementById('other-items-body');
+  toggle.innerHTML = otherItemsExpanded ? '&#9660;' : '&#9654;';
+  body.style.display = otherItemsExpanded ? '' : 'none';
+
+  const tbody = document.getElementById('other-items-tbody');
+
+  if (availableOther.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="12" class="other-items-empty">All items added to order</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = availableOther.map(item => {
+    const daysText = item.days_until_stockout < 999 ? item.days_until_stockout.toFixed(1) : '-';
+    const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
+      item.days_until_stockout < 7 ? 'days-critical' :
+      item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
+    const velocity = item.weekly_avg_91d ? item.weekly_avg_91d.toFixed(2) + '/wk' : '-';
+    const cost = item.unit_cost_cents ? '$' + (item.unit_cost_cents / 100).toFixed(2) : '-';
+    const retail = item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-';
+    const margin = item.gross_margin_percent != null ? item.gross_margin_percent.toFixed(1) + '%' : '-';
+
+    return `
+      <tr data-variation-id="${item.variation_id}">
+        <td>
+          <button class="add-item-btn" data-action="addManualItem" data-action-param="${item.variation_id}">+ Add</button>
+        </td>
+        <td>
+          <div class="product-name">${escapeHtml(item.item_name)}</div>
+          ${item.variation_name ? '<div class="variation-name">' + escapeHtml(item.variation_name) + '</div>' : ''}
+        </td>
+        <td class="sku">${escapeHtml(item.sku || '-')}</td>
+        <td class="text-right">${item.committed_quantity > 0 ? item.available_quantity : item.current_stock}</td>
+        <td class="text-right">${item.stock_alert_min > 0 ? item.stock_alert_min : '-'}</td>
+        <td class="text-right ${daysClass}">${daysText}</td>
+        <td class="text-right">${velocity}</td>
+        <td class="text-right">${cost}</td>
+        <td class="text-right">${retail}</td>
+        <td class="text-right">${margin}</td>
+        <td class="text-right">${item.case_pack_quantity > 1 ? item.case_pack_quantity : '-'}</td>
+        <td>${escapeHtml(item.vendor_code || '-')}</td>
+      </tr>`;
+  }).join('');
+}
+
+function toggleOtherItems() {
+  otherItemsExpanded = !otherItemsExpanded;
+  renderOtherItemsSection();
+}
+
+// ==================== MANUAL ITEM ADDITION (Feature 4) ====================
+
+function addManualItem(element, event, variationId) {
+  // Find item in otherVendorItems
+  const itemIndex = otherVendorItems.findIndex(i => i.variation_id === variationId);
+  if (itemIndex === -1) return;
+
+  const item = otherVendorItems[itemIndex];
+
+  // Add to manual items with default 1 case
+  manualItems.push({
+    ...item,
+    priority: 'MANUAL',
+    final_suggested_qty: item.case_pack_quantity || 1,
+    has_velocity: item.weekly_avg_91d > 0
+  });
+
+  // Set default order qty to 1 case
+  editedOrderQtys.set(variationId, 1);
+
+  // Re-render both sections
+  renderTable();
+  renderOtherItemsSection();
+  updateFooter();
+
+  showToast('Item added to order', 'success');
+}
+
+function removeManualItem(element, event, variationId) {
+  // Remove from manual items
+  const idx = manualItems.findIndex(m => m.variation_id === variationId);
+  if (idx === -1) return;
+
+  manualItems.splice(idx, 1);
+  editedOrderQtys.delete(variationId);
+
+  // Re-render both sections
+  renderTable();
+  renderOtherItemsSection();
+  updateFooter();
+
+  showToast('Item removed from order', 'success');
+}
+
+// Render a single manual item row in the main table
+function renderManualItemRow(item) {
+  const casePack = item.case_pack_quantity || 1;
+  const casesToOrder = editedOrderQtys.has(item.variation_id)
+    ? editedOrderQtys.get(item.variation_id)
+    : 1;
+  const actualUnits = casesToOrder * casePack;
+  const totalCost = (actualUnits * (item.unit_cost_cents || 0) / 100).toFixed(2);
+
+  const daysText = item.days_until_stockout < 999
+    ? item.days_until_stockout.toFixed(1) : '∞';
+  const daysClass = item.days_until_stockout === 0 ? 'days-critical' :
+    item.days_until_stockout < 7 ? 'days-critical' :
+    item.days_until_stockout < 14 ? 'days-warning' : 'days-ok';
+
+  const velocity = item.weekly_avg_91d ? item.weekly_avg_91d.toFixed(2) : 'No data';
+
+  const margin = item.gross_margin_percent != null ? item.gross_margin_percent.toFixed(1) + '%' : '-';
+  const marginClass = item.gross_margin_percent != null
+    ? (item.gross_margin_percent >= 40 ? 'velocity-fast' :
+       item.gross_margin_percent >= 20 ? 'velocity-moderate' : 'days-critical')
+    : '';
+
+  return `
+    <tr class="manual-row selected" data-id="${item.variation_id}" data-manual="true">
+      <td class="text-center">
+        <input type="checkbox" checked disabled title="Manual item (use × to remove)">
+      </td>
+      <td>
+        <span class="priority-badge priority-MANUAL">MANUAL</span>
+        <span class="manual-remove-btn" data-action="removeManualItem" data-action-param="${item.variation_id}" title="Remove from order">&times;</span>
+      </td>
+      <td><div class="no-image">📦</div></td>
+      <td>
+        <div class="product-name">${escapeHtml(item.item_name)}</div>
+        ${item.variation_name ? '<div class="variation-name">' + escapeHtml(item.variation_name) + '</div>' : ''}
+      </td>
+      <td class="sku">${escapeHtml(item.sku || '-')}</td>
+      <td class="text-right">${item.committed_quantity > 0 ? item.available_quantity : item.current_stock}</td>
+      <td class="text-right">${item.stock_alert_min > 0 ? item.stock_alert_min : '-'}</td>
+      <td class="text-right">-</td>
+      <td class="text-right ${daysClass}">${daysText}</td>
+      <td class="text-right">-</td>
+      <td class="text-right"><small>${velocity}</small></td>
+      <td class="text-right editable-cell">
+        <input type="number"
+               class="editable-input order-qty-input"
+               value="${casesToOrder}"
+               placeholder="1"
+               min="0"
+               data-field="order_qty"
+               data-variation-id="${item.variation_id}"
+               data-suggested="1"
+               data-change="updateManualOrderQty"
+               data-blur="updateManualOrderQty"
+               data-keydown="blurOnEnter">
+        <br><small style="color: #6b7280;" id="units-${item.variation_id}">(${actualUnits} units)</small>
+      </td>
+      <td class="text-right">${casePack > 1 ? casePack : '-'}</td>
+      <td class="text-right">${item.unit_cost_cents ? '$' + (item.unit_cost_cents / 100).toFixed(2) : '-'}</td>
+      <td class="text-right">${item.retail_price_cents ? '$' + (item.retail_price_cents / 100).toFixed(2) : '-'}</td>
+      <td class="text-right ${marginClass}">${margin}</td>
+      <td class="text-right" id="line-total-${item.variation_id}"><strong>$${totalCost}</strong></td>
+      <td>${escapeHtml(item.vendor_name || '')}</td>
+      <td class="clickable" data-action="copyToClipboard" data-action-param="${escapeJsString(item.vendor_code || '')}" data-copy-label="Vendor Code" title="Click to copy Vendor Code">${escapeHtml(item.vendor_code || '-')}</td>
+      <td class="text-right">-</td>
+    </tr>`;
+}
+
+// Update manual item order quantity
+function updateManualOrderQty(input) {
+  const variationId = input.dataset.variationId;
+  const value = input.value.trim();
+
+  if (value === '' || parseInt(value, 10) === 1) {
+    editedOrderQtys.set(variationId, 1);
+    input.value = 1;
+  } else {
+    const newCases = parseInt(value, 10);
+    if (isNaN(newCases) || newCases < 0) {
+      input.value = editedOrderQtys.get(variationId) || 1;
+      return;
+    }
+    editedOrderQtys.set(variationId, newCases);
+  }
+
+  // Update units display
+  const item = manualItems.find(m => m.variation_id === variationId);
+  if (!item) return;
+
+  const casePack = item.case_pack_quantity || 1;
+  const finalCases = editedOrderQtys.get(variationId) || 1;
+  const actualUnits = finalCases * casePack;
+  const unitsEl = document.getElementById('units-' + variationId);
+  if (unitsEl) unitsEl.textContent = '(' + actualUnits + ' units)';
+
+  // Update line total
+  const lineTotalEl = document.getElementById('line-total-' + variationId);
+  if (lineTotalEl) {
+    const lineTotal = (actualUnits * (item.unit_cost_cents || 0) / 100).toFixed(2);
+    lineTotalEl.innerHTML = '<strong>$' + lineTotal + '</strong>';
+  }
+
+  updateFooter();
+}
+
+// ==================== STATE PRESERVATION (Feature 5) ====================
+
+function getReorderState() {
+  try {
+    const raw = sessionStorage.getItem('reorderState');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveReorderState() {
+  try {
+    const state = {
+      vendorId: document.getElementById('vendor-select').value,
+      supplyDays: document.getElementById('supply-days').value,
+      sortField: currentSortField,
+      sortDirections: sortDirections,
+      scrollTop: document.getElementById('table-container')?.scrollTop || 0
+    };
+    sessionStorage.setItem('reorderState', JSON.stringify(state));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function restoreReorderState() {
+  const state = getReorderState();
+  if (!state) return false;
+
+  // Restore supply days
+  if (state.supplyDays) {
+    document.getElementById('supply-days').value = state.supplyDays;
+  }
+
+  // Restore sort state
+  if (state.sortField) {
+    currentSortField = state.sortField;
+  }
+  if (state.sortDirections) {
+    Object.assign(sortDirections, state.sortDirections);
+  }
+
+  // Restore scroll position after render
+  if (state.scrollTop) {
+    setTimeout(() => {
+      const container = document.getElementById('table-container');
+      if (container) container.scrollTop = state.scrollTop;
+    }, 100);
+  }
+
+  return !!state.vendorId && state.vendorId !== '__none__';
+}
+
 function showToast(message, type = '') {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -1723,8 +2273,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadExpiryTierConfig();
   await loadLocations();
   await loadVendors();
-  // Auto-load suggestions on page load
-  await getSuggestions();
+  // Restore state before first fetch
+  const hasVendor = restoreReorderState();
+  if (hasVendor) {
+    // Vendor was previously selected — update info bar and fetch
+    const vendorId = document.getElementById('vendor-select').value;
+    updateVendorInfoBar(vendorId);
+    await getSuggestions();
+  } else {
+    // No vendor selected — show prompt (vendor-first workflow)
+    showVendorPrompt();
+  }
 });
 
 // Re-sort and re-render when sort option changes
@@ -1733,6 +2292,17 @@ document.getElementById('sort-by').addEventListener('change', () => {
     sortSuggestions();
     renderTable();
   }
+  saveReorderState();
+});
+
+// Save state when supply days changes
+document.getElementById('supply-days').addEventListener('change', () => {
+  saveReorderState();
+});
+
+// Save scroll position on scroll
+document.getElementById('table-container').addEventListener('scroll', () => {
+  saveReorderState();
 });
 
 // Expose functions to global scope for event delegation
@@ -1750,3 +2320,9 @@ window.toggleItemFromCheckbox = toggleItemFromCheckbox;
 // Bundle functions
 window.toggleBundleExpand = toggleBundleExpand;
 window.updateBundleChildQty = updateBundleChildQty;
+// Vendor-first workflow functions
+window.onVendorChange = onVendorChange;
+window.toggleOtherItems = toggleOtherItems;
+window.addManualItem = addManualItem;
+window.removeManualItem = removeManualItem;
+window.updateManualOrderQty = updateManualOrderQty;
