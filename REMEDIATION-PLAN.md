@@ -280,6 +280,7 @@ Every finding from every source, merged and deduplicated.
 | P-7 | Audit | MEDIUM | clientCache has no max size or LRU eviction | ✅ **DONE** 2026-02-26 — FIFO eviction at MAX_CACHED_CLIENTS=100 |
 | P-8 | Audit | MEDIUM | Sync queue follow-up syncs block sequentially | ✅ **DONE** 2026-02-26 — Fire-and-forget with error logging |
 | P-9 | Audit | LOW | GMC sync polling at 5-second intervals | **OPEN** |
+| P-10 | Production | HIGH | Duplicate delivery orders created for same Square order. Multiple `order.updated` webhooks race past the dedup lock, each creating a separate `delivery_orders` row for the same `square_order_id`. Observed 2026-02-26: two delivery orders (`6fa83def`, `e5f591b5`) both reference `qyuUdnnGxyDLayHyH7rG64AWgwZZY`. | **OPEN** |
 | MED-3 | CODE_AUDIT | MEDIUM | No circuit breaker for Square API | **OPEN** — P3 |
 
 ### Testing Findings
@@ -668,18 +669,25 @@ Every finding from every source, merged and deduplicated.
 - `services/webhook-handlers/inventory-handler.js`
 - `services/webhook-handlers/oauth-handler.js`
 - `services/webhook-handlers/subscription-handler.js`
+- `services/delivery/delivery-service.js`
 - `utils/square-webhooks.js` (for BACKLOG-29)
+- `database/migrations/` (new migration for unique constraint on delivery_orders)
 - `__tests__/services/webhook-handlers/` (new test files)
 
 **Pre-work**: Read `services/webhook-handlers/index.js` and the existing test `__tests__/services/webhook-handlers.test.js`. Read each handler to understand mocking needs.
 
 #### Tasks (in execution order):
 
-1. [ ] **BACKLOG-29**: Re-register webhooks for existing tenants — ensure `invoice.payment_made` is in both `subscriptions` and `invoices` webhook groups in `utils/square-webhooks.js`. Create one-time migration script to re-register.
-2. [ ] **T-2**: Write integration tests for `order-handler.js` — highest priority (1,316 lines, processes all orders, loyalty records, refunds). Test: order processing, loyalty record creation, refund handling, delivery routing.
-3. [ ] **T-2**: Write integration tests for `loyalty-handler.js` — second priority (512 lines). Test: loyalty event sync, account create/update.
-4. [ ] **T-2**: Write tests for remaining 5 handlers — catalog, customer, inventory, oauth, subscription.
-5. [ ] **E-1**: Add `.catch()` to fire-and-forget email in DB error handler — `server.js:996` — add `.catch(emailErr => logger.error('Failed to send DB error alert', { error: emailErr.message }))`
+1. [ ] **P-10**: Fix duplicate delivery order creation — race condition allows multiple `order.updated` webhooks to create duplicate `delivery_orders` rows for the same `square_order_id`.
+   - **One-time cleanup**: Deduplicate any existing duplicate rows (keep earliest per `square_order_id`/`merchant_id`) before adding the constraint.
+   - **Migration**: `CREATE UNIQUE INDEX idx_delivery_orders_square_order ON delivery_orders(square_order_id, merchant_id) WHERE square_order_id IS NOT NULL;`
+   - **Code**: Change delivery order INSERT to `INSERT ... ON CONFLICT DO NOTHING` or check-before-insert in `services/delivery/delivery-service.js` and/or `services/webhook-handlers/order-handler.js`.
+   - **Files**: `services/webhook-handlers/order-handler.js`, `services/delivery/delivery-service.js`, new migration
+2. [ ] **BACKLOG-29**: Re-register webhooks for existing tenants — ensure `invoice.payment_made` is in both `subscriptions` and `invoices` webhook groups in `utils/square-webhooks.js`. Create one-time migration script to re-register.
+3. [ ] **T-2**: Write integration tests for `order-handler.js` — highest priority (1,316 lines, processes all orders, loyalty records, refunds). Test: order processing, loyalty record creation, refund handling, delivery routing.
+4. [ ] **T-2**: Write integration tests for `loyalty-handler.js` — second priority (512 lines). Test: loyalty event sync, account create/update.
+5. [ ] **T-2**: Write tests for remaining 5 handlers — catalog, customer, inventory, oauth, subscription.
+6. [ ] **E-1**: Add `.catch()` to fire-and-forget email in DB error handler — `server.js:996` — add `.catch(emailErr => logger.error('Failed to send DB error alert', { error: emailErr.message }))`
 
 #### Tests required:
 - [ ] order-handler: order created/updated processing (happy path)
@@ -691,6 +699,7 @@ Every finding from every source, merged and deduplicated.
 - [ ] All 7 handlers: merchant_id isolation
 
 #### Definition of done:
+- P-10 duplicate delivery orders fixed (unique constraint + INSERT conflict handling)
 - All 8 webhook handlers have test files
 - order-handler.js and loyalty-handler.js at 60%+ coverage
 - Remaining handlers at 40%+ coverage
