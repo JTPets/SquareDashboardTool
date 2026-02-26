@@ -1058,6 +1058,10 @@ async function gracefulShutdown(signal) {
         logger.info(`Stopping ${cronTasks.length} cron tasks`);
         jobs.stopCronJobs();
 
+        // 2b. Clear background timers in Square API module
+        const squareApiModule = require('./services/square/api');
+        squareApiModule.cleanup();
+
         // 3. Wait for active syncs to complete (up to 30 seconds)
         const syncDrainStart = Date.now();
         const syncDrainTimeout = 30000;

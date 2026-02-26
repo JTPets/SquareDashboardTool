@@ -20,16 +20,16 @@ const crypto = require('crypto');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { decryptToken, isEncryptedToken, encryptToken } = require('../../utils/token-encryption');
+const { generateIdempotencyKey } = require('../../utils/idempotency');
 
 // Square API configuration
-const SQUARE_API_VERSION = '2025-10-16';
 const SQUARE_BASE_URL = 'https://connect.squareup.com';
 const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
 
 // Rate limiting and retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
-const { SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
+const { SQUARE: { API_VERSION: SQUARE_API_VERSION, MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
@@ -48,7 +48,16 @@ function pruneInvoicesScopeCache() {
 
 // Run cache pruning every hour
 // .unref() allows the process to exit even if this timer is still active
-setInterval(pruneInvoicesScopeCache, INVOICES_SCOPE_CACHE_TTL).unref();
+const invoicesCachePruneInterval = setInterval(pruneInvoicesScopeCache, INVOICES_SCOPE_CACHE_TTL);
+invoicesCachePruneInterval.unref();
+
+/**
+ * Cleanup function for graceful shutdown — clears background timers.
+ * Called from server.js gracefulShutdown().
+ */
+function cleanup() {
+    clearInterval(invoicesCachePruneInterval);
+}
 
 /**
  * Get decrypted access token for a merchant
@@ -96,16 +105,6 @@ async function getMerchantToken(merchantId) {
     }
 
     return decryptToken(token);
-}
-
-/**
- * Generate a unique idempotency key for Square API requests
- * Uses crypto.randomUUID() for guaranteed uniqueness
- * @param {string} prefix - Prefix to identify the operation type
- * @returns {string} Unique idempotency key
- */
-function generateIdempotencyKey(prefix) {
-    return `${prefix}-${crypto.randomUUID()}`;
 }
 
 /**
@@ -327,8 +326,13 @@ async function syncVendors(merchantId) {
         const accessToken = await getMerchantToken(merchantId);
         let cursor = null;
         let totalSynced = 0;
+        let paginationIterations = 0;
 
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/vendors/search' });
+                break;
+            }
             const requestBody = {
                 filter: {
                     status: ['ACTIVE', 'INACTIVE']  // ✅ CORRECT (singular, not plural)
@@ -436,6 +440,7 @@ async function syncCatalog(merchantId) {
     try {
         const accessToken = await getMerchantToken(merchantId);
         let cursor = null;
+        let paginationIterations = 0;
 
         // Fetch ALL catalog objects in one pass - building maps first
         // ITEM_VARIATION removed from types — variations are extracted from item_data.variations
@@ -443,6 +448,10 @@ async function syncCatalog(merchantId) {
         // Use include_related_objects=true to get category associations
         logger.info('Starting catalog fetch', { merchantId });
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/catalog/list' });
+                break;
+            }
             const endpoint = `/v2/catalog/list?types=ITEM,IMAGE,CATEGORY&include_deleted_objects=false&include_related_objects=true${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint, { accessToken });
 
@@ -765,9 +774,14 @@ async function deltaSyncCatalog(merchantId) {
         let cursor = null;
         let totalObjects = 0;
         let latestTime = null;
+        let paginationIterations = 0;
 
         // Fetch changed objects using SearchCatalogObjects with begin_time
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/catalog/search' });
+                break;
+            }
             const requestBody = {
                 begin_time: lastTimestamp,
                 object_types: ['ITEM', 'ITEM_VARIATION', 'IMAGE', 'CATEGORY'],
@@ -1594,8 +1608,13 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
 
         let cursor = null;
         let ordersProcessed = 0;
+        let paginationIterations = 0;
 
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/orders/search (velocity)' });
+                break;
+            }
             const requestBody = {
                 location_ids: locationIds,
                 query: {
@@ -1840,9 +1859,14 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
         let cursor = null;
         let ordersProcessed = 0;
         let apiCalls = 0;
+        let paginationIterations = 0;
 
         // Single fetch loop for ALL 365 days of orders
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/orders/search (all-periods)' });
+                break;
+            }
             const requestBody = {
                 location_ids: locationIds,
                 query: {
@@ -2562,8 +2586,13 @@ async function syncCommittedInventory(merchantId) {
     const statusCounts = {};
     let totalFetched = 0;
     let cursor = null;
+    let paginationIterations = 0;
 
     do {
+        if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+            logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/invoices/search' });
+            break;
+        }
         const requestBody = {
             query: {
                 filter: { location_ids: locationIds },
@@ -3024,8 +3053,13 @@ async function fixLocationMismatches(merchantId) {
         let cursor = null;
         const itemsToFix = [];
         const variationsToFix = [];
+        let paginationIterations = 0;
 
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/catalog/list (fix-locations)' });
+                break;
+            }
             const params = new URLSearchParams({
                 types: 'ITEM,ITEM_VARIATION'
             });
@@ -3475,8 +3509,13 @@ async function listCustomAttributeDefinitions(options = {}) {
     try {
         let cursor = null;
         const definitions = [];
+        let paginationIterations = 0;
 
         do {
+            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/catalog/list (custom-attrs)' });
+                break;
+            }
             const endpoint = `/v2/catalog/list?types=CUSTOM_ATTRIBUTE_DEFINITION${cursor ? `&cursor=${cursor}` : ''}`;
             const data = await makeSquareRequest(endpoint, { accessToken });
 
@@ -4789,5 +4828,7 @@ module.exports = {
     // Utility functions (for expiry discount module)
     generateIdempotencyKey,
     makeSquareRequest,
-    getMerchantToken
+    getMerchantToken,
+    // Lifecycle
+    cleanup
 };

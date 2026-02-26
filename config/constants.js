@@ -72,6 +72,12 @@ module.exports = {
         SLOW_QUERY_THRESHOLD_MS: 1000,               // Log queries > 1 second
     },
 
+    // Square API configuration
+    SQUARE: {
+        API_VERSION: '2025-10-16',
+        MAX_PAGINATION_ITERATIONS: 500,
+    },
+
     // Seniors Day discount configuration
     // Monthly discount program for customers aged 60+ with DOB on file
     SENIORS_DISCOUNT: {

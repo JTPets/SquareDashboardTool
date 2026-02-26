@@ -18,6 +18,7 @@ const { decryptToken } = require('../utils/token-encryption');
 // Cache for Square clients (to avoid recreating on every request)
 const clientCache = new Map();
 const CLIENT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHED_CLIENTS = 100; // FIFO eviction when exceeded
 
 /**
  * Load merchant context from session
@@ -207,7 +208,7 @@ async function getSquareClientForMerchant(merchantId) {
     }
 
     const merchant = await db.query(
-        'SELECT * FROM merchants WHERE id = $1 AND is_active = TRUE',
+        'SELECT id, square_access_token, square_refresh_token, square_token_expires_at FROM merchants WHERE id = $1 AND is_active = TRUE',
         [merchantId]
     );
 
@@ -223,8 +224,8 @@ async function getSquareClientForMerchant(merchantId) {
 
     let accessToken;
     if (expiresAt < oneHourFromNow && m.square_refresh_token) {
-        // Token needs refresh - import the refresh function to avoid circular deps
-        const { refreshMerchantToken } = require('../routes/square-oauth');
+        // Token needs refresh
+        const { refreshMerchantToken } = require('../utils/square-token');
         const refreshResult = await refreshMerchantToken(merchantId);
         accessToken = refreshResult.accessToken;
     } else {
@@ -239,6 +240,12 @@ async function getSquareClientForMerchant(merchantId) {
         environment,
         token: accessToken
     });
+
+    // Evict oldest entry if cache is full (FIFO)
+    if (clientCache.size >= MAX_CACHED_CLIENTS && !clientCache.has(merchantId)) {
+        const oldestKey = clientCache.keys().next().value;
+        clientCache.delete(oldestKey);
+    }
 
     // Cache the client
     clientCache.set(merchantId, {

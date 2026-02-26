@@ -262,7 +262,7 @@ describe('CatalogHandler', () => {
             expect(squareApi.deltaSyncCatalog).not.toHaveBeenCalled();
         });
 
-        it('should run follow-up sync when pending webhooks arrived', async () => {
+        it('should fire follow-up sync async when pending webhooks arrived', async () => {
             squareApi.deltaSyncCatalog.mockImplementationOnce(async (merchantId) => {
                 // Simulate webhook arriving during sync
                 syncQueue.setCatalogSyncPending(merchantId, true);
@@ -276,8 +276,11 @@ describe('CatalogHandler', () => {
 
             const result = await catalogHandler.handleCatalogVersionUpdated(context);
 
+            // Follow-up sync fires async (non-blocking), so result doesn't include followUpSync
+            // Wait a tick for the async follow-up to fire
+            await new Promise(resolve => setImmediate(resolve));
             expect(squareApi.deltaSyncCatalog).toHaveBeenCalledTimes(2);
-            expect(result.followUpSync).toBeDefined();
+            expect(result.followUpSync).toBeUndefined();
         });
     });
 });

@@ -229,17 +229,17 @@ class SyncQueue {
         try {
             const result = await syncFn();
 
-            // Check if webhooks arrived during sync - run follow-up if needed
+            // Check if webhooks arrived during sync - fire follow-up async (non-blocking)
             if (isPending()) {
-                logger.info(`Webhooks arrived during ${type} sync - running follow-up sync`, {
+                logger.info(`Webhooks arrived during ${type} sync - scheduling follow-up sync`, {
                     merchantId
                 });
                 setPending(false);
-                const followUpResult = await syncFn();
-
-                // Persist success
-                await this._persistSyncComplete(type, merchantId, 'success', Date.now() - startTime);
-                return { result, followUpResult };
+                syncFn().catch(err => {
+                    logger.error(`${type} follow-up sync failed`, {
+                        merchantId, error: err.message, stack: err.stack
+                    });
+                });
             }
 
             // Persist success

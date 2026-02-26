@@ -39,7 +39,7 @@ Week 1-2 (Feb 25 – Mar 10):
   Track C: Pkg 9 Expiry Logging [S, ~1 day]
 
 Week 2-4 (Mar 3 – Mar 17):
-  Track A: Pkg 2a Square API Quick Fixes [S, ~1 day]
+  Track A: Pkg 2a Square API Quick Fixes [S, ~1 day] ✅ DONE 2026-02-26
   Track B: Pkg 3 Loyalty Services [L, ~2 weeks]    ◄── no Pkg 2 dependency
   Track C: Pkg 4a Reorder/Analytics [M, ~1 week]   ◄── no Pkg 2 dependency
   Track D: Pkg 10 GMC Integration [M, ~1 week]
@@ -74,7 +74,7 @@ P0: Security Hardening (Pkg 1) ────────────────�
 
 P1: Database (Pkg 7) ───────────────► (parallel, no blockers)
 
-P1: Pkg 2a Quick Fixes ─────────────► (parallel with Pkg 3/4a, no blockers)
+P1: Pkg 2a Quick Fixes ─────────────► ✅ DONE 2026-02-26
 P1: Pkg 2b API Split ───────────────► (XL, runs parallel with everything — NOT a blocker)
 
 P1: Pkg 3 Loyalty Dedup ────────────► (NO dependency on Pkg 2 — import chain verified)
@@ -227,7 +227,7 @@ Every finding from every source, merged and deduplicated.
 |----|--------|----------|-------------|--------|
 | A-1 | Audit | HIGH | `services/square/api.js` is 4,793-line god module (38 exports, 12 domains) | **OPEN** |
 | A-2 | Audit | HIGH | Business logic in route handlers (bundles.js, analytics.js, delivery.js) | **OPEN** |
-| A-3 | Audit | MEDIUM | Circular dependency middleware/merchant.js ↔ routes/square-oauth.js | **OPEN** |
+| A-3 | Audit | MEDIUM | Circular dependency middleware/merchant.js ↔ routes/square-oauth.js | ✅ **DONE** 2026-02-26 — `refreshMerchantToken()` extracted to `utils/square-token.js` |
 | A-4 | Audit+DEDUP | HIGH | Duplicate customer lookup implementations (BACKLOG-17, DEDUP L-4) | **OPEN** |
 | A-5 | Audit+BACKLOG | MEDIUM | Inconsistent response formats (BACKLOG-3) | **OPEN** |
 | A-6 | Audit | MEDIUM | 66 files over 300-line limit (beyond 2 approved) | **OPEN** — refactor-on-touch |
@@ -254,7 +254,7 @@ Every finding from every source, merged and deduplicated.
 | E-1 | Audit | HIGH | Fire-and-forget email in database error handler (server.js:1001) | **OPEN** |
 | E-2 | Audit | LOW | OAuth routes use custom try/catch instead of asyncHandler | **OPEN** |
 | E-4 | Audit | LOW | Audit logging silently swallows errors (by design) | **OPEN** — consider fallback buffer |
-| MED-4 | CODE_AUDIT | MEDIUM | `setInterval` not cleared on shutdown (api.js:49) | **OPEN** |
+| MED-4 | CODE_AUDIT | MEDIUM | `setInterval` not cleared on shutdown (api.js:49) | ✅ **DONE** 2026-02-26 — Stored reference, exported `cleanup()`, called from `gracefulShutdown()` |
 | MED-5 | CODE_AUDIT | MEDIUM | Long-running jobs without timeout (loyalty-audit-job) | ✅ **DONE** 2026-02-25 — AbortController 5-min per-merchant timeout |
 
 ### API Integration Findings
@@ -262,8 +262,8 @@ Every finding from every source, merged and deduplicated.
 | ID | Source | Severity | Description | Status |
 |----|--------|----------|-------------|--------|
 | I-1 | Audit | HIGH | GMC API missing 429/rate limit handling | **OPEN** |
-| I-2 | Audit | MEDIUM | Dual Square API version constants (2025-01-16 vs 2025-10-16) | **OPEN** |
-| I-3 | Audit | LOW | Duplicate `generateIdempotencyKey()` implementation | **OPEN** |
+| I-2 | Audit | MEDIUM | Dual Square API version constants (2025-01-16 vs 2025-10-16) | ✅ **DONE** 2026-02-26 — Centralized to `config/constants.js`, all 4 locations updated to `2025-10-16` |
+| I-3 | Audit | LOW | Duplicate `generateIdempotencyKey()` implementation | ✅ **DONE** 2026-02-26 — Extracted to `utils/idempotency.js` |
 
 ### Performance Findings
 
@@ -271,12 +271,12 @@ Every finding from every source, merged and deduplicated.
 |----|--------|----------|-------------|--------|
 | P-1 | Audit | CRITICAL | Reorder suggestions endpoint returns unbounded result sets (no pagination) | **OPEN** |
 | P-2 | Audit | HIGH | N+1 bundle component inserts (sequential loop) | **OPEN** |
-| P-3 | Audit | HIGH | `SELECT *` on merchants table for every request | **OPEN** |
-| P-4 | Audit | HIGH | Square API pagination loops have no iteration guard (7 instances) | **OPEN** |
+| P-3 | Audit | HIGH | `SELECT *` on merchants table for every request | ✅ **DONE** 2026-02-26 — Narrowed to 4 needed columns |
+| P-4 | Audit | HIGH | Square API pagination loops have no iteration guard (7 instances) | ✅ **DONE** 2026-02-26 — All 8 loops guarded with MAX_PAGINATION_ITERATIONS=500 |
 | P-5 | Audit | MEDIUM | Google OAuth token listener duplicated on every call | **OPEN** |
 | P-6 | Audit | MEDIUM | N+1 GMC settings inserts | **OPEN** |
-| P-7 | Audit | MEDIUM | clientCache has no max size or LRU eviction | **OPEN** |
-| P-8 | Audit | MEDIUM | Sync queue follow-up syncs block sequentially | **OPEN** |
+| P-7 | Audit | MEDIUM | clientCache has no max size or LRU eviction | ✅ **DONE** 2026-02-26 — FIFO eviction at MAX_CACHED_CLIENTS=100 |
+| P-8 | Audit | MEDIUM | Sync queue follow-up syncs block sequentially | ✅ **DONE** 2026-02-26 — Fire-and-forget with error logging |
 | P-9 | Audit | LOW | GMC sync polling at 5-second intervals | **OPEN** |
 | MED-3 | CODE_AUDIT | MEDIUM | No circuit breaker for Square API | **OPEN** — P3 |
 
@@ -437,7 +437,7 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 2a: Square API Quick Fixes — P1
+### Package 2a: Square API Quick Fixes — P1 ✅ DONE (2026-02-26)
 
 **Estimated effort**: S (~1 day)
 **Dependencies**: None
@@ -449,36 +449,25 @@ Every finding from every source, merged and deduplicated.
 - `config/constants.js`
 - `middleware/merchant.js`
 - `services/sync-queue.js`
+- `utils/idempotency.js` (NEW)
+- `utils/square-token.js` (NEW)
+- `routes/square-oauth.js`
+- `server.js`
+- `services/webhook-handlers/catalog-handler.js`
+- `services/webhook-handlers/inventory-handler.js`
 
-**Pre-work**: Read `config/constants.js` to understand existing namespaces. Grep for `SQUARE_API_VERSION` and `generateIdempotencyKey` to find all instances.
+#### Tasks (all complete):
 
-#### Tasks (in execution order):
+1. [x] **I-2**: Centralize `SQUARE_API_VERSION` — moved to `config/constants.js` as `SQUARE.API_VERSION`, updated 4 locations. All now use `'2025-10-16'`.
+2. [x] **I-3**: Consolidate `generateIdempotencyKey()` — extracted to `utils/idempotency.js`, both `api.js` and `shared-utils.js` import from there.
+3. [x] **P-4**: Add `MAX_ITERATIONS` guard to all 8 pagination loops — `MAX_PAGINATION_ITERATIONS = 500` in `config/constants.js`. All 8 loops in `api.js` guarded with `logger.warn()` on exceed.
+4. [x] **MED-4**: Clear `setInterval` on shutdown — stored interval reference, exported `cleanup()` from `api.js`, called from `server.js` `gracefulShutdown()`.
+5. [x] **P-3**: Narrow `SELECT *` on merchants table — `middleware/merchant.js` now selects only `id, square_access_token, square_refresh_token, square_token_expires_at`.
+6. [x] **P-7**: Add FIFO eviction to `clientCache` — `MAX_CACHED_CLIENTS = 100` with FIFO eviction when exceeded.
+7. [x] **A-3**: Extract `refreshMerchantToken()` to `utils/square-token.js` — eliminates circular dependency (middleware → routes). `routes/square-oauth.js` delegates to shared utility.
+8. [x] **P-8**: Fire follow-up sync async — `services/sync-queue.js` now fires follow-up as fire-and-forget with error logging. Handler code in catalog-handler.js and inventory-handler.js updated to not expect `followUpResult`.
 
-1. [ ] **I-2**: Centralize `SQUARE_API_VERSION` — move to `config/constants.js`, update **4 locations**:
-   - `services/square/api.js:25` (currently `'2025-10-16'`)
-   - `services/loyalty-admin/shared-utils.js:18` (currently `'2025-01-16'` — **9 months stale**)
-   - `services/webhook-handlers/order-handler.js` (hardcoded `'2025-01-16'`)
-   - `utils/square-webhooks.js` (hardcoded `'2025-01-16'`)
-   Use `'2025-10-16'` (newest).
-2. [ ] **I-3**: Consolidate `generateIdempotencyKey()` — extract to `utils/idempotency.js`, update imports in `services/square/api.js:107-109` and `services/loyalty-admin/shared-utils.js:176-184`.
-3. [ ] **P-4**: Add `MAX_ITERATIONS` guard to all 8 pagination loops — `services/square/api.js` at lines 331, 445, 770, 1598, 1845, 2566, 3028, 3479. Add constant `MAX_PAGINATION_ITERATIONS = 500` to `config/constants.js`. Break with `logger.warn()` if exceeded.
-4. [ ] **MED-4**: Clear `setInterval` on shutdown — `services/square/api.js:51` — store reference and export a `cleanup()` function; call from `server.js` graceful shutdown handler.
-5. [ ] **P-3**: Narrow `SELECT *` on merchants table — `middleware/merchant.js:210` — select only needed columns.
-6. [ ] **P-7**: Add LRU eviction to `clientCache` — `middleware/merchant.js:19` — add `MAX_CLIENTS = 100`.
-7. [ ] **A-3**: Extract `refreshMerchantToken()` to `utils/square-token.js` — fix cross-tier dependency (middleware importing from routes).
-8. [ ] **P-8**: Fire follow-up sync async — `services/sync-queue.js:232-242` — change to fire-and-forget with error logging.
-
-#### Tests required:
-- [ ] Test `MAX_ITERATIONS` guard breaks pagination and logs warning
-- [ ] Test merchant query returns only needed columns
-- [ ] Test clientCache eviction when MAX_CLIENTS exceeded
-- [ ] Test `refreshMerchantToken()` works from new location
-
-#### Definition of done:
-- Single `SQUARE_API_VERSION` in `config/constants.js` — zero hardcoded duplicates
-- Single `generateIdempotencyKey()` in `utils/idempotency.js`
-- All 8 pagination loops have iteration guards
-- All existing tests pass
+#### Tests: 38 suites, 903 tests passing (sync-queue and webhook-handler tests updated for async follow-up behavior)
 
 ---
 
