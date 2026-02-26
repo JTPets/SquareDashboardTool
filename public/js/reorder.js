@@ -1914,7 +1914,7 @@ function updateVendorInfoBar(vendorId) {
   }
 
   bar.style.display = '';
-  currentVendorMinimum = hasMinimum ? parseFloat(vendor.minimum_order_amount) : 0;
+  currentVendorMinimum = hasMinimum ? parseFloat(vendor.minimum_order_amount) / 100 : 0;
 
   // Update individual info items
   const orderDayEl = document.getElementById('vendor-info-order-day');
@@ -1945,7 +1945,7 @@ function updateVendorInfoBar(vendorId) {
   if (hasMinimum) {
     minimumEl.style.display = '';
     minimumEl.querySelector('.vendor-info-value').textContent =
-      '$' + parseFloat(vendor.minimum_order_amount).toFixed(2);
+      '$' + (parseFloat(vendor.minimum_order_amount) / 100).toFixed(2);
   } else {
     minimumEl.style.display = 'none';
   }
