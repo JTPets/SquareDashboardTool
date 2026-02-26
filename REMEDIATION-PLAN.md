@@ -235,6 +235,7 @@ Every finding from every source, merged and deduplicated.
 | A-7 | Audit+DEDUP | LOW | Open deduplication debt: G-3, G-5, G-7, G-8 (BACKLOG-23,25,26,27) | **OPEN** |
 | DC-1 | Audit | LOW | 9 backward-compatibility re-export stubs in utils/ | **OPEN** |
 | DC-3 | Pkg 3 finding | LOW | `redemption-audit-service.js:15` imports `encryptToken` from `token-encryption.js` but never uses it. Dead import. | **OPEN** — refactor-on-touch (Pkg 14) |
+| A-8 | Pkg 4a finding | MEDIUM | `public/js/reorder.js` grew from 1,752 → 2,322 lines after vendor-first workflow. Already an approved violation but now 7.7x over 300-line limit. Next touch MUST extract: manual items logic, other items rendering, and state preservation into separate modules (e.g., `reorder-manual.js`, `reorder-other-items.js`, `reorder-state.js`). | **OPEN** — refactor-on-next-touch |
 
 ### Database Findings
 
@@ -248,6 +249,7 @@ Every finding from every source, merged and deduplicated.
 | D-6 | Audit | LOW | `expiry_discount_audit_log.merchant_id` allows NULL | ✅ **DONE** 2026-02-25 — Migration 057 (NOT NULL with safety check) |
 | D-7 | Audit | LOW | Potentially dead column `subscription_plans.square_plan_id` | ✅ **RESOLVED** 2026-02-25 — NOT dead; actively used in square-subscriptions.js, routes/subscriptions.js, admin-subscriptions.js. Keep. |
 | MED-2 | CODE_AUDIT | MEDIUM | Connection pool size not configurable | **OPEN** |
+| D-8 | Pkg 4a finding | MEDIUM | `routes/analytics.js` reorder suggestions query uses `LEFT JOIN sales_velocity` matching on `sv.location_id = ic.location_id OR (sv.location_id IS NULL AND ic.location_id IS NULL)` which can produce duplicate rows for multi-location tenants. GROUP BY masks it for single-location. Verify before multi-tenant rollout. | **OPEN** |
 
 ### Error Handling Findings
 
@@ -1002,6 +1004,7 @@ Every finding from every source, merged and deduplicated.
    - `services/expiry/discount-service.js` (2,097 lines)
    - `services/delivery/delivery-service.js` (1,918 lines)
 6. [ ] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified.
+7. [ ] **Pkg 4a finding** (refactor-on-touch): `reorder.js:987-991` — `vendorId === 'none'` check prevents PO creation but error message says "select a specific vendor" which is misleading since user selected "No Vendor Assigned". Clarify message on next touch.
 
 #### Tests required:
 - [ ] Test location helpers return correct results for each function
