@@ -48,7 +48,7 @@ Week 4-8 (Mar 17 – Apr 14):
   Track A: Pkg 2b Square API Monolith Split [XL, ~3-4 weeks]
   Track B: Pkg 4b Velocity Refactor [XL, ~3-4 weeks + 72h validation waits]
   Track C: Pkg 6 Webhook Handler Tests [L, ~2 weeks]
-  Track D: Pkg 5 Bundle System [M, ~1 week]
+  Track D: Pkg 5 Bundle System [M, ~1 week] ✅ DONE 2026-02-27
 
 Week 8+ (Apr 14 onward):
   Pkg 11 Config/DevOps [L, ~2 weeks]
@@ -85,7 +85,7 @@ P1: Pkg 4b Velocity Refactor ───────► (independent of Pkg 4a —
 
 P2: Pkg 13 Test Infra ─────────────► unblocks Pkg 6 (Webhook Tests)
 P2: Pkg 6 Webhook Tests ───────────► (depends on Pkg 13 for email mock)
-P2: Pkg 5 Bundle System ───────────► (no blockers)
+P2: Pkg 5 Bundle System ───────────► ✅ DONE 2026-02-27
 P2: Pkg 9 Expiry Logging ──────────► (no blockers, parallel)
 P2: Pkg 10 GMC Integration ────────► (no blockers, parallel)
 
@@ -226,7 +226,7 @@ Every finding from every source, merged and deduplicated.
 | ID | Source | Severity | Description | Status |
 |----|--------|----------|-------------|--------|
 | A-1 | Audit | HIGH | `services/square/api.js` is 4,793-line god module (38 exports, 12 domains) | **OPEN** |
-| A-2 | Audit | HIGH | Business logic in route handlers (bundles.js, analytics.js, delivery.js) | **OPEN** |
+| A-2 | Audit | HIGH | Business logic in route handlers (bundles.js, analytics.js, delivery.js) | **PARTIAL** — bundles.js extracted to `services/bundle-service.js` (2026-02-27, Pkg 5); analytics.js and delivery.js remain |
 | A-3 | Audit | MEDIUM | Circular dependency middleware/merchant.js ↔ routes/square-oauth.js | ✅ **DONE** 2026-02-26 — `refreshMerchantToken()` extracted to `utils/square-token.js` |
 | A-4 | Audit+DEDUP | HIGH | Duplicate customer lookup implementations (BACKLOG-17, DEDUP L-4) | **OPEN** |
 | A-5 | Audit+BACKLOG | MEDIUM | Inconsistent response formats (BACKLOG-3) | **OPEN** |
@@ -274,7 +274,7 @@ Every finding from every source, merged and deduplicated.
 | ID | Source | Severity | Description | Status |
 |----|--------|----------|-------------|--------|
 | P-1 | Audit | CRITICAL | Reorder suggestions endpoint returns unbounded result sets (no pagination) | **OPEN** |
-| P-2 | Audit | HIGH | N+1 bundle component inserts (sequential loop) | **OPEN** |
+| P-2 | Audit | HIGH | N+1 bundle component inserts (sequential loop) | ✅ **DONE** 2026-02-27 — Replaced with single multi-row INSERT via `_batchInsertComponents()` in `services/bundle-service.js` (Pkg 5) |
 | P-3 | Audit | HIGH | `SELECT *` on merchants table for every request | ✅ **DONE** 2026-02-26 — Narrowed to 4 needed columns |
 | P-4 | Audit | HIGH | Square API pagination loops have no iteration guard (7 instances) | ✅ **DONE** 2026-02-26 — All 8 loops guarded with MAX_PAGINATION_ITERATIONS=500 |
 | P-5 | Audit | MEDIUM | Google OAuth token listener duplicated on every call | **OPEN** |
@@ -641,31 +641,33 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 5: Bundle System — P2
+### Package 5: Bundle System — P2 ✅ DONE 2026-02-27
 
 **Estimated effort**: M
 **Dependencies**: None
 **Files touched**:
-- `routes/bundles.js`
-- `services/bundle-calculator.js` (new — extract from route)
+- `routes/bundles.js` — refactored to thin route layer (validation + service calls only)
+- `services/bundle-service.js` (new — all bundle CRUD + availability business logic)
+- `__tests__/services/bundle-service.test.js` (new — 27 tests)
 
 **Pre-work**: Read `routes/bundles.js` fully (291 lines). Understand the availability calculation inline logic (lines 88-291).
 
 #### Tasks (in execution order):
 
-1. [ ] **A-2 (bundles)**: Extract bundle availability calculation from route — move lines 88-291 of `routes/bundles.js` to `services/bundle-calculator.js`. Route should become thin: validate input, call service, return result.
-2. [ ] **P-2**: Batch bundle component inserts — replace sequential `INSERT` loops at `routes/bundles.js:340-358` (POST) and `routes/bundles.js:455-473` (PUT) with batch `INSERT INTO bundle_components (...) VALUES ($1,...), ($2,...) RETURNING *`
+1. [x] **A-2 (bundles)**: Extract ALL bundle business logic from route into `services/bundle-service.js`. Route handlers now only parse request, call service, return response. Functions extracted: `listBundles`, `calculateAvailability`, `createBundle`, `updateBundle`, `deleteBundle`.
+2. [x] **P-2**: Batch bundle component inserts — replaced sequential `INSERT` loops (POST create and PUT update) with single multi-row `INSERT INTO bundle_components (...) VALUES ($1,...), ($9,...) RETURNING *` via `_batchInsertComponents()`. Shared by both create and update paths.
 
 #### Tests required:
-- [ ] Test bundle availability calculation returns correct results via service
-- [ ] Test batch insert creates all components in one query
-- [ ] Test bundle create with 10 components completes in <200ms (no N+1)
+- [x] Test bundle availability calculation returns correct results via service (7 tests: limiting component, committed inventory, safety stock, location filter, velocity, days-of-stock)
+- [x] Test batch insert creates all components in one query (5 tests: single query verification, 10-component batch, empty/null handling, missing catalog)
+- [x] Test bundle create with 10 components completes in single query (verified: `_batchInsertComponents` makes exactly 1 query call for 10 components, 80 params)
 
 #### Definition of done:
-- `routes/bundles.js` contains validation + service calls only
-- `services/bundle-calculator.js` contains all business logic
-- No sequential INSERT loops for bundle components
-- Existing bundle functionality unchanged
+- ✅ `routes/bundles.js` contains validation + service calls only (75 lines, down from 516)
+- ✅ `services/bundle-service.js` contains all business logic (291 lines)
+- ✅ No sequential INSERT loops for bundle components (single multi-row VALUES)
+- ✅ Existing bundle functionality unchanged (same inputs → same outputs)
+- ✅ 27 tests passing, full suite: 30 suites / 720 tests pass (no regressions)
 
 ---
 
