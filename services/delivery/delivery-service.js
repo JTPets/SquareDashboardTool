@@ -347,31 +347,63 @@ async function createOrder(merchantId, orderData) {
         needsCustomerRefresh = false
     } = orderData;
 
-    const result = await db.query(
-        `INSERT INTO delivery_orders (
-            merchant_id, square_order_id, square_customer_id, customer_name, address,
-            address_lat, address_lng, phone, notes, customer_note, status,
-            geocoded_at, square_order_data, square_order_state, needs_customer_refresh
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        RETURNING *`,
-        [
-            merchantId, squareOrderId, squareCustomerId, customerName, address,
-            addressLat, addressLng, phone, notes, customerNote, status,
-            addressLat && addressLng ? new Date() : null,
-            squareOrderData ? safeJsonStringify(squareOrderData) : null,
-            squareOrderState,
-            needsCustomerRefresh
-        ]
-    );
+    const serializedOrderData = squareOrderData ? safeJsonStringify(squareOrderData) : null;
+    const geocodedAt = addressLat && addressLng ? new Date() : null;
 
-    logger.info('Created delivery order', {
-        merchantId,
-        orderId: result.rows[0].id,
-        squareOrderId,
-        squareCustomerId
-    });
+    // Use ON CONFLICT for Square-linked orders to prevent duplicates from racing webhooks.
+    // Manual orders (squareOrderId=null) are excluded by the partial unique index.
+    const sql = squareOrderId
+        ? `INSERT INTO delivery_orders (
+                merchant_id, square_order_id, square_customer_id, customer_name, address,
+                address_lat, address_lng, phone, notes, customer_note, status,
+                geocoded_at, square_order_data, square_order_state, needs_customer_refresh
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            ON CONFLICT (square_order_id, merchant_id) WHERE square_order_id IS NOT NULL
+            DO UPDATE SET
+                square_customer_id = COALESCE(EXCLUDED.square_customer_id, delivery_orders.square_customer_id),
+                customer_name = CASE
+                    WHEN delivery_orders.customer_name = 'Unknown Customer' THEN EXCLUDED.customer_name
+                    ELSE delivery_orders.customer_name
+                END,
+                address = COALESCE(EXCLUDED.address, delivery_orders.address),
+                phone = COALESCE(EXCLUDED.phone, delivery_orders.phone),
+                square_order_data = COALESCE(EXCLUDED.square_order_data, delivery_orders.square_order_data),
+                square_order_state = COALESCE(EXCLUDED.square_order_state, delivery_orders.square_order_state),
+                needs_customer_refresh = EXCLUDED.needs_customer_refresh
+            RETURNING *, (xmax = 0) AS _inserted`
+        : `INSERT INTO delivery_orders (
+                merchant_id, square_order_id, square_customer_id, customer_name, address,
+                address_lat, address_lng, phone, notes, customer_note, status,
+                geocoded_at, square_order_data, square_order_state, needs_customer_refresh
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            RETURNING *, TRUE AS _inserted`;
 
-    return result.rows[0];
+    const result = await db.query(sql, [
+        merchantId, squareOrderId, squareCustomerId, customerName, address,
+        addressLat, addressLng, phone, notes, customerNote, status,
+        geocodedAt, serializedOrderData, squareOrderState, needsCustomerRefresh
+    ]);
+
+    const row = result.rows[0];
+    const wasInserted = row._inserted;
+    delete row._inserted;
+
+    if (wasInserted) {
+        logger.info('Created delivery order', {
+            merchantId,
+            orderId: row.id,
+            squareOrderId,
+            squareCustomerId
+        });
+    } else {
+        logger.info('Delivery order already exists (conflict), returned existing', {
+            merchantId,
+            orderId: row.id,
+            squareOrderId
+        });
+    }
+
+    return row;
 }
 
 /**
