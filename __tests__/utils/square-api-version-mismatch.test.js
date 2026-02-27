@@ -66,8 +66,9 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
         }
     });
 
-    // Mock VERSION_MISMATCH error response
-    const versionMismatchError = {
+    // Factory for VERSION_MISMATCH error response — must create fresh jest.fn()
+    // per use because restoreMocks: true resets mock implementations between tests
+    const createVersionMismatchError = () => ({
         ok: false,
         status: 400,
         json: jest.fn().mockResolvedValue({
@@ -78,7 +79,7 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
                 field: 'version'
             }]
         })
-    };
+    });
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -131,7 +132,7 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
                 json: jest.fn().mockResolvedValue(createCatalogResponse(100))
             })
             // Attempt 1: update fails
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             // Attempt 2: retrieve with new version
             .mockResolvedValueOnce({
                 ok: true,
@@ -176,13 +177,13 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(100))
             })
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             // Attempt 2
             .mockResolvedValueOnce({
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(101))
             })
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             // Attempt 3
             .mockResolvedValueOnce({
                 ok: true,
@@ -220,19 +221,19 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(100))
             })
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             // Attempt 2
             .mockResolvedValueOnce({
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(101))
             })
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             // Attempt 3
             .mockResolvedValueOnce({
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(102))
             })
-            .mockResolvedValueOnce(versionMismatchError);
+            .mockResolvedValueOnce(createVersionMismatchError());
 
         await expect(
             squareApi.setSquareInventoryAlertThreshold(
@@ -371,7 +372,7 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(100))
             })
-            .mockResolvedValueOnce(versionMismatchError)
+            .mockResolvedValueOnce(createVersionMismatchError())
             .mockResolvedValueOnce({
                 ok: true,
                 json: jest.fn().mockResolvedValue(createCatalogResponse(101))
