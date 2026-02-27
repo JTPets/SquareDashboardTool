@@ -226,7 +226,7 @@ Every finding from every source, merged and deduplicated.
 | ID | Source | Severity | Description | Status |
 |----|--------|----------|-------------|--------|
 | A-1 | Audit | HIGH | `services/square/api.js` is 4,793-line god module (38 exports, 12 domains) | **OPEN** |
-| A-2 | Audit | HIGH | Business logic in route handlers (bundles.js, analytics.js, delivery.js) | **PARTIAL** — bundles.js extracted to `services/bundle-service.js` (2026-02-27, Pkg 5); analytics.js and delivery.js remain |
+| A-2 | Audit | HIGH | Business logic in route handlers (bundles.js, analytics.js, delivery.js) | **PARTIAL** — bundles.js extracted to `services/bundle-service.js` (2026-02-27, Pkg 5); delivery.js extracted to `services/delivery/delivery-stats.js` (2026-02-27, Pkg 8); analytics.js remains |
 | A-3 | Audit | MEDIUM | Circular dependency middleware/merchant.js ↔ routes/square-oauth.js | ✅ **DONE** 2026-02-26 — `refreshMerchantToken()` extracted to `utils/square-token.js` |
 | A-4 | Audit+DEDUP | HIGH | Duplicate customer lookup implementations (BACKLOG-17, DEDUP L-4) | **OPEN** |
 | A-5 | Audit+BACKLOG | MEDIUM | Inconsistent response formats (BACKLOG-3) | **OPEN** |
@@ -774,11 +774,11 @@ Every finding from every source, merged and deduplicated.
 
 #### Tasks (in execution order):
 
-1. [ ] **A-2 (delivery)**: Extract delivery stat aggregation from route — `routes/delivery.js:445-659` — move to `services/delivery/delivery-stats.js`. Route becomes thin controller.
+1. [x] **A-2 (delivery)**: Extract delivery stat aggregation from route — `routes/delivery.js:445-659` — move to `services/delivery/delivery-stats.js`. Route becomes thin controller. *(2026-02-27: Extracted `getCustomerInfo`, `updateCustomerNote`, `getCustomerStats`, `getDashboardStats`, `getLocationIds` into `services/delivery/delivery-stats.js`. 4 route handlers thinned to parse-request/call-service/return-response. 30 tests.)*
 2. [ ] **BACKLOG-12**: Investigate driver share link validation failure — check share link generation endpoint, input validation on parameters, expired/invalid token handling. Files: `routes/delivery.js`, `middleware/validators/`, `services/delivery/delivery-service.js`.
 
 #### Tests required:
-- [ ] Test delivery stat aggregation via service returns expected results
+- [x] Test delivery stat aggregation via service returns expected results *(30 tests in `__tests__/services/delivery-stats.test.js`)*
 - [ ] Test share link generation and access with valid/expired tokens
 
 #### Definition of done:
