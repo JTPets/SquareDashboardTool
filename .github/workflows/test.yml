@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      CI: true
       NODE_ENV: test
       # Test-only dummy values — real credentials are never stored here
       TOKEN_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -33,11 +34,27 @@ jobs:
           node-version: 18
           cache: npm
 
+      - name: Print environment info
+        run: |
+          echo "Node.js version: $(node --version)"
+          echo "npm version: $(npm --version)"
+
       - name: Install dependencies
         run: npm ci
 
+      - name: Print installed dependencies
+        run: npm ls --depth=0
+
       - name: Run tests
-        run: npx jest --ci --forceExit --coverage
+        run: npx jest --ci --forceExit --coverage --verbose --no-cache 2>&1 | tee jest-output.txt
+
+      - name: Upload jest output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-output
+          path: jest-output.txt
+          retention-days: 7
 
       - name: Upload coverage report
         if: always()
