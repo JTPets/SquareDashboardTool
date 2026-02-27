@@ -45,7 +45,6 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const db = require('../utils/database');
 const logger = require('../utils/logger');
 const deliveryApi = require('../utils/delivery-api');
 const { requireAuth } = require('../middleware/auth');
@@ -55,6 +54,8 @@ const asyncHandler = require('../middleware/async-handler');
 const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
 const { validateUploadedImage } = require('../utils/file-validation');
 const validators = require('../middleware/validators/delivery');
+const deliveryStats = require('../services/delivery/delivery-stats');
+const { getLocationIds } = deliveryStats;
 
 // Rate limiters
 const deliveryRateLimit = configureDeliveryRateLimit();
@@ -75,20 +76,6 @@ const podUpload = multer({
         }
     }
 });
-
-/**
- * Helper to get Square location IDs for a merchant
- */
-async function getLocationIds(merchantId) {
-    const result = await db.query(
-        'SELECT square_location_id FROM locations WHERE merchant_id = $1 AND active = TRUE AND square_location_id IS NOT NULL',
-        [merchantId]
-    );
-    if (result.rows.length === 0) {
-        logger.warn('No active locations found for merchant', { merchantId });
-    }
-    return result.rows.map(r => r.square_location_id);
-}
 
 /**
  * GET /api/delivery/orders
@@ -455,51 +442,10 @@ router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.com
  */
 router.get('/orders/:id/customer', requireAuth, requireMerchant, validators.getOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+    const { order, customerData } = await deliveryStats.getCustomerInfo(merchantId, req.params.id);
 
     if (!order) {
         return res.status(404).json({ error: 'Order not found' });
-    }
-
-    let customerData = {
-        order_notes: order.notes,        // Order-specific notes from Square
-        customer_note: order.customer_note,  // Cached customer note
-        square_customer_id: order.square_customer_id
-    };
-
-    // If we have a Square customer ID, fetch fresh data from Square
-    if (order.square_customer_id) {
-        try {
-                const squareClient = await getSquareClientForMerchant(merchantId);
-                const customerResponse = await squareClient.customers.get({
-                    customerId: order.square_customer_id
-                });
-
-                if (customerResponse.customer) {
-                    const customer = customerResponse.customer;
-                    customerData = {
-                        ...customerData,
-                        customer_note: customer.note || null,
-                        customer_email: customer.emailAddress || customer.email_address,
-                        customer_phone: customer.phoneNumber || customer.phone_number,
-                        customer_name: [customer.givenName || customer.given_name, customer.familyName || customer.family_name].filter(Boolean).join(' '),
-                        customer_company: customer.companyName || customer.company_name
-                    };
-
-                    // Update cached customer note if different
-                    if (customer.note !== order.customer_note) {
-                        await deliveryApi.updateOrder(merchantId, order.id, {
-                            customerNote: customer.note || null
-                        });
-                    }
-                }
-            } catch (squareError) {
-                logger.warn('Failed to fetch customer from Square', {
-                    error: squareError.message,
-                    customerId: order.square_customer_id
-                });
-                // Return cached data if Square fetch fails
-            }
     }
 
     res.json(customerData);
@@ -512,50 +458,19 @@ router.get('/orders/:id/customer', requireAuth, requireMerchant, validators.getO
 router.patch('/orders/:id/customer-note', deliveryRateLimit, requireAuth, requireMerchant, validators.updateCustomerNote, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { note } = req.body;
-    const order = await deliveryApi.getOrderById(merchantId, req.params.id);
+    const result = await deliveryStats.updateCustomerNote(merchantId, req.params.id, note);
 
-    if (!order) {
+    if (!result.order) {
         return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (!order.square_customer_id) {
-        return res.status(400).json({ error: 'No Square customer linked to this order' });
+    if (result.error) {
+        return res.status(400).json({ error: result.error });
     }
-
-    let squareSynced = false;
-
-    // Update customer note in Square
-    try {
-            const squareClient = await getSquareClientForMerchant(merchantId);
-
-            // First get current customer to get version
-            const customerResponse = await squareClient.customers.get({
-                customerId: order.square_customer_id
-            });
-
-            if (customerResponse.customer) {
-                await squareClient.customers.update({
-                    customerId: order.square_customer_id,
-                    note: note || null,
-                    version: customerResponse.customer.version
-                });
-                squareSynced = true;
-            }
-        } catch (squareError) {
-            logger.error('Failed to update customer note in Square', {
-                error: squareError.message,
-                customerId: order.square_customer_id
-            });
-        }
-
-        // Update cached note locally
-        await deliveryApi.updateOrder(merchantId, order.id, {
-            customerNote: note || null
-        });
 
     res.json({
         success: true,
-        square_synced: squareSynced,
+        square_synced: result.squareSynced,
         customer_note: note
     });
 }));
@@ -589,189 +504,12 @@ router.patch('/orders/:id/notes', deliveryRateLimit, requireAuth, requireMerchan
  */
 router.get('/orders/:id/customer-stats', requireAuth, requireMerchant, validators.getOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const orderId = req.params.id;
+    const { order, stats } = await deliveryStats.getCustomerStats(merchantId, req.params.id);
 
-        logger.debug('Fetching customer stats', { merchantId, orderId });
+    if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+    }
 
-        const order = await deliveryApi.getOrderById(merchantId, orderId);
-
-        if (!order) {
-            logger.warn('Customer stats: Order not found', { merchantId, orderId });
-            return res.status(404).json({ error: 'Order not found' });
-        }
-
-        const stats = {
-            order_count: 0,
-            is_repeat_customer: false,
-            is_loyalty_member: false,
-            loyalty_balance: null,
-            payment_status: 'unknown', // 'paid', 'unpaid', 'partial'
-            total_amount: null,
-            amount_paid: null
-        };
-
-        const squareClient = await getSquareClientForMerchant(merchantId);
-
-        // If no Square customer ID, try to look up by phone number
-        let customerId = order.square_customer_id;
-        if (!customerId && order.phone) {
-            try {
-                logger.debug('Customer stats: No customer ID, searching by phone', {
-                    merchantId,
-                    orderId,
-                    phone: order.phone
-                });
-                const searchResult = await squareClient.customers.search({
-                    query: {
-                        filter: {
-                            phoneNumber: {
-                                exact: order.phone
-                            }
-                        }
-                    },
-                    limit: BigInt(1)
-                });
-                if (searchResult.customers && searchResult.customers.length > 0) {
-                    customerId = searchResult.customers[0].id;
-                    logger.debug('Customer stats: Found customer by phone', {
-                        merchantId,
-                        orderId,
-                        customerId,
-                        customerName: searchResult.customers[0].givenName
-                    });
-                }
-            } catch (searchErr) {
-                logger.warn('Customer stats: Failed to search customer by phone', {
-                    merchantId,
-                    orderId,
-                    error: searchErr.message
-                });
-            }
-        }
-
-        // If still no customer ID, return basic stats
-        if (!customerId) {
-            logger.debug('Customer stats: No customer found, returning basic stats', {
-                merchantId,
-                orderId,
-                customerName: order.customer_name
-            });
-            return res.json(stats);
-        }
-
-        // Get active location IDs for this merchant
-        const locationIds = await getLocationIds(merchantId);
-
-        if (locationIds.length === 0) {
-            logger.warn('No active locations found for merchant', { merchantId });
-            return res.json(stats);
-        }
-
-        // Fetch order count, loyalty status, and payment info in parallel
-        const [orderCountResult, loyaltyResult, squareOrderResult] = await Promise.allSettled([
-            // Count previous orders by this customer
-            squareClient.orders.search({
-                locationIds: locationIds,
-                query: {
-                    filter: {
-                        customerFilter: {
-                            customerIds: [customerId]
-                        },
-                        stateFilter: {
-                            states: ['COMPLETED']
-                        }
-                    }
-                }
-            }),
-
-            // Check loyalty status
-            (async () => {
-                try {
-                    // Use 'main' keyword to retrieve the seller's loyalty program
-                    // Square SDK v43+ uses .get() not .retrieve()
-                    const programResponse = await squareClient.loyalty.programs.get({
-                        programId: 'main'
-                    });
-
-                    if (programResponse.program) {
-                        // Search for loyalty account by customer ID
-                        const accountsResponse = await squareClient.loyalty.accounts.search({
-                            query: {
-                                customerIds: [customerId]
-                            }
-                        });
-
-                        if (accountsResponse.loyaltyAccounts && accountsResponse.loyaltyAccounts.length > 0) {
-                            const account = accountsResponse.loyaltyAccounts[0];
-                            return {
-                                isMember: true,
-                                balance: Number(account.balance || 0)
-                            };
-                        }
-                    }
-                } catch (loyaltyError) {
-                    // 404 means seller doesn't have a loyalty program - that's fine
-                    if (!loyaltyError.message?.includes('NOT_FOUND')) {
-                        logger.warn('Error checking loyalty status', { error: loyaltyError.message });
-                    }
-                }
-                return { isMember: false, balance: null };
-            })(),
-
-            // Get Square order for payment status
-            order.square_order_id ? squareClient.orders.get({
-                orderId: order.square_order_id
-            }) : Promise.resolve(null)
-        ]);
-
-        // Log results of parallel fetches
-        logger.debug('Customer stats: Square API results', {
-            orderId,
-            orderCountStatus: orderCountResult.status,
-            orderCountError: orderCountResult.status === 'rejected' ? orderCountResult.reason?.message : undefined,
-            loyaltyStatus: loyaltyResult.status,
-            loyaltyError: loyaltyResult.status === 'rejected' ? loyaltyResult.reason?.message : undefined,
-            squareOrderStatus: squareOrderResult.status,
-            squareOrderError: squareOrderResult.status === 'rejected' ? squareOrderResult.reason?.message : undefined
-        });
-
-        // Process order count
-        if (orderCountResult.status === 'fulfilled' && orderCountResult.value.orders) {
-            stats.order_count = orderCountResult.value.orders.length;
-            stats.is_repeat_customer = stats.order_count > 1;
-        }
-
-        // Process loyalty status
-        if (loyaltyResult.status === 'fulfilled') {
-            stats.is_loyalty_member = loyaltyResult.value.isMember;
-            stats.loyalty_balance = loyaltyResult.value.balance;
-        }
-
-        // Process payment status
-        // Note: Square SDK v43+ returns BigInt for money amounts, must convert to Number
-        if (squareOrderResult.status === 'fulfilled' && squareOrderResult.value?.order) {
-            const squareOrder = squareOrderResult.value.order;
-            const totalMoney = Number(squareOrder.totalMoney?.amount || squareOrder.total_money?.amount || 0);
-            const tenders = squareOrder.tenders || [];
-
-            let amountPaid = 0;
-            for (const tender of tenders) {
-                amountPaid += Number(tender.amountMoney?.amount || tender.amount_money?.amount || 0);
-            }
-
-            stats.total_amount = totalMoney;
-            stats.amount_paid = amountPaid;
-
-            if (amountPaid >= totalMoney && totalMoney > 0) {
-                stats.payment_status = 'paid';
-            } else if (amountPaid > 0) {
-                stats.payment_status = 'partial';
-            } else {
-                stats.payment_status = 'unpaid';
-            }
-        }
-
-    logger.debug('Customer stats: Returning stats', { orderId, stats });
     res.json(stats);
 }));
 
@@ -1040,43 +778,8 @@ router.get('/audit', requireAuth, requireMerchant, validators.getAudit, asyncHan
  */
 router.get('/stats', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-    const today = new Date().toISOString().split('T')[0];
-
-    // Get counts by status
-    const statusCounts = await db.query(`
-        SELECT status, COUNT(*) as count
-        FROM delivery_orders
-        WHERE merchant_id = $1
-        GROUP BY status
-    `, [merchantId]);
-
-    // Get today's route info
-    const activeRoute = await deliveryApi.getActiveRoute(merchantId, today);
-
-    // Get today's completions
-    const todayCompletions = await db.query(`
-        SELECT COUNT(*) as count
-        FROM delivery_orders
-        WHERE merchant_id = $1
-          AND status = 'completed'
-          AND updated_at::date = CURRENT_DATE
-    `, [merchantId]);
-
-    res.json({
-        stats: {
-            byStatus: statusCounts.rows.reduce((acc, row) => {
-                acc[row.status] = parseInt(row.count);
-                return acc;
-            }, {}),
-            activeRoute: activeRoute ? {
-                id: activeRoute.id,
-                totalStops: activeRoute.order_count,
-                completedStops: activeRoute.completed_count,
-                skippedStops: activeRoute.skipped_count
-            } : null,
-            completedToday: parseInt(todayCompletions.rows[0]?.count || 0)
-        }
-    });
+    const stats = await deliveryStats.getDashboardStats(merchantId);
+    res.json({ stats });
 }));
 
 /**
