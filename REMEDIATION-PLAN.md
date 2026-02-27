@@ -212,6 +212,7 @@ Every finding from every source, merged and deduplicated.
 | CRIT-3 | CODE_AUDIT | CRITICAL | Server-side XSS in HTML report generation | **DONE** (2026-02-05) |
 | CRIT-4 | CODE_AUDIT | CRITICAL | Client-side API key in localStorage | **DONE** (2026-02-05) |
 | CRIT-5 | CODE_AUDIT | CRITICAL | No distributed locking for cron jobs (scale) | **OPEN** — P3 |
+| S-12 | Pkg 8 finding | MEDIUM | `routes/delivery.js:546-565` — POD image serve path uses `res.sendFile(pod.full_path)` with no explicit path normalization. Currently mitigated by DB-sourced paths, but vulnerable if `photo_path` values are ever user-influenced. Add `path.resolve()` + prefix check. | **OPEN** |
 | HIGH-1 | CODE_AUDIT | HIGH | Timing attack in webhook signature | **DONE** (2026-02-05) |
 | HIGH-2 | CODE_AUDIT | HIGH | Webhook error response returns 5xx | **DONE** (2026-02-05) |
 | HIGH-3 | CODE_AUDIT | HIGH | Synchronous file I/O in request handlers | **DONE** (2026-02-05) |
@@ -236,6 +237,8 @@ Every finding from every source, merged and deduplicated.
 | DC-1 | Audit | LOW | 9 backward-compatibility re-export stubs in utils/ | **OPEN** |
 | DC-3 | Pkg 3 finding | LOW | `redemption-audit-service.js:15` imports `encryptToken` from `token-encryption.js` but never uses it. Dead import. | **OPEN** — refactor-on-touch (Pkg 14) |
 | A-8 | Pkg 4a finding | MEDIUM | `public/js/reorder.js` grew from 1,752 → 2,322 lines after vendor-first workflow. Already an approved violation but now 7.7x over 300-line limit. Next touch MUST extract: manual items logic, other items rendering, and state preservation into separate modules (e.g., `reorder-manual.js`, `reorder-other-items.js`, `reorder-state.js`). | **OPEN** — refactor-on-next-touch |
+| A-9 | Pkg 8 finding | MEDIUM | `routes/delivery.js:245-427` — Race condition in Square fulfillment state machine transitions under concurrent webhook + manual complete. Each step re-fetches order version but another process could modify between fetch and update. Related to BACKLOG-5. | **OPEN** |
+| A-10 | Pkg 8 finding | MEDIUM | `services/delivery/delivery-service.js:453-496` — Unclear status semantics (`delivered` vs `completed` vs `skipped`). No documentation on state machine transitions or valid state flows. | **OPEN** |
 
 ### Database Findings
 
@@ -266,6 +269,7 @@ Every finding from every source, merged and deduplicated.
 | E-4 | Audit | LOW | Audit logging silently swallows errors (by design) | **OPEN** — consider fallback buffer |
 | MED-4 | CODE_AUDIT | MEDIUM | `setInterval` not cleared on shutdown (api.js:49) | ✅ **DONE** 2026-02-26 — Stored reference, exported `cleanup()`, called from `gracefulShutdown()` |
 | MED-5 | CODE_AUDIT | MEDIUM | Long-running jobs without timeout (loyalty-audit-job) | ✅ **DONE** 2026-02-25 — AbortController 5-min per-merchant timeout |
+| E-3 | Pkg 8 finding | MEDIUM | `routes/delivery.js:419-427` — `completeOrder` returns 200 with `square_synced: false` on Square sync failure. Caller has no way to know sync failed unless it inspects the flag. Should return 207 (partial success) or include a warning flag the frontend acts on. | **OPEN** |
 
 ### API Integration Findings
 
@@ -1014,6 +1018,9 @@ Every finding from every source, merged and deduplicated.
 6. [ ] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified.
 7. [ ] **Pkg 4a finding** (refactor-on-touch): `reorder.js:987-991` — `vendorId === 'none'` check prevents PO creation but error message says "select a specific vendor" which is misleading since user selected "No Vendor Assigned". Clarify message on next touch.
 8. [ ] **V-1** (refactor-on-touch): Tighten `middleware/validators/bundles.js` `updateBundle` validator — when `components` array is present and non-empty, `child_variation_id` and `quantity_in_bundle` should be required (not optional). Currently a PUT with `components: [{}]` passes validation but hits DB NOT NULL constraint.
+9. [ ] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:718-733` — PUT /settings fetches `deliveryApi.getSettings(merchantId)` twice in the same request (once for start address geocoding, once for end address). Fetch once and reuse.
+10. [ ] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:180-191` — Silent geocoding failure on address update. When `geocodeAddress()` returns null, coordinates are silently not updated. Add a warning log or return a flag to the caller.
+11. [ ] **Pkg 8 observation**: `routes/delivery.js` — Inconsistent response wrapper formats across delivery endpoints (some use `{ success: true, ... }`, others return direct data). Related to A-5 / BACKLOG-3 — apply standardized format when response helpers exist.
 
 #### Tests required:
 - [ ] Test location helpers return correct results for each function
