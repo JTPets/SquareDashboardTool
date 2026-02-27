@@ -1191,3 +1191,42 @@ Items requiring human judgment before execution:
 | Pkg 14 | A-4b | `getCustomerDetails()` has two implementations with different caching behavior: `customer-admin-service.js` (standalone, cache-first, 6 callers) vs `customer-identification-service.js` (class method, direct API, no caching, 4 callers). Unify to always-cache, always-direct, or keep both intentionally? |
 | Pkg 15 | E-4 | Is a fallback buffer for audit log writes worth the complexity for single-tenant? |
 | Pre-deploy | API version | Update `SQUARE_API_VERSION` from `2025-10-16` to `2026-01-22` and SDK from `^43.2.1` to `^44.0.0`. 2026-01-22 affects Catalog, Orders, Payments, OAuth APIs (all heavily used). 203 regenerated SDK files. **Must read changelog first** at https://developer.squareup.com/docs/changelog/connect and test in Square Sandbox before production. See Pkg 2a completion notes. |
+
+---
+
+## Feature Backlog
+
+New feature ideas and enhancements — not bugs, not tech debt, not remediation. Tracked separately from system packages above.
+
+### Effort Key
+
+| Size | Sessions | Calendar |
+|------|----------|----------|
+| S | 1-2 | ~1 day |
+| M | 3-5 | ~1 week |
+| L | 6-10 | ~2 weeks |
+| XL | 10+ | ~3-4 weeks |
+
+### F-1: Vendor Catalog → Square Item Creation
+
+**Priority**: P3 — Quality of life, speeds up new product onboarding
+**Effort**: M (needs investigation first)
+**Status**: Not started
+
+**Currently**: Vendor catalog import brings in vendor product data but new items must be manually created in Square POS before they can be tracked.
+
+**Goal**: Ability to select items from a vendor catalog import and batch-create them as Square catalog items (item + variation + pricing).
+
+**Needs investigation**:
+- What fields the vendor CSV provides vs what Square's `BatchUpsertCatalogObjects` API requires
+- Variation mapping (1:1 or multi-size)
+- Post-creation automation (vendor assignment, cost, inventory tracking)
+
+**Dependencies**:
+- Vendor catalog import tool
+- Square Catalog API (`BatchUpsertCatalogObjects`)
+
+**Files likely involved**:
+- `routes/vendor-catalog.js`
+- `services/vendor/catalog-service.js`
+- Square Catalog API
