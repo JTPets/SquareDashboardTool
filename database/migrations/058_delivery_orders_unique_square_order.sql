@@ -3,6 +3,9 @@
 -- Purpose: Add UNIQUE constraint on (square_order_id, merchant_id) to prevent
 --          duplicate delivery orders from racing webhook events (P-10).
 --
+-- PREREQUISITE: Run scripts/cleanup-duplicate-deliveries.sql first to remove
+--               existing duplicates. This migration will FAIL if duplicates exist.
+--
 -- Background: Multiple order.updated webhooks for the same Square order can race
 -- past both the in-memory event dedup (different event_ids) and the SELECT-then-INSERT
 -- check in ingestSquareOrder(), creating duplicate delivery_orders rows.

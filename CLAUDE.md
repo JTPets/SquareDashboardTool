@@ -242,7 +242,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
 | [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 10 fixed |
-| [docs/REMEDIATION-PLAN.md](./docs/REMEDIATION-PLAN.md) | Pkg 6 webhook handler fixes (P-10 duplicate delivery orders) |
+| [REMEDIATION-PLAN.md](./REMEDIATION-PLAN.md) | Master remediation plan — all packages, backlog items, observation logs |
 | [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
 
 ---
