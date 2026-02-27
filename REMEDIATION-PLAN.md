@@ -251,6 +251,12 @@ Every finding from every source, merged and deduplicated.
 | MED-2 | CODE_AUDIT | MEDIUM | Connection pool size not configurable | **OPEN** |
 | D-8 | Pkg 4a finding | MEDIUM | `routes/analytics.js` reorder suggestions query uses `LEFT JOIN sales_velocity` matching on `sv.location_id = ic.location_id OR (sv.location_id IS NULL AND ic.location_id IS NULL)` which can produce duplicate rows for multi-location tenants. GROUP BY masks it for single-location. Verify before multi-tenant rollout. | **OPEN** |
 
+### Validation Findings
+
+| ID | Source | Severity | Description | Status |
+|----|--------|----------|-------------|--------|
+| V-1 | Pkg 5 finding | MEDIUM | `middleware/validators/bundles.js:98-143` — `updateBundle` validator marks `components.*.child_variation_id` and `components.*.quantity_in_bundle` as optional. A PUT with `components: [{}]` passes validation but fails at DB NOT NULL constraint. Should require these fields when `components` array is present. | **OPEN** — refactor-on-touch (Pkg 14) |
+
 ### Error Handling Findings
 
 | ID | Source | Severity | Description | Status |
@@ -1007,6 +1013,7 @@ Every finding from every source, merged and deduplicated.
    - `services/delivery/delivery-service.js` (1,918 lines)
 6. [ ] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified.
 7. [ ] **Pkg 4a finding** (refactor-on-touch): `reorder.js:987-991` — `vendorId === 'none'` check prevents PO creation but error message says "select a specific vendor" which is misleading since user selected "No Vendor Assigned". Clarify message on next touch.
+8. [ ] **V-1** (refactor-on-touch): Tighten `middleware/validators/bundles.js` `updateBundle` validator — when `components` array is present and non-empty, `child_variation_id` and `quantity_in_bundle` should be required (not optional). Currently a PUT with `components: [{}]` passes validation but hits DB NOT NULL constraint.
 
 #### Tests required:
 - [ ] Test location helpers return correct results for each function
