@@ -1174,9 +1174,9 @@ CREATE INDEX IF NOT EXISTS idx_delivery_orders_merchant_status
 CREATE INDEX IF NOT EXISTS idx_delivery_orders_route_date
     ON delivery_orders(merchant_id, route_date);
 
--- Index for Square order lookups (deduplication)
-CREATE INDEX IF NOT EXISTS idx_delivery_orders_square_order
-    ON delivery_orders(merchant_id, square_order_id)
+-- UNIQUE index for Square order lookups (prevents duplicate delivery orders from racing webhooks)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_orders_square_order
+    ON delivery_orders(square_order_id, merchant_id)
     WHERE square_order_id IS NOT NULL;
 
 -- Index for pending orders needing geocoding

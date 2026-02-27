@@ -702,11 +702,16 @@ Every finding from every source, merged and deduplicated.
 
 #### Tasks (in execution order):
 
-1. [ ] **P-10**: Fix duplicate delivery order creation — race condition allows multiple `order.updated` webhooks to create duplicate `delivery_orders` rows for the same `square_order_id`.
-   - **One-time cleanup**: Deduplicate any existing duplicate rows (keep earliest per `square_order_id`/`merchant_id`) before adding the constraint.
-   - **Migration**: `CREATE UNIQUE INDEX idx_delivery_orders_square_order ON delivery_orders(square_order_id, merchant_id) WHERE square_order_id IS NOT NULL;`
-   - **Code**: Change delivery order INSERT to `INSERT ... ON CONFLICT DO NOTHING` or check-before-insert in `services/delivery/delivery-service.js` and/or `services/webhook-handlers/order-handler.js`.
-   - **Files**: `services/webhook-handlers/order-handler.js`, `services/delivery/delivery-service.js`, new migration
+1. [x] **P-10**: Fix duplicate delivery order creation ✅ DONE 2026-02-27
+   - **Root cause**: Multiple `order.updated` webhooks race past in-memory event dedup (different `event_id`s) AND the `getOrderBySquareId()` SELECT-then-INSERT check (TOCTOU race), creating duplicate `delivery_orders` rows.
+   - **Evidence**: 2026-02-26 logs — two delivery orders (`6fa83def`, `e5f591b5`) for same Square order `qyuUdnnGxyDLayHyH7rG64AWgwZZY`.
+   - **Migration**: `database/migrations/058_delivery_orders_unique_square_order.sql` — drops old non-unique index, creates UNIQUE partial index on `(square_order_id, merchant_id) WHERE square_order_id IS NOT NULL`.
+   - **Code**: `services/delivery/delivery-service.js` `createOrder()` — uses `INSERT ... ON CONFLICT DO UPDATE` for Square-linked orders. ON CONFLICT enriches customer data (COALESCE for phone/customer_id/order_data) while preserving driver-side state (status, notes, geocoded_at). Returns existing row via `RETURNING *`. Manual orders (null squareOrderId) use plain INSERT.
+   - **Cleanup**: `scripts/cleanup-duplicate-deliveries.sql` — one-time script to deduplicate existing rows before migration. Keeps earliest row per `(square_order_id, merchant_id)`, deletes rest, wrapped in transaction with audit SELECT.
+   - **Schema**: `database/schema.sql` updated to reflect UNIQUE index.
+   - **Tests**: `__tests__/services/delivery-dedup.test.js` — 10 tests: ON CONFLICT SQL structure, conflict returns existing row, customer_name preservation, COALESCE for optional fields, manual orders skip ON CONFLICT, ingestSquareOrder dedup, different order IDs create separate rows, concurrent race simulation.
+   - **Both webhook paths protected**: `_ingestDeliveryOrder` (order.updated) and `_autoIngestFromFulfillment` (fulfillment.updated) both call `ingestSquareOrder()` → `createOrder()` with ON CONFLICT.
+   - **Deployment**: Run cleanup script → Run migration 058 → Deploy code.
 2. [ ] **BACKLOG-29**: Re-register webhooks for existing tenants — ensure `invoice.payment_made` is in both `subscriptions` and `invoices` webhook groups in `utils/square-webhooks.js`. Create one-time migration script to re-register.
 3. [ ] **T-2**: Write integration tests for `order-handler.js` — highest priority (1,316 lines, processes all orders, loyalty records, refunds). Test: order processing, loyalty record creation, refund handling, delivery routing.
 4. [ ] **T-2**: Write integration tests for `loyalty-handler.js` — second priority (512 lines). Test: loyalty event sync, account create/update.
@@ -723,12 +728,21 @@ Every finding from every source, merged and deduplicated.
 - [ ] All 7 handlers: merchant_id isolation
 
 #### Definition of done:
-- P-10 duplicate delivery orders fixed (unique constraint + INSERT conflict handling)
+- ~~P-10 duplicate delivery orders fixed (unique constraint + INSERT conflict handling)~~ ✅
 - All 8 webhook handlers have test files
 - order-handler.js and loyalty-handler.js at 60%+ coverage
 - Remaining handlers at 40%+ coverage
 - BACKLOG-29 webhook re-registration complete
 - E-1 fire-and-forget email fix applied
+
+#### Observation log (P-10, 2026-02-27):
+
+| # | Observation | File:Line | Severity | Notes |
+|---|-------------|-----------|----------|-------|
+| O-1 | `ingestSquareOrder()` does a SELECT-then-INSERT (TOCTOU race). The new ON CONFLICT in `createOrder()` is the authoritative guard, but the redundant SELECT adds ~1ms per call. Keep as-is — the SELECT still serves a useful purpose: it does a richer update (status transitions, backfill order data) that the ON CONFLICT DO UPDATE doesn't cover. | `services/delivery/delivery-service.js:1279-1312` | LOW | No action needed. |
+| O-2 | `_autoIngestFromFulfillment` re-fetches the full order from Square API (`squareClient.orders.get`). If both `order.updated` and `order.fulfillment.updated` fire for the same event, this doubles the Square API calls. Not a bug — just inefficiency. | `services/webhook-handlers/order-handler.js:1061-1063` | LOW | Could deduplicate by caching recently fetched orders in-memory for 5s. |
+| O-3 | `delivery-service.js` is 1,918 lines — exceeds 300-line rule (CLAUDE.md). Functions are well-scoped but file is monolithic. | `services/delivery/delivery-service.js` | LOW | Refactor-on-touch policy applies. Could split into `delivery-orders.js`, `delivery-routes.js`, `delivery-square.js`. |
+| O-4 | The existing non-unique index `idx_delivery_orders_square_order` used `(merchant_id, square_order_id)` column order. The new UNIQUE index uses `(square_order_id, merchant_id)` per task spec. Both orders work for the ON CONFLICT clause and existing queries. | `database/schema.sql` | INFO | No action needed. |
 
 ---
 
