@@ -1051,6 +1051,34 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
+## Feature Backlog
+
+New feature work that is not remediation or debt paydown. These are tracked separately from the system packages above.
+
+### F-1: Vendor Catalog → Square Item Creation — MEDIUM (Nice-to-have)
+
+**Priority**: P3 — quality of life, speeds up new product onboarding
+
+**Current state**: Vendor catalog import brings in vendor product data but new items must be manually created in Square POS before they can be tracked in the dashboard.
+
+**Goal**: Ability to select items from a vendor catalog import and batch-create them as Square catalog items (item + variation + pricing).
+
+**Needs investigation**:
+- What fields the vendor CSV provides vs what Square's `BatchUpsertCatalogObjects` API requires
+- Variation mapping: 1:1 or multi-size (e.g. 5lb / 15lb / 30lb bags)
+- Post-creation automation: vendor assignment, cost tracking, inventory tracking enablement
+
+**Dependencies**:
+- Vendor-catalog import tool (existing)
+- Square Catalog API (`BatchUpsertCatalogObjects`)
+
+**Files likely involved**:
+- `routes/vendor-catalog.js`
+- `services/vendor/catalog-service.js`
+- Square Catalog API
+
+---
+
 ## Old Plan Retirement
 
 Every item from prior planning documents with its disposition in this remediation plan.
