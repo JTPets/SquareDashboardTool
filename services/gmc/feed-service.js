@@ -233,7 +233,7 @@ async function generateFeedData(options = {}) {
             settings
         };
     } catch (error) {
-        logger.error('GMC feed generation failed', { error: error.message, stack: error.stack });
+        logger.error('GMC feed generation failed', { error: error.message, stack: error.stack, merchantId });
         throw error;
     }
 }

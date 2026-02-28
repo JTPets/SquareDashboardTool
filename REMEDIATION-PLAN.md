@@ -42,7 +42,7 @@ Week 2-4 (Mar 3 – Mar 17):
   Track A: Pkg 2a Square API Quick Fixes [S, ~1 day] ✅ DONE 2026-02-26
   Track B: Pkg 3 Loyalty Services [L, ~2 weeks]    ◄── no Pkg 2 dependency
   Track C: Pkg 4a Reorder/Analytics [M, ~1 week]   ◄── no Pkg 2 dependency
-  Track D: Pkg 10 GMC Integration [M, ~1 week]
+  Track D: Pkg 10 GMC Integration [M, ~1 week] ✅ DONE 2026-02-28
 
 Week 4-8 (Mar 17 – Apr 14):
   Track A: Pkg 2b Square API Monolith Split [XL, ~3-4 weeks]
@@ -87,7 +87,7 @@ P2: Pkg 13 Test Infra ─────────────► unblocks Pkg 6 
 P2: Pkg 6 Webhook Tests ───────────► (depends on Pkg 13 for email mock)
 P2: Pkg 5 Bundle System ───────────► ✅ DONE 2026-02-27
 P2: Pkg 9 Expiry Logging ──────────► (no blockers, parallel)
-P2: Pkg 10 GMC Integration ────────► (no blockers, parallel)
+P2: Pkg 10 GMC Integration ────────► ✅ DONE 2026-02-28
 
 P3: Pkg 11 Config/DevOps ──────────► (no blockers)
 P3: Pkg 12 Frontend Cleanup ───────► (no blockers)
@@ -838,7 +838,7 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
-### Package 10: GMC Integration — P2
+### Package 10: GMC Integration — P2 ✅ DONE 2026-02-28
 
 **Estimated effort**: M
 **Dependencies**: None
@@ -851,23 +851,29 @@ Every finding from every source, merged and deduplicated.
 
 #### Tasks (in execution order):
 
-1. [ ] **I-1**: Add 429/rate limit handling to `merchantApiRequest()` — `services/gmc/merchant-service.js:200` — add `Retry-After` header parsing and exponential backoff (max 3 retries), matching Square API pattern in `services/square/api.js:148-153`
-2. [ ] **P-5**: Guard against duplicate token listener — `services/gmc/merchant-service.js:57` — add `if (!oauth2Client.listenerCount('tokens'))` check before `oauth2Client.on('tokens', ...)`
-3. [ ] **P-6**: Batch GMC settings inserts — `services/gmc/merchant-service.js:95` — replace sequential loop with single `INSERT ... VALUES (...), (...) ON CONFLICT DO UPDATE` using `UNNEST` arrays
-4. [ ] **P-9**: Reduce GMC sync polling frequency — `public/js/gmc-feed.js:1210-1255` — increase from 5s to 10s intervals, or implement exponential backoff (5s → 10s → 30s)
-5. [ ] **L-2 (partial)**: Add `merchantId` to logger in `services/gmc/feed-service.js:236`
+1. [x] **I-1**: Add 429/rate limit handling to `merchantApiRequest()` — `services/gmc/merchant-service.js:200` — add `Retry-After` header parsing and exponential backoff (max 3 retries), matching Square API pattern in `services/square/api.js:148-153` **DONE** (2026-02-28)
+2. [x] **P-5**: Guard against duplicate token listener — `services/gmc/merchant-service.js:57` — add `if (!oauth2Client.listenerCount('tokens'))` check before `oauth2Client.on('tokens', ...)` **DONE** (2026-02-28)
+3. [x] **P-6**: Batch GMC settings inserts — `services/gmc/merchant-service.js:95` — replace sequential loop with single `INSERT ... VALUES (...), (...) ON CONFLICT DO UPDATE` using `UNNEST` arrays **DONE** (2026-02-28)
+4. [x] **P-9**: Reduce GMC sync polling frequency — `public/js/gmc-feed.js:1210-1255` — implement exponential backoff (5s → 10s → 30s cap) **DONE** (2026-02-28)
+5. [x] **L-2 (partial)**: Add `merchantId` to logger in `services/gmc/feed-service.js:236` **DONE** (2026-02-28)
 
 #### Tests required:
-- [ ] Test `merchantApiRequest()` retries on 429 response
-- [ ] Test token listener attached only once per OAuth client
-- [ ] Test settings batch insert writes all settings in one query
+- [x] Test `merchantApiRequest()` retries on 429 response (5 tests)
+- [x] Test token listener attached only once per OAuth client (2 tests)
+- [x] Test settings batch insert writes all settings in one query (3 tests)
+
+#### Observations logged during work:
+- `upsertProduct()` and `batchUpsertProducts()` process products in parallel batches of 10. If a 429 hits mid-batch, the retry in `merchantApiRequest` will delay that single request, but the other 9 concurrent requests may also trigger 429s. Consider adding batch-level rate limiting (e.g., delay between batches) if 429s become frequent during large catalog syncs.
+- `updateLocalInventory()` creates a `path` variable that shadows the Node.js `path` module import on line 712 (`path: path`). Not a bug (different scope), but confusing for debugging.
+- `syncAllLocationsInventory()` processes locations sequentially (good for rate limiting), but `syncLocationInventory()` → `batchUpdateLocalInventory()` fires 10 concurrent requests per batch. Same batch-level 429 concern as product sync.
+- `getAuthClient()` creates a new OAuth2 client on every call — no client caching. For high-frequency sync operations, this means multiple token refresh listeners could stack if the guard is bypassed by new instances. Current guard only protects within a single instance.
 
 #### Definition of done:
-- GMC API calls retry on 429 with proper backoff
-- No duplicate token listeners
-- Settings inserts batched
-- Polling interval increased
-- All GMC error logs include merchantId
+- ✅ GMC API calls retry on 429 with proper backoff
+- ✅ No duplicate token listeners
+- ✅ Settings inserts batched
+- ✅ Polling interval increased (exponential backoff: 5s → 10s → 30s cap)
+- ✅ All GMC error logs include merchantId
 
 ---
 
