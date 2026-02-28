@@ -273,8 +273,32 @@ async function syncLocations(merchantId) {
 }
 
 /**
+ * Migrate all FK references from one vendor ID to another within a transaction.
+ * Covers all tables: variation_vendors, vendor_catalog_items, purchase_orders,
+ * bundle_definitions, loyalty_offers.
+ */
+async function migrateVendorFKs(client, oldId, newId, merchantId) {
+    const tables = [
+        'variation_vendors',
+        'vendor_catalog_items',
+        'purchase_orders',
+        'bundle_definitions',
+        'loyalty_offers',
+    ];
+    const counts = {};
+    for (const table of tables) {
+        const result = await client.query(
+            `UPDATE ${table} SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3`,
+            [newId, oldId, merchantId]
+        );
+        counts[table] = result.rowCount;
+    }
+    return counts;
+}
+
+/**
  * Reconcile a vendor whose Square ID changed but name matches an existing DB row.
- * Uses a transaction to: insert new vendor with temp name, migrate FK references,
+ * Uses a transaction to: insert new vendor with temp name, migrate ALL FK references,
  * delete old vendor, then set the correct name on the new vendor.
  */
 async function reconcileVendorId(vendor, vendorParams, merchantId) {
@@ -292,15 +316,13 @@ async function reconcileVendorId(vendor, vendorParams, merchantId) {
         const tempName = `__reconciling_${vendor.id}`;
         await client.query(
             `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+             ON CONFLICT (id) DO NOTHING`,
             [vendor.id, tempName, vendorParams[2], vendorParams[3], vendorParams[4], vendorParams[5], merchantId]
         );
 
-        // Migrate all FK references from old vendor ID to new
-        await client.query('UPDATE variation_vendors SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3', [vendor.id, oldId, merchantId]);
-        await client.query('UPDATE vendor_catalog_items SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3', [vendor.id, oldId, merchantId]);
-        await client.query('UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3', [vendor.id, oldId, merchantId]);
-        await client.query('UPDATE bundle_definitions SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3', [vendor.id, oldId, merchantId]);
+        // Migrate ALL FK references from old vendor ID to new
+        const migrated = await migrateVendorFKs(client, oldId, vendor.id, merchantId);
 
         // Delete old vendor (no FK refs remain)
         await client.query('DELETE FROM vendors WHERE id = $1 AND merchant_id = $2', [oldId, merchantId]);
@@ -310,8 +332,11 @@ async function reconcileVendorId(vendor, vendorParams, merchantId) {
             'UPDATE vendors SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND merchant_id = $3',
             [vendor.name, vendor.id, merchantId]
         );
+
+        logger.info('Reconciled vendor ID change', {
+            merchantId, vendorName: vendor.name, oldId, newId: vendor.id, migrated
+        });
     });
-    logger.info('Reconciled vendor ID mismatch', { merchantId, vendorName: vendor.name, newSquareId: vendor.id });
 }
 
 /**
@@ -1273,18 +1298,7 @@ async function ensureVendorsExist(vendorIds, merchantId) {
             const vendor = data.vendor;
             if (!vendor) continue;
 
-            await db.query(`
-                INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    status = EXCLUDED.status,
-                    contact_name = EXCLUDED.contact_name,
-                    contact_email = EXCLUDED.contact_email,
-                    contact_phone = EXCLUDED.contact_phone,
-                    merchant_id = EXCLUDED.merchant_id,
-                    updated_at = CURRENT_TIMESTAMP
-            `, [
+            const vendorParams = [
                 vendor.id,
                 vendor.name,
                 vendor.status,
@@ -1292,7 +1306,29 @@ async function ensureVendorsExist(vendorIds, merchantId) {
                 vendor.contacts?.[0]?.email_address || null,
                 vendor.contacts?.[0]?.phone_number || null,
                 merchantId
-            ]);
+            ];
+
+            try {
+                await db.query(`
+                    INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        status = EXCLUDED.status,
+                        contact_name = EXCLUDED.contact_name,
+                        contact_email = EXCLUDED.contact_email,
+                        contact_phone = EXCLUDED.contact_phone,
+                        merchant_id = EXCLUDED.merchant_id,
+                        updated_at = CURRENT_TIMESTAMP
+                `, vendorParams);
+            } catch (insertErr) {
+                if (insertErr.constraint === 'idx_vendors_merchant_name_unique') {
+                    // Name exists with different Square ID — vendor was deleted/recreated in Square
+                    await reconcileVendorId(vendor, vendorParams, merchantId);
+                } else {
+                    throw insertErr;
+                }
+            }
 
             logger.info('On-demand vendor fetch succeeded', { merchantId, vendorId, vendorName: vendor.name });
         } catch (error) {

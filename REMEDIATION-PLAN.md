@@ -1257,3 +1257,27 @@ New feature ideas and enhancements — not bugs, not tech debt, not remediation.
 - `routes/vendor-catalog.js`
 - `services/vendor/catalog-service.js`
 - Square Catalog API
+
+---
+
+## Hotfix Log
+
+### HOTFIX-1: Vendor sync crash on Square vendor ID change (2026-02-28)
+
+**Incident**: Production crash 2026-02-27 20:12:39. Square Vendors API (alpha) reassigned vendor "Pet Science (Friday)" from UUID `a97edfac-e0aa-4b78-a404-8c9042242bc6` to Square ID `LATIW2VUCIP7OUID`. Vendor sync crashed because:
+1. `ensureVendorsExist()` INSERT failed on `idx_vendors_merchant_name_unique` — no handler for name collision
+2. `reconcileVendorId()` DELETE failed — `purchase_orders` FK (`ON DELETE RESTRICT`) blocked deletion
+
+**Root causes**:
+- `ensureVendorsExist()` did not catch `idx_vendors_merchant_name_unique` constraint errors
+- `reconcileVendorId()` was missing `loyalty_offers` table in FK migration (5 tables exist, only 4 were migrated)
+- No systematic FK migration helper — each function maintained its own table list
+
+**Fix** (in `services/square/api.js`):
+1. Extracted `migrateVendorFKs()` — single-source-of-truth for all 5 FK tables: `variation_vendors`, `vendor_catalog_items`, `purchase_orders`, `bundle_definitions`, `loyalty_offers`
+2. `reconcileVendorId()` — now uses `migrateVendorFKs()`, adds `ON CONFLICT (id) DO NOTHING` safety on temp vendor INSERT, structured logging with migration counts
+3. `ensureVendorsExist()` — catches `idx_vendors_merchant_name_unique` and delegates to `reconcileVendorId()` (same pattern as `syncVendors()`)
+
+**One-time production fix**: `scripts/fix-vendor-id-migration.sql` — migrates the stuck vendor ID with preview + transaction
+
+**Test results**: 770/785 pass (15 pre-existing failures from missing dependencies — identical to main branch)
