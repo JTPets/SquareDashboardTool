@@ -12,7 +12,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { encryptToken, decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
+const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
 const { RedemptionTypes } = require('./constants');
 const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-service');
 

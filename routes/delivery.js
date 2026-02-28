@@ -187,6 +187,10 @@ router.patch('/orders/:id', requireAuth, requireMerchant, validators.updateOrder
                 addressLng: coords.lng,
                 geocodedAt: new Date()
             });
+        } else {
+            logger.warn('Geocoding failed for updated address, coordinates not updated', {
+                merchantId, orderId: order.id, address: req.body.address
+            });
         }
     }
 
@@ -714,21 +718,24 @@ router.put('/settings', requireAuth, requireMerchant, validators.updateSettings,
     // Geocode start and end addresses if provided
     let startLat = null, startLng = null, endLat = null, endLng = null;
 
-    if (startAddress) {
+    if (startAddress || endAddress) {
         const currentSettings = await deliveryApi.getSettings(merchantId);
-        const coords = await deliveryApi.geocodeAddress(startAddress, currentSettings?.openrouteservice_api_key || openrouteserviceApiKey);
-        if (coords) {
-            startLat = coords.lat;
-            startLng = coords.lng;
-        }
-    }
+        const apiKey = currentSettings?.openrouteservice_api_key || openrouteserviceApiKey;
 
-    if (endAddress) {
-        const currentSettings = await deliveryApi.getSettings(merchantId);
-        const coords = await deliveryApi.geocodeAddress(endAddress, currentSettings?.openrouteservice_api_key || openrouteserviceApiKey);
-        if (coords) {
-            endLat = coords.lat;
-            endLng = coords.lng;
+        if (startAddress) {
+            const coords = await deliveryApi.geocodeAddress(startAddress, apiKey);
+            if (coords) {
+                startLat = coords.lat;
+                startLng = coords.lng;
+            }
+        }
+
+        if (endAddress) {
+            const coords = await deliveryApi.geocodeAddress(endAddress, apiKey);
+            if (coords) {
+                endLat = coords.lat;
+                endLng = coords.lng;
+            }
         }
     }
 

@@ -235,7 +235,7 @@ Every finding from every source, merged and deduplicated.
 | A-4b | Pkg 3 finding | MEDIUM | `getCustomerDetails()` exists in both `customer-admin-service.js` (standalone, 6 callers, cache-first) and `customer-identification-service.js` (class method, 4 callers, direct API, no caching). Different signatures, different caching behavior. Not covered by A-4 consolidation which only addressed lookup helpers. | **NEEDS_DECISION** |
 | A-7 | Audit+DEDUP | LOW | Open deduplication debt: G-3, G-5, G-7, G-8 (BACKLOG-23,25,26,27) | **OPEN** |
 | DC-1 | Audit | LOW | 9 backward-compatibility re-export stubs in utils/ | **OPEN** |
-| DC-3 | Pkg 3 finding | LOW | `redemption-audit-service.js:15` imports `encryptToken` from `token-encryption.js` but never uses it. Dead import. | **OPEN** — refactor-on-touch (Pkg 14) |
+| DC-3 | Pkg 3 finding | LOW | `redemption-audit-service.js:15` imports `encryptToken` from `token-encryption.js` but never uses it. Dead import. | ✅ **DONE** 2026-02-28 — Removed dead import |
 | A-8 | Pkg 4a finding | MEDIUM | `public/js/reorder.js` grew from 1,752 → 2,322 lines after vendor-first workflow. Already an approved violation but now 7.7x over 300-line limit. Next touch MUST extract: manual items logic, other items rendering, and state preservation into separate modules (e.g., `reorder-manual.js`, `reorder-other-items.js`, `reorder-state.js`). | **OPEN** — refactor-on-next-touch |
 | A-9 | Pkg 8 finding | MEDIUM | `routes/delivery.js:245-427` — Race condition in Square fulfillment state machine transitions under concurrent webhook + manual complete. Each step re-fetches order version but another process could modify between fetch and update. Related to BACKLOG-5. | **OPEN** |
 | A-10 | Pkg 8 finding | MEDIUM | `services/delivery/delivery-service.js:453-496` — Unclear status semantics (`delivered` vs `completed` vs `skipped`). No documentation on state machine transitions or valid state flows. | **OPEN** |
@@ -258,7 +258,7 @@ Every finding from every source, merged and deduplicated.
 
 | ID | Source | Severity | Description | Status |
 |----|--------|----------|-------------|--------|
-| V-1 | Pkg 5 finding | MEDIUM | `middleware/validators/bundles.js:98-143` — `updateBundle` validator marks `components.*.child_variation_id` and `components.*.quantity_in_bundle` as optional. A PUT with `components: [{}]` passes validation but fails at DB NOT NULL constraint. Should require these fields when `components` array is present. | **OPEN** — refactor-on-touch (Pkg 14) |
+| V-1 | Pkg 5 finding | MEDIUM | `middleware/validators/bundles.js:98-143` — `updateBundle` validator marks `components.*.child_variation_id` and `components.*.quantity_in_bundle` as optional. A PUT with `components: [{}]` passes validation but fails at DB NOT NULL constraint. Should require these fields when `components` array is present. | ✅ **DONE** 2026-02-28 — Removed `.optional()` from child_variation_id and quantity_in_bundle in updateBundle validator |
 
 ### Error Handling Findings
 
@@ -1029,12 +1029,12 @@ Every finding from every source, merged and deduplicated.
    - `routes/loyalty.js` (2,100 lines)
    - `services/expiry/discount-service.js` (2,097 lines)
    - `services/delivery/delivery-service.js` (1,918 lines)
-6. [ ] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified.
-7. [ ] **Pkg 4a finding** (refactor-on-touch): `reorder.js:987-991` — `vendorId === 'none'` check prevents PO creation but error message says "select a specific vendor" which is misleading since user selected "No Vendor Assigned". Clarify message on next touch.
-8. [ ] **V-1** (refactor-on-touch): Tighten `middleware/validators/bundles.js` `updateBundle` validator — when `components` array is present and non-empty, `child_variation_id` and `quantity_in_bundle` should be required (not optional). Currently a PUT with `components: [{}]` passes validation but hits DB NOT NULL constraint.
-9. [ ] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:718-733` — PUT /settings fetches `deliveryApi.getSettings(merchantId)` twice in the same request (once for start address geocoding, once for end address). Fetch once and reuse.
-10. [ ] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:180-191` — Silent geocoding failure on address update. When `geocodeAddress()` returns null, coordinates are silently not updated. Add a warning log or return a flag to the caller.
-11. [ ] **Pkg 8 observation**: `routes/delivery.js` — Inconsistent response wrapper formats across delivery endpoints (some use `{ success: true, ... }`, others return direct data). Related to A-5 / BACKLOG-3 — apply standardized format when response helpers exist.
+6. [x] **DC-3** (refactor-on-touch): Remove dead `encryptToken` import in `services/loyalty-admin/redemption-audit-service.js:15`. No standalone task — fix when file is next modified. **DONE** 2026-02-28
+7. [x] **Pkg 4a finding** (refactor-on-touch): `reorder.js:987-991` — `vendorId === 'none'` check prevents PO creation but error message says "select a specific vendor" which is misleading since user selected "No Vendor Assigned". Clarify message on next touch. **DONE** 2026-02-28
+8. [x] **V-1** (refactor-on-touch): Tighten `middleware/validators/bundles.js` `updateBundle` validator — when `components` array is present and non-empty, `child_variation_id` and `quantity_in_bundle` should be required (not optional). Currently a PUT with `components: [{}]` passes validation but hits DB NOT NULL constraint. **DONE** 2026-02-28
+9. [x] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:718-733` — PUT /settings fetches `deliveryApi.getSettings(merchantId)` twice in the same request (once for start address geocoding, once for end address). Fetch once and reuse. **DONE** 2026-02-28
+10. [x] **Pkg 8 observation** (refactor-on-touch): `routes/delivery.js:180-191` — Silent geocoding failure on address update. When `geocodeAddress()` returns null, coordinates are silently not updated. Add a warning log or return a flag to the caller. **DONE** 2026-02-28
+11. [ ] **Pkg 8 observation**: `routes/delivery.js` — Inconsistent response wrapper formats across delivery endpoints (some use `{ success: true, ... }`, others return direct data). Related to A-5 / BACKLOG-3 — apply standardized format when response helpers exist. **Documented 2026-02-28**: delivery.js uses `{ success: true }` on DELETE, PATCH /customer-note, PATCH /notes, POST /sync, POST /backfill-customers; direct data on all others. Defer to BACKLOG-3 response standardization effort.
 
 #### Tests required:
 - [ ] Test location helpers return correct results for each function
