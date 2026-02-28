@@ -1,22 +1,21 @@
 /**
- * Square Service Layer
+ * Square Service Layer — Facade
  *
- * Public API for Square integration services. This module provides:
- * - Catalog synchronization (items, variations, categories, images)
- * - Vendor synchronization
- * - Location synchronization
- * - Inventory management (counts, alerts, committed inventory)
- * - Custom attribute management
- * - Price and cost updates
- * - Sales velocity tracking
+ * Public API for Square integration services. Re-exports all sub-modules
+ * so consumers can continue importing from `require('./services/square')`.
  *
- * This service was extracted from utils/square-api.js as part of P1-3.
+ * Sub-modules (Pkg 2b split — see docs/API-SPLIT-PLAN.md):
+ *   square-client.js      — shared infrastructure (HTTP client, token resolution)
+ *   api.js                — remaining domain functions (being split further)
  *
  * Usage:
  *   const { syncCatalog, syncInventory, getSquareInventoryCount } = require('./services/square');
- *
- *   await syncCatalog(merchantId);
- *   const count = await getSquareInventoryCount(variationId, locationId, merchantId);
  */
 
-module.exports = require('./api');
+const client = require('./square-client');
+const api = require('./api');
+
+module.exports = {
+    ...client,
+    ...api
+};
