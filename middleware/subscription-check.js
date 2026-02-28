@@ -54,27 +54,18 @@ function isPublicRoute(path) {
 
 /**
  * Extract subscriber email from request
- * This can be enhanced based on your authentication method
+ * SECURITY: Only trust session-based email. Never trust client-supplied headers,
+ * query parameters, or cookies — they can be spoofed by any client.
  */
 function getSubscriberEmail(req) {
-    // Check session
+    // Session email (set server-side during authentication)
     if (req.session && req.session.email) {
         return req.session.email;
     }
 
-    // Check header (for API calls)
-    if (req.headers['x-subscriber-email']) {
-        return req.headers['x-subscriber-email'];
-    }
-
-    // Check query parameter (for simple auth)
-    if (req.query.email) {
-        return req.query.email;
-    }
-
-    // Check cookie
-    if (req.cookies && req.cookies.subscriber_email) {
-        return req.cookies.subscriber_email;
+    // Also check session.user.email (set by auth middleware on login)
+    if (req.session && req.session.user && req.session.user.email) {
+        return req.session.user.email;
     }
 
     return null;
