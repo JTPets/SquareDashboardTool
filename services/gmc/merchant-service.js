@@ -24,6 +24,14 @@ const logger = require('../../utils/logger');
 // OAuth2 scopes for Merchant Center (content scope works for new API too)
 const SCOPES = ['https://www.googleapis.com/auth/content'];
 
+// Rate limiting and retry configuration (matches Square API pattern in services/square/api.js)
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
  * Get OAuth2 client for a merchant
  * Reuses the same Google OAuth tokens from google_oauth_tokens table
@@ -53,21 +61,23 @@ async function getAuthClient(merchantId) {
         expiry_date: tokens.expiry_date
     });
 
-    // Handle token refresh
-    oauth2Client.on('tokens', async (newTokens) => {
-        try {
-            await db.query(`
-                UPDATE google_oauth_tokens
-                SET access_token = $1,
-                    expiry_date = $2,
-                    updated_at = NOW()
-                WHERE merchant_id = $3
-            `, [newTokens.access_token, newTokens.expiry_date, merchantId]);
-            logger.info('Refreshed Google OAuth tokens for merchant', { merchantId });
-        } catch (err) {
-            logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack });
-        }
-    });
+    // Handle token refresh (guard against duplicate listeners)
+    if (!oauth2Client.listenerCount('tokens')) {
+        oauth2Client.on('tokens', async (newTokens) => {
+            try {
+                await db.query(`
+                    UPDATE google_oauth_tokens
+                    SET access_token = $1,
+                        expiry_date = $2,
+                        updated_at = NOW()
+                    WHERE merchant_id = $3
+                `, [newTokens.access_token, newTokens.expiry_date, merchantId]);
+                logger.info('Refreshed Google OAuth tokens for merchant', { merchantId });
+            } catch (err) {
+                logger.error('Failed to save refreshed tokens', { error: err.message, stack: err.stack });
+            }
+        });
+    }
 
     return oauth2Client;
 }
@@ -92,14 +102,18 @@ async function getGmcApiSettings(merchantId) {
  * Save GMC API settings
  */
 async function saveGmcApiSettings(merchantId, settings) {
-    for (const [key, value] of Object.entries(settings)) {
-        await db.query(`
-            INSERT INTO gmc_settings (merchant_id, setting_key, setting_value)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (merchant_id, setting_key)
-            DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
-        `, [merchantId, key, value]);
-    }
+    const entries = Object.entries(settings);
+    if (entries.length === 0) return;
+
+    const keys = entries.map(([k]) => k);
+    const values = entries.map(([, v]) => v);
+
+    await db.query(`
+        INSERT INTO gmc_settings (merchant_id, setting_key, setting_value)
+        SELECT $1, UNNEST($2::text[]), UNNEST($3::text[])
+        ON CONFLICT (merchant_id, setting_key)
+        DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
+    `, [merchantId, keys, values]);
 }
 
 // ==================== SYNC LOGGING ====================
@@ -201,31 +215,92 @@ async function merchantApiRequest(auth, method, path, body = null) {
     const baseUrl = 'https://merchantapi.googleapis.com';
     const url = `${baseUrl}${path}`;
 
-    const headers = {
-        'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
-        'Content-Type': 'application/json'
-    };
+    let lastError;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const headers = {
+            'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
+            'Content-Type': 'application/json'
+        };
 
-    const options = {
-        method,
-        headers
-    };
+        const options = {
+            method,
+            headers
+        };
 
-    if (body && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
-        options.body = JSON.stringify(body);
+        if (body && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
+            options.body = JSON.stringify(body);
+        }
+
+        try {
+            const response = await fetch(url, options);
+
+            // Handle rate limiting (429) — retryable
+            if (response.status === 429) {
+                const retryAfter = parseInt(response.headers.get('retry-after') || '5', 10);
+                lastError = new Error(`GMC API rate limited after ${MAX_RETRIES} attempts`);
+                lastError.status = 429;
+                logger.warn('GMC API rate limited, retrying', {
+                    attempt: attempt + 1,
+                    retryAfterSeconds: retryAfter,
+                    method,
+                    path
+                });
+                await sleep(retryAfter * 1000);
+                continue;
+            }
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                const error = new Error(data.error?.message || `API error: ${response.status}`);
+                error.status = response.status;
+                error.details = data.error;
+
+                // Don't retry client errors (4xx) other than 429
+                if (response.status >= 400 && response.status < 500) {
+                    throw error;
+                }
+
+                // Server errors (5xx) are retryable
+                lastError = error;
+                if (attempt < MAX_RETRIES - 1) {
+                    const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+                    logger.warn('GMC API server error, retrying', {
+                        attempt: attempt + 1,
+                        delayMs: delay,
+                        status: response.status,
+                        path
+                    });
+                    await sleep(delay);
+                    continue;
+                }
+                throw lastError;
+            }
+
+            return data;
+        } catch (error) {
+            lastError = error;
+
+            // Don't retry non-retryable errors (client errors already thrown above)
+            if (error.status && error.status >= 400 && error.status < 500) {
+                throw error;
+            }
+
+            // Network errors are retryable
+            if (attempt < MAX_RETRIES - 1) {
+                const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+                logger.warn('GMC API request failed, retrying', {
+                    attempt: attempt + 1,
+                    delayMs: delay,
+                    error: error.message,
+                    path
+                });
+                await sleep(delay);
+            }
+        }
     }
 
-    const response = await fetch(url, options);
-    const data = await response.json();
-
-    if (!response.ok) {
-        const error = new Error(data.error?.message || `API error: ${response.status}`);
-        error.status = response.status;
-        error.details = data.error;
-        throw error;
-    }
-
-    return data;
+    throw lastError;
 }
 
 /**

@@ -1206,10 +1206,11 @@
       }
     }
 
-    // Poll sync status until complete
+    // Poll sync status until complete (exponential backoff: 5s → 10s → 30s cap)
     async function pollSyncStatus(syncType, statusEl) {
       let attempts = 0;
-      const maxAttempts = 120; // 10 minutes max
+      const maxAttempts = 60; // ~10 minutes max with backoff
+      let delay = 5000;
 
       const poll = async () => {
         attempts++;
@@ -1226,8 +1227,9 @@
             const status = data.status[syncType];
 
             if (status.status === 'in_progress') {
-              // Still running, poll again
-              setTimeout(poll, 5000);
+              // Still running — increase delay up to 30s cap
+              setTimeout(poll, delay);
+              delay = Math.min(delay * 2, 30000);
             } else {
               // Sync complete
               loadSyncHistory();
@@ -1244,15 +1246,17 @@
             }
           } else {
             // No status yet, keep polling
-            setTimeout(poll, 5000);
+            setTimeout(poll, delay);
+            delay = Math.min(delay * 2, 30000);
           }
         } catch (err) {
-          setTimeout(poll, 5000);
+          setTimeout(poll, delay);
+          delay = Math.min(delay * 2, 30000);
         }
       };
 
-      // Start polling after 5 seconds
-      setTimeout(poll, 5000);
+      // Start polling after initial delay
+      setTimeout(poll, delay);
     }
 
     // ==================== SYNC STATUS ====================
