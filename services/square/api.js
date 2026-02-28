@@ -9,27 +9,20 @@
  * - Price and cost updates
  * - Sales velocity tracking
  *
- * This service was extracted from utils/square-api.js as part of P1-3.
+ * This module is being split into focused sub-modules (Pkg 2b).
+ * See docs/API-SPLIT-PLAN.md for the splitting plan.
  *
  * Usage:
  *   const { syncCatalog, getSquareInventoryCount } = require('./services/square');
  */
 
-const fetch = require('node-fetch');
-const crypto = require('crypto');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { decryptToken, isEncryptedToken, encryptToken } = require('../../utils/token-encryption');
-const { generateIdempotencyKey } = require('../../utils/idempotency');
+const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
+const { syncLocations } = require('./square-locations');
+const { syncVendors, ensureVendorsExist } = require('./square-vendors');
 
-// Square API configuration
-const SQUARE_BASE_URL = 'https://connect.squareup.com';
-const ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN;
-
-// Rate limiting and retry configuration
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
-const { SQUARE: { API_VERSION: SQUARE_API_VERSION, MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
+const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS, INTER_BATCH_DELAY_MS } } = require('../../config/constants');
 
 // Cache for merchants without INVOICES_READ scope (avoid repeated API calls and log spam)
 // Map<merchantId, timestamp> - expires after 1 hour
@@ -57,375 +50,6 @@ invoicesCachePruneInterval.unref();
  */
 function cleanup() {
     clearInterval(invoicesCachePruneInterval);
-}
-
-/**
- * Get decrypted access token for a merchant
- * @param {number} merchantId - The merchant ID (REQUIRED)
- * @returns {Promise<string>} Decrypted access token
- */
-async function getMerchantToken(merchantId) {
-    // NOTE: Legacy single-tenant fallback removed (2026-01-05)
-    // merchantId is now required - no more fallback to ACCESS_TOKEN env var
-    if (!merchantId) {
-        throw new Error('merchantId is required - legacy single-tenant mode removed');
-    }
-
-    const result = await db.query(
-        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-
-    if (result.rows.length === 0) {
-        throw new Error(`Merchant ${merchantId} not found or inactive`);
-    }
-
-    const token = result.rows[0].square_access_token;
-
-    if (!token) {
-        throw new Error(`Merchant ${merchantId} has no access token configured`);
-    }
-
-    // Check if token is encrypted - if not, it's a legacy unencrypted token
-    if (!isEncryptedToken(token)) {
-        logger.warn('Found unencrypted legacy token, encrypting for future use', { merchantId });
-        // Token is not encrypted - this is a legacy token
-        // Encrypt it and save for next time, but return the raw token for this request
-        try {
-            const encryptedToken = encryptToken(token);
-            await db.query(
-                'UPDATE merchants SET square_access_token = $1 WHERE id = $2',
-                [encryptedToken, merchantId]
-            );
-            logger.info('Legacy token encrypted and saved', { merchantId });
-        } catch (encryptError) {
-            logger.error('Failed to encrypt legacy token', { merchantId, error: encryptError.message });
-        }
-        return token; // Return the raw token for this request
-    }
-
-    return decryptToken(token);
-}
-
-/**
- * Make a Square API request with error handling and retry logic
- * @param {string} endpoint - API endpoint path
- * @param {Object} options - Fetch options (can include accessToken for multi-tenant)
- * @returns {Promise<Object>} Response data
- */
-async function makeSquareRequest(endpoint, options = {}) {
-    const url = `${SQUARE_BASE_URL}${endpoint}`;
-    // NOTE: Legacy single-tenant fallback removed (2026-01-05)
-    // accessToken is now required for all requests
-    const token = options.accessToken;
-    if (!token) {
-        throw new Error('accessToken is required in options - legacy single-tenant mode removed');
-    }
-    const headers = {
-        'Square-Version': SQUARE_API_VERSION,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers
-    };
-    // Remove accessToken from options so it doesn't get passed to fetch
-    delete options.accessToken;
-
-    let lastError;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
-        try {
-            const response = await fetch(url, {
-                ...options,
-                headers,
-                signal: controller.signal
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                // Handle rate limiting - this is retryable
-                if (response.status === 429) {
-                    const retryAfter = parseInt(response.headers.get('retry-after') || '5');
-                    logger.warn(`Rate limited. Retrying after ${retryAfter} seconds`);
-                    await sleep(retryAfter * 1000);
-                    continue;
-                }
-
-                // Handle auth errors - don't retry
-                if (response.status === 401) {
-                    throw new Error('Square API authentication failed. Check your access token.');
-                }
-
-                // Check for non-retryable errors (idempotency conflicts, version conflicts, validation errors)
-                const errorCodes = (data.errors || []).map(e => e.code);
-                const nonRetryableErrors = [
-                    'IDEMPOTENCY_KEY_REUSED',
-                    'VERSION_MISMATCH',
-                    'CONFLICT',
-                    'INVALID_REQUEST_ERROR'
-                ];
-                const hasNonRetryableError = errorCodes.some(code => nonRetryableErrors.includes(code));
-
-                // Don't retry 400/409 errors or specific non-retryable error codes
-                if (response.status === 400 || response.status === 409 || hasNonRetryableError) {
-                    // Throw immediately without retry by breaking out of the loop
-                    const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
-                    err.nonRetryable = true;
-                    err.squareErrors = data.errors || [];
-                    throw err;
-                }
-
-                const err = new Error(`Square API error: ${response.status} - ${JSON.stringify(data.errors || data)}`);
-                err.squareErrors = data.errors || [];
-                throw err;
-            }
-
-            return data;
-        } catch (error) {
-            // Convert AbortError to a descriptive timeout error
-            if (error.name === 'AbortError') {
-                lastError = new Error(`Square API request timed out after 30s: ${endpoint}`);
-                logger.warn('Square API request timed out', { endpoint, attempt: attempt + 1 });
-                if (attempt < MAX_RETRIES - 1) {
-                    const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-                    await sleep(delay);
-                }
-                continue;
-            }
-
-            lastError = error;
-
-            // Don't retry non-retryable errors
-            if (error.nonRetryable) {
-                throw error;
-            }
-
-            if (attempt < MAX_RETRIES - 1) {
-                const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-                logger.warn(`Request failed, retrying in ${delay}ms`, { attempt: attempt + 1, max_retries: MAX_RETRIES });
-                await sleep(delay);
-            }
-        } finally {
-            clearTimeout(timeout);
-        }
-    }
-
-    throw lastError;
-}
-
-/**
- * Sleep utility for delays
- */
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Sync locations from Square
- * @param {number} merchantId - The merchant ID to sync for
- * @returns {Promise<number>} Number of locations synced
- */
-async function syncLocations(merchantId) {
-    logger.info('Starting location sync', { merchantId });
-
-    try {
-        // Get merchant-specific token
-        const accessToken = await getMerchantToken(merchantId);
-        const data = await makeSquareRequest('/v2/locations', { accessToken });
-        const locations = data.locations || [];
-
-        let synced = 0;
-        for (const loc of locations) {
-            await db.query(`
-                INSERT INTO locations (id, name, square_location_id, active, address, timezone, phone_number, business_email, merchant_id, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    square_location_id = EXCLUDED.square_location_id,
-                    active = EXCLUDED.active,
-                    address = EXCLUDED.address,
-                    timezone = EXCLUDED.timezone,
-                    phone_number = EXCLUDED.phone_number,
-                    business_email = EXCLUDED.business_email,
-                    merchant_id = EXCLUDED.merchant_id,
-                    updated_at = CURRENT_TIMESTAMP
-            `, [
-                loc.id,
-                loc.name,
-                loc.id,
-                loc.status === 'ACTIVE',
-                loc.address ? JSON.stringify(loc.address) : null,
-                loc.timezone,
-                loc.phoneNumber || null,
-                loc.businessEmail || null,
-                merchantId
-            ]);
-            synced++;
-        }
-
-        logger.info('Location sync complete', { merchantId, count: synced });
-        return synced;
-    } catch (error) {
-        logger.error('Location sync failed', { error: error.message, stack: error.stack });
-        throw error;
-    }
-}
-
-/**
- * Migrate all FK references from one vendor ID to another within a transaction.
- * Covers all tables: variation_vendors, vendor_catalog_items, purchase_orders,
- * bundle_definitions, loyalty_offers.
- */
-async function migrateVendorFKs(client, oldId, newId, merchantId) {
-    const tables = [
-        'variation_vendors',
-        'vendor_catalog_items',
-        'purchase_orders',
-        'bundle_definitions',
-        'loyalty_offers',
-    ];
-    const counts = {};
-    for (const table of tables) {
-        const result = await client.query(
-            `UPDATE ${table} SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3`,
-            [newId, oldId, merchantId]
-        );
-        counts[table] = result.rowCount;
-    }
-    return counts;
-}
-
-/**
- * Reconcile a vendor whose Square ID changed but name matches an existing DB row.
- * Uses a transaction to: insert new vendor with temp name, migrate ALL FK references,
- * delete old vendor, then set the correct name on the new vendor.
- */
-async function reconcileVendorId(vendor, vendorParams, merchantId) {
-    await db.transaction(async (client) => {
-        const existing = await client.query(
-            'SELECT id FROM vendors WHERE merchant_id = $1 AND vendor_name_normalized(name) = vendor_name_normalized($2)',
-            [merchantId, vendor.name]
-        );
-        if (existing.rows.length === 0) return;
-
-        const oldId = existing.rows[0].id;
-        if (oldId === vendor.id) return;
-
-        // Insert new vendor with a temp name to avoid unique name constraint
-        const tempName = `__reconciling_${vendor.id}`;
-        await client.query(
-            `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-             ON CONFLICT (id) DO NOTHING`,
-            [vendor.id, tempName, vendorParams[2], vendorParams[3], vendorParams[4], vendorParams[5], merchantId]
-        );
-
-        // Migrate ALL FK references from old vendor ID to new
-        const migrated = await migrateVendorFKs(client, oldId, vendor.id, merchantId);
-
-        // Delete old vendor (no FK refs remain)
-        await client.query('DELETE FROM vendors WHERE id = $1 AND merchant_id = $2', [oldId, merchantId]);
-
-        // Set the correct name on the new vendor
-        await client.query(
-            'UPDATE vendors SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND merchant_id = $3',
-            [vendor.name, vendor.id, merchantId]
-        );
-
-        logger.info('Reconciled vendor ID change', {
-            merchantId, vendorName: vendor.name, oldId, newId: vendor.id, migrated
-        });
-    });
-}
-
-/**
- * Sync vendors from Square
- * @param {number} merchantId - The merchant ID to sync for
- * @returns {Promise<number>} Number of vendors synced
- */
-async function syncVendors(merchantId) {
-    logger.info('Starting vendor sync', { merchantId });
-
-    try {
-        const accessToken = await getMerchantToken(merchantId);
-        let cursor = null;
-        let totalSynced = 0;
-        let paginationIterations = 0;
-
-        do {
-            if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
-                logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/vendors/search' });
-                break;
-            }
-            const requestBody = {
-                filter: {
-                    status: ['ACTIVE', 'INACTIVE']  // ✅ CORRECT (singular, not plural)
-                },
-                limit: 100  // Add for better performance
-            };
-
-            if (cursor) {
-                requestBody.cursor = cursor;
-            }
-
-            const data = await makeSquareRequest('/v2/vendors/search', {
-                method: 'POST',
-                body: JSON.stringify(requestBody),
-                accessToken
-            });
-
-            const vendors = data.vendors || [];
-
-            for (const vendor of vendors) {
-                const vendorParams = [
-                    vendor.id,
-                    vendor.name,
-                    vendor.status,
-                    vendor.contacts?.[0]?.name || null,
-                    vendor.contacts?.[0]?.email_address || null,
-                    vendor.contacts?.[0]?.phone_number || null,
-                    merchantId
-                ];
-
-                try {
-                    await db.query(`
-                        INSERT INTO vendors (
-                            id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at
-                        )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-                        ON CONFLICT (id) DO UPDATE SET
-                            name = EXCLUDED.name,
-                            status = EXCLUDED.status,
-                            contact_name = EXCLUDED.contact_name,
-                            contact_email = EXCLUDED.contact_email,
-                            contact_phone = EXCLUDED.contact_phone,
-                            merchant_id = EXCLUDED.merchant_id,
-                            updated_at = CURRENT_TIMESTAMP
-                    `, vendorParams);
-                } catch (err) {
-                    if (err.constraint === 'idx_vendors_merchant_name_unique') {
-                        // Vendor exists with same name but different Square ID — reconcile
-                        await reconcileVendorId(vendor, vendorParams, merchantId);
-                    } else {
-                        throw err;
-                    }
-                }
-                totalSynced++;
-            }
-
-            cursor = data.cursor;
-            logger.info('Vendor sync progress', { merchantId, count: totalSynced });
-
-            if (cursor) await sleep(BATCH_DELAY_MS);
-        } while (cursor);
-
-        logger.info('Vendor sync complete', { merchantId, count: totalSynced });
-        return totalSynced;
-    } catch (error) {
-        logger.error('Vendor sync failed', { merchantId, error: error.message, stack: error.stack });
-        throw error;
-    }
 }
 
 /**
@@ -1259,81 +883,6 @@ async function syncItem(obj, category_name, merchantId) {
                     error: error.message
                 });
             }
-        }
-    }
-}
-
-/**
- * Ensure vendors exist locally before inserting variation_vendors rows.
- * Checks the DB for each vendor_id; any missing vendors are fetched from
- * Square's Vendors API and upserted. Prevents FK violations when
- * deltaSyncCatalog runs before vendor webhooks are processed.
- *
- * @param {string[]} vendorIds - Square vendor IDs to check
- * @param {number} merchantId - The merchant ID for multi-tenant isolation
- */
-async function ensureVendorsExist(vendorIds, merchantId) {
-    if (!vendorIds.length) return;
-
-    const unique = [...new Set(vendorIds)];
-
-    const existing = await db.query(
-        'SELECT id FROM vendors WHERE id = ANY($1) AND merchant_id = $2',
-        [unique, merchantId]
-    );
-    const existingSet = new Set(existing.rows.map(r => r.id));
-    const missing = unique.filter(id => !existingSet.has(id));
-
-    if (!missing.length) return;
-
-    logger.info('Fetching missing vendors from Square before variation sync', {
-        merchantId, missingVendorIds: missing
-    });
-
-    const accessToken = await getMerchantToken(merchantId);
-
-    for (const vendorId of missing) {
-        try {
-            const data = await makeSquareRequest(`/v2/vendors/${vendorId}`, { accessToken });
-            const vendor = data.vendor;
-            if (!vendor) continue;
-
-            const vendorParams = [
-                vendor.id,
-                vendor.name,
-                vendor.status,
-                vendor.contacts?.[0]?.name || null,
-                vendor.contacts?.[0]?.email_address || null,
-                vendor.contacts?.[0]?.phone_number || null,
-                merchantId
-            ];
-
-            try {
-                await db.query(`
-                    INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-                    ON CONFLICT (id) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        status = EXCLUDED.status,
-                        contact_name = EXCLUDED.contact_name,
-                        contact_email = EXCLUDED.contact_email,
-                        contact_phone = EXCLUDED.contact_phone,
-                        merchant_id = EXCLUDED.merchant_id,
-                        updated_at = CURRENT_TIMESTAMP
-                `, vendorParams);
-            } catch (insertErr) {
-                if (insertErr.constraint === 'idx_vendors_merchant_name_unique') {
-                    // Name exists with different Square ID — vendor was deleted/recreated in Square
-                    await reconcileVendorId(vendor, vendorParams, merchantId);
-                } else {
-                    throw insertErr;
-                }
-            }
-
-            logger.info('On-demand vendor fetch succeeded', { merchantId, vendorId, vendorName: vendor.name });
-        } catch (error) {
-            // Vendor may have been deleted from Square — log and let the INSERT catch handle it
-            logger.warn('On-demand vendor fetch failed', { merchantId, vendorId, error: error.message });
         }
     }
 }
@@ -4286,92 +3835,6 @@ async function deleteCustomAttributeDefinition(definitionIdOrKey, options = {}) 
  * @param {number} merchantId - The merchant ID (required for multi-tenant)
  * @returns {Promise<Object>} Result of the catalog update
  */
-async function updateVariationPrice(variationId, newPriceCents, currency = 'CAD', merchantId = null) {
-    logger.info('Updating variation price in Square', { variationId, newPriceCents, currency, merchantId });
-
-    if (!merchantId) {
-        throw new Error('merchantId is required for updateVariationPrice');
-    }
-
-    // Get access token for this merchant
-    const accessToken = await getMerchantToken(merchantId);
-
-    try {
-        // First, retrieve the current catalog object to get its version and existing data
-        const retrieveData = await makeSquareRequest(`/v2/catalog/object/${variationId}?include_related_objects=false`, { accessToken });
-
-        if (!retrieveData.object) {
-            throw new Error(`Catalog object not found: ${variationId}`);
-        }
-
-        const currentObject = retrieveData.object;
-
-        if (currentObject.type !== 'ITEM_VARIATION') {
-            throw new Error(`Object is not a variation: ${currentObject.type}`);
-        }
-
-        const currentVariationData = currentObject.item_variation_data || {};
-
-        // Update the price_money field
-        const updatedVariationData = {
-            ...currentVariationData,
-            price_money: {
-                amount: newPriceCents,
-                currency: currency
-            }
-        };
-
-        // Build the update request
-        const idempotencyKey = generateIdempotencyKey('price-update');
-
-        const updateBody = {
-            idempotency_key: idempotencyKey,
-            object: {
-                type: 'ITEM_VARIATION',
-                id: variationId,
-                version: currentObject.version,
-                item_variation_data: updatedVariationData
-            }
-        };
-
-        const data = await makeSquareRequest('/v2/catalog/object', {
-            accessToken,
-            method: 'POST',
-            body: JSON.stringify(updateBody)
-        });
-
-        logger.info('Variation price updated in Square', {
-            variationId,
-            oldPrice: currentVariationData.price_money?.amount,
-            newPrice: newPriceCents,
-            newVersion: data.catalog_object?.version
-        });
-
-        // Update local database to reflect the change
-        await db.query(`
-            UPDATE variations
-            SET price_money = $1, currency = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $3 AND merchant_id = $4
-        `, [newPriceCents, currency, variationId, merchantId]);
-
-        return {
-            success: true,
-            variationId,
-            oldPriceCents: currentVariationData.price_money?.amount,
-            newPriceCents,
-            catalog_object: data.catalog_object
-        };
-    } catch (error) {
-        logger.error('Failed to update variation price', {
-            variationId,
-            newPriceCents,
-            error: error.message,
-            stack: error.stack
-        });
-        throw error;
-    }
-}
-
 /**
  * Batch update variation prices in Square
  * @param {Array<Object>} priceUpdates - Array of {variationId, newPriceCents, currency}
@@ -4903,8 +4366,10 @@ async function batchUpdateCatalogContent(merchantId, updates) {
 }
 
 module.exports = {
+    // Re-exported from sub-modules (for backward compat — consumers importing from api.js directly)
     syncLocations,
     syncVendors,
+    ensureVendorsExist,
     syncCatalog,
     deltaSyncCatalog,
     syncInventory,
@@ -4930,14 +4395,11 @@ module.exports = {
     pushExpiryDatesToSquare,
     deleteCustomAttributeDefinition,
     // Price update functions
-    updateVariationPrice,
     batchUpdateVariationPrices,
     // Cost update functions
     updateVariationCost,
     // Catalog content update functions
     batchUpdateCatalogContent,
-    // Vendor helpers
-    ensureVendorsExist,
     // Utility functions (for expiry discount module)
     generateIdempotencyKey,
     makeSquareRequest,
