@@ -2,8 +2,9 @@
 
 **Author**: Claude (automated analysis)
 **Date**: 2026-02-28
-**Status**: DRAFT — awaiting approval before Phase 2 implementation
+**Status**: COMPLETE — all phases implemented
 **Baseline**: 42 suites, 977 tests, CI green on main
+**Completed**: 2026-02-28 — api.js reduced from 4,947 to 107 lines (backward-compat shim)
 
 ---
 
