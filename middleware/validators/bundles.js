@@ -127,13 +127,11 @@ const updateBundle = [
         .isArray({ min: 1 })
         .withMessage('components must be a non-empty array if provided'),
     body('components.*.child_variation_id')
-        .optional()
         .trim()
         .notEmpty()
         .withMessage('Each component must have a child_variation_id')
         .isLength({ max: 255 }),
     body('components.*.quantity_in_bundle')
-        .optional()
         .isInt({ min: 1 })
         .withMessage('quantity_in_bundle must be a positive integer'),
     body('components.*.individual_cost_cents')

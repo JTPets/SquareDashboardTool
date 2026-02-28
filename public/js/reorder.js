@@ -1100,7 +1100,7 @@ async function createPurchaseOrder() {
 
   const vendorId = document.getElementById('vendor-select').value;
   if (!vendorId || vendorId === 'none') {
-    alert('Please select a specific vendor to create a purchase order.');
+    alert('Cannot create a purchase order for items with no vendor assigned. Please select a vendor first.');
     return;
   }
 
