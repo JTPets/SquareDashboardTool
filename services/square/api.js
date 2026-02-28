@@ -1239,6 +1239,70 @@ async function syncItem(obj, category_name, merchantId) {
 }
 
 /**
+ * Ensure vendors exist locally before inserting variation_vendors rows.
+ * Checks the DB for each vendor_id; any missing vendors are fetched from
+ * Square's Vendors API and upserted. Prevents FK violations when
+ * deltaSyncCatalog runs before vendor webhooks are processed.
+ *
+ * @param {string[]} vendorIds - Square vendor IDs to check
+ * @param {number} merchantId - The merchant ID for multi-tenant isolation
+ */
+async function ensureVendorsExist(vendorIds, merchantId) {
+    if (!vendorIds.length) return;
+
+    const unique = [...new Set(vendorIds)];
+
+    const existing = await db.query(
+        'SELECT id FROM vendors WHERE id = ANY($1) AND merchant_id = $2',
+        [unique, merchantId]
+    );
+    const existingSet = new Set(existing.rows.map(r => r.id));
+    const missing = unique.filter(id => !existingSet.has(id));
+
+    if (!missing.length) return;
+
+    logger.info('Fetching missing vendors from Square before variation sync', {
+        merchantId, missingVendorIds: missing
+    });
+
+    const accessToken = await getMerchantToken(merchantId);
+
+    for (const vendorId of missing) {
+        try {
+            const data = await makeSquareRequest(`/v2/vendors/${vendorId}`, { accessToken });
+            const vendor = data.vendor;
+            if (!vendor) continue;
+
+            await db.query(`
+                INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    status = EXCLUDED.status,
+                    contact_name = EXCLUDED.contact_name,
+                    contact_email = EXCLUDED.contact_email,
+                    contact_phone = EXCLUDED.contact_phone,
+                    merchant_id = EXCLUDED.merchant_id,
+                    updated_at = CURRENT_TIMESTAMP
+            `, [
+                vendor.id,
+                vendor.name,
+                vendor.status,
+                vendor.contacts?.[0]?.name || null,
+                vendor.contacts?.[0]?.email_address || null,
+                vendor.contacts?.[0]?.phone_number || null,
+                merchantId
+            ]);
+
+            logger.info('On-demand vendor fetch succeeded', { merchantId, vendorId, vendorName: vendor.name });
+        } catch (error) {
+            // Vendor may have been deleted from Square — log and let the INSERT catch handle it
+            logger.warn('On-demand vendor fetch failed', { merchantId, vendorId, error: error.message });
+        }
+    }
+}
+
+/**
  * Sync a variation object and its vendor information
  * @param {Object} obj - Variation object from Square API
  * @param {number} merchantId - The merchant ID for multi-tenant isolation
@@ -1358,11 +1422,17 @@ async function syncVariation(obj, merchantId) {
     await db.query('DELETE FROM variation_vendors WHERE variation_id = $1 AND merchant_id = $2', [obj.id, merchantId]);
 
     if (data.vendor_information && Array.isArray(data.vendor_information)) {
+        // Ensure referenced vendors exist locally before inserting (prevents FK violations
+        // when deltaSyncCatalog runs before vendor webhooks are processed)
+        const vendorIds = data.vendor_information
+            .map(vi => vi.vendor_id)
+            .filter(Boolean);
+        await ensureVendorsExist(vendorIds, merchantId);
+
         for (const vendorInfo of data.vendor_information) {
             // Skip entries without vendor_id - these are just cost data without a linked vendor
             // (This is normal for items with costs but no vendor assigned)
             if (!vendorInfo.vendor_id) {
-                // Only log at debug level since this is expected
                 logger.debug('Vendor info without vendor_id (cost-only entry)', {
                     variation_id: obj.id,
                     has_unit_cost_money: !!vendorInfo.unit_cost_money
@@ -1390,8 +1460,10 @@ async function syncVariation(obj, merchantId) {
                 ]);
                 vendorCount++;
             } catch (error) {
-                // Vendor might not exist yet, skip
-                logger.warn('Skipping vendor - not found in database', { vendor_id: vendorInfo.vendor_id, variation_id: obj.id });
+                // Vendor deleted from Square and on-demand fetch also failed — skip this link
+                logger.warn('Skipping variation_vendor — vendor not in DB after on-demand fetch', {
+                    vendor_id: vendorInfo.vendor_id, variation_id: obj.id, error: error.message
+                });
             }
         }
     }
@@ -4555,6 +4627,9 @@ async function updateVariationCost(variationId, vendorId, newCostCents, currency
                 attempt
             });
 
+            // Ensure vendor exists locally before upserting variation_vendors
+            await ensureVendorsExist([vendorId], merchantId);
+
             // Update local database to reflect the change (upsert)
             await db.query(`
                 INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
@@ -4825,6 +4900,8 @@ module.exports = {
     updateVariationCost,
     // Catalog content update functions
     batchUpdateCatalogContent,
+    // Vendor helpers
+    ensureVendorsExist,
     // Utility functions (for expiry discount module)
     generateIdempotencyKey,
     makeSquareRequest,
