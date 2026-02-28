@@ -6,6 +6,7 @@
  *
  * Sub-modules (Pkg 2b split — see docs/API-SPLIT-PLAN.md):
  *   square-client.js      — shared infrastructure (HTTP client, token resolution)
+ *   square-locations.js   — location sync
  *   api.js                — remaining domain functions (being split further)
  *
  * Usage:
@@ -13,9 +14,11 @@
  */
 
 const client = require('./square-client');
+const locations = require('./square-locations');
 const api = require('./api');
 
 module.exports = {
     ...client,
+    ...locations,
     ...api
 };
