@@ -10,6 +10,7 @@
  *   square-vendors.js     — vendor sync + reconciliation
  *   square-diagnostics.js — fix location mismatches, alerts, enable items
  *   square-custom-attributes.js — custom attribute CRUD + push helpers
+ *   square-pricing.js     — price, cost & catalog content updates
  *   api.js                — remaining domain functions (being split further)
  *
  * Usage:
@@ -21,6 +22,7 @@ const locations = require('./square-locations');
 const vendors = require('./square-vendors');
 const diagnostics = require('./square-diagnostics');
 const customAttrs = require('./square-custom-attributes');
+const pricing = require('./square-pricing');
 const api = require('./api');
 
 module.exports = {
@@ -29,5 +31,6 @@ module.exports = {
     ...vendors,
     ...diagnostics,
     ...customAttrs,
+    ...pricing,
     ...api
 };
