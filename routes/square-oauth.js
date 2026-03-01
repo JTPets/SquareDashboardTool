@@ -20,6 +20,7 @@ const asyncHandler = require('../middleware/async-handler');
 const { encryptToken, decryptToken } = require('../utils/token-encryption');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { loadMerchantContext, requireMerchant, requireMerchantRole } = require('../middleware/merchant');
+const platformSettings = require('../services/platform-settings');
 
 // OAuth configuration
 const SQUARE_APPLICATION_ID = process.env.SQUARE_APPLICATION_ID;
@@ -212,7 +213,11 @@ router.get('/callback', async (req, res) => {
         // Generate GMC feed token for new merchants
         const gmcFeedToken = crypto.randomBytes(32).toString('hex');
 
+        // Read configurable trial duration from platform settings
+        const trialDays = parseInt(await platformSettings.getSetting('default_trial_days', '180'), 10);
+
         // Create or update merchant record
+        // trial_ends_at is only set on INSERT (new merchant), not overwritten on re-auth
         const merchantResult = await db.query(`
             INSERT INTO merchants (
                 square_merchant_id,
@@ -225,8 +230,10 @@ router.get('/callback', async (req, res) => {
                 timezone,
                 currency,
                 last_sync_at,
-                gmc_feed_token
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10)
+                gmc_feed_token,
+                subscription_status,
+                trial_ends_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, 'trial', NOW() + INTERVAL '1 day' * $11)
             ON CONFLICT (square_merchant_id) DO UPDATE SET
                 business_name = EXCLUDED.business_name,
                 square_access_token = EXCLUDED.square_access_token,
@@ -236,7 +243,7 @@ router.get('/callback', async (req, res) => {
                 is_active = TRUE,
                 updated_at = NOW(),
                 gmc_feed_token = COALESCE(merchants.gmc_feed_token, EXCLUDED.gmc_feed_token)
-            RETURNING id, business_name
+            RETURNING id, business_name, trial_ends_at, (xmax = 0) AS is_new_merchant
         `, [
             merchantId,
             merchantInfo.businessName || 'Unknown Business',
@@ -247,11 +254,23 @@ router.get('/callback', async (req, res) => {
             REQUIRED_SCOPES,
             merchantInfo.languageCode || 'en',
             merchantInfo.currency || 'USD',
-            gmcFeedToken
+            gmcFeedToken,
+            trialDays
         ]);
 
         const newMerchantId = merchantResult.rows[0].id;
         const businessName = merchantResult.rows[0].business_name;
+        const isNewMerchant = merchantResult.rows[0].is_new_merchant;
+
+        if (isNewMerchant) {
+            const trialEndsAt = merchantResult.rows[0].trial_ends_at;
+            logger.info(`New merchant onboarded with ${trialDays}-day trial ending ${trialEndsAt}`, {
+                merchantId: newMerchantId,
+                businessName,
+                trialDays,
+                trialEndsAt
+            });
+        }
 
         // Link user to merchant as owner
         await db.query(`
