@@ -1219,6 +1219,8 @@ Every item from prior planning documents with its disposition in this remediatio
 | BACKLOG-34 | OPEN | MERGED → Pkg 4a (Reorder/Analytics — documentation task) |
 | BACKLOG-35 | OPEN | MERGED → Pkg 4b (Sales Velocity Refactor) |
 | BACKLOG-36 | OPEN | MERGED → Pkg 4b (Sales Velocity Refactor) |
+| BACKLOG-37 | OPEN | Expiry audit assumes all units expired (standalone) |
+| BACKLOG-38 | OPEN | Timed discount automation — cron-driven apply/remove of Square pricing rules (standalone, new feature) |
 
 ### DEDUP-AUDIT Items
 
