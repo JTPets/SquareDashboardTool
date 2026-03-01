@@ -76,6 +76,7 @@ const logsRoutes = require('./routes/logs');
 const cartActivityRoutes = require('./routes/cart-activity');
 const labelsRoutes = require('./routes/labels');
 const seniorsRoutes = require('./routes/seniors');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -357,6 +358,10 @@ const subscriptionEnforcementMiddleware = (req, res, next) => {
 app.use('/api', subscriptionEnforcementMiddleware);
 logger.info('Subscription enforcement middleware enabled (System A — merchant-level trials)');
 
+// ==================== ADMIN ROUTES ====================
+// Platform administration endpoints (merchant management, settings)
+app.use('/api/admin', adminRoutes);
+
 // ==================== DRIVER API ROUTES ====================
 // Token-based public endpoints for contract drivers + authenticated merchant endpoints
 app.use('/api', driverApiRoutes);
@@ -447,6 +452,7 @@ app.use('/api/v1/bundles', bundlesRoutes);
 app.use('/api/v1', merchantsRoutes);
 app.use('/api/v1', settingsRoutes);
 app.use('/api/v1', logsRoutes);
+app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1', labelsRoutes);
 
 // ==================== HEALTH & STATUS ====================
