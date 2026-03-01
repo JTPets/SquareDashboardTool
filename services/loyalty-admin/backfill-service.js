@@ -18,6 +18,15 @@ const { AuditActions } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { logAuditEvent } = require('./audit-service');
 const { processLoyaltyOrder } = require('./order-intake');
+const TTLCache = require('../../utils/ttl-cache');
+
+/**
+ * Dedup guard for runLoyaltyCatchup calls.
+ * Keyed by `${customerId}:${merchantId}`. 120s TTL.
+ * Prevents redundant catchup when loyalty.event.created, loyalty.account.updated,
+ * and customer.updated all fire for the same customer within seconds.
+ */
+const catchupRecentlyRan = new TTLCache(120000);
 
 /**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
@@ -769,6 +778,28 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
         throw new Error('merchantId is required');
     }
 
+    // Dedup guard: skip if this exact customer+merchant was recently processed.
+    // Only applies to single-customer webhook-triggered catchups (not batch/cron).
+    if (customerIds && customerIds.length === 1) {
+        const dedupKey = `${customerIds[0]}:${merchantId}`;
+        if (catchupRecentlyRan.has(dedupKey)) {
+            logger.debug('Loyalty catchup skipped - recently ran for this customer', {
+                customerId: customerIds[0],
+                merchantId,
+                reason: 'catchup_dedup_guard'
+            });
+            return {
+                customersProcessed: 0,
+                ordersFound: 0,
+                ordersAlreadyTracked: 0,
+                ordersNewlyTracked: 0,
+                errors: [],
+                skippedByDedup: true
+            };
+        }
+        catchupRecentlyRan.set(dedupKey, true);
+    }
+
     const results = {
         customersProcessed: 0,
         ordersFound: 0,
@@ -956,5 +987,7 @@ module.exports = {
     processOrderForLoyaltyIfNeeded,
     getCustomerOrderHistoryForAudit,
     addOrdersToLoyaltyTracking,
-    runLoyaltyCatchup
+    runLoyaltyCatchup,
+    // Export for testing
+    _catchupRecentlyRan: catchupRecentlyRan
 };
