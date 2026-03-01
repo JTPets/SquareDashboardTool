@@ -32,7 +32,10 @@ function configureHelmet() {
                     "https://*.cloudflare.com",
                     "https://*.cloudflareinsights.com",
                     "https://ajax.cloudflare.com",
-                    "https://static.cloudflareinsights.com"
+                    "https://static.cloudflareinsights.com",
+                    // Square Web Payments SDK
+                    "https://web.squarecdn.com",
+                    "https://*.squarecdn.com"
                 ],
                 styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
                 fontSrc: ["'self'", "https://fonts.gstatic.com"],
@@ -41,6 +44,8 @@ function configureHelmet() {
                     "'self'",
                     "https://connect.squareup.com",
                     "https://connect.squareupsandbox.com",
+                    // Square Web Payments SDK PCI compliance
+                    "https://pci-connect.squareup.com",
                     // Cloudflare analytics beacons
                     "https://*.cloudflareinsights.com",
                     // Zebra Browser Print agent (runs on user's local machine)
@@ -49,7 +54,7 @@ function configureHelmet() {
                 ],
                 // Allow Cloudflare challenge iframes (CAPTCHA, etc.)
                 // Note: 'none' cannot be combined with other values in CSP
-                frameSrc: ["'self'", "https://challenges.cloudflare.com"],
+                frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://pci-connect.squareup.com"],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
