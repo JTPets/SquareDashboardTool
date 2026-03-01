@@ -1237,8 +1237,25 @@ class OrderHandler {
             // SDK v43+ returns camelCase — normalize to snake_case
             const order = normalizeSquareOrder(orderResponse.order);
 
-            // Identify customer
-            const { customerId: squareCustomerId, customerSource } = await identifyCustomerForOrder(order, merchantId);
+            // Early dedup: use cached customer_id if available (Fix 2)
+            // Skips the expensive 6-method identification chain
+            let squareCustomerId;
+            let customerSource;
+            if (cached && cached.customerId) {
+                squareCustomerId = cached.customerId;
+                customerSource = 'cached';
+                logger.debug('Payment webhook using cached customer_id', {
+                    orderId: order.id,
+                    customerId: squareCustomerId,
+                    merchantId,
+                    source
+                });
+            } else {
+                // No cached customer — run full identification (value-add path)
+                const identification = await identifyCustomerForOrder(order, merchantId);
+                squareCustomerId = identification.customerId;
+                customerSource = identification.customerSource;
+            }
 
             // Consolidated intake: atomic write to both tables (includes dedup)
             const intakeResult = await processLoyaltyOrder({
