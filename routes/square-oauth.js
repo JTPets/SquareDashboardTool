@@ -270,6 +270,28 @@ router.get('/callback', async (req, res) => {
                 trialDays,
                 trialEndsAt
             });
+
+            // Auto-detect platform owner: if no platform_owner_merchant_id is set
+            // and this is the first merchant, register them as platform owner
+            const existingOwnerId = await platformSettings.getSetting('platform_owner_merchant_id');
+            if (!existingOwnerId) {
+                const otherMerchants = await db.query(
+                    'SELECT id FROM merchants WHERE id != $1 LIMIT 1',
+                    [newMerchantId]
+                );
+                if (otherMerchants.rows.length === 0) {
+                    // First merchant ever — set as platform owner
+                    await platformSettings.setSetting('platform_owner_merchant_id', String(newMerchantId));
+                    await db.query(
+                        "UPDATE merchants SET subscription_status = 'platform_owner', updated_at = NOW() WHERE id = $1",
+                        [newMerchantId]
+                    );
+                    logger.info('First merchant registered as platform owner', {
+                        merchantId: newMerchantId,
+                        businessName
+                    });
+                }
+            }
         }
 
         // Link user to merchant as owner

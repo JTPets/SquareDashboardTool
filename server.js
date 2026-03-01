@@ -336,7 +336,9 @@ const subscriptionExcludedPaths = [
     '/gmc/local-inventory-feed.tsv'
 ];
 
-const subscriptionEnforcementMiddleware = (req, res, next) => {
+const platformSettings = require('./services/platform-settings');
+
+const subscriptionEnforcementMiddleware = async (req, res, next) => {
     // Only apply to API routes
     const apiPath = req.path;
 
@@ -350,6 +352,16 @@ const subscriptionEnforcementMiddleware = (req, res, next) => {
     // Skip if no merchant context (unauthenticated or no merchant connected — other middleware handles this)
     if (!req.merchantContext) {
         return next();
+    }
+
+    // Platform owner always bypasses subscription enforcement
+    try {
+        const ownerIdStr = await platformSettings.getSetting('platform_owner_merchant_id');
+        if (ownerIdStr && req.merchantContext.id === parseInt(ownerIdStr, 10)) {
+            return next();
+        }
+    } catch (_) {
+        // If platform settings lookup fails, fall through to normal check
     }
 
     return requireValidSubscription(req, res, next);
