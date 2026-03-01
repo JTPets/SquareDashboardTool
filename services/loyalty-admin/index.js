@@ -167,6 +167,9 @@ const { getRedemptions, getRewards, updateVendorCreditStatus } = require('./rede
 // Audit stats service (A-16: extracted from routes/loyalty/audit.js)
 const { getLoyaltyStats, getAuditFindings, resolveAuditFinding } = require('./audit-stats-service');
 
+// Square sync service (A-18: extracted from routes/loyalty/square-integration.js)
+const { linkOfferToSquareTier, getRewardForSquareSync, syncRewardsToPOS, getPendingSyncCounts } = require('./square-sync-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -284,6 +287,12 @@ module.exports = {
     getLoyaltyStats,
     getAuditFindings,
     resolveAuditFinding,
+
+    // Square sync (A-18)
+    linkOfferToSquareTier,
+    getRewardForSquareSync,
+    syncRewardsToPOS,
+    getPendingSyncCounts,
 
     // Backfill orchestration (A-12)
     runBackfill,
