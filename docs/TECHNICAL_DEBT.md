@@ -1495,6 +1495,26 @@ GROUP BY catalog_object_id, location_id, merchant_id;
 
 ---
 
+### BACKLOG-40: exceljs Deprecated Transitive Dependencies
+
+**Identified**: 2026-03-01
+**Priority**: Low (no functional impact, pre-open-source hygiene)
+**Status**: Documented, not fixed
+**Target**: Before open-source launch
+
+**Problem**: `exceljs` pulls several deprecated transitive dependencies: `inflight`, `rimraf`, `glob` (v7), `fstream`, `lodash.isequal`. These trigger `npm warn deprecated` on install and may carry known vulnerabilities (e.g. `inflight` leaks memory). Jest also pulls `glob@7` but that's dev-only and acceptable.
+
+**Suggested fix**: Evaluate lighter alternatives for the xlsx/csv export use cases:
+- `xlsx` (SheetJS) — smaller footprint, no deprecated deps
+- `csv-stringify` / `csv-parse` — if CSV-only output is sufficient
+- `ExcelJS` fork or newer major version — if one drops the deprecated deps
+
+**Effort**: M — Need to audit all `exceljs` usage, confirm replacement covers streaming writes and formatting, update tests.
+
+**Audit date**: 2026-03-01
+
+---
+
 ### Square Webhook Subscription Audit (2026-02-11)
 
 Full audit of all 140+ Square webhook event types against app features. Categorized into: already subscribed, should subscribe, and not needed.
