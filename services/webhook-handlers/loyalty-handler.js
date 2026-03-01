@@ -15,6 +15,7 @@
  */
 
 const logger = require('../../utils/logger');
+const db = require('../../utils/database');
 const loyaltyService = require('../../utils/loyalty-service');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
@@ -332,13 +333,41 @@ class LoyaltyHandler {
             const hasCatalogDiscounts = discounts.some(d => d.catalog_object_id);
 
             if (hasCatalogDiscounts) {
-                // Discounts with catalog IDs exist but didn't match our rewards — this is unexpected
-                logger.error('REDEEM_REWARD has catalog discounts that did not match any custom loyalty reward', {
-                    orderId,
-                    loyaltyAccountId,
-                    merchantId,
-                    discounts: discountSummary
-                });
+                // Check if any catalog discount IDs belong to SqTools custom rewards (any status)
+                const catalogDiscountIds = discounts
+                    .filter(d => d.catalog_object_id)
+                    .map(d => d.catalog_object_id);
+                const knownRewardResult = await db.query(`
+                    SELECT id, square_discount_id, square_pricing_rule_id, status
+                    FROM loyalty_rewards
+                    WHERE merchant_id = $1
+                      AND (square_discount_id = ANY($2) OR square_pricing_rule_id = ANY($2))
+                `, [merchantId, catalogDiscountIds]);
+
+                if (knownRewardResult.rows.length > 0) {
+                    // Discount IS a SqTools custom reward but detectRewardRedemptionFromOrder failed — actual problem
+                    logger.error('REDEEM_REWARD matched SqTools reward but redemption detection failed', {
+                        orderId,
+                        loyaltyAccountId,
+                        merchantId,
+                        matchedRewards: knownRewardResult.rows.map(r => ({
+                            id: r.id,
+                            status: r.status,
+                            discountId: r.square_discount_id,
+                            pricingRuleId: r.square_pricing_rule_id
+                        })),
+                        discounts: discountSummary
+                    });
+                } else {
+                    // Discount IDs not in SqTools rewards table — Square-native loyalty reward
+                    logger.info('Square-native loyalty reward redeemed — not tracked by SqTools', {
+                        orderId,
+                        loyaltyAccountId,
+                        merchantId,
+                        discountIds: catalogDiscountIds,
+                        discounts: discountSummary
+                    });
+                }
             } else {
                 // No catalog-linked discounts — Square-native loyalty or manual discount
                 logger.info('REDEEM_REWARD event — Square-native or manual discount (no catalog discount IDs)', {
