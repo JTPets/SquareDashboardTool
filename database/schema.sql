@@ -1009,6 +1009,21 @@ BEGIN
 END $$;
 
 -- ========================================
+-- ==================== PLATFORM SETTINGS ====================
+-- Platform-level configuration (trial duration, pricing tiers, feature flags)
+-- Originally from 059_platform_settings.sql
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default trial duration
+INSERT INTO platform_settings (key, value)
+VALUES ('default_trial_days', '180')
+ON CONFLICT (key) DO NOTHING;
+
 -- MIGRATION: Subscription Management
 -- ========================================
 -- Adds tables for managing customer subscriptions via Square Subscriptions API
