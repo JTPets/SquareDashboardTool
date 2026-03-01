@@ -29,7 +29,6 @@ const squareApi = require('./utils/square-api');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
 const subscriptionHandler = require('./utils/subscription-handler');
-const { subscriptionCheck } = require('./middleware/subscription-check');
 const crypto = require('crypto');
 const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-encryption');
@@ -312,11 +311,9 @@ const apiAuthMiddleware = (req, res, next) => {
 app.use('/api', apiAuthMiddleware);
 logger.info('Authentication middleware enabled for /api and /api/v1');
 
-// Subscription check middleware (System B — optional, email-based, in addition to auth)
-if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
-    logger.info('Subscription check middleware enabled (System B)');
-    app.use(subscriptionCheck);
-}
+// System B email-based subscriptionCheck removed — System A is the sole enforcement layer.
+// System B (subscribers table) is now the payment processor only; it bridges to System A
+// (merchants table) via services/subscription-bridge.js on payment events.
 
 // ==================== SUBSCRIPTION ENFORCEMENT (System A — merchant-level) ====================
 // Blocks API access for merchants with expired trials or suspended subscriptions.

@@ -161,7 +161,7 @@ function requireValidSubscription(req, res, next) {
             code: 'SUBSCRIPTION_EXPIRED',
             message: 'Your subscription has expired. Please renew to continue.',
             subscriptionStatus: req.merchantContext.subscriptionStatus,
-            redirectTo: '/subscribe.html'
+            redirectTo: '/upgrade.html'
         });
     }
 

@@ -11,11 +11,15 @@
  * - invoice.payment_failed
  * - customer.deleted
  *
+ * Bridge: All handlers now update BOTH System B (subscribers table)
+ * AND System A (merchants table) via the subscription-bridge service.
+ *
  * @module services/webhook-handlers/subscription-handler
  */
 
 const logger = require('../../utils/logger');
 const subscriptionHandler = require('../../utils/subscription-handler');
+const subscriptionBridge = require('../subscription-bridge');
 
 // Map Square subscription status to internal status
 const STATUS_MAP = {
@@ -49,8 +53,17 @@ class SubscriptionHandler {
         if (subscriber) {
             result.subscriberId = subscriber.id;
             await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'active');
+
+            // Bridge: activate merchant in System A
+            const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+            if (merchantId) {
+                await subscriptionBridge.activateMerchantSubscription(subscriber.id, merchantId);
+                result.merchantId = merchantId;
+            }
+
             logger.info('Subscription activated via webhook', {
-                subscriberId: subscriber.id
+                subscriberId: subscriber.id,
+                merchantId
             });
         } else {
             logger.debug('No subscriber found for subscription', {
@@ -86,8 +99,23 @@ class SubscriptionHandler {
             result.newStatus = newStatus;
 
             await subscriptionHandler.updateSubscriberStatus(subscriber.id, newStatus);
+
+            // Bridge: sync status to merchant in System A
+            const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+            if (merchantId) {
+                if (newStatus === 'active') {
+                    await subscriptionBridge.activateMerchantSubscription(subscriber.id, merchantId);
+                } else if (newStatus === 'canceled' || newStatus === 'expired') {
+                    await subscriptionBridge.cancelMerchantSubscription(subscriber.id, merchantId);
+                } else if (newStatus === 'past_due') {
+                    await subscriptionBridge.suspendMerchantSubscription(subscriber.id, merchantId);
+                }
+                result.merchantId = merchantId;
+            }
+
             logger.info('Subscription status updated via webhook', {
                 subscriberId: subscriber.id,
+                merchantId,
                 newStatus,
                 squareStatus: sub.status
             });
@@ -139,8 +167,16 @@ class SubscriptionHandler {
                 paymentType: 'subscription'
             });
 
+            // Bridge: activate merchant in System A
+            const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+            if (merchantId) {
+                await subscriptionBridge.activateMerchantSubscription(subscriber.id, merchantId);
+                result.merchantId = merchantId;
+            }
+
             logger.info('Payment recorded via webhook', {
-                subscriberId: subscriber.id
+                subscriberId: subscriber.id,
+                merchantId
             });
         } else {
             logger.debug('No subscriber found for customer', {
@@ -190,8 +226,16 @@ class SubscriptionHandler {
                 failureReason: 'Payment failed'
             });
 
+            // Bridge: suspend merchant in System A
+            const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+            if (merchantId) {
+                await subscriptionBridge.suspendMerchantSubscription(subscriber.id, merchantId);
+                result.merchantId = merchantId;
+            }
+
             logger.warn('Payment failed via webhook', {
-                subscriberId: subscriber.id
+                subscriberId: subscriber.id,
+                merchantId
             });
         } else {
             logger.debug('No subscriber found for customer', {
@@ -223,8 +267,17 @@ class SubscriptionHandler {
         if (subscriber) {
             result.subscriberId = subscriber.id;
             await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'canceled');
+
+            // Bridge: cancel merchant in System A
+            const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+            if (merchantId) {
+                await subscriptionBridge.cancelMerchantSubscription(subscriber.id, merchantId);
+                result.merchantId = merchantId;
+            }
+
             logger.info('Customer deleted via webhook', {
-                subscriberId: subscriber.id
+                subscriberId: subscriber.id,
+                merchantId
             });
         } else {
             logger.debug('No subscriber found for deleted customer', {

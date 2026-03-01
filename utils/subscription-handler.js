@@ -23,7 +23,7 @@ const STATUS = {
  * @param {Object} params - Subscriber details
  * @returns {Promise<Object>} Created subscriber
  */
-async function createSubscriber({ email, businessName, plan, squareCustomerId, cardBrand, cardLastFour, cardId }) {
+async function createSubscriber({ email, businessName, plan, squareCustomerId, cardBrand, cardLastFour, cardId, merchantId }) {
     const trialEndDate = new Date();
     trialEndDate.setDate(trialEndDate.getDate() + TRIAL_DAYS);
 
@@ -51,8 +51,8 @@ async function createSubscriber({ email, businessName, plan, squareCustomerId, c
             email, business_name, subscription_plan, price_cents,
             square_customer_id, card_brand, card_last_four, card_id,
             subscription_status, trial_start_date, trial_end_date,
-            subscription_start_date, next_billing_date
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, $10, CURRENT_TIMESTAMP, $10)
+            subscription_start_date, next_billing_date, merchant_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, $10, CURRENT_TIMESTAMP, $10, $11)
         RETURNING *
     `, [
         email,
@@ -64,11 +64,25 @@ async function createSubscriber({ email, businessName, plan, squareCustomerId, c
         cardLastFour || null,
         cardId || null,
         STATUS.TRIAL,
-        trialEndDate
+        trialEndDate,
+        merchantId || null
     ]);
 
-    logger.info('Subscriber created', { email, plan, trialEndDate });
+    logger.info('Subscriber created', { email, plan, trialEndDate, merchantId });
     return result.rows[0];
+}
+
+/**
+ * Get subscriber by merchant ID
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<Object|null>} Subscriber or null
+ */
+async function getSubscriberByMerchantId(merchantId) {
+    const result = await db.query(
+        'SELECT * FROM subscribers WHERE merchant_id = $1 ORDER BY created_at DESC LIMIT 1',
+        [merchantId]
+    );
+    return result.rows[0] || null;
 }
 
 /**
@@ -433,6 +447,7 @@ module.exports = {
     createSubscriber,
     getSubscriberByEmail,
     getSubscriberById,
+    getSubscriberByMerchantId,
     getSubscriberBySquareCustomerId,
     getSubscriberBySquareSubscriptionId,
     checkSubscriptionStatus,

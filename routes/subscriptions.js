@@ -41,6 +41,7 @@ const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const validators = require('../middleware/validators/subscriptions');
 const asyncHandler = require('../middleware/async-handler');
+const subscriptionBridge = require('../services/subscription-bridge');
 
 /**
  * GET /api/square/payment-config
@@ -141,6 +142,9 @@ router.post('/subscriptions/promo/validate', validators.validatePromo, asyncHand
  */
 router.post('/subscriptions/create', validators.createSubscription, asyncHandler(async (req, res) => {
     const { email, businessName, plan, sourceId, promoCode, termsAcceptedAt } = req.body;
+
+    // Capture merchant_id from session if user is logged in (bridges System A ↔ B)
+    const merchantId = req.session?.activeMerchantId || req.merchantContext?.id || null;
 
     // Verify Square configuration
     const locationId = process.env.SQUARE_LOCATION_ID;
@@ -270,7 +274,7 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
     cardBrand = cardResponse.card.card_brand;
     cardLastFour = cardResponse.card.last_4;
 
-    // Create local subscriber record
+    // Create local subscriber record (linked to merchant if session is active)
     const subscriber = await subscriptionHandler.createSubscriber({
         email: email.toLowerCase(),
         businessName,
@@ -278,7 +282,8 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
         squareCustomerId,
         cardBrand,
         cardLastFour,
-        cardId
+        cardId,
+        merchantId
     });
 
     // Payment & subscription logic
@@ -413,6 +418,11 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
         `, [squareSubscription.id, subscriber.id]);
     }
 
+    // Bridge: activate merchant subscription in System A if merchant is linked
+    if (merchantId) {
+        await subscriptionBridge.activateMerchantSubscription(subscriber.id, merchantId);
+    }
+
     // Log subscription event
     await subscriptionHandler.logEvent({
         subscriberId: subscriber.id,
@@ -538,6 +548,56 @@ router.get('/subscriptions/status', validators.checkStatus, asyncHandler(async (
 }));
 
 /**
+ * GET /api/subscriptions/merchant-status
+ * Get subscription status for the current logged-in merchant (System A + B combined)
+ * Used by the frontend to show trial countdown, upgrade prompts, etc.
+ */
+router.get('/subscriptions/merchant-status', requireAuth, asyncHandler(async (req, res) => {
+    if (!req.merchantContext) {
+        return res.status(403).json({
+            success: false,
+            error: 'No merchant connected',
+            code: 'NO_MERCHANT'
+        });
+    }
+
+    const mc = req.merchantContext;
+    const plans = await subscriptionHandler.getPlans();
+
+    // Check System B for billing info
+    const subscriber = await subscriptionHandler.getSubscriberByMerchantId(mc.id);
+
+    let trialDaysRemaining = null;
+    if (mc.subscriptionStatus === 'trial' && mc.trialEndsAt) {
+        const now = new Date();
+        const trialEnd = new Date(mc.trialEndsAt);
+        trialDaysRemaining = Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)));
+    }
+
+    res.json({
+        success: true,
+        subscription: {
+            status: mc.subscriptionStatus,
+            isValid: mc.isSubscriptionValid,
+            trialEndsAt: mc.trialEndsAt,
+            trialDaysRemaining,
+            subscriptionEndsAt: mc.subscriptionEndsAt
+        },
+        billing: subscriber ? {
+            plan: subscriber.subscription_plan,
+            priceCents: subscriber.price_cents,
+            cardBrand: subscriber.card_brand,
+            cardLastFour: subscriber.card_last_four,
+            nextBillingDate: subscriber.next_billing_date,
+            squareSubscriptionId: subscriber.square_subscription_id
+        } : null,
+        plans,
+        merchantId: mc.id,
+        businessName: mc.businessName
+    });
+}));
+
+/**
  * POST /api/subscriptions/cancel
  * Cancel a subscription (cancels in both local DB and Square)
  */
@@ -568,11 +628,18 @@ router.post('/subscriptions/cancel', requireAuth, validators.cancelSubscription,
 
     const updated = await subscriptionHandler.cancelSubscription(subscriber.id, reason);
 
+    // Bridge: cancel merchant subscription in System A if merchant is linked
+    const merchantId = await subscriptionBridge.resolveMerchantId(subscriber);
+    if (merchantId) {
+        await subscriptionBridge.cancelMerchantSubscription(subscriber.id, merchantId);
+    }
+
     await subscriptionHandler.logEvent({
         subscriberId: subscriber.id,
         eventType: 'subscription.canceled',
         eventData: {
             reason,
+            merchantId,
             square_subscription_id: subscriber.square_subscription_id
         }
     });

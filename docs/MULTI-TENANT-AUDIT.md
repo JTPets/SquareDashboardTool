@@ -312,15 +312,20 @@ UPDATE merchants SET subscription_status = 'active' WHERE id = 1;
 4. John can manually extend via admin endpoint or direct SQL
 5. No payment required during beta — billing (System B) remains available for future paid launch
 
-### Future: Bridging Systems A and B
+### Systems A and B Bridged (2026-03-01)
 
-When you're ready for paid subscriptions, the path is:
-1. Add `merchant_id` column to `subscribers` table
-2. During paid onboarding: create subscriber + link to merchant
-3. Webhook handlers update `merchants.subscription_status` based on payment events
-4. Remove `subscriptionCheck` middleware (System B), rely solely on `requireValidSubscription` (System A)
+The bridge between System A (merchant access) and System B (billing) has been implemented:
 
-This is a larger effort (~2-3 days) but not needed for beta.
+1. **Migration 063**: Added `merchant_id` column to `subscribers` table
+2. **Subscription creation**: `POST /api/subscriptions/create` captures `merchant_id` from session and passes it to subscriber record
+3. **Webhook handlers**: All 5 subscription webhook events now update BOTH `subscribers` (System B) AND `merchants` (System A) via `services/subscription-bridge.js`
+4. **System B middleware removed**: `subscriptionCheck` (email-based) removed from server.js. System A's `requireValidSubscription` is the sole access gate.
+5. **New endpoint**: `GET /api/subscriptions/merchant-status` — returns combined System A + B status for the logged-in merchant
+6. **New upgrade page**: `public/upgrade.html` — session-aware upgrade flow for merchants with expired trials
+7. **Bridge service**: `services/subscription-bridge.js` — `activateMerchantSubscription`, `suspendMerchantSubscription`, `cancelMerchantSubscription`, `resolveMerchantId` (with email-based fallback + backfill)
+8. **Tests**: 25 new tests covering bridge service + webhook-to-bridge integration
+
+**Flow**: Merchant trial expires → 402 response with `redirectTo: /upgrade.html` → merchant pays via Square → webhook fires → bridge updates `merchants.subscription_status = 'active'` → access restored.
 
 ---
 

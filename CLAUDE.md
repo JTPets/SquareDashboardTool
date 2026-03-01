@@ -401,10 +401,10 @@ Documented during subscription enforcement implementation. See `docs/MULTI-TENAN
 
 | Finding | Status | Notes |
 |---------|--------|-------|
-| **System A vs System B disconnect** | KNOWN | `merchants` table (System A) and `subscribers` table (System B) are not linked. System A now enforced via `requireValidSubscription`. System B remains active but env-gated (`SUBSCRIPTION_CHECK_ENABLED`). Bridge them when implementing paid billing (BACKLOG-50). |
-| **`subscriptionCheck` middleware (System B) is redundant** | KNOWN | Both `subscriptionCheck` (email-based) and `requireValidSubscription` (merchant-based) exist. System B can be removed once System A is fully proven in production. Keep both during beta as belt-and-suspenders. |
+| **System A vs System B disconnect** | **RESOLVED** (2026-03-01) | `subscribers.merchant_id` column added (migration 063). `services/subscription-bridge.js` syncs payment events to `merchants.subscription_status`. Webhook handlers update both tables. System B `subscriptionCheck` middleware removed from server.js. |
+| **`subscriptionCheck` middleware (System B) is redundant** | **RESOLVED** (2026-03-01) | Removed from server.js. System A's `requireValidSubscription` is the sole enforcement layer. System B is now payment-processor-only. |
 | **`merchants.subscription_status` never transitions automatically** | TODO | Status is set to 'trial' at creation but never auto-transitions to 'expired'. The `loadMerchantContext` middleware handles this dynamically by checking `trial_ends_at`, but the column itself stays stale. Consider a cron job to update status for cleaner admin reporting. |
-| **Dead subscription UI routes** | LOW | `subscribe.html`, `subscription-expired.html` reference System B flows. May need updating for System A trial expiry UX. |
+| **Dead subscription UI routes** | **RESOLVED** (2026-03-01) | `subscription-expired.html` now links to `/upgrade.html`. New `upgrade.html` page is session-aware — shows trial countdown, plan selection, and payment form using merchant context. |
 | **Second merchant connecting today** | SAFE | OAuth flow correctly sets trial_ends_at on INSERT, doesn't overwrite on re-auth. Subscription enforcement middleware grandfathers NULL trial_ends_at. All data queries filter by merchant_id. |
 
 ---
