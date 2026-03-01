@@ -267,6 +267,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 | Priority | Item | Description |
 |----------|------|-------------|
+| High | BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need: `vendor_billbacks` table (item, discount_pct, date_range, vendor_id, expected_credit, status), reporting view for claim submission. Revenue recovery feature — independent retailers routinely lose bill-back credits. Auto-log when BACKLOG-38 promotions run with `vendor_billback_flag` = true. |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
 | ~~Medium~~ | ~~BACKLOG-13~~ | ~~Move custom attribute initialization from startup to tenant onboarding~~ **DONE** (2026-02-23) |
