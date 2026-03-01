@@ -14,6 +14,7 @@ const expiryDiscountJob = require('./expiry-discount-job');
 const loyaltyCatchupJob = require('./loyalty-catchup-job');
 const seniorsDayJob = require('./seniors-day-job');
 const committedInventoryJob = require('./committed-inventory-reconciliation-job');
+const trialExpiryJob = require('./trial-expiry-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -58,6 +59,10 @@ module.exports = {
     // Committed inventory reconciliation job (BACKLOG-10)
     runCommittedInventoryReconciliation: committedInventoryJob.runCommittedInventoryReconciliation,
     runScheduledReconciliation: committedInventoryJob.runScheduledReconciliation,
+
+    // Trial expiry notification job
+    runTrialExpiryNotifications: trialExpiryJob.runTrialExpiryNotifications,
+    runScheduledTrialExpiryNotifications: trialExpiryJob.runScheduledTrialExpiryNotifications,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,

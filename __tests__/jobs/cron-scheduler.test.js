@@ -63,6 +63,11 @@ jest.mock('../../jobs/committed-inventory-reconciliation-job', () => ({
     runScheduledReconciliation: jest.fn()
 }));
 
+jest.mock('../../jobs/trial-expiry-job', () => ({
+    runTrialExpiryNotifications: jest.fn(),
+    runScheduledTrialExpiryNotifications: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -83,11 +88,11 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 11 jobs (without GMC which is optional)
+            // Should schedule 12 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
             // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
-            // seniors discount, committed inventory reconciliation
-            expect(cron.schedule).toHaveBeenCalledTimes(11);
+            // seniors discount, committed inventory reconciliation, trial expiry
+            expect(cron.schedule).toHaveBeenCalledTimes(12);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -105,8 +110,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 12 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(12);
+            // Should schedule 13 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(13);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
@@ -210,6 +215,11 @@ describe('Jobs Index', () => {
     it('should export committed inventory reconciliation job functions', () => {
         expect(jobs.runCommittedInventoryReconciliation).toBeDefined();
         expect(jobs.runScheduledReconciliation).toBeDefined();
+    });
+
+    it('should export trial expiry notification job functions', () => {
+        expect(jobs.runTrialExpiryNotifications).toBeDefined();
+        expect(jobs.runScheduledTrialExpiryNotifications).toBeDefined();
     });
 
     it('should export cron scheduler functions', () => {
