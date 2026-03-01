@@ -173,7 +173,7 @@ describe('Merchant Context Middleware', () => {
 
             requireValidSubscription(req, res, next);
 
-            expect(res.jsonData.redirectTo).toBe('/subscribe.html');
+            expect(res.jsonData.redirectTo).toBe('/upgrade.html');
         });
 
         test('allows trial subscriptions that are valid', () => {
