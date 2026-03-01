@@ -154,6 +154,9 @@ const {
     processOrderRefundsForLoyalty
 } = require('./webhook-processing-service');
 
+// Order processing service (A-13: extracted from routes/loyalty/processing.js)
+const { processOrderManually } = require('./order-processing-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -254,6 +257,9 @@ module.exports = {
 
     // Background Loyalty Catchup
     runLoyaltyCatchup,
+
+    // Manual order processing (A-13)
+    processOrderManually,
 
     // Backfill orchestration (A-12)
     runBackfill,

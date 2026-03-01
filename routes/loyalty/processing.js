@@ -8,24 +8,6 @@
  * - POST /refresh-customers - Refresh customer details for rewards
  * - POST /manual-entry - Manual loyalty purchase entry
  * - POST /process-expired - Process expired window entries and rewards
- *
- * FILE LENGTH VIOLATION (>300 lines):
- * This file is ~530 lines due to 3 handlers with substantial inline business logic:
- * - POST /process-order has raw Square API call + token decryption
- * - POST /backfill has 232 lines of inline logic (Square API pagination,
- *   order iteration, loyalty prefetch, diagnostics) - should be extracted
- *   to a backfill orchestration service
- * - POST /refresh-customers has inline SQL + concurrent fetch with semaphore
- * These are documented for future service extraction. Logic moved as-is
- * per splitting rules (no refactoring during extraction).
- *
- * OBSERVATION LOG:
- * - POST /process-order uses raw fetch() instead of squareClient SDK
- * - POST /process-order has duplicate `const merchantId` declaration (line 118 shadows line 90)
- * - POST /backfill uses raw fetch() instead of squareClient SDK
- * - POST /backfill has inconsistent indentation (4-space body inside handler)
- * - POST /refresh-customers reinvents semaphore pattern (should use p-limit or similar)
- * - POST /refresh-customers has inline SQL for finding customers with missing phone data
  */
 
 const express = require('express');
@@ -33,7 +15,6 @@ const router = express.Router();
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const loyaltyService = require('../../utils/loyalty-service');
-const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
 const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
@@ -48,91 +29,8 @@ router.post('/process-order/:orderId', requireAuth, requireMerchant, requireWrit
     const merchantId = req.merchantContext.id;
     const squareOrderId = req.params.orderId;
 
-    logger.info('Manually processing order for loyalty', { squareOrderId, merchantId });
-
-    // Get and decrypt access token
-    const tokenResult = await db.query(
-        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-    if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
-        return res.status(400).json({ error: 'No Square access token configured for this merchant' });
-    }
-    const rawToken = tokenResult.rows[0].square_access_token;
-    const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
-
-    // Fetch the order from Square using raw API
-    const orderResponse = await fetch(`https://connect.squareup.com/v2/orders/${squareOrderId}`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'Square-Version': '2024-01-18'
-        }
-    });
-
-    if (!orderResponse.ok) {
-        const errText = await orderResponse.text();
-        const merchantId = req.merchantContext?.id;
-        logger.error('Square API error in loyalty order lookup', {
-            status: orderResponse.status,
-            error: errText,
-            merchantId,
-            squareOrderId
-        });
-        return res.status(502).json({
-            success: false,
-            error: 'Unable to retrieve order details. Please try again.',
-            code: 'EXTERNAL_API_ERROR'
-        });
-    }
-
-    const orderData = await orderResponse.json();
-    const order = orderData.order;
-
-    if (!order) {
-        return res.status(404).json({ error: 'Order not found in Square' });
-    }
-
-    // Fetch customer details if customer_id exists
-    let customerDetails = null;
-    if (order.customer_id) {
-        customerDetails = await loyaltyService.getCustomerDetails(order.customer_id, merchantId);
-    }
-
-    // Return diagnostic info about the order
-    const diagnostics = {
-        orderId: order.id,
-        customerId: order.customer_id || null,
-        hasCustomer: !!order.customer_id,
-        customerDetails,
-        state: order.state,
-        createdAt: order.created_at,
-        lineItems: (order.line_items || []).map(li => ({
-            name: li.name,
-            quantity: li.quantity,
-            catalogObjectId: li.catalog_object_id,
-            variationName: li.variation_name
-        }))
-    };
-
-    if (!order.customer_id) {
-        return res.json({
-            processed: false,
-            reason: 'Order has no customer ID attached',
-            diagnostics,
-            tip: 'The sale must have a customer attached in Square POS before payment'
-        });
-    }
-
-    // Process the order for loyalty (use snake_case since we're using raw API response)
-    const loyaltyResult = await loyaltyService.processOrderForLoyalty(order, merchantId);
-
-    res.json({
-        processed: loyaltyResult.processed,
-        result: loyaltyResult,
-        diagnostics
-    });
+    const result = await loyaltyService.processOrderManually({ merchantId, squareOrderId });
+    res.json(result);
 }));
 
 /**
