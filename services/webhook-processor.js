@@ -162,7 +162,7 @@ class WebhookProcessor {
 
         if (merchantResult.rows.length > 0) {
             const internalMerchantId = merchantResult.rows[0].id;
-            logger.info('Webhook merchant resolved', {
+            logger.debug('Webhook merchant resolved', {
                 squareMerchantId,
                 internalMerchantId
             });

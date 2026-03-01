@@ -183,7 +183,7 @@ class OrderHandler {
         const orderId = entityId || webhookOrder?.id || data?.id || data?.order_id ||
                         data?.order_created?.id || data?.order_updated?.id;
 
-        logger.info('Order event detected via webhook', {
+        logger.debug('Order event detected via webhook', {
             orderId,
             state: webhookOrder?.state,
             eventType: event.type,
@@ -676,7 +676,7 @@ class OrderHandler {
 
         // DIAGNOSTIC: Log all discounts before scanning (remove after issue confirmed resolved)
         const squareCustomerId = order.customer_id || (order.tenders || []).find(t => t.customer_id)?.customer_id;
-        logger.info('Redemption detection: scanning order discounts', {
+        logger.debug('Redemption detection: scanning order discounts', {
             orderId: order.id,
             squareCustomerId,
             discountCount: discounts.length,
@@ -695,7 +695,7 @@ class OrderHandler {
             const catalogObjectId = discount.catalog_object_id;
 
             // DIAGNOSTIC: Log each discount evaluation (remove after issue confirmed resolved)
-            logger.info('Redemption detection: evaluating discount', {
+            logger.debug('Redemption detection: evaluating discount', {
                 orderId: order.id,
                 discountUid: discount.uid,
                 catalogObjectId: catalogObjectId || 'NONE (manual/ad-hoc)',
@@ -719,7 +719,7 @@ class OrderHandler {
             `, [merchantId, catalogObjectId]);
 
             // DIAGNOSTIC: Log reward lookup results (remove after issue confirmed resolved)
-            logger.info('Redemption detection: reward lookup', {
+            logger.debug('Redemption detection: reward lookup', {
                 orderId: order.id,
                 catalogObjectId,
                 pricingRuleId: discount.pricing_rule_id || null,
@@ -1121,7 +1121,8 @@ class OrderHandler {
         }
 
         const payment = data;
-        logger.info('Payment created webhook received', {
+        const paymentLogFn = payment.status === 'COMPLETED' ? logger.info : logger.debug;
+        paymentLogFn.call(logger, 'Payment created webhook received', {
             paymentId: payment.id,
             orderId: payment.order_id,
             status: payment.status,
