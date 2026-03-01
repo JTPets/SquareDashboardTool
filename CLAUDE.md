@@ -304,6 +304,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Low | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce integration. Sync inventory across POS + e-commerce. Depends on multi-POS abstraction layer (post api.js split). |
 | Low | BACKLOG-48 | Clover POS integration — expand beyond Square. Depends on multi-POS abstraction layer. |
 | Low | BACKLOG-49 | Stripe payment integration — alternative payment processor support. |
+| High | BACKLOG-50 | Post-trial conversion — $1 first month. When trial expires, offer first month at $1 to verify credit card without friction. Purpose: captures payment method, proves intent, minimal barrier. After $1 month, auto-convert to full price. Need: Square payment integration for SqTools subscriptions (using merchant's OWN Square account to charge them would be weird — need a separate SqTools Square account or Stripe for SaaS billing). This is the "System B" cleanup — current subscribers table has Square billing but disconnected from merchants. Decide: Stripe vs Square for SaaS billing before building this. |
 
 ### Backlog — Archive (Completed)
 
@@ -393,6 +394,18 @@ Both `reorder.js` and `expiry-discounts.js` now load tier config from `/api/expi
 **Recommended approach**: Single `audit_log` table with columns for actor, action, entity_type, entity_id, before_value (JSONB), after_value (JSONB), merchant_id, created_at. Retrofit existing feature-specific audit tables as views or migrate data over time.
 
 **Priority**: Low (single store), High (pre-franchise).
+
+#### Subscription System Observations (2026-03-01)
+
+Documented during subscription enforcement implementation. See `docs/MULTI-TENANT-AUDIT.md` for full audit.
+
+| Finding | Status | Notes |
+|---------|--------|-------|
+| **System A vs System B disconnect** | KNOWN | `merchants` table (System A) and `subscribers` table (System B) are not linked. System A now enforced via `requireValidSubscription`. System B remains active but env-gated (`SUBSCRIPTION_CHECK_ENABLED`). Bridge them when implementing paid billing (BACKLOG-50). |
+| **`subscriptionCheck` middleware (System B) is redundant** | KNOWN | Both `subscriptionCheck` (email-based) and `requireValidSubscription` (merchant-based) exist. System B can be removed once System A is fully proven in production. Keep both during beta as belt-and-suspenders. |
+| **`merchants.subscription_status` never transitions automatically** | TODO | Status is set to 'trial' at creation but never auto-transitions to 'expired'. The `loadMerchantContext` middleware handles this dynamically by checking `trial_ends_at`, but the column itself stays stale. Consider a cron job to update status for cleaner admin reporting. |
+| **Dead subscription UI routes** | LOW | `subscribe.html`, `subscription-expired.html` reference System B flows. May need updating for System A trial expiry UX. |
+| **Second merchant connecting today** | SAFE | OAuth flow correctly sets trial_ends_at on INSERT, doesn't overwrite on re-auth. Subscription enforcement middleware grandfathers NULL trial_ends_at. All data queries filter by merchant_id. |
 
 ---
 
