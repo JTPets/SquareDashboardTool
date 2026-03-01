@@ -291,6 +291,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
 | Low | BACKLOG-35 | Sales velocity does not subtract refunds — `syncSalesVelocity` fetches orders only, ignores refunds; net sales should be order qty minus refunded qty; impact low (~2 refunds/day), velocity slightly inflated on refunded items |
 | Medium | BACKLOG-36 | Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations that appear in orders; variations with 0 sales are never written so stale rows persist forever; fix: DELETE FROM sales_velocity WHERE variation_id NOT IN (processed keys) AND period_days/merchant_id match; affects reorder suggestions and slow-mover flags; Tier 1 — implement next velocity sync touch |
+| Medium | BACKLOG-37 | Expiry audit assumes all units expired — `evaluateAllVariations()` assigns entire variation to EXPIRED tier when expiry date passes, no distinction between "all units expired" vs "some units have later dates". Audit UI shows "Pull from Shelf" with no partial-expiry option. Real scenario: 1 unit expired, another had Dec 2026 date, system said pull everything. Needs: ask "Are ALL units expired?", allow inline date update for remaining units, only zero inventory when all confirmed expired. Files: `services/expiry/discount-service.js`, `public/js/expiry-audit.js`, `routes/expiry-discounts.js`, `routes/catalog.js` |
 
 ### Backlog — Archive (Completed)
 
