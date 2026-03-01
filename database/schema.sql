@@ -1060,6 +1060,9 @@ CREATE TABLE IF NOT EXISTS subscribers (
     -- Intro pricing flag
     is_intro_pricing BOOLEAN DEFAULT TRUE,
 
+    -- Link to merchant (bridges System B billing to System A enforcement)
+    merchant_id INTEGER REFERENCES merchants(id),
+
     -- Metadata
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -808,6 +808,18 @@ async function ensureSchema() {
             logger.info('Added user_id column to subscribers');
             appliedCount++;
         }
+
+        // Add merchant_id column to subscribers (bridges System B billing to System A enforcement)
+        const merchantIdColCheck = await query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'subscribers' AND column_name = 'merchant_id'
+        `);
+        if (merchantIdColCheck.rows.length === 0) {
+            await query('ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id)');
+            await query('CREATE INDEX IF NOT EXISTS idx_subscribers_merchant_id ON subscribers(merchant_id)');
+            logger.info('Added merchant_id column to subscribers');
+            appliedCount++;
+        }
     }
 
     // ==================== PROMO CODES TABLES ====================
