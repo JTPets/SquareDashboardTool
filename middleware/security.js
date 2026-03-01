@@ -33,6 +33,9 @@ function configureHelmet() {
                     "https://*.cloudflareinsights.com",
                     "https://ajax.cloudflare.com",
                     "https://static.cloudflareinsights.com",
+                    // Cloudflare-injected inline script (Bot Fight Mode / Scrape Shield)
+                    // Hash allows only this specific script — NOT unsafe-inline
+                    "'sha256-p3sDfNCShL+PxSTU6fU96tc8sgSzlsUXLwyt8GDE3KA='",
                     // Square Web Payments SDK
                     "https://web.squarecdn.com",
                     "https://*.squarecdn.com"
@@ -54,7 +57,14 @@ function configureHelmet() {
                 ],
                 // Allow Cloudflare challenge iframes (CAPTCHA, etc.)
                 // Note: 'none' cannot be combined with other values in CSP
-                frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://pci-connect.squareup.com"],
+                frameSrc: [
+                    "'self'",
+                    "https://challenges.cloudflare.com",
+                    "https://pci-connect.squareup.com",
+                    // Square Web Payments SDK card field iframes
+                    "https://web.squarecdn.com",
+                    "https://*.squarecdn.com"
+                ],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
