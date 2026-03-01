@@ -727,7 +727,7 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
         }
     }
 
-    logger.info('Incremental sales velocity update complete (P0-API-2)', {
+    logger.debug('Incremental sales velocity update complete (P0-API-2)', {
         orderId: order.id,
         updated,
         skipped,

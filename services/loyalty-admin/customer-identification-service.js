@@ -72,7 +72,7 @@ class LoyaltyCustomerService {
       };
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'ORDER_CUSTOMER_ID',
@@ -143,7 +143,7 @@ class LoyaltyCustomerService {
     const orderId = order.id;
 
     if (!order.tenders || order.tenders.length === 0) {
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_SKIPPED',
         orderId,
         method: 'TENDER_CUSTOMER_ID',
@@ -153,7 +153,7 @@ class LoyaltyCustomerService {
       return { customerId: null, method: 'TENDER_CUSTOMER_ID', success: false };
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'TENDER_CUSTOMER_ID',
@@ -179,7 +179,7 @@ class LoyaltyCustomerService {
       }
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_FAILED',
       orderId,
       method: 'TENDER_CUSTOMER_ID',
@@ -197,7 +197,7 @@ class LoyaltyCustomerService {
   async identifyFromLoyaltyEvents(order) {
     const orderId = order.id;
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'LOYALTY_API',
@@ -218,7 +218,7 @@ class LoyaltyCustomerService {
       });
 
       if (events.length === 0) {
-        loyaltyLogger.customer({
+        loyaltyLogger.debug({
           action: 'CUSTOMER_LOOKUP_FAILED',
           orderId,
           method: 'LOYALTY_API',
@@ -254,7 +254,7 @@ class LoyaltyCustomerService {
         };
       }
 
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_FAILED',
         orderId,
         method: 'LOYALTY_API',
@@ -284,7 +284,7 @@ class LoyaltyCustomerService {
     const rewards = order.rewards || [];
 
     if (rewards.length === 0) {
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_SKIPPED',
         orderId,
         method: 'ORDER_REWARDS',
@@ -294,7 +294,7 @@ class LoyaltyCustomerService {
       return { customerId: null, method: 'ORDER_REWARDS', success: false };
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'ORDER_REWARDS',
@@ -341,7 +341,7 @@ class LoyaltyCustomerService {
         }
       }
 
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_FAILED',
         orderId,
         method: 'ORDER_REWARDS',
@@ -390,7 +390,7 @@ class LoyaltyCustomerService {
     }
 
     if (!phoneNumber && !emailAddress) {
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_SKIPPED',
         orderId,
         method: 'FULFILLMENT_RECIPIENT',
@@ -400,7 +400,7 @@ class LoyaltyCustomerService {
       return { customerId: null, method: 'FULFILLMENT_RECIPIENT', success: false };
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'FULFILLMENT_RECIPIENT',
@@ -475,7 +475,7 @@ class LoyaltyCustomerService {
         }
       }
 
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_FAILED',
         orderId,
         method: 'FULFILLMENT_RECIPIENT',
@@ -507,7 +507,7 @@ class LoyaltyCustomerService {
     const discounts = order.discounts || [];
 
     if (discounts.length === 0) {
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_SKIPPED',
         orderId,
         method: 'LOYALTY_DISCOUNT',
@@ -517,7 +517,7 @@ class LoyaltyCustomerService {
       return { customerId: null, method: 'LOYALTY_DISCOUNT', success: false };
     }
 
-    loyaltyLogger.customer({
+    loyaltyLogger.debug({
       action: 'CUSTOMER_LOOKUP_ATTEMPT',
       orderId,
       method: 'LOYALTY_DISCOUNT',
@@ -532,7 +532,7 @@ class LoyaltyCustomerService {
       .filter(Boolean);
 
     if (catalogObjectIds.length === 0) {
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_FAILED',
         orderId,
         method: 'LOYALTY_DISCOUNT',
@@ -573,7 +573,7 @@ class LoyaltyCustomerService {
         };
       }
 
-      loyaltyLogger.customer({
+      loyaltyLogger.debug({
         action: 'CUSTOMER_LOOKUP_FAILED',
         orderId,
         method: 'LOYALTY_DISCOUNT',

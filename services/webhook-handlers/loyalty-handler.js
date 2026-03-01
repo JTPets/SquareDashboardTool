@@ -114,7 +114,7 @@ class LoyaltyHandler {
         const alreadyProcessed = await loyaltyService.isOrderAlreadyProcessedForLoyalty(orderId, merchantId);
 
         if (alreadyProcessed) {
-            logger.info('Loyalty event skipped - order already processed', {
+            logger.debug('Loyalty event skipped - order already processed', {
                 orderId,
                 merchantId,
                 eventType
