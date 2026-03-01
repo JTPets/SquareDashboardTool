@@ -78,7 +78,8 @@ const {
     addQualifyingVariations,
     getQualifyingVariations,
     getOfferForVariation,
-    removeQualifyingVariation
+    removeQualifyingVariation,
+    getVariationAssignments
 } = require('./variation-admin-service');
 
 // Customer cache service
@@ -88,6 +89,9 @@ const {
     searchCachedCustomers,
     updateCustomerStats
 } = require('./customer-cache-service');
+
+// Customer search service (A-11: extracted from routes/loyalty/customers.js)
+const { searchCustomers } = require('./customer-search-service');
 
 // Customer admin service
 const {
@@ -151,6 +155,24 @@ const {
     processOrderRefundsForLoyalty
 } = require('./webhook-processing-service');
 
+// Order processing service (A-13: extracted from routes/loyalty/processing.js)
+const { processOrderManually } = require('./order-processing-service');
+
+// Customer refresh service (A-14: extracted from routes/loyalty/processing.js)
+const { refreshCustomersWithMissingData } = require('./customer-refresh-service');
+
+// Redemption query service (A-15: extracted from routes/loyalty/rewards.js)
+const { getRedemptions, getRewards, updateVendorCreditStatus } = require('./redemption-query-service');
+
+// Audit stats service (A-16: extracted from routes/loyalty/audit.js)
+const { getLoyaltyStats, getAuditFindings, resolveAuditFinding } = require('./audit-stats-service');
+
+// Square sync service (A-18: extracted from routes/loyalty/square-integration.js)
+const { linkOfferToSquareTier, getRewardForSquareSync, syncRewardsToPOS, getPendingSyncCounts } = require('./square-sync-service');
+
+// Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
+const { runBackfill } = require('./backfill-orchestration-service');
+
 // Redemption audit service
 const { auditMissedRedemptions } = require('./redemption-audit-service');
 
@@ -189,6 +211,7 @@ module.exports = {
     getQualifyingVariations,
     getOfferForVariation,
     removeQualifyingVariation,
+    getVariationAssignments,
 
     // Purchase processing
     processQualifyingPurchase,
@@ -218,6 +241,9 @@ module.exports = {
     searchCachedCustomers,
     updateCustomerStats,
 
+    // Customer search (A-11)
+    searchCustomers,
+
     // Square Customer Group Discount Integration
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
@@ -245,6 +271,31 @@ module.exports = {
 
     // Background Loyalty Catchup
     runLoyaltyCatchup,
+
+    // Manual order processing (A-13)
+    processOrderManually,
+
+    // Customer refresh (A-14)
+    refreshCustomersWithMissingData,
+
+    // Redemption & reward queries (A-15)
+    getRedemptions,
+    getRewards,
+    updateVendorCreditStatus,
+
+    // Audit stats & findings (A-16)
+    getLoyaltyStats,
+    getAuditFindings,
+    resolveAuditFinding,
+
+    // Square sync (A-18)
+    linkOfferToSquareTier,
+    getRewardForSquareSync,
+    syncRewardsToPOS,
+    getPendingSyncCounts,
+
+    // Backfill orchestration (A-12)
+    runBackfill,
 
     // Discount Validation, Price Sync & Expiration
     updateRewardDiscountAmount,

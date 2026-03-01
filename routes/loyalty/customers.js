@@ -9,27 +9,16 @@
  * - GET /customer/:customerId/audit-history - Get order history for audit
  * - POST /customer/:customerId/add-orders - Add orders to loyalty tracking
  * - GET /customers/search - Search customers (cache + Square API)
- *
- * OBSERVATION LOG:
- * - GET /customers/search has 160 lines of inline business logic:
- *   token decryption, raw Square API call, phone/email/name detection,
- *   result merging and deduplication. Should be extracted to a
- *   customer-search-service in services/loyalty-admin/.
- * - GET /customers/search uses raw fetch() instead of squareClient SDK
- *   (pre-dates SDK standardization)
  */
 
 const express = require('express');
 const router = express.Router();
-const db = require('../../utils/database');
-const logger = require('../../utils/logger');
 const loyaltyService = require('../../utils/loyalty-service');
-const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
 const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
-const { getCustomerOfferProgress } = require('../../services/loyalty-admin');
+const { getCustomerOfferProgress, searchCustomers } = require('../../services/loyalty-admin');
 
 /**
  * GET /api/loyalty/customer/:customerId
@@ -170,162 +159,8 @@ router.get('/customers/search', requireAuth, requireMerchant, validators.searchC
     const merchantId = req.merchantContext.id;
     const query = req.query.q?.trim();
 
-    // Normalize phone number - remove spaces, dashes, parentheses
-    const normalizedQuery = query.replace(/[\s\-\(\)\.]/g, '');
-    const isPhoneSearch = /^\+?\d{7,}$/.test(normalizedQuery);
-    const isEmailSearch = query.includes('@');
-
-    // First, search local cache for loyalty customers
-    const cachedCustomers = await loyaltyService.searchCachedCustomers(query, merchantId);
-
-    // If we found exact matches in cache (especially for phone), return them
-    if (cachedCustomers.length > 0 && isPhoneSearch) {
-        logger.debug('Returning cached customer results', { query, count: cachedCustomers.length });
-        return res.json({
-            query,
-            searchType: 'phone',
-            customers: cachedCustomers,
-            source: 'cache'
-        });
-    }
-
-    // Search Square API for more results
-    const tokenResult = await db.query(
-        'SELECT square_access_token FROM merchants WHERE id = $1 AND is_active = TRUE',
-        [merchantId]
-    );
-    if (tokenResult.rows.length === 0 || !tokenResult.rows[0].square_access_token) {
-        // No Square token - return cached results only
-        if (cachedCustomers.length > 0) {
-            return res.json({
-                query,
-                searchType: isPhoneSearch ? 'phone' : (isEmailSearch ? 'email' : 'name'),
-                customers: cachedCustomers,
-                source: 'cache'
-            });
-        }
-        return res.status(400).json({ error: 'No Square access token configured' });
-    }
-    const rawToken = tokenResult.rows[0].square_access_token;
-    const accessToken = isEncryptedToken(rawToken) ? decryptToken(rawToken) : rawToken;
-
-    let searchFilter = {};
-
-    if (isPhoneSearch) {
-        searchFilter = {
-            phone_number: {
-                exact: normalizedQuery.startsWith('+') ? normalizedQuery : `+1${normalizedQuery}`
-            }
-        };
-    } else if (isEmailSearch) {
-        searchFilter = {
-            email_address: {
-                fuzzy: query
-            }
-        };
-    }
-
-    // Search customers using Square API
-    const searchBody = {
-        limit: 20
-    };
-
-    if (Object.keys(searchFilter).length > 0) {
-        searchBody.query = { filter: searchFilter };
-    } else {
-        // For name searches, get recent customers and filter client-side
-        searchBody.query = {
-            filter: {},
-            sort: {
-                field: 'CREATED_AT',
-                order: 'DESC'
-            }
-        };
-    }
-
-    const response = await fetch('https://connect.squareup.com/v2/customers/search', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'Square-Version': '2025-01-16'
-        },
-        body: JSON.stringify(searchBody)
-    });
-
-    if (!response.ok) {
-        const errText = await response.text();
-        logger.error('Square customer search failed', { status: response.status, error: errText });
-        // Return cached results if Square API fails
-        if (cachedCustomers.length > 0) {
-            return res.json({
-                query,
-                searchType: isPhoneSearch ? 'phone' : (isEmailSearch ? 'email' : 'name'),
-                customers: cachedCustomers,
-                source: 'cache'
-            });
-        }
-        return res.status(response.status).json({ error: 'Square API error' });
-    }
-
-    const data = await response.json();
-    const squareCustomers = (data.customers || []).map(c => ({
-        id: c.id,
-        displayName: [c.given_name, c.family_name].filter(Boolean).join(' ') || c.company_name || 'Unknown',
-        givenName: c.given_name || null,
-        familyName: c.family_name || null,
-        phone: c.phone_number || null,
-        email: c.email_address || null,
-        companyName: c.company_name || null,
-        createdAt: c.created_at
-    }));
-
-    // For name searches, filter client-side
-    let filteredSquareCustomers = squareCustomers;
-    if (!isPhoneSearch && !isEmailSearch) {
-        const lowerQuery = query.toLowerCase();
-        filteredSquareCustomers = squareCustomers.filter(c =>
-            c.displayName?.toLowerCase().includes(lowerQuery) ||
-            c.givenName?.toLowerCase().includes(lowerQuery) ||
-            c.familyName?.toLowerCase().includes(lowerQuery) ||
-            c.phone?.includes(query) ||
-            c.email?.toLowerCase().includes(lowerQuery)
-        );
-    }
-
-    // Cache Square customers for future lookups (async, don't wait)
-    for (const customer of filteredSquareCustomers) {
-        loyaltyService.cacheCustomerDetails(customer, merchantId).catch(err => {
-            logger.warn('Failed to cache customer', { error: err.message, customerId: customer.id });
-        });
-    }
-
-    // Merge cached and Square results, deduplicate by ID
-    const seenIds = new Set();
-    const mergedCustomers = [];
-
-    // Add Square results first (fresher data)
-    for (const c of filteredSquareCustomers) {
-        if (!seenIds.has(c.id)) {
-            seenIds.add(c.id);
-            mergedCustomers.push(c);
-        }
-    }
-
-    // Add any cached customers not in Square results
-    for (const c of cachedCustomers) {
-        if (!seenIds.has(c.id)) {
-            seenIds.add(c.id);
-            mergedCustomers.push(c);
-        }
-    }
-
-    res.json({
-        query,
-        searchType: isPhoneSearch ? 'phone' : (isEmailSearch ? 'email' : 'name'),
-        customers: mergedCustomers,
-        source: 'merged'
-    });
+    const result = await searchCustomers(query, merchantId);
+    res.json(result);
 }));
 
 module.exports = router;
