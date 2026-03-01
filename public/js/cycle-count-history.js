@@ -133,10 +133,10 @@ function renderTable(items) {
         <div>${dateStr}</div>
         <div style="font-size: 11px; color: #6b7280;">${timeStr}</div>
       </td>
-      <td>${item.item_name || 'N/A'}</td>
-      <td>${item.variation_name || 'Regular'}</td>
-      <td style="font-family: monospace; font-size: 12px;">${item.sku || 'N/A'}</td>
-      <td>${item.category_name || 'Uncategorized'}</td>
+      <td>${escapeHtml(item.item_name || 'N/A')}</td>
+      <td>${escapeHtml(item.variation_name || 'Regular')}</td>
+      <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || 'N/A')}</td>
+      <td>${escapeHtml(item.category_name || 'Uncategorized')}</td>
       <td style="text-align: right;">${item.expected_quantity !== null ? item.expected_quantity : 'N/A'}</td>
       <td style="text-align: right;">${item.actual_quantity !== null ? item.actual_quantity : 'N/A'}</td>
       <td style="text-align: right;" class="${varianceClass}">
@@ -146,8 +146,8 @@ function renderTable(items) {
         <strong>${varianceSymbol}$${Math.abs(item.variance_value || 0).toFixed(2)}</strong>
       </td>
       <td class="${statusClass}">${statusText}</td>
-      <td>${item.counted_by || 'System'}</td>
-      <td class="notes-cell">${item.notes || ''}</td>
+      <td>${escapeHtml(item.counted_by || 'System')}</td>
+      <td class="notes-cell">${escapeHtml(item.notes || '')}</td>
     </tr>`;
   }).join('');
 }

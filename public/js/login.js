@@ -14,8 +14,11 @@ if (urlParams.get('expired') === 'true') {
   sessionMessage.classList.add('visible');
 }
 
-// Get return URL from query params
-const returnUrl = urlParams.get('returnUrl') || '/dashboard.html';
+// Get return URL from query params — validate it's a local path to prevent open redirect
+const rawReturnUrl = urlParams.get('returnUrl');
+const returnUrl = (rawReturnUrl && rawReturnUrl.startsWith('/') && !rawReturnUrl.startsWith('//'))
+  ? rawReturnUrl
+  : '/dashboard.html';
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();

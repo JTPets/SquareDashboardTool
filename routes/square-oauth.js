@@ -30,6 +30,20 @@ const SQUARE_ENVIRONMENT = process.env.SQUARE_ENVIRONMENT || 'production';
 // OAuth state expiry (10 minutes)
 const STATE_EXPIRY_MINUTES = 10;
 
+/**
+ * SECURITY: Validate that a redirect URL is a local path only.
+ * Prevents open redirect attacks by rejecting absolute URLs,
+ * protocol-relative URLs (//evil.com), and non-path values.
+ * @param {string} url - The URL to validate
+ * @returns {boolean} true if url is a safe local path
+ */
+function isLocalPath(url) {
+    if (!url || typeof url !== 'string') return false;
+    // Must start with single / (not //)
+    // Must not contain protocol (://), backslashes, or control chars
+    return /^\/[^/\\]/.test(url) && !url.includes('://') && !/[\x00-\x1f]/.test(url);
+}
+
 // Required OAuth scopes for the application
 const REQUIRED_SCOPES = [
     'MERCHANT_PROFILE_READ',
@@ -71,7 +85,8 @@ router.get('/connect', requireAuth, async (req, res) => {
 
         // Generate cryptographically secure state parameter
         const state = crypto.randomBytes(32).toString('hex');
-        const redirectAfter = req.query.redirect || '/dashboard.html';
+        // SECURITY: Validate redirect URL — only allow relative paths to prevent open redirect
+        const redirectAfter = isLocalPath(req.query.redirect) ? req.query.redirect : '/dashboard.html';
 
         // Store state in database with expiry
         await db.query(`
@@ -313,8 +328,8 @@ router.get('/callback', async (req, res) => {
                 });
             });
 
-        // Redirect to original destination
-        const redirectUri = stateRecord.redirect_uri || '/dashboard.html';
+        // Redirect to original destination (re-validate in case DB was tampered)
+        const redirectUri = isLocalPath(stateRecord.redirect_uri) ? stateRecord.redirect_uri : '/dashboard.html';
         res.redirect(redirectUri + '?connected=true&merchant=' + encodeURIComponent(businessName));
 
     } catch (error) {

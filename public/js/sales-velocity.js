@@ -92,11 +92,11 @@ function renderTable(data) {
 
     row.innerHTML = `
       <td>
-        <div class="product-name">${item.item_name || 'Unknown Product'}</div>
-        ${item.variation_name ? `<div class="variation-name">${item.variation_name}</div>` : ''}
+        <div class="product-name">${escapeHtml(item.item_name || 'Unknown Product')}</div>
+        ${item.variation_name ? `<div class="variation-name">${escapeHtml(item.variation_name)}</div>` : ''}
       </td>
-      <td><span class="sku">${item.sku || '-'}</span></td>
-      <td>${item.location_name || '-'}</td>
+      <td><span class="sku">${escapeHtml(item.sku || '-')}</span></td>
+      <td>${escapeHtml(item.location_name || '-')}</td>
       <td class="text-right"><strong>${parseFloat(item.total_quantity_sold || 0).toFixed(1)}</strong></td>
       <td class="text-right">${item.period_days || '-'}</td>
       <td class="text-right"><strong>${dailyAvg.toFixed(2)}</strong></td>

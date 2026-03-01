@@ -452,6 +452,32 @@ Every finding from every source, merged and deduplicated.
 
 ---
 
+### Package 1b: Pre-Release Security Audit Fixes — P0 ✅ COMPLETE
+
+**Estimated effort**: S (~90 min)
+**Completed**: 2026-02-28
+**Dependencies**: None
+**Trigger**: Fresh security audit before open-source release found 3 issues.
+
+#### Tasks:
+
+1. [x] **Subscription auth bypass** — `middleware/subscription-check.js:66-73` trusted `X-Subscriber-Email` header, `req.query.email`, and `req.cookies.subscriber_email` — all spoofable by any client. Removed all three; subscription status now comes from session only (`session.email` or `session.user.email`). 21 tests added (`__tests__/middleware/subscription-check.test.js`). **DONE 2026-02-28**
+
+2. [x] **XSS via innerHTML** — `public/js/sales-velocity.js` and `public/js/cycle-count-history.js` inserted catalog data (item names, SKUs, variation names, notes) via innerHTML without escaping. Wrapped all dynamic data with `escapeHtml()` (from existing `public/js/utils/escape.js`). 8 vectors fixed across 2 files. **DONE 2026-02-28**
+
+3. [x] **Open redirect in OAuth/login** — `routes/square-oauth.js:74` stored user-supplied `req.query.redirect` without validation; `public/js/login.js:18` used `returnUrl` query param for `window.location.href`. Added `isLocalPath()` validator (rejects absolute URLs, `//evil.com`, backslashes, control chars). Login.js validates `returnUrl` starts with `/` and not `//`. 18 tests added (`__tests__/security/open-redirect.test.js`). **DONE 2026-02-28**
+
+#### Observation log (2026-02-28):
+| # | Observation | Severity | Notes |
+|---|-------------|----------|-------|
+| O-5 | `req.cookies.subscriber_email` was also spoofable (not just the header and query param from audit). Removed as part of Fix 1. | HIGH | Fixed |
+| O-6 | `cycle-count-history.js` already used `escapeHtml()` for error messages (line 92) but not for table data — inconsistent escaping pattern across same file. | MEDIUM | Fixed |
+| O-7 | `google-oauth.js` redirects are safe — all go to hardcoded `publicUrl/gmc-feed.html` with only query params varying. No user-controlled redirect path. | INFO | No action needed |
+
+**Test results**: 45 suites, 1026 tests, all passing.
+
+---
+
 ### Package 2a: Square API Quick Fixes — P1 ✅ DONE (2026-02-26)
 
 **Estimated effort**: S (~1 day)
