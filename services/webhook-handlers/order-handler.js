@@ -25,6 +25,7 @@ const squareApi = require('../../utils/square-api');
 const deliveryApi = require('../../utils/delivery-api');
 const loyaltyService = require('../../utils/loyalty-service');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
+const TTLCache = require('../../utils/ttl-cache');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
@@ -33,6 +34,13 @@ const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identifica
 
 // Cart activity tracking for DRAFT orders
 const cartActivityService = require('../cart/cart-activity-service');
+
+/**
+ * Cache of order processing results for dedup between order.* and payment.* webhooks.
+ * Keyed by `${orderId}:${merchantId}`. Stores { customerId, pointsAwarded, redemptionChecked }.
+ * 120s TTL ensures self-healing if something goes wrong.
+ */
+const orderProcessingCache = new TTLCache(120000);
 
 // Square API version from centralized config
 const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../../config/constants');
@@ -900,6 +908,14 @@ class OrderHandler {
                     });
                 }
             }
+
+            // Cache result so payment.* webhooks can skip redundant work
+            const cacheKey = `${order.id}:${merchantId}`;
+            orderProcessingCache.set(cacheKey, {
+                customerId: squareCustomerId,
+                pointsAwarded: intakeResult.purchaseEvents.length > 0,
+                redemptionChecked: true
+            });
         } catch (loyaltyError) {
             logger.error('Failed to process order for loyalty', {
                 error: loyaltyError.message,
@@ -1155,13 +1171,60 @@ class OrderHandler {
     /**
      * Process payment for loyalty
      * Routes through the consolidated processLoyaltyOrder() intake function.
+     *
+     * Checks orderProcessingCache first to avoid redundant work when
+     * order.* webhook already processed the same order.
+     *
      * @private
      */
     async _processPaymentForLoyalty(payment, merchantId, result, source) {
         try {
-            logger.info('Payment completed - fetching order for loyalty processing', {
+            const cacheKey = `${payment.order_id}:${merchantId}`;
+            const cached = orderProcessingCache.get(cacheKey);
+
+            if (cached) {
+                // Full processing already done by order.* webhook
+                if (cached.customerId && cached.pointsAwarded) {
+                    logger.debug('Payment webhook skipping - order already fully processed', {
+                        orderId: payment.order_id,
+                        paymentId: payment.id,
+                        merchantId,
+                        source,
+                        cachedCustomerId: cached.customerId,
+                        reason: 'customer_identified_and_points_awarded'
+                    });
+                    result.skippedByCache = true;
+                    return;
+                }
+
+                // Customer was NOT identified — re-run identification only
+                // (payment webhook has tender data that order webhook may not)
+                if (!cached.customerId) {
+                    logger.debug('Payment webhook re-running identification - no customer in cache', {
+                        orderId: payment.order_id,
+                        paymentId: payment.id,
+                        merchantId,
+                        source
+                    });
+                    // Fall through to normal processing (identification is the value-add)
+                }
+
+                // Redemption wasn't checked — re-run that check only
+                if (!cached.redemptionChecked) {
+                    logger.debug('Payment webhook re-running redemption check', {
+                        orderId: payment.order_id,
+                        paymentId: payment.id,
+                        merchantId,
+                        source
+                    });
+                    // Fall through to normal processing
+                }
+            }
+
+            logger.debug('Payment completed - fetching order for loyalty processing', {
                 paymentId: payment.id,
-                orderId: payment.order_id
+                orderId: payment.order_id,
+                cacheHit: !!cached
             });
 
             const squareClient = await getSquareClientForMerchant(merchantId);
@@ -1174,8 +1237,25 @@ class OrderHandler {
             // SDK v43+ returns camelCase — normalize to snake_case
             const order = normalizeSquareOrder(orderResponse.order);
 
-            // Identify customer
-            const { customerId: squareCustomerId, customerSource } = await identifyCustomerForOrder(order, merchantId);
+            // Early dedup: use cached customer_id if available (Fix 2)
+            // Skips the expensive 6-method identification chain
+            let squareCustomerId;
+            let customerSource;
+            if (cached && cached.customerId) {
+                squareCustomerId = cached.customerId;
+                customerSource = 'cached';
+                logger.debug('Payment webhook using cached customer_id', {
+                    orderId: order.id,
+                    customerId: squareCustomerId,
+                    merchantId,
+                    source
+                });
+            } else {
+                // No cached customer — run full identification (value-add path)
+                const identification = await identifyCustomerForOrder(order, merchantId);
+                squareCustomerId = identification.customerId;
+                customerSource = identification.customerSource;
+            }
 
             // Consolidated intake: atomic write to both tables (includes dedup)
             const intakeResult = await processLoyaltyOrder({
@@ -1314,3 +1394,5 @@ class OrderHandler {
 module.exports = OrderHandler;
 // Export normalization utility for use by catchup job and other services
 module.exports.normalizeSquareOrder = normalizeSquareOrder;
+// Export cache for testing
+module.exports._orderProcessingCache = orderProcessingCache;
