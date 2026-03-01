@@ -311,11 +311,51 @@ const apiAuthMiddleware = (req, res, next) => {
 app.use('/api', apiAuthMiddleware);
 logger.info('Authentication middleware enabled for /api and /api/v1');
 
-// Subscription check middleware (optional, in addition to auth)
+// Subscription check middleware (System B — optional, email-based, in addition to auth)
 if (process.env.SUBSCRIPTION_CHECK_ENABLED === 'true') {
-    logger.info('Subscription check middleware enabled');
+    logger.info('Subscription check middleware enabled (System B)');
     app.use(subscriptionCheck);
 }
+
+// ==================== SUBSCRIPTION ENFORCEMENT (System A — merchant-level) ====================
+// Blocks API access for merchants with expired trials or suspended subscriptions.
+// Must run AFTER loadMerchantContext (needs req.merchantContext).
+// Skips routes that must work without an active subscription.
+const subscriptionExcludedPaths = [
+    '/health',
+    '/auth/',
+    '/square/oauth/',
+    '/webhooks/',
+    '/subscriptions/',
+    '/driver/',
+    '/admin/',
+    '/config',
+    '/merchants',
+    '/gmc/feed.tsv',
+    '/gmc/local-inventory-feed.tsv'
+];
+
+const subscriptionEnforcementMiddleware = (req, res, next) => {
+    // Only apply to API routes
+    const apiPath = req.path;
+
+    // Skip excluded paths
+    for (const excluded of subscriptionExcludedPaths) {
+        if (apiPath === excluded || apiPath.startsWith(excluded)) {
+            return next();
+        }
+    }
+
+    // Skip if no merchant context (unauthenticated or no merchant connected — other middleware handles this)
+    if (!req.merchantContext) {
+        return next();
+    }
+
+    return requireValidSubscription(req, res, next);
+};
+
+app.use('/api', subscriptionEnforcementMiddleware);
+logger.info('Subscription enforcement middleware enabled (System A — merchant-level trials)');
 
 // ==================== DRIVER API ROUTES ====================
 // Token-based public endpoints for contract drivers + authenticated merchant endpoints
