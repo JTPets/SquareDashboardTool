@@ -160,6 +160,9 @@ const { processOrderManually } = require('./order-processing-service');
 // Customer refresh service (A-14: extracted from routes/loyalty/processing.js)
 const { refreshCustomersWithMissingData } = require('./customer-refresh-service');
 
+// Redemption query service (A-15: extracted from routes/loyalty/rewards.js)
+const { getRedemptions, getRewards, updateVendorCreditStatus } = require('./redemption-query-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -266,6 +269,11 @@ module.exports = {
 
     // Customer refresh (A-14)
     refreshCustomersWithMissingData,
+
+    // Redemption & reward queries (A-15)
+    getRedemptions,
+    getRewards,
+    updateVendorCreditStatus,
 
     // Backfill orchestration (A-12)
     runBackfill,
