@@ -157,6 +157,9 @@ const {
 // Order processing service (A-13: extracted from routes/loyalty/processing.js)
 const { processOrderManually } = require('./order-processing-service');
 
+// Customer refresh service (A-14: extracted from routes/loyalty/processing.js)
+const { refreshCustomersWithMissingData } = require('./customer-refresh-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -260,6 +263,9 @@ module.exports = {
 
     // Manual order processing (A-13)
     processOrderManually,
+
+    // Customer refresh (A-14)
+    refreshCustomersWithMissingData,
 
     // Backfill orchestration (A-12)
     runBackfill,
