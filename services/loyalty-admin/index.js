@@ -154,6 +154,9 @@ const {
     processOrderRefundsForLoyalty
 } = require('./webhook-processing-service');
 
+// Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
+const { runBackfill } = require('./backfill-orchestration-service');
+
 // Redemption audit service
 const { auditMissedRedemptions } = require('./redemption-audit-service');
 
@@ -251,6 +254,9 @@ module.exports = {
 
     // Background Loyalty Catchup
     runLoyaltyCatchup,
+
+    // Backfill orchestration (A-12)
+    runBackfill,
 
     // Discount Validation, Price Sync & Expiration
     updateRewardDiscountAmount,
