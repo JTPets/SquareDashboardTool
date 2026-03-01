@@ -118,7 +118,7 @@ CREATE INDEX idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE
 CREATE TABLE sync_history (
     id SERIAL PRIMARY KEY,
     sync_type TEXT NOT NULL,  -- 'catalog', 'vendors', 'inventory', 'sales_91d', 'sales_182d', 'sales_365d'
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     synced_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- Simple timestamp for last sync
@@ -141,7 +141,7 @@ CREATE TABLE locations (
     timezone TEXT,
     phone_number TEXT,
     business_email TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -159,7 +159,7 @@ CREATE TABLE vendors (
     minimum_order_amount DECIMAL(10,2),
     payment_terms TEXT,
     notes TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -181,7 +181,7 @@ WHERE merchant_id IS NOT NULL;
 CREATE TABLE categories (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -191,7 +191,7 @@ CREATE TABLE images (
     name TEXT,
     url TEXT,
     caption TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -216,7 +216,7 @@ CREATE TABLE items (
     available_for_pickup BOOLEAN DEFAULT FALSE,
     seo_title TEXT,
     seo_description TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -256,7 +256,7 @@ CREATE TABLE variations (
     last_cost_cents INTEGER,
     last_cost_date DATE,
     notes TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
@@ -273,7 +273,7 @@ CREATE TABLE variation_vendors (
     currency TEXT DEFAULT 'CAD',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE,
     UNIQUE(variation_id, vendor_id, merchant_id)
@@ -286,7 +286,7 @@ CREATE TABLE inventory_counts (
     location_id TEXT NOT NULL,
     state TEXT NOT NULL,
     quantity INTEGER DEFAULT 0,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
@@ -329,7 +329,7 @@ CREATE TABLE sales_velocity (
     weekly_avg_quantity DECIMAL(10,4) DEFAULT 0,
     monthly_avg_quantity DECIMAL(10,4) DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
     UNIQUE(variation_id, location_id, period_days, merchant_id)
@@ -347,7 +347,7 @@ CREATE TABLE variation_location_settings (
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE CASCADE,
     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE,
     UNIQUE(variation_id, location_id, merchant_id)
@@ -370,7 +370,7 @@ CREATE TABLE purchase_orders (
     total_cents INTEGER DEFAULT 0,
     notes TEXT,
     created_by TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT,
@@ -388,7 +388,7 @@ CREATE TABLE purchase_order_items (
     total_cost_cents INTEGER NOT NULL,
     received_quantity DECIMAL(10,2) DEFAULT 0,
     notes TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
     FOREIGN KEY (variation_id) REFERENCES variations(id) ON DELETE RESTRICT
@@ -577,7 +577,7 @@ CREATE TABLE IF NOT EXISTS count_history (
     expected_quantity INTEGER DEFAULT NULL,
     variance INTEGER DEFAULT NULL,
     notes TEXT DEFAULT NULL,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
     UNIQUE(catalog_object_id, merchant_id)
@@ -597,7 +597,7 @@ CREATE TABLE IF NOT EXISTS count_queue_priority (
     notes TEXT,
     completed BOOLEAN DEFAULT FALSE,
     completed_date TIMESTAMP,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE
 );
 
@@ -614,7 +614,7 @@ CREATE TABLE IF NOT EXISTS count_queue_daily (
     completed BOOLEAN DEFAULT FALSE,
     completed_date TIMESTAMP,
     notes TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     FOREIGN KEY (catalog_object_id) REFERENCES variations(id) ON DELETE CASCADE,
     UNIQUE(catalog_object_id, batch_date, merchant_id)
 );
@@ -634,7 +634,7 @@ CREATE TABLE IF NOT EXISTS count_sessions (
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     notes TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     UNIQUE(session_date, merchant_id)
 );
 
@@ -722,7 +722,7 @@ CREATE TABLE IF NOT EXISTS vendor_catalog_items (
     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     -- Multi-tenant support
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     -- Ensure unique vendor item per vendor per batch (allows updates)
     UNIQUE(vendor_id, vendor_item_number, import_batch_id)
 );
@@ -765,7 +765,7 @@ CREATE TABLE IF NOT EXISTS brands (
     name TEXT NOT NULL,
     logo_url TEXT,
     website TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, merchant_id)
@@ -785,7 +785,7 @@ CREATE TABLE IF NOT EXISTS category_taxonomy_mapping (
     id SERIAL PRIMARY KEY,
     category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     google_taxonomy_id INTEGER NOT NULL REFERENCES google_taxonomy(id) ON DELETE CASCADE,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(category_id, merchant_id)
@@ -796,7 +796,7 @@ CREATE TABLE IF NOT EXISTS item_brands (
     id SERIAL PRIMARY KEY,
     item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     brand_id INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(item_id, merchant_id)
 );
@@ -807,7 +807,7 @@ CREATE TABLE IF NOT EXISTS gmc_settings (
     setting_key TEXT NOT NULL,
     setting_value TEXT,
     description TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(setting_key, merchant_id)
 );
@@ -817,7 +817,7 @@ CREATE TABLE IF NOT EXISTS gmc_settings (
 -- 6. GMC Feed Generation History
 CREATE TABLE IF NOT EXISTS gmc_feed_history (
     id SERIAL PRIMARY KEY,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     total_products INTEGER,
     products_with_errors INTEGER DEFAULT 0,
@@ -880,7 +880,7 @@ CREATE TABLE IF NOT EXISTS expiry_discount_tiers (
     color_code TEXT DEFAULT '#6b7280',         -- Color for UI display (hex)
     priority INTEGER DEFAULT 0,                -- Higher = evaluated first (for overlapping ranges)
     is_active BOOLEAN DEFAULT TRUE,
-    merchant_id INTEGER REFERENCES merchants(id), -- Multi-tenant support
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id), -- Multi-tenant support
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(tier_code, merchant_id)             -- Same tier codes allowed per merchant
@@ -925,7 +925,7 @@ CREATE TABLE IF NOT EXISTS expiry_discount_settings (
     setting_key TEXT NOT NULL,
     setting_value TEXT,
     description TEXT,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(setting_key, merchant_id)
 );
@@ -994,7 +994,7 @@ END $$;
 -- ========================================
 -- Fixes multi-tenant data isolation for feed generation tracking
 
-ALTER TABLE gmc_feed_history ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id);
+ALTER TABLE gmc_feed_history ADD COLUMN IF NOT EXISTS merchant_id INTEGER NOT NULL REFERENCES merchants(id);
 
 CREATE INDEX IF NOT EXISTS idx_gmc_feed_history_merchant
     ON gmc_feed_history(merchant_id, generated_at DESC);
@@ -1009,6 +1009,21 @@ BEGIN
 END $$;
 
 -- ========================================
+-- ==================== PLATFORM SETTINGS ====================
+-- Platform-level configuration (trial duration, pricing tiers, feature flags)
+-- Originally from 059_platform_settings.sql
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default trial duration
+INSERT INTO platform_settings (key, value)
+VALUES ('default_trial_days', '180')
+ON CONFLICT (key) DO NOTHING;
+
 -- MIGRATION: Subscription Management
 -- ========================================
 -- Adds tables for managing customer subscriptions via Square Subscriptions API

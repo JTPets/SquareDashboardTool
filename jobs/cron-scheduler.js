@@ -21,6 +21,7 @@ const { runScheduledLoyaltyAudit } = require('./loyalty-audit-job');
 const { runScheduledCartActivityCleanup } = require('./cart-activity-cleanup-job');
 const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors-day-job');
 const { runScheduledReconciliation } = require('./committed-inventory-reconciliation-job');
+const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -125,6 +126,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Committed inventory reconciliation cron job scheduled', { schedule: committedInvSchedule, timezone: 'America/Toronto' });
+
+    // 13. Trial expiry notifications (subscription enforcement)
+    // Runs daily at 7:00 AM ET — notifies admin of expiring and recently expired trials
+    const trialExpirySchedule = process.env.TRIAL_EXPIRY_CRON || '0 7 * * *';
+    cronTasks.push(cron.schedule(trialExpirySchedule, runScheduledTrialExpiryNotifications, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Trial expiry notification cron job scheduled', { schedule: trialExpirySchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
