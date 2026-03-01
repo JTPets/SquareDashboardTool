@@ -9,6 +9,20 @@ const cors = require('cors');
 const logger = require('../utils/logger');
 
 /**
+ * Parse CSP_EXTRA_SCRIPT_HASHES env var into an array of hash directives.
+ * Returns e.g. ["'sha256-abc...'", "'sha256-xyz...'"] or [] if unset.
+ */
+function getExtraScriptHashes() {
+    const raw = process.env.CSP_EXTRA_SCRIPT_HASHES;
+    if (!raw) return [];
+    return raw
+        .split(',')
+        .map(h => h.trim())
+        .filter(h => h.length > 0)
+        .map(h => `'${h}'`);
+}
+
+/**
  * Configure Helmet security headers
  */
 function configureHelmet() {
@@ -33,14 +47,23 @@ function configureHelmet() {
                     "https://*.cloudflareinsights.com",
                     "https://ajax.cloudflare.com",
                     "https://static.cloudflareinsights.com",
-                    // Cloudflare-injected inline script (Bot Fight Mode / Scrape Shield)
-                    // Hash allows only this specific script — NOT unsafe-inline
-                    "'sha256-p3sDfNCShL+PxSTU6fU96tc8sgSzlsUXLwyt8GDE3KA='",
+                    // CDN-injected inline script hashes (e.g. Cloudflare Bot Fight Mode).
+                    // Configured via CSP_EXTRA_SCRIPT_HASHES env var because CDN providers
+                    // change their injected scripts unpredictably. Each hash allows only
+                    // that specific script — NOT unsafe-inline.
+                    ...getExtraScriptHashes(),
                     // Square Web Payments SDK
                     "https://web.squarecdn.com",
                     "https://*.squarecdn.com"
                 ],
-                styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+                styleSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "https://fonts.googleapis.com",
+                    // Square Web Payments SDK card field styles
+                    "https://web.squarecdn.com",
+                    "https://*.squarecdn.com"
+                ],
                 fontSrc: ["'self'", "https://fonts.gstatic.com"],
                 imgSrc: ["'self'", "data:", "https:", "blob:"],  // Allow images from HTTPS sources
                 connectSrc: [
@@ -49,6 +72,8 @@ function configureHelmet() {
                     "https://connect.squareupsandbox.com",
                     // Square Web Payments SDK PCI compliance
                     "https://pci-connect.squareup.com",
+                    // Square SDK internal error reporting (Sentry)
+                    "https://*.ingest.sentry.io",
                     // Cloudflare analytics beacons
                     "https://*.cloudflareinsights.com",
                     // Zebra Browser Print agent (runs on user's local machine)
