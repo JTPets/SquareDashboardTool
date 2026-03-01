@@ -227,10 +227,49 @@ async function removeQualifyingVariation(offerId, variationId, merchantId, userI
     return result.rows[0];
 }
 
+/**
+ * Get all variation-to-offer assignments for a merchant.
+ * Returns a map keyed by variation_id for easy UI lookup.
+ *
+ * Extracted from routes/loyalty/variations.js GET /variations/assignments (A-17).
+ *
+ * @param {number} merchantId - REQUIRED: Merchant ID
+ * @returns {Promise<Object>} Map of variationId -> { offerId, offerName, brandName, sizeGroup }
+ */
+async function getVariationAssignments(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getVariationAssignments - tenant isolation required');
+    }
+
+    const result = await db.query(`
+        SELECT qv.variation_id, qv.item_name, qv.variation_name,
+               o.id as offer_id, o.offer_name, o.brand_name, o.size_group
+        FROM loyalty_qualifying_variations qv
+        JOIN loyalty_offers o ON qv.offer_id = o.id
+        WHERE qv.merchant_id = $1
+          AND qv.is_active = TRUE
+          AND o.is_active = TRUE
+        ORDER BY o.offer_name, qv.item_name
+    `, [merchantId]);
+
+    const assignments = {};
+    for (const row of result.rows) {
+        assignments[row.variation_id] = {
+            offerId: row.offer_id,
+            offerName: row.offer_name,
+            brandName: row.brand_name,
+            sizeGroup: row.size_group
+        };
+    }
+
+    return assignments;
+}
+
 module.exports = {
     checkVariationConflicts,
     addQualifyingVariations,
     getQualifyingVariations,
     getOfferForVariation,
-    removeQualifyingVariation
+    removeQualifyingVariation,
+    getVariationAssignments
 };

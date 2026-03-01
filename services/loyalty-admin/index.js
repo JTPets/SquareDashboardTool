@@ -78,7 +78,8 @@ const {
     addQualifyingVariations,
     getQualifyingVariations,
     getOfferForVariation,
-    removeQualifyingVariation
+    removeQualifyingVariation,
+    getVariationAssignments
 } = require('./variation-admin-service');
 
 // Customer cache service
@@ -207,6 +208,7 @@ module.exports = {
     getQualifyingVariations,
     getOfferForVariation,
     removeQualifyingVariation,
+    getVariationAssignments,
 
     // Purchase processing
     processQualifyingPurchase,
