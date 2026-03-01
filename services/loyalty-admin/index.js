@@ -163,6 +163,9 @@ const { refreshCustomersWithMissingData } = require('./customer-refresh-service'
 // Redemption query service (A-15: extracted from routes/loyalty/rewards.js)
 const { getRedemptions, getRewards, updateVendorCreditStatus } = require('./redemption-query-service');
 
+// Audit stats service (A-16: extracted from routes/loyalty/audit.js)
+const { getLoyaltyStats, getAuditFindings, resolveAuditFinding } = require('./audit-stats-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -274,6 +277,11 @@ module.exports = {
     getRedemptions,
     getRewards,
     updateVendorCreditStatus,
+
+    // Audit stats & findings (A-16)
+    getLoyaltyStats,
+    getAuditFindings,
+    resolveAuditFinding,
 
     // Backfill orchestration (A-12)
     runBackfill,
