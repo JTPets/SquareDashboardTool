@@ -497,6 +497,12 @@ function showConfirmModal(elementOrId, event, param) {
     return;
   }
 
+  // EXPIRED items use the dedicated expired-pull modal (BACKLOG-37)
+  if (item.tier_code === 'EXPIRED') {
+    showExpiredPullModal(variationId);
+    return;
+  }
+
   currentItem = item;
   const config = tierConfig[item.tier_code];
 
@@ -737,6 +743,178 @@ async function updateDate() {
   }
 }
 
+// --- Expired Pull Modal (BACKLOG-37: partial vs full expiry) ---
+
+function showExpiredPullModal(elementOrId, event, param) {
+  const variationId = param || elementOrId;
+  const item = allItems.find(i => i.variation_id === variationId);
+  if (!item) {
+    showToast('Item not found. Please refresh the page.', 'error');
+    return;
+  }
+
+  currentItem = item;
+
+  // Populate header
+  document.getElementById('expired-pull-item-name').textContent = item.item_name;
+  document.getElementById('expired-pull-item-sku').textContent = `SKU: ${item.sku || 'N/A'}`;
+  document.getElementById('expired-pull-stock').textContent = item.current_stock || 0;
+
+  // Reset to step 1
+  document.getElementById('expired-pull-step1').style.display = '';
+  document.getElementById('expired-pull-full').style.display = 'none';
+  document.getElementById('expired-pull-partial').style.display = 'none';
+  document.getElementById('expired-pull-remaining-qty').value = '';
+  document.getElementById('expired-pull-new-date').value = '';
+  document.getElementById('expired-pull-full-notes').value = '';
+  document.getElementById('expired-pull-partial-notes').value = '';
+
+  document.getElementById('expired-pull-modal').classList.add('active');
+}
+
+function closeExpiredPullModal() {
+  document.getElementById('expired-pull-modal').classList.remove('active');
+  currentItem = null;
+}
+
+function backToStep1() {
+  document.getElementById('expired-pull-step1').style.display = '';
+  document.getElementById('expired-pull-full').style.display = 'none';
+  document.getElementById('expired-pull-partial').style.display = 'none';
+}
+
+function confirmFullPull() {
+  document.getElementById('expired-pull-step1').style.display = 'none';
+  document.getElementById('expired-pull-full').style.display = '';
+}
+
+function showPartialExpiryForm() {
+  document.getElementById('expired-pull-step1').style.display = 'none';
+  document.getElementById('expired-pull-partial').style.display = '';
+}
+
+async function submitFullPull() {
+  if (!currentItem) return;
+
+  const btn = document.getElementById('expired-pull-full-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  try {
+    const notes = document.getElementById('expired-pull-full-notes').value.trim();
+    const response = await fetch('/api/expirations/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        variation_id: currentItem.variation_id,
+        all_expired: true,
+        reviewed_by: 'Audit User',
+        notes: notes || 'All units expired — full pull from shelf'
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to process pull');
+    }
+
+    // Update local state
+    sessionConfirmed[currentItem.variation_id] = 'EXPIRED';
+    currentItem.reviewed_at = new Date().toISOString();
+    currentItem.current_stock = 0;
+
+    closeExpiredPullModal();
+    updateCounts();
+    updateStats();
+    renderItems();
+    showToast('All units pulled from shelf — inventory zeroed.', 'success');
+  } catch (error) {
+    console.error('Failed full pull:', error);
+    showToast('Failed: ' + error.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirm — Zero Inventory';
+  }
+}
+
+async function submitPartialPull() {
+  if (!currentItem) return;
+
+  const remaining = parseInt(document.getElementById('expired-pull-remaining-qty').value, 10);
+  const newDate = document.getElementById('expired-pull-new-date').value;
+  const notes = document.getElementById('expired-pull-partial-notes').value.trim();
+
+  if (isNaN(remaining) || remaining < 0) {
+    showToast('Please enter a valid remaining quantity (0 or more).', 'error');
+    return;
+  }
+  if (!newDate) {
+    showToast('Please enter the next expiry date for remaining units.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('expired-pull-partial-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  try {
+    const response = await fetch('/api/expirations/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        variation_id: currentItem.variation_id,
+        all_expired: false,
+        remaining_quantity: remaining,
+        new_expiry_date: newDate,
+        reviewed_by: 'Audit User',
+        notes: notes || `Partial pull — ${remaining} units remain, new expiry ${newDate}`
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to process partial pull');
+    }
+
+    // Calculate new tier for remaining units
+    const newExpiryDate = new Date(newDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    newExpiryDate.setHours(0, 0, 0, 0);
+    const newDaysUntil = Math.floor((newExpiryDate - today) / (1000 * 60 * 60 * 24));
+    const newTier = getTierFromDays(newDaysUntil);
+
+    // Update local item data
+    currentItem.current_stock = remaining;
+    currentItem.expiration_date = newDate;
+    currentItem.days_until_expiry = newDaysUntil;
+    currentItem.reviewed_at = new Date().toISOString();
+
+    if (newTier && newTier !== 'EXPIRED') {
+      // Item moved out of EXPIRED tier — update tier locally
+      currentItem.tier_code = newTier;
+      sessionConfirmed[currentItem.variation_id] = newTier;
+    } else {
+      sessionConfirmed[currentItem.variation_id] = currentItem.tier_code;
+    }
+
+    closeExpiredPullModal();
+    updateCounts();
+    updateStats();
+    renderItems();
+    showToast(
+      `Partial pull done — ${remaining} units remain with expiry ${newDate}.`,
+      'success'
+    );
+  } catch (error) {
+    console.error('Failed partial pull:', error);
+    showToast('Failed: ' + error.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Update Stock & Date';
+  }
+}
+
 function showToast(message, type = '') {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -810,6 +988,12 @@ document.getElementById('update-modal').addEventListener('click', (e) => {
   }
 });
 
+document.getElementById('expired-pull-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'expired-pull-modal') {
+    closeExpiredPullModal();
+  }
+});
+
 // Refresh data when tab becomes visible
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
@@ -827,3 +1011,10 @@ window.closeConfirmModal = closeConfirmModal;
 window.closeUpdateModal = closeUpdateModal;
 window.confirmItem = confirmItem;
 window.updateDate = updateDate;
+window.showExpiredPullModal = showExpiredPullModal;
+window.closeExpiredPullModal = closeExpiredPullModal;
+window.backToStep1 = backToStep1;
+window.confirmFullPull = confirmFullPull;
+window.showPartialExpiryForm = showPartialExpiryForm;
+window.submitFullPull = submitFullPull;
+window.submitPartialPull = submitPartialPull;

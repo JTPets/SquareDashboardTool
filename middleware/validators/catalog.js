@@ -113,6 +113,20 @@ const saveExpirations = [
     handleValidationErrors
 ];
 
+// POST /api/expirations/pull
+const pullExpired = [
+    body('variation_id').isString().notEmpty(),
+    body('all_expired').isBoolean().withMessage('all_expired must be a boolean'),
+    body('remaining_quantity').optional({ nullable: true }).custom((value) => {
+        if (value === null || value === undefined) return true;
+        return isNonNegativeInt(value, 'remaining_quantity');
+    }),
+    body('new_expiry_date').optional({ nullable: true }).isISO8601(),
+    body('reviewed_by').optional().isString().trim(),
+    body('notes').optional().isString().trim(),
+    handleValidationErrors
+];
+
 // POST /api/expirations/review
 const reviewExpirations = [
     body('variation_ids').isArray({ min: 1 }).withMessage('Expected array of variation_ids'),
@@ -168,6 +182,7 @@ module.exports = {
     bulkUpdateExtended,
     getExpirations,
     saveExpirations,
+    pullExpired,
     reviewExpirations,
     getInventory,
     getLowStock,

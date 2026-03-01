@@ -292,9 +292,18 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
 | Low | BACKLOG-35 | Sales velocity does not subtract refunds — `syncSalesVelocity` fetches orders only, ignores refunds; net sales should be order qty minus refunded qty; impact low (~2 refunds/day), velocity slightly inflated on refunded items |
 | Medium | BACKLOG-36 | Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations that appear in orders; variations with 0 sales are never written so stale rows persist forever; fix: DELETE FROM sales_velocity WHERE variation_id NOT IN (processed keys) AND period_days/merchant_id match; affects reorder suggestions and slow-mover flags; Tier 1 — implement next velocity sync touch |
-| Medium | BACKLOG-37 | Expiry audit assumes all units expired — `evaluateAllVariations()` assigns entire variation to EXPIRED tier when expiry date passes, no distinction between "all units expired" vs "some units have later dates". Audit UI shows "Pull from Shelf" with no partial-expiry option. Real scenario: 1 unit expired, another had Dec 2026 date, system said pull everything. Needs: ask "Are ALL units expired?", allow inline date update for remaining units, only zero inventory when all confirmed expired. Files: `services/expiry/discount-service.js`, `public/js/expiry-audit.js`, `routes/expiry-discounts.js`, `routes/catalog.js` |
+| ~~Medium~~ | ~~BACKLOG-37~~ | ~~Expiry audit assumes all units expired~~ **DONE** (2026-03-01) |
 | Medium | BACKLOG-38 | Timed discount automation — apply/remove Square discount objects (pricing rules) on a cron schedule, bypassing Square's broken native timed discount feature (shows "on sale" badge but displays regular price — confirmed bug, reported multiple times, unfixed). SqTools controls the timing, Square handles the display. Base prices never change. Reuse expiry discount cron pattern for scheduling. Need: `promotions` table (items, discount_type, discount_amount, start_date, end_date, vendor_billback_flag), cron job to apply/remove. Support recurring/template promotions (e.g. "March Flyer" — copy previous year, adjust items, auto-schedule). Ties to BACKLOG-39 for vendor bill-back tracking when `vendor_billback_flag` is true. |
 | Low | BACKLOG-40 | exceljs pulls deprecated transitive deps (inflight, rimraf, glob, fstream, lodash.isequal) — evaluate replacing with lighter xlsx/csv library before open-source launch; Jest also pulls glob@7 but dev-only |
+| Medium | BACKLOG-41 | User access control with roles — manager, clerk, accountant permissions. Per-user action logging. Required for multi-user SaaS deployment. Prerequisite for franchise model. |
+| Medium | BACKLOG-42 | Barcode scan-to-count for cycle counts — accept wireless/wired barcode scanner input during cycle count workflow. Existing cycle count system handles the logic, just needs scanner input support on frontend. |
+| Low | BACKLOG-43 | Min/Max stock per item per location — may already be partially implemented via Square's inventory alert thresholds. Investigate: how does Square store min/max per location? Does `setSquareInventoryAlertThreshold` already handle this? If so, this may just need reorder logic to respect the max cap when calculating order quantities. Explore before building anything new. |
+| Medium | BACKLOG-44 | Purchase order generation with branding — generate printable/emailable POs with merchant logo. Current reorder workflow calculates what to order but doesn't produce a formal PO document. |
+| Medium | BACKLOG-45 | Spreadsheet bulk upload — import/update inventory via CSV or Google Sheets. Lowers onboarding barrier for new merchants migrating from manual tracking. |
+| Low | BACKLOG-46 | QuickBooks daily sync — auto-sync daily sales summaries and inventory data to QuickBooks Online. Retention feature for SaaS — every independent retailer uses QuickBooks. |
+| Low | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce integration. Sync inventory across POS + e-commerce. Depends on multi-POS abstraction layer (post api.js split). |
+| Low | BACKLOG-48 | Clover POS integration — expand beyond Square. Depends on multi-POS abstraction layer. |
+| Low | BACKLOG-49 | Stripe payment integration — alternative payment processor support. |
 
 ### Backlog — Archive (Completed)
 
@@ -321,6 +330,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | BACKLOG-22 | Available vs total stock inconsistency (DEDUP R-3) | 2026-02-23 (inventory-service, audit-service, bundles now use available_quantity like analytics.js) |
 | BACKLOG-28 | Wire vendor per-vendor config into reorder formula | 2026-02-24 (reorder suggestions now pass per-vendor lead_time_days to formula; SQL + JS threshold include lead time; Lead Time column in reorder.html) |
 | BACKLOG-33 | New variation velocity warning badge on reorder page | 2026-02-24 (display-only badge next to velocity for variations <7 days old; warns about unreliable velocity from Square ID reassignment) |
+| BACKLOG-37 | Expiry audit partial-expiry workflow | 2026-03-01 (expired-pull modal asks "Are ALL units expired?"; full pull zeros inventory via Square API; partial pull updates remaining count + new expiry date; `POST /api/expirations/pull` endpoint; 10 tests) |
 
 #### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
 

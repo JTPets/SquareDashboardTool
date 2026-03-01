@@ -20,6 +20,7 @@
  * - POST   /api/variations/bulk-update-extended - Bulk update custom fields
  * - GET    /api/expirations                   - Get expiration data
  * - POST   /api/expirations                   - Save expiration data
+ * - POST   /api/expirations/pull              - Handle expired item pull (full or partial)
  * - POST   /api/expirations/review            - Mark items as reviewed
  * - GET    /api/inventory                     - Get inventory levels
  * - GET    /api/low-stock                     - Get low stock items
@@ -225,6 +226,22 @@ router.post('/expirations', requireAuth, requireMerchant, validators.saveExpirat
         squarePush: result.squarePush,
         tierOverrides: result.tierOverrides
     });
+}));
+
+/**
+ * POST /api/expirations/pull
+ * Handle expired item pull — full (all units expired) or partial (some units remain)
+ * Adjusts inventory via Square API and updates expiry date for partial pulls
+ */
+router.post('/expirations/pull', requireAuth, requireMerchant, validators.pullExpired, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext.id;
+    const result = await catalogService.handleExpiredPull(merchantId, req.body);
+
+    if (!result.success && result.status) {
+        return res.status(result.status).json({ success: false, error: result.error });
+    }
+
+    res.json(result);
 }));
 
 /**

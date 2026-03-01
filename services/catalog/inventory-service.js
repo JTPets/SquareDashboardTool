@@ -665,11 +665,163 @@ async function markExpirationsReviewed(merchantId, variationIds, reviewedBy = 'U
     };
 }
 
+/**
+ * Handle expired item pull — supports both full and partial expiry.
+ *
+ * @param {number} merchantId
+ * @param {Object} params
+ * @param {string} params.variation_id - Variation to process
+ * @param {boolean} params.all_expired - true = all units expired, false = partial
+ * @param {number} [params.remaining_quantity] - Required when all_expired=false
+ * @param {string} [params.new_expiry_date] - Required when all_expired=false (YYYY-MM-DD)
+ * @param {string} [params.reviewed_by] - Reviewer name
+ * @param {string} [params.notes] - Optional notes
+ * @returns {Promise<Object>}
+ */
+async function handleExpiredPull(merchantId, params) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for handleExpiredPull');
+    }
+
+    const {
+        variation_id,
+        all_expired,
+        remaining_quantity,
+        new_expiry_date,
+        reviewed_by = 'Audit User',
+        notes
+    } = params;
+
+    if (!variation_id) {
+        return { success: false, error: 'variation_id is required', status: 400 };
+    }
+
+    // Verify variation belongs to merchant
+    const varCheck = await db.query(
+        'SELECT id FROM variations WHERE id = $1 AND merchant_id = $2',
+        [variation_id, merchantId]
+    );
+    if (varCheck.rows.length === 0) {
+        return { success: false, error: 'Variation not found for this merchant', status: 404 };
+    }
+
+    // Get current inventory across all locations
+    const inventoryResult = await db.query(`
+        SELECT catalog_object_id, location_id, quantity
+        FROM inventory_counts
+        WHERE catalog_object_id = $1 AND state = 'IN_STOCK' AND merchant_id = $2
+    `, [variation_id, merchantId]);
+
+    const squareResults = { success: 0, failed: 0, errors: [] };
+
+    if (all_expired) {
+        // --- ALL EXPIRED: zero inventory at every location ---
+        for (const row of inventoryResult.rows) {
+            if (row.quantity > 0) {
+                try {
+                    await squareApi.setSquareInventoryCount(
+                        row.catalog_object_id,
+                        row.location_id,
+                        0,
+                        notes || 'Expiry audit — all units expired, pulled from shelf',
+                        merchantId
+                    );
+                    squareResults.success++;
+                } catch (err) {
+                    squareResults.failed++;
+                    squareResults.errors.push({ location_id: row.location_id, error: err.message });
+                    logger.error('Failed to zero inventory for expired pull', {
+                        variation_id, location_id: row.location_id, merchantId, error: err.message
+                    });
+                }
+            }
+        }
+
+        // Update local inventory_counts to 0
+        await db.query(`
+            UPDATE inventory_counts SET quantity = 0, updated_at = NOW()
+            WHERE catalog_object_id = $1 AND state = 'IN_STOCK' AND merchant_id = $2
+        `, [variation_id, merchantId]);
+
+        // Mark reviewed
+        await markExpirationsReviewed(merchantId, [variation_id], reviewed_by);
+
+        logger.info('Expired pull — all units', { variation_id, merchantId, reviewed_by });
+
+        return {
+            success: true,
+            action: 'full_pull',
+            message: 'All units pulled from shelf — inventory zeroed',
+            squareInventory: squareResults
+        };
+    }
+
+    // --- PARTIAL EXPIRY ---
+    if (remaining_quantity == null || remaining_quantity < 0) {
+        return { success: false, error: 'remaining_quantity is required and must be >= 0', status: 400 };
+    }
+    if (!new_expiry_date) {
+        return { success: false, error: 'new_expiry_date is required for partial expiry', status: 400 };
+    }
+
+    // Set inventory to remaining_quantity at primary location
+    // (use the first location with stock, or first location overall)
+    const locationRow = inventoryResult.rows.find(r => r.quantity > 0) || inventoryResult.rows[0];
+    if (locationRow) {
+        try {
+            await squareApi.setSquareInventoryCount(
+                variation_id,
+                locationRow.location_id,
+                remaining_quantity,
+                notes || `Expiry audit — partial pull, ${remaining_quantity} units remain`,
+                merchantId
+            );
+            squareResults.success++;
+        } catch (err) {
+            squareResults.failed++;
+            squareResults.errors.push({ location_id: locationRow.location_id, error: err.message });
+            logger.error('Failed to update inventory for partial pull', {
+                variation_id, location_id: locationRow.location_id, merchantId, error: err.message
+            });
+        }
+
+        // Update local inventory_counts
+        await db.query(`
+            UPDATE inventory_counts SET quantity = $1, updated_at = NOW()
+            WHERE catalog_object_id = $2 AND location_id = $3
+              AND state = 'IN_STOCK' AND merchant_id = $4
+        `, [remaining_quantity, variation_id, locationRow.location_id, merchantId]);
+    }
+
+    // Update expiry date to the next valid date
+    const saveResult = await saveExpirations(merchantId, [{
+        variation_id,
+        expiration_date: new_expiry_date,
+        does_not_expire: false
+    }]);
+
+    // Mark reviewed
+    await markExpirationsReviewed(merchantId, [variation_id], reviewed_by);
+
+    logger.info('Expired pull — partial', {
+        variation_id, remaining_quantity, new_expiry_date, merchantId, reviewed_by
+    });
+
+    return {
+        success: true,
+        action: 'partial_pull',
+        message: `Partial pull — ${remaining_quantity} units remain with new expiry ${new_expiry_date}`,
+        squareInventory: squareResults,
+        expiryUpdate: saveResult
+    };
+}
+
 module.exports = {
     getInventory,
     getLowStock,
     getDeletedItems,
     getExpirations,
     saveExpirations,
-    markExpirationsReviewed
+    markExpirationsReviewed,
+    handleExpiredPull
 };

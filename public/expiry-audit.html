@@ -846,6 +846,104 @@
     </div>
   </div>
 
+  <!-- Expired Pull Modal — asks "Are ALL units expired?" -->
+  <div class="modal" id="expired-pull-modal">
+    <div class="modal-content">
+      <h2 class="modal-title" id="expired-pull-title">Expired Item — Pull from Shelf</h2>
+
+      <div id="expired-pull-item-info" style="margin-bottom: 16px;">
+        <div style="font-weight: 600; font-size: 18px;" id="expired-pull-item-name"></div>
+        <div style="color: #6b7280;" id="expired-pull-item-sku"></div>
+      </div>
+
+      <div class="confirm-display discount-50">
+        <div class="label">Current Stock</div>
+        <div class="value" id="expired-pull-stock">0</div>
+      </div>
+
+      <!-- Step 1: Ask if ALL units expired -->
+      <div id="expired-pull-step1">
+        <div class="verification-box">
+          <strong>Are ALL units of this product expired?</strong>
+          <p style="margin: 8px 0 0; color: #6b7280;">
+            Check each unit on the shelf. If some units have a later expiry date, select "No".
+          </p>
+        </div>
+
+        <div class="form-actions" style="margin-top: 16px;">
+          <button class="btn btn-secondary" data-action="closeExpiredPullModal">Cancel</button>
+          <button class="btn" style="flex: 1; background: #f59e0b; color: #fff;"
+                  data-action="showPartialExpiryForm">
+            No — Some Units Are Still Good
+          </button>
+          <button class="btn btn-success" style="flex: 1; background: #dc2626;"
+                  data-action="confirmFullPull">
+            Yes — Pull Everything
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2a: Full pull confirmation -->
+      <div id="expired-pull-full" style="display: none;">
+        <div class="verification-box">
+          <strong>Confirm full pull:</strong>
+          <ul>
+            <li>Remove ALL units from shelf</li>
+            <li>Move to disposal or return area</li>
+            <li>Inventory will be set to 0</li>
+          </ul>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Notes (optional):</label>
+          <textarea class="form-input" id="expired-pull-full-notes" rows="2" placeholder="Any observations..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-secondary" data-action="backToStep1">Back</button>
+          <button class="btn btn-success" style="flex: 1; background: #dc2626;"
+                  data-action="submitFullPull" id="expired-pull-full-btn">
+            Confirm — Zero Inventory
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2b: Partial expiry form -->
+      <div id="expired-pull-partial" style="display: none;">
+        <div class="verification-box">
+          <strong>Partial expiry — update remaining stock:</strong>
+          <p style="margin: 8px 0 0; color: #6b7280;">
+            Remove expired units. Enter the count and next expiry date for the remaining good units.
+          </p>
+        </div>
+
+        <div class="new-date-input" style="margin-bottom: 12px;">
+          <label>How many units remain with valid dates?</label>
+          <input type="number" id="expired-pull-remaining-qty" min="0" required
+                 style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 16px;">
+        </div>
+
+        <div class="new-date-input">
+          <label>Next expiry date (from remaining units)</label>
+          <input type="date" id="expired-pull-new-date" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Notes (optional):</label>
+          <textarea class="form-input" id="expired-pull-partial-notes" rows="2" placeholder="e.g., 2 of 5 units expired..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-secondary" data-action="backToStep1">Back</button>
+          <button class="btn btn-success" style="flex: 1; background: #f59e0b; color: #fff;"
+                  data-action="submitPartialPull" id="expired-pull-partial-btn">
+            Update Stock &amp; Date
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
