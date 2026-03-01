@@ -17,8 +17,17 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep } = require('./square-client');
+const TTLCache = require('../../utils/ttl-cache');
 
 const { SQUARE: { MAX_PAGINATION_ITERATIONS }, SYNC: { BATCH_DELAY_MS } } = require('../../config/constants');
+
+/**
+ * Velocity idempotency guard.
+ * Prevents double-counting when both order.updated and order.fulfillment.updated
+ * fire for the same COMPLETED order. Keyed by `${orderId}:${merchantId}`.
+ * 120s TTL ensures self-healing.
+ */
+const recentlyProcessedVelocityOrders = new TTLCache(120000);
 
 /**
  * Sync sales velocity for a specific time period
@@ -586,6 +595,18 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
         return { updated: 0, skipped: 0, reason: 'No merchantId' };
     }
 
+    // Velocity idempotency: skip if this order was already processed recently
+    const velocityKey = `${order.id}:${merchantId}`;
+    if (recentlyProcessedVelocityOrders.has(velocityKey)) {
+        logger.debug('Velocity already updated for order', {
+            orderId: order.id,
+            merchantId,
+            reason: 'velocity_dedup_guard'
+        });
+        return { updated: 0, skipped: 0, reason: 'Already processed (dedup)' };
+    }
+    recentlyProcessedVelocityOrders.set(velocityKey, true);
+
     const closedAt = order.closed_at ? new Date(order.closed_at) : new Date();
     const locationId = order.location_id;
 
@@ -720,5 +741,7 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
 module.exports = {
     syncSalesVelocity,
     syncSalesVelocityAllPeriods,
-    updateSalesVelocityFromOrder
+    updateSalesVelocityFromOrder,
+    // Export for testing
+    _recentlyProcessedVelocityOrders: recentlyProcessedVelocityOrders
 };
