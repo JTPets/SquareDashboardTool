@@ -37,6 +37,7 @@ module.exports = {
     getExpirations: inventoryService.getExpirations,
     saveExpirations: inventoryService.saveExpirations,
     markExpirationsReviewed: inventoryService.markExpirationsReviewed,
+    handleExpiredPull: inventoryService.handleExpiredPull,
 
     // Audit Service
     getCatalogAudit: auditService.getCatalogAudit,
