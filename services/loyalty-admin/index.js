@@ -89,6 +89,9 @@ const {
     updateCustomerStats
 } = require('./customer-cache-service');
 
+// Customer search service (A-11: extracted from routes/loyalty/customers.js)
+const { searchCustomers } = require('./customer-search-service');
+
 // Customer admin service
 const {
     getCustomerDetails,
@@ -217,6 +220,9 @@ module.exports = {
     getCachedCustomer,
     searchCachedCustomers,
     updateCustomerStats,
+
+    // Customer search (A-11)
+    searchCustomers,
 
     // Square Customer Group Discount Integration
     getSquareLoyaltyProgram,
