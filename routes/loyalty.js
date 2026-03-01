@@ -58,6 +58,7 @@ const { getCustomerOfferProgress } = require('../services/loyalty-admin');
 
 // ==================== EXTRACTED SUB-ROUTERS ====================
 router.use('/', require('./loyalty/settings'));
+router.use('/', require('./loyalty/discounts'));
 
 // ==================== OFFER MANAGEMENT ====================
 
@@ -1743,43 +1744,7 @@ router.post('/process-expired', requireAuth, requireMerchant, requireWriteAccess
     });
 }));
 
-// ==================== DISCOUNT VALIDATION ====================
-
-/**
- * GET /api/loyalty/discounts/validate
- * Validate earned rewards discounts against Square
- */
-router.get('/discounts/validate', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
-    const merchantId = req.merchantContext.id;
-    const result = await loyaltyService.validateEarnedRewardsDiscounts({
-        merchantId,
-        fixIssues: false
-    });
-
-    res.json(result);
-}));
-
-/**
- * POST /api/loyalty/discounts/validate-and-fix
- * Validate earned rewards discounts and fix any issues found
- */
-router.post('/discounts/validate-and-fix', requireAuth, requireMerchant, requireWriteAccess, asyncHandler(async (req, res) => {
-    const merchantId = req.merchantContext.id;
-    const result = await loyaltyService.validateEarnedRewardsDiscounts({
-        merchantId,
-        fixIssues: true
-    });
-
-    logger.info('Validated and fixed discount issues', {
-        merchantId,
-        totalEarned: result.totalEarned,
-        validated: result.validated,
-        issues: result.issues.length,
-        fixed: result.fixed.length
-    });
-
-    res.json(result);
-}));
+// ==================== DISCOUNT VALIDATION (extracted to ./loyalty/discounts.js) ====================
 
 // ==================== SETTINGS (extracted to ./loyalty/settings.js) ====================
 
