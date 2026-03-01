@@ -41,6 +41,7 @@ Week 1-2 (Feb 25 – Mar 10):
 Week 2-4 (Mar 3 – Mar 17):
   Track A: Pkg 2a Square API Quick Fixes [S, ~1 day] ✅ DONE 2026-02-26
   Track B: Pkg 3 Loyalty Services [L, ~2 weeks]    ◄── no Pkg 2 dependency
+          ──then──► Pkg 3b Loyalty Routes Split [M] ✅ DONE 2026-03-01
   Track C: Pkg 4a Reorder/Analytics [M, ~1 week]   ◄── no Pkg 2 dependency
   Track D: Pkg 10 GMC Integration [M, ~1 week] ✅ DONE 2026-02-28
 
@@ -78,6 +79,7 @@ P1: Pkg 2a Quick Fixes ─────────────► ✅ DONE 2026-
 P1: Pkg 2b API Split ───────────────► (XL, runs parallel with everything — NOT a blocker)
 
 P1: Pkg 3 Loyalty Dedup ────────────► (NO dependency on Pkg 2 — import chain verified)
+P1: Pkg 3b Loyalty Routes Split ───► ✅ DONE 2026-03-01
 P1: Pkg 4a Reorder/Analytics ───────► (NO dependency on Pkg 2 — import chain verified)
 
 P1: Pkg 4b Velocity Refactor ───────► (independent of Pkg 4a — extract as standalone)
@@ -239,6 +241,14 @@ Every finding from every source, merged and deduplicated.
 | A-8 | Pkg 4a finding | MEDIUM | `public/js/reorder.js` grew from 1,752 → 2,322 lines after vendor-first workflow. Already an approved violation but now 7.7x over 300-line limit. Next touch MUST extract: manual items logic, other items rendering, and state preservation into separate modules (e.g., `reorder-manual.js`, `reorder-other-items.js`, `reorder-state.js`). | **OPEN** — refactor-on-next-touch |
 | A-9 | Pkg 8 finding | MEDIUM | `routes/delivery.js:245-427` — Race condition in Square fulfillment state machine transitions under concurrent webhook + manual complete. Each step re-fetches order version but another process could modify between fetch and update. Related to BACKLOG-5. | **OPEN** |
 | A-10 | Pkg 8 finding | MEDIUM | `services/delivery/delivery-service.js:453-496` — Unclear status semantics (`delivered` vs `completed` vs `skipped`). No documentation on state machine transitions or valid state flows. | **OPEN** |
+| A-11 | Loyalty split finding | HIGH | `routes/loyalty/customers.js:GET /customers/search` — 160 lines inline: token decryption, raw fetch() to Square API, phone/email detection, cache merge. Should be a customer-search-service. | **OPEN** |
+| A-12 | Loyalty split finding | HIGH | `routes/loyalty/processing.js:POST /backfill` — 232 lines inline: Square API pagination, order iteration, loyalty prefetch, diagnostics. Should be a backfill-orchestration-service. | **OPEN** |
+| A-13 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /process-order` — raw fetch() instead of squareClient SDK; duplicate const merchantId declaration (line shadows earlier var). | **OPEN** |
+| A-14 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /refresh-customers` — reinvents semaphore pattern (should use p-limit); inline SQL for finding customers with missing phone data. | **OPEN** |
+| A-15 | Loyalty split finding | MEDIUM | `routes/loyalty/rewards.js:GET /redemptions` — 90-line complex SQL with LATERAL JOIN across 5 tables. Should be in a redemption query service. | **OPEN** |
+| A-16 | Loyalty split finding | MEDIUM | `routes/loyalty/audit.js:GET /stats` — 5 separate inline SQL queries. Should be in a stats service. | **OPEN** |
+| A-17 | Loyalty split finding | LOW | `routes/loyalty/variations.js:GET /variations/assignments` and DELETE handler — inline SQL that should be in variation-admin-service. | **OPEN** |
+| A-18 | Loyalty split finding | LOW | `routes/loyalty/square-integration.js:POST /rewards/sync-to-pos` — inline SQL + service call loop orchestration. | **OPEN** |
 
 ### Database Findings
 
@@ -293,6 +303,7 @@ Every finding from every source, merged and deduplicated.
 | P-8 | Audit | MEDIUM | Sync queue follow-up syncs block sequentially | ✅ **DONE** 2026-02-26 — Fire-and-forget with error logging |
 | P-9 | Audit | LOW | GMC sync polling at 5-second intervals | **OPEN** |
 | P-10 | Production | HIGH | Duplicate delivery orders created for same Square order. Multiple `order.updated` webhooks race past the dedup lock, each creating a separate `delivery_orders` row for the same `square_order_id`. Observed 2026-02-26: two delivery orders (`6fa83def`, `e5f591b5`) both reference `qyuUdnnGxyDLayHyH7rG64AWgwZZY`. | **OPEN** |
+| P-11 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js` — file exceeds 300-line limit (572 lines). 3 handlers have massive inline logic awaiting service extraction. | **OPEN** |
 | MED-3 | CODE_AUDIT | MEDIUM | No circuit breaker for Square API | **OPEN** — P3 |
 
 ### Testing Findings
@@ -591,6 +602,45 @@ Every finding from every source, merged and deduplicated.
 #### Follow-up findings (discovered during execution):
 - **A-4b** (MEDIUM, NEEDS_DECISION): `getCustomerDetails()` still has two implementations — standalone in `customer-admin-service.js` (cache-first, 6 callers) vs class method in `customer-identification-service.js` (direct API, no caching, 4 callers). These have different signatures and different caching behavior. Consolidating requires a decision: unify caching strategy (always cache? always direct?) or keep both intentionally. See NEEDS_DECISION table.
 - **DC-3** (LOW, refactor-on-touch): Dead import `encryptToken` in `redemption-audit-service.js:15`. Assigned to Pkg 14.
+
+---
+
+### Package 3b: Loyalty Routes Split — P1 ✅ COMPLETE
+
+**Estimated effort**: M
+**Completed**: 2026-03-01
+**Dependencies**: Pkg 3 (Loyalty Services)
+**Files touched**:
+- `routes/loyalty.js` (monolithic ~2,100 lines → split into 7 sub-route files)
+- `routes/loyalty/customers.js` (NEW)
+- `routes/loyalty/processing.js` (NEW)
+- `routes/loyalty/rewards.js` (NEW)
+- `routes/loyalty/audit.js` (NEW)
+- `routes/loyalty/variations.js` (NEW)
+- `routes/loyalty/square-integration.js` (NEW)
+- `server.js` (route registration update)
+
+#### Tasks:
+
+1. [x] Split monolithic `routes/loyalty.js` into domain-specific sub-route files under `routes/loyalty/`
+
+#### Observation log (2026-03-01):
+
+| # | Observation | File:Line | Severity | Notes |
+|---|-------------|-----------|----------|-------|
+| O-9 | `routes/loyalty/customers.js:GET /customers/search` — 160 lines inline: token decryption, raw fetch() to Square API, phone/email detection, cache merge. Should be a customer-search-service. | `routes/loyalty/customers.js` | HIGH | Logged as A-11 |
+| O-10 | `routes/loyalty/processing.js:POST /backfill` — 232 lines inline: Square API pagination, order iteration, loyalty prefetch, diagnostics. Should be a backfill-orchestration-service. | `routes/loyalty/processing.js` | HIGH | Logged as A-12 |
+| O-11 | `routes/loyalty/processing.js:POST /process-order` — raw fetch() instead of squareClient SDK; duplicate const merchantId declaration (line shadows earlier var). | `routes/loyalty/processing.js` | MEDIUM | Logged as A-13 |
+| O-12 | `routes/loyalty/processing.js:POST /refresh-customers` — reinvents semaphore pattern (should use p-limit); inline SQL for finding customers with missing phone data. | `routes/loyalty/processing.js` | MEDIUM | Logged as A-14 |
+| O-13 | `routes/loyalty/rewards.js:GET /redemptions` — 90-line complex SQL with LATERAL JOIN across 5 tables. Should be in a redemption query service. | `routes/loyalty/rewards.js` | MEDIUM | Logged as A-15 |
+| O-14 | `routes/loyalty/audit.js:GET /stats` — 5 separate inline SQL queries. Should be in a stats service. | `routes/loyalty/audit.js` | MEDIUM | Logged as A-16 |
+| O-15 | `routes/loyalty/variations.js:GET /variations/assignments` and DELETE handler — inline SQL that should be in variation-admin-service. | `routes/loyalty/variations.js` | LOW | Logged as A-17 |
+| O-16 | `routes/loyalty/square-integration.js:POST /rewards/sync-to-pos` — inline SQL + service call loop orchestration. | `routes/loyalty/square-integration.js` | LOW | Logged as A-18 |
+| O-17 | `routes/loyalty/processing.js` — 572 lines, exceeds 300-line limit. 3 handlers have massive inline logic awaiting service extraction. | `routes/loyalty/processing.js` | MEDIUM | Logged as P-11 |
+
+#### Definition of done:
+- ✅ `routes/loyalty.js` monolith split into 7 domain-specific route files
+- Inline business logic extraction deferred to future packages (see A-11 through A-18)
 
 ---
 
