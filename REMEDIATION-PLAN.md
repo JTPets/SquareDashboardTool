@@ -241,14 +241,14 @@ Every finding from every source, merged and deduplicated.
 | A-8 | Pkg 4a finding | MEDIUM | `public/js/reorder.js` grew from 1,752 → 2,322 lines after vendor-first workflow. Already an approved violation but now 7.7x over 300-line limit. Next touch MUST extract: manual items logic, other items rendering, and state preservation into separate modules (e.g., `reorder-manual.js`, `reorder-other-items.js`, `reorder-state.js`). | **OPEN** — refactor-on-next-touch |
 | A-9 | Pkg 8 finding | MEDIUM | `routes/delivery.js:245-427` — Race condition in Square fulfillment state machine transitions under concurrent webhook + manual complete. Each step re-fetches order version but another process could modify between fetch and update. Related to BACKLOG-5. | **OPEN** |
 | A-10 | Pkg 8 finding | MEDIUM | `services/delivery/delivery-service.js:453-496` — Unclear status semantics (`delivered` vs `completed` vs `skipped`). No documentation on state machine transitions or valid state flows. | **OPEN** |
-| A-11 | Loyalty split finding | HIGH | `routes/loyalty/customers.js:GET /customers/search` — 160 lines inline: token decryption, raw fetch() to Square API, phone/email detection, cache merge. Should be a customer-search-service. | **OPEN** |
-| A-12 | Loyalty split finding | HIGH | `routes/loyalty/processing.js:POST /backfill` — 232 lines inline: Square API pagination, order iteration, loyalty prefetch, diagnostics. Should be a backfill-orchestration-service. | **OPEN** |
-| A-13 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /process-order` — raw fetch() instead of squareClient SDK; duplicate const merchantId declaration (line shadows earlier var). | **OPEN** |
-| A-14 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /refresh-customers` — reinvents semaphore pattern (should use p-limit); inline SQL for finding customers with missing phone data. | **OPEN** |
-| A-15 | Loyalty split finding | MEDIUM | `routes/loyalty/rewards.js:GET /redemptions` — 90-line complex SQL with LATERAL JOIN across 5 tables. Should be in a redemption query service. | **OPEN** |
-| A-16 | Loyalty split finding | MEDIUM | `routes/loyalty/audit.js:GET /stats` — 5 separate inline SQL queries. Should be in a stats service. | **OPEN** |
-| A-17 | Loyalty split finding | LOW | `routes/loyalty/variations.js:GET /variations/assignments` and DELETE handler — inline SQL that should be in variation-admin-service. | **OPEN** |
-| A-18 | Loyalty split finding | LOW | `routes/loyalty/square-integration.js:POST /rewards/sync-to-pos` — inline SQL + service call loop orchestration. | **OPEN** |
+| A-11 | Loyalty split finding | HIGH | `routes/loyalty/customers.js:GET /customers/search` — 160 lines inline: token decryption, raw fetch() to Square API, phone/email detection, cache merge. Should be a customer-search-service. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/customer-search-service.js` (12 tests) |
+| A-12 | Loyalty split finding | HIGH | `routes/loyalty/processing.js:POST /backfill` — 232 lines inline: Square API pagination, order iteration, loyalty prefetch, diagnostics. Should be a backfill-orchestration-service. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/backfill-orchestration-service.js` (11 tests) |
+| A-13 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /process-order` — raw fetch() instead of squareClient SDK; duplicate const merchantId declaration (line shadows earlier var). | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/order-processing-service.js` (7 tests). Fixed duplicate merchantId. |
+| A-14 | Loyalty split finding | MEDIUM | `routes/loyalty/processing.js:POST /refresh-customers` — reinvents semaphore pattern (should use p-limit); inline SQL for finding customers with missing phone data. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/customer-refresh-service.js` (7 tests) |
+| A-15 | Loyalty split finding | MEDIUM | `routes/loyalty/rewards.js:GET /redemptions` — 90-line complex SQL with LATERAL JOIN across 5 tables. Should be in a redemption query service. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/redemption-query-service.js` (17 tests) |
+| A-16 | Loyalty split finding | MEDIUM | `routes/loyalty/audit.js:GET /stats` — 5 separate inline SQL queries. Should be in a stats service. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/audit-stats-service.js` (12 tests) |
+| A-17 | Loyalty split finding | LOW | `routes/loyalty/variations.js:GET /variations/assignments` and DELETE handler — inline SQL that should be in variation-admin-service. | ✅ **DONE** 2026-03-01 — Added `getVariationAssignments()` to `variation-admin-service.js`. DELETE uses existing `removeQualifyingVariation()`. (4 tests) |
+| A-18 | Loyalty split finding | LOW | `routes/loyalty/square-integration.js:POST /rewards/sync-to-pos` — inline SQL + service call loop orchestration. | ✅ **DONE** 2026-03-01 — Extracted to `services/loyalty-admin/square-sync-service.js` (14 tests) |
 
 ### Database Findings
 
@@ -256,7 +256,7 @@ Every finding from every source, merged and deduplicated.
 |----|--------|----------|-------------|--------|
 | D-1 | Audit | HIGH | Missing indexes on `vendor_catalog_items` and `expiry_discount_audit_log` (schema.sql drift) | ✅ **DONE** 2026-02-25 — Added merchant_id columns + indexes to schema.sql |
 | D-2 | Audit | MEDIUM | Missing composite index on `inventory_counts` (merchant_id, location_id, state) | ✅ **DONE** 2026-02-25 — Migration 056 |
-| D-3 | Audit | MEDIUM | N+1 sequential Square customer fetches in routes/loyalty.js:1603 | **OPEN** |
+| D-3 | Audit | MEDIUM | N+1 sequential Square customer fetches in routes/loyalty.js:1603 | ✅ **DONE** 2026-03-01 — Moved to `customer-refresh-service.js` with concurrency-limited semaphore (A-14). Still uses hand-rolled semaphore, not p-limit. |
 | D-4 | Audit | MEDIUM | N+1 order lookup per earned reward in redemption-audit-service.js | **OPEN** |
 | D-5 | Audit | MEDIUM | schema.sql drift from migration state (migration 005 indexes missing) | ✅ **DONE** 2026-02-25 — All 28 merchant_id indexes + 7 composite indexes added to schema.sql |
 | D-6 | Audit | LOW | `expiry_discount_audit_log.merchant_id` allows NULL | ✅ **DONE** 2026-02-25 — Migration 057 (NOT NULL with safety check) |
@@ -638,9 +638,22 @@ Every finding from every source, merged and deduplicated.
 | O-16 | `routes/loyalty/square-integration.js:POST /rewards/sync-to-pos` — inline SQL + service call loop orchestration. | `routes/loyalty/square-integration.js` | LOW | Logged as A-18 |
 | O-17 | `routes/loyalty/processing.js` — 572 lines, exceeds 300-line limit. 3 handlers have massive inline logic awaiting service extraction. | `routes/loyalty/processing.js` | MEDIUM | Logged as P-11 |
 
+#### Extraction Observation Log (2026-03-01, A-11 through A-18):
+
+| # | Observation | Service | Severity | Notes |
+|---|-------------|---------|----------|-------|
+| E-1 | Raw `fetch()` to Square API instead of `squareClient` SDK — in customer-search, backfill, and process-order services | customer-search-service, backfill-orchestration-service, order-processing-service | LOW | Pre-dates SDK standardization. Move to `squareApiRequest()` or `SquareApiClient` on next touch. |
+| E-2 | Hardcoded Square-Version headers ('2024-01-18', '2025-01-16') instead of `config/constants.SQUARE.API_VERSION` | customer-search-service, backfill-orchestration-service, order-processing-service | LOW | Should use shared constant. |
+| E-3 | Hand-rolled semaphore pattern in customer-refresh-service (CONCURRENCY=5) | customer-refresh-service | LOW | Should use p-limit or similar. Works correctly. |
+| E-4 | Backfill order transform to camelCase duplicates logic in webhook-processing-service | backfill-orchestration-service | LOW | Could share a normalize function. |
+| E-5 | Qualifying variation IDs query in backfill-orchestration duplicates logic in loyalty-queries.js | backfill-orchestration-service | LOW | Should use `queryAllQualifyingVariationIds()` from loyalty-queries.js. |
+| E-6 | `getLoyaltyStats()` runs 5 sequential SQL queries — could be combined into single CTE query | audit-stats-service | LOW | Performance optimization for dashboard load. |
+| E-7 | `syncRewardsToPOS()` loops through rewards sequentially — could be batched | square-sync-service | LOW | Sequential is safer for Square API rate limits. |
+| E-8 | `getPendingSyncCounts()` runs 2 separate COUNT queries — could be 1 query with FILTER | square-sync-service | LOW | Trivial optimization. |
+
 #### Definition of done:
 - ✅ `routes/loyalty.js` monolith split into 7 domain-specific route files
-- Inline business logic extraction deferred to future packages (see A-11 through A-18)
+- ✅ Inline business logic extracted to services (A-11 through A-18, 84 tests)
 
 ---
 
