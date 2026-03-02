@@ -283,11 +283,111 @@ class CatalogHandler {
                 }
             } else {
                 // No existing vendor — insert new
-                await client.query(
-                    `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
-                    [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone, merchantId]
-                );
+                // Use SAVEPOINT so constraint violations don't abort the transaction
+                await client.query('SAVEPOINT vendor_insert');
+                try {
+                    await client.query(
+                        `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone, merchant_id, updated_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+                        [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone, merchantId]
+                    );
+                    await client.query('RELEASE SAVEPOINT vendor_insert');
+                } catch (insertErr) {
+                    await client.query('ROLLBACK TO SAVEPOINT vendor_insert');
+                    if (insertErr.constraint !== 'idx_vendors_merchant_name_unique') {
+                        throw insertErr;
+                    }
+                    // Race condition: concurrent sync inserted vendor with same name
+                    // Fall back to name-matched reconciliation (mirrors square-vendors.js pattern)
+                    logger.debug('Vendor insert race condition, reconciling concurrent insert', {
+                        vendorId, vendorName: vendor.name, merchantId
+                    });
+                    const raceRow = await client.query(
+                        `SELECT id, lead_time_days, default_supply_days, minimum_order_amount, payment_terms, notes
+                         FROM vendors
+                         WHERE merchant_id = $1 AND vendor_name_normalized(name) = vendor_name_normalized($2)
+                         LIMIT 1`,
+                        [merchantId, vendor.name]
+                    );
+                    if (raceRow.rows.length === 0) {
+                        throw insertErr;
+                    }
+                    const raceId = raceRow.rows[0].id;
+                    if (raceId === vendorId) {
+                        // Same vendor inserted by concurrent sync — update to ensure latest data
+                        await client.query(
+                            `UPDATE vendors SET
+                                name = $1, status = $2,
+                                contact_name = $3, contact_email = $4, contact_phone = $5,
+                                updated_at = CURRENT_TIMESTAMP
+                             WHERE id = $6 AND merchant_id = $7`,
+                            [vendor.name, vendor.status, contactName, contactEmail, contactPhone,
+                             vendorId, merchantId]
+                        );
+                    } else {
+                        // Different ID, same name — migrate FKs (same as lines 204-271)
+                        logger.info('Vendor ID change detected during race reconciliation, migrating references', {
+                            oldId: raceId, newId: vendorId, merchantId
+                        });
+
+                        await client.query(
+                            `UPDATE vendors SET name = name || '__migrating' WHERE id = $1 AND merchant_id = $2`,
+                            [raceId, merchantId]
+                        );
+
+                        const old = raceRow.rows[0];
+                        await client.query(
+                            `INSERT INTO vendors (id, name, status, contact_name, contact_email, contact_phone,
+                                lead_time_days, default_supply_days, minimum_order_amount, payment_terms, notes,
+                                merchant_id, updated_at)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)`,
+                            [vendorId, vendor.name, vendor.status, contactName, contactEmail, contactPhone,
+                             old.lead_time_days, old.default_supply_days, old.minimum_order_amount,
+                             old.payment_terms, old.notes, merchantId]
+                        );
+
+                        await client.query(
+                            'UPDATE variation_vendors SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                            [vendorId, raceId, merchantId]
+                        );
+                        await client.query(
+                            'UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                            [vendorId, raceId, merchantId]
+                        );
+                        await client.query(
+                            'UPDATE vendor_catalog_items SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                            [vendorId, raceId, merchantId]
+                        );
+                        await client.query(
+                            'UPDATE bundle_definitions SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                            [vendorId, raceId, merchantId]
+                        );
+                        await client.query(
+                            'UPDATE loyalty_offers SET vendor_id = $1 WHERE vendor_id = $2 AND merchant_id = $3',
+                            [vendorId, raceId, merchantId]
+                        );
+
+                        const remainingPOs = await client.query(
+                            'SELECT COUNT(*) as cnt FROM purchase_orders WHERE vendor_id = $1',
+                            [raceId]
+                        );
+                        if (parseInt(remainingPOs.rows[0].cnt) > 0) {
+                            logger.warn('Found unmigrated purchase_orders during vendor race reconciliation', {
+                                oldId: raceId, newId: vendorId, merchantId,
+                                count: remainingPOs.rows[0].cnt
+                            });
+                            await client.query(
+                                'UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2',
+                                [vendorId, raceId]
+                            );
+                        }
+
+                        await client.query(
+                            'DELETE FROM vendors WHERE id = $1 AND merchant_id = $2',
+                            [raceId, merchantId]
+                        );
+                    }
+                }
             }
         });
 
