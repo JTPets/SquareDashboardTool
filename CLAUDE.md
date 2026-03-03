@@ -395,6 +395,19 @@ Both `reorder.js` and `expiry-discounts.js` now load tier config from `/api/expi
 
 **Priority**: Low (single store), High (pre-franchise).
 
+#### Sales Velocity Dedup Fix (2026-03-03)
+
+**Bug**: Square sends 4-5 `order.updated` webhooks per sale. Each has a unique `event_id`, so the webhook processor's event-level dedup didn't catch them. The velocity function in `square-velocity.js` had an in-memory TTLCache dedup (120s TTL, keyed by `orderId:merchantId`) that returned `updated: 0` for duplicates, but the order handler still logged "Sales velocity updated incrementally" at INFO level for every call — misleading the user into thinking data was inflated.
+
+**Root cause**: Missing handler-level dedup. The `handleOrderCreatedOrUpdated` method called `updateSalesVelocityFromOrder()` for every webhook, relying solely on the velocity function's internal dedup. The velocity SQL uses additive updates (`total_quantity_sold + qty`), so any dedup failure (PM2 cluster mode, process restart) would cause real inflation.
+
+**Fix**: Added `completedOrderVelocityCache` (60s TTL) in `order-handler.js` that prevents calling the velocity function at all for duplicate COMPLETED order webhooks. Same cache covers both `order.created/updated` and `order.fulfillment.updated` paths. Fixed logging to only emit INFO when `updated > 0`. The velocity-level dedup in `square-velocity.js` remains as a safety net. 8 new tests in `velocity-handler-dedup.test.js`.
+
+| File | Change |
+|------|--------|
+| `services/webhook-handlers/order-handler.js` | Added `completedOrderVelocityCache` TTLCache (60s); handler-level dedup in `handleOrderCreatedOrUpdated` and `handleFulfillmentUpdated`; fixed INFO logging |
+| `__tests__/services/velocity-handler-dedup.test.js` | 8 new tests covering rapid-fire burst, cross-handler dedup, cache expiry |
+
 #### Subscription System Observations (2026-03-01)
 
 Documented during subscription enforcement implementation. See `docs/MULTI-TENANT-AUDIT.md` for full audit.
