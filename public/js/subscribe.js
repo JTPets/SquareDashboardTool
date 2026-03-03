@@ -15,21 +15,58 @@ let payments = null;
 // Promo code state
 let appliedPromo = null;
 
-// Plan data
-const plans = {
-  monthly: {
-    name: 'Monthly Plan (Intro)',
-    price: 999,
-    displayPrice: '$9.99',
-    period: '/month'
-  },
-  annual: {
-    name: 'Annual Plan (Intro)',
-    price: 9999,
-    displayPrice: '$99.99',
-    period: '/year'
+// Plan data — loaded from API, never hardcoded
+let plans = {};
+
+// Load plans from API — single source of truth is the database
+async function loadPlans() {
+  try {
+    const response = await fetch('/api/subscriptions/plans');
+    if (!response.ok) throw new Error('Failed to load plans');
+    const data = await response.json();
+
+    if (!data.plans || data.plans.length === 0) {
+      throw new Error('No plans available');
+    }
+
+    // Build plans lookup for checkout flow
+    data.plans.forEach(plan => {
+      const period = plan.billing_frequency === 'ANNUAL' ? '/year' : '/month';
+      const displayPrice = '$' + (plan.price_cents / 100).toFixed(2);
+      plans[plan.plan_key] = {
+        name: plan.name,
+        price: plan.price_cents,
+        displayPrice: displayPrice,
+        period: period
+      };
+
+      // Update pricing card price in HTML
+      const priceEl = document.getElementById('price-' + plan.plan_key);
+      if (priceEl) {
+        priceEl.innerHTML = displayPrice + '<span>' + period + '</span>';
+      }
+    });
+
+    // Update savings note if both plans exist
+    if (plans.monthly && plans.annual) {
+      const yearlySavings = Math.round((plans.monthly.price * 12 - plans.annual.price) / 100);
+      const monthlyEquiv = Math.round(plans.annual.price / 12 / 100);
+      const savingsNote = document.getElementById('savings-note');
+      if (savingsNote && yearlySavings > 0) {
+        savingsNote.textContent = 'Save $' + yearlySavings + ' - Only $' + monthlyEquiv + '/month!';
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load plans:', error);
+    const pricingGrid = document.querySelector('.pricing-grid');
+    if (pricingGrid) {
+      pricingGrid.innerHTML =
+        '<div style="text-align:center;padding:40px;color:#991b1b;background:#fef2f2;border-radius:12px;grid-column:1/-1;">' +
+        '<p style="font-size:18px;font-weight:600;">Unable to load pricing</p>' +
+        '<p style="margin-top:8px;">Please refresh the page or try again later.</p></div>';
+    }
   }
-};
+}
 
 // Terms modal functions
 function openTermsModal() {
@@ -319,6 +356,9 @@ async function handleSubscribe(element, event, param) {
 
 // Initialize event listeners
 document.addEventListener('DOMContentLoaded', () => {
+  // Load plan pricing from API
+  loadPlans();
+
   // Close modal on overlay click
   document.getElementById('terms-modal').addEventListener('click', function(e) {
     if (e.target === this) closeTermsModal();
