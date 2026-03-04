@@ -4,10 +4,21 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { hashPassword, verifyPassword, validatePassword, generateRandomPassword } = require('../utils/password');
+
+/**
+ * Hash a password reset token with SHA-256 for secure storage (SEC-7)
+ * The plaintext token is sent to the user; only the hash is stored in the DB.
+ * @param {string} token - Plaintext reset token
+ * @returns {string} SHA-256 hex digest
+ */
+function hashResetToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { configureLoginRateLimit, configurePasswordResetRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
@@ -683,19 +694,19 @@ router.post('/forgot-password', validators.forgotPassword, asyncHandler(async (r
 
     const user = userResult.rows[0];
 
-    // Generate reset token
-    const crypto = require('crypto');
+    // Generate reset token — plaintext sent to user, SHA-256 hash stored in DB (SEC-7)
     const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = hashResetToken(resetToken);
     const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     // Delete any existing tokens for this user
     await db.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [user.id]);
 
-    // Insert new token
+    // Insert hashed token (SEC-7: never store plaintext reset tokens)
     await db.query(`
         INSERT INTO password_reset_tokens (user_id, token, expires_at)
         VALUES ($1, $2, $3)
-    `, [user.id, resetToken, tokenExpiry]);
+    `, [user.id, hashedToken, tokenExpiry]);
 
     // Log the event
     await logAuthEvent(db, {
@@ -739,6 +750,9 @@ router.post('/reset-password', passwordResetRateLimit, validators.resetPassword,
 
     // Token and password validated by middleware
 
+    // Hash incoming token to compare against stored hash (SEC-7)
+    const hashedToken = hashResetToken(token);
+
     // Find valid token with attempt limiting
     // COALESCE handles tokens created before migration (NULL attempts_remaining)
     const tokenResult = await db.query(`
@@ -749,14 +763,14 @@ router.post('/reset-password', passwordResetRateLimit, validators.resetPassword,
           AND prt.expires_at > NOW()
           AND prt.used_at IS NULL
           AND COALESCE(prt.attempts_remaining, 5) > 0
-    `, [token]);
+    `, [hashedToken]);
 
     if (tokenResult.rows.length === 0) {
         // Check if token exists but has exhausted attempts
         const exhaustedCheck = await db.query(`
             SELECT id, attempts_remaining FROM password_reset_tokens
             WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()
-        `, [token]);
+        `, [hashedToken]);
 
         if (exhaustedCheck.rows.length > 0 && exhaustedCheck.rows[0].attempts_remaining <= 0) {
             logger.warn('Password reset token exhausted all attempts', {
@@ -830,6 +844,9 @@ router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(asyn
 
     // Token validated by middleware
 
+    // Hash incoming token to compare against stored hash (SEC-7)
+    const hashedToken = hashResetToken(token);
+
     // Check token validity including attempt limit
     const tokenResult = await db.query(`
         SELECT prt.id, prt.expires_at, prt.attempts_remaining, u.email
@@ -839,7 +856,7 @@ router.get('/verify-reset-token', validators.verifyResetToken, asyncHandler(asyn
           AND prt.expires_at > NOW()
           AND prt.used_at IS NULL
           AND COALESCE(prt.attempts_remaining, 5) > 0
-    `, [token]);
+    `, [hashedToken]);
 
     if (tokenResult.rows.length === 0) {
         return res.json({

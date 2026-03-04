@@ -39,6 +39,20 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Noise in error logs; may trigger false alarms if error log monitoring is added.
 **Source**: Observed during vendor sync testing
 
+### `hashResetToken` duplicated in `auth.js` and `subscriptions.js`
+
+**File**: `routes/auth.js`, `routes/subscriptions.js`
+**Issue**: The `hashResetToken(token)` helper (SHA-256 hash for password reset tokens) is defined identically in both files. Should be extracted to a shared utility (e.g., `utils/password.js`).
+**Impact**: Low — two identical 3-line functions. Risk of drift if one is changed without the other.
+**Source**: Observed during SEC-7 fix (2026-03-04)
+
+### Legacy plaintext Google OAuth tokens persist until refresh
+
+**File**: `utils/google-auth.js`
+**Issue**: Existing Google OAuth tokens stored before SEC-6 remain as plaintext in the `google_oauth_tokens` table. The `loadTokens` function handles both encrypted and plaintext formats via `isEncryptedToken()` check. Tokens are re-encrypted on next refresh (via the `client.on('tokens')` listener). No migration script was written to bulk-encrypt existing tokens.
+**Impact**: Low — only affects merchants who connected Google before the fix. Tokens will self-heal on next API call that triggers a refresh. Only one merchant (JTPets) currently has Google OAuth connected.
+**Source**: Observed during SEC-6 fix (2026-03-04)
+
 ---
 
 ## Security (Low Severity)

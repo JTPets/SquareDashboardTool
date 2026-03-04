@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { google } = require('googleapis');
 const db = require('./database');
 const logger = require('./logger');
+const { encryptToken, decryptToken, isEncryptedToken } = require('./token-encryption');
 
 // OAuth2 client configuration
 // Scope: content - Access to Google Merchant Center Content API
@@ -226,6 +227,10 @@ async function exchangeCodeForTokens(code, merchantId) {
  * @param {Object} tokens - OAuth tokens
  */
 async function saveTokens(merchantId, tokens) {
+    // Encrypt sensitive tokens before storage (SEC-6)
+    const encryptedAccessToken = tokens.access_token ? encryptToken(tokens.access_token) : null;
+    const encryptedRefreshToken = tokens.refresh_token ? encryptToken(tokens.refresh_token) : null;
+
     await db.query(`
         INSERT INTO google_oauth_tokens (merchant_id, access_token, refresh_token, token_type, expiry_date, scope)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -238,8 +243,8 @@ async function saveTokens(merchantId, tokens) {
             updated_at = CURRENT_TIMESTAMP
     `, [
         merchantId,
-        tokens.access_token,
-        tokens.refresh_token,
+        encryptedAccessToken,
+        encryptedRefreshToken,
         tokens.token_type,
         tokens.expiry_date,
         tokens.scope
@@ -266,9 +271,21 @@ async function loadTokens(merchantId) {
     }
 
     const row = result.rows[0];
+
+    // Decrypt tokens (SEC-6) — handle both encrypted and legacy plaintext tokens
+    let accessToken = row.access_token;
+    let refreshToken = row.refresh_token;
+
+    if (accessToken && isEncryptedToken(accessToken)) {
+        accessToken = decryptToken(accessToken);
+    }
+    if (refreshToken && isEncryptedToken(refreshToken)) {
+        refreshToken = decryptToken(refreshToken);
+    }
+
     return {
-        access_token: row.access_token,
-        refresh_token: row.refresh_token,
+        access_token: accessToken,
+        refresh_token: refreshToken,
         token_type: row.token_type,
         expiry_date: parseInt(row.expiry_date),
         scope: row.scope
