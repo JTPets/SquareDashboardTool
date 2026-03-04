@@ -71,10 +71,10 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| S-3 | OAuth callback missing session auth verification (`square-oauth.js:110`) | CODEBASE_AUDIT_2026-02-25 | S |
-| S-4 | CSP allows `'unsafe-inline'` for scripts — audit if inline scripts remain; if not, remove directive | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-3~~ | ~~OAuth callback missing session auth verification (`square-oauth.js:110`)~~ — **RESOLVED 2026-03-04**: Callback verifies `req.session.user.id === stateRecord.user_id` before processing; mismatched/missing session redirects to login | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-4~~ | ~~CSP allows `'unsafe-inline'` for scripts~~ — **RESOLVED 2026-03-04**: `'unsafe-inline'` removed from `scriptSrc` in `middleware/security.js`. All HTML files use external scripts only. Note: popup report in `vendor-catalog.js:1122` has inline script blocked by CSP — logged in TECHNICAL_DEBT.md | CODEBASE_AUDIT_2026-02-25 | S |
 | ~~S-6~~ | ~~Admin user listing `/api/auth/users` not scoped by merchant~~ — **RESOLVED 2026-03-04**: All admin user endpoints (list, create, update, reset-password, unlock) now scoped by `activeMerchantId` via `user_merchants` JOIN. Create user also links to merchant in transaction. | CODEBASE_AUDIT_2026-02-25 | S |
-| S-10 | XSS in vendor catalog import validation errors (`vendor-catalog.js:387`) — innerHTML without escaping | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-10~~ | ~~XSS in vendor catalog import validation errors (`vendor-catalog.js:387`) — innerHTML without escaping~~ — **RESOLVED 2026-03-04**: All dynamic values in `showImportError()` escaped via `escapeHtml()`, including `err.row` | CODEBASE_AUDIT_2026-02-25 | S |
 
 ---
 
