@@ -323,12 +323,20 @@ router.get('/users', requireAuth, requireAdmin, asyncHandler(async (req, res) =>
 
 /**
  * POST /api/auth/users
- * Create new user (admin only)
+ * Create new user (admin only) — scoped to admin's active merchant
  */
 router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHandler(async (req, res) => {
     const { email, name, role, password } = req.body;
+    const merchantId = req.session.activeMerchantId;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
+
+    if (!merchantId) {
+        return res.status(403).json({
+            success: false,
+            error: 'No active merchant selected'
+        });
+    }
 
     // Email validated and normalized by middleware
     const normalizedEmail = email.toLowerCase().trim();
@@ -361,14 +369,24 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
     // Hash password
     const passwordHash = await hashPassword(userPassword);
 
-    // Create user
-    const result = await db.query(`
-        INSERT INTO users (email, password_hash, name, role)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, email, name, role, created_at
-    `, [normalizedEmail, passwordHash, name || null, userRole]);
+    // Create user and link to admin's merchant in a transaction
+    const newUser = await db.transaction(async (client) => {
+        const result = await client.query(`
+            INSERT INTO users (email, password_hash, name, role)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, email, name, role, created_at
+        `, [normalizedEmail, passwordHash, name || null, userRole]);
 
-    const newUser = result.rows[0];
+        const user = result.rows[0];
+
+        // Link new user to the admin's active merchant
+        await client.query(
+            'INSERT INTO user_merchants (user_id, merchant_id, role) VALUES ($1, $2, $3)',
+            [user.id, merchantId, userRole]
+        );
+
+        return user;
+    });
 
     await logAuthEvent(db, {
         userId: newUser.id,
@@ -376,13 +394,14 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
         eventType: 'user_created',
         ipAddress,
         userAgent,
-        details: { createdBy: req.session.user.email, role: userRole }
+        details: { createdBy: req.session.user.email, role: userRole, merchantId }
     });
 
     logger.info('User created', {
         newUserId: newUser.id,
         email: newUser.email,
-        createdBy: req.session.user.id
+        createdBy: req.session.user.id,
+        merchantId
     });
 
     const response = {
@@ -401,18 +420,26 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
 
 /**
  * PUT /api/auth/users/:id
- * Update user (admin only)
+ * Update user (admin only) — scoped to admin's active merchant
  */
 router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
     const { name, role, is_active } = req.body;
+    const merchantId = req.session.activeMerchantId;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    // Check user exists
+    if (!merchantId) {
+        return res.status(403).json({
+            success: false,
+            error: 'No active merchant selected'
+        });
+    }
+
+    // Check user exists AND belongs to admin's merchant
     const existingUser = await db.query(
-        'SELECT id, email FROM users WHERE id = $1',
-        [userId]
+        'SELECT u.id, u.email FROM users u JOIN user_merchants um ON um.user_id = u.id WHERE u.id = $1 AND um.merchant_id = $2',
+        [userId, merchantId]
     );
 
     if (existingUser.rows.length === 0) {
@@ -490,18 +517,26 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
 
 /**
  * POST /api/auth/users/:id/reset-password
- * Reset user password (admin only)
+ * Reset user password (admin only) — scoped to admin's active merchant
  */
 router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.resetUserPassword, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
     const { newPassword } = req.body;
+    const merchantId = req.session.activeMerchantId;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
 
-    // Check user exists
+    if (!merchantId) {
+        return res.status(403).json({
+            success: false,
+            error: 'No active merchant selected'
+        });
+    }
+
+    // Check user exists AND belongs to admin's merchant
     const existingUser = await db.query(
-        'SELECT id, email FROM users WHERE id = $1',
-        [userId]
+        'SELECT u.id, u.email FROM users u JOIN user_merchants um ON um.user_id = u.id WHERE u.id = $1 AND um.merchant_id = $2',
+        [userId, merchantId]
     );
 
     if (existingUser.rows.length === 0) {
@@ -556,12 +591,33 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.r
 
 /**
  * POST /api/auth/users/:id/unlock
- * Unlock a locked user account (admin only)
+ * Unlock a locked user account (admin only) — scoped to admin's active merchant
  */
 router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUser, asyncHandler(async (req, res) => {
     const userId = parseInt(req.params.id);
+    const merchantId = req.session.activeMerchantId;
     const ipAddress = getClientIp(req);
     const userAgent = req.headers['user-agent'];
+
+    if (!merchantId) {
+        return res.status(403).json({
+            success: false,
+            error: 'No active merchant selected'
+        });
+    }
+
+    // Verify user belongs to admin's merchant before unlocking
+    const memberCheck = await db.query(
+        'SELECT 1 FROM user_merchants WHERE user_id = $1 AND merchant_id = $2',
+        [userId, merchantId]
+    );
+
+    if (memberCheck.rows.length === 0) {
+        return res.status(404).json({
+            success: false,
+            error: 'User not found'
+        });
+    }
 
     const result = await db.query(`
         UPDATE users
