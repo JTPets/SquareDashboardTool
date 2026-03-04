@@ -1,155 +1,120 @@
-# Backlog Priorities & Execution Plan
+# Active Priorities
 
-**Generated**: 2026-02-19
-**Source**: Cross-referenced from CLAUDE.md, TECHNICAL_DEBT.md, DEDUP-AUDIT.md
+> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
----
-
-## 1. Open Backlog Items
-
-| # | Item | Priority | Effort | DEDUP ID | Description |
-|---|------|----------|--------|----------|-------------|
-| 1 | BACKLOG-4 | Medium | M | — | Customer birthday sync for marketing |
-| 2 | BACKLOG-1 | Medium | S-M | — | Frontend polling rate limits |
-| 3 | BACKLOG-13 | Medium | M | — | Move custom attribute initialization from startup to tenant onboarding |
-| 4 | BACKLOG-22 | Medium | S | R-3 | Available vs total stock inconsistency in days-of-stock |
-| 5 | BACKLOG-28 | Medium | M | — | Wire vendor dashboard per-vendor config into reorder formula |
-| 6 | BACKLOG-3 | Low | L | — | Response format standardization |
-| 7 | BACKLOG-5 | Low | S | — | Rapid-fire webhook duplicate processing |
-| 8 | BACKLOG-7 | Low | S | — | Loyalty audit job batch optimization |
-| 9 | BACKLOG-8 | Low | M | — | Vendor management — pull vendor data from Square |
-| 10 | BACKLOG-9 | Low | M | — | In-memory global state — PM2 restart recovery |
-| 11 | BACKLOG-12 | Low | S | — | Driver share link validation failure |
-| 12 | BACKLOG-17 | Low | M | L-4 | Customer lookup helpers duplicated between loyalty layers |
-| 13 | BACKLOG-21 | Low | M | R-2 | Days-of-stock calculation — 5 implementations |
-| 14 | BACKLOG-23 | Low | S | G-3 | Currency formatting — no shared helper |
-| 15 | BACKLOG-24 | Low | S | G-4 | Order normalization boilerplate in order-handler.js |
-| 16 | BACKLOG-25 | Low | S | G-5 | Location lookup queries repeated across 6 routes |
-| 17 | BACKLOG-26 | Low | S | G-7 | Date string formatting pattern repeated 12 times |
-| 18 | BACKLOG-27 | Low | S | G-8 | Inconsistent toLocaleString() — 60 uses, mixed locales |
-| 19 | BACKLOG-29 | Low | S | — | Existing tenants missing `invoice.payment_made` webhook |
-| 20 | BACKLOG-31 | Low | M | — | Remove dead modern loyalty layer (`services/loyalty/`) |
-
-**Effort key**: S = < 1 file change, M = 2-5 files, L = 6+ files
+**Last Updated**: 2026-03-04
+**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, MULTI-TENANT-AUDIT, CLAUDE.md backlog
 
 ---
 
-## 2. Grouped by Category
+## HIGH Priority
 
-### Revenue / Feature Enhancement
+### Security
 
-| Item | Description | Effort |
-|------|-------------|--------|
-| BACKLOG-4 | Customer birthday sync for marketing | M |
-| BACKLOG-8 | Vendor management — pull vendor data from Square | M |
-| BACKLOG-28 | Wire vendor dashboard per-vendor config into reorder formula | M |
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| SEC-5 | JSON.stringify script injection in `public/js/vendor-catalog.js:1123` — add `.replace(/<\//g, '<\\/')` after JSON.stringify to prevent `</script>` breakout | AUDIT-2026-02-28 | S |
+| SEC-6 | Google OAuth tokens stored in plaintext in `utils/google-auth.js` — encrypt with AES-256-GCM (same pattern as `token-encryption.js`) | CODEBASE_AUDIT_2026-02-25 | M |
+| SEC-7 | Password reset tokens stored as plaintext hex in database — hash with SHA-256 before storage, compare hashed values on verification | CODEBASE_AUDIT_2026-02-25 | M |
+| S-1 | SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`) — use `INTERVAL '1 day' * $N` parameterized pattern | CODEBASE_AUDIT_2026-02-25 | S |
+| S-2 | `/output` directory served without auth (`server.js:221`) — contains backups, logs. Add `requireAuth` middleware or restrict subdirectories | CODEBASE_AUDIT_2026-02-25 | S |
 
-### Data Integrity / UX Consistency
+### Reliability
 
-| Item | Description | Effort |
-|------|-------------|--------|
-| BACKLOG-22 | Available vs total stock inconsistency in days-of-stock (R-3) | S |
-| BACKLOG-21 | Days-of-stock calculation — 5 implementations (R-2) | M |
-| BACKLOG-23 | Currency formatting — no shared helper (G-3) | S |
-| BACKLOG-27 | Inconsistent toLocaleString() — 60 uses (G-8) | S |
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| ERR-1/2 | Add `asyncHandler` to `square-oauth.js` `/connect` and `/callback` routes — currently use manual try/catch, risk unhandled rejections | AUDIT-2026-02-28 | S |
+| E-1 | Fire-and-forget email in DB error handler (`server.js:1001`) — add `.catch()` for silent email failures during DB outage | CODEBASE_AUDIT_2026-02-25 | S |
 
-### Performance / Scalability
+### Business
 
-| Item | Description | Effort |
-|------|-------------|--------|
-| BACKLOG-1 | Frontend polling rate limits | S-M |
-| BACKLOG-7 | Loyalty audit job batch optimization | S |
-| BACKLOG-13 | Custom attribute initialization on startup | M |
-| BACKLOG-9 | In-memory global state — PM2 restart recovery | M |
-
-### Tech Debt / Code Quality
-
-| Item | Description | Effort |
-|------|-------------|--------|
-| BACKLOG-31 | Remove dead modern loyalty layer (`services/loyalty/`) | M |
-| BACKLOG-17 | Customer lookup helpers duplicated between layers (L-4) | M |
-| BACKLOG-24 | Order normalization boilerplate (G-4) | S |
-| BACKLOG-25 | Location lookup queries repeated (G-5) | S |
-| BACKLOG-26 | Date string formatting pattern (G-7) | S |
-| BACKLOG-3 | Response format standardization | L |
-
-### Bug Fixes / Reliability
-
-| Item | Description | Effort |
-|------|-------------|--------|
-| BACKLOG-5 | Rapid-fire webhook duplicate processing | S |
-| BACKLOG-12 | Driver share link validation failure | S |
-| BACKLOG-29 | Existing tenants missing webhook subscription | S |
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
+| BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need `vendor_billbacks` table, reporting view for claim submission | CLAUDE.md | L |
 
 ---
 
-## 3. Recommended Execution Order
+## MEDIUM Priority
 
-### Phase 1: Quick Data Fixes (1-2 days)
+### Features
 
-These are small, high-impact changes that improve data consistency.
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-38 | Timed discount automation — apply/remove Square discount objects on cron schedule, bypassing Square's broken native timed discounts. Reuse expiry discount cron pattern | CLAUDE.md | L |
+| BACKLOG-41 | User access control with roles — manager, clerk, accountant permissions. Per-user action logging. Required for multi-user SaaS | CLAUDE.md | L |
+| BACKLOG-42 | Barcode scan-to-count for cycle counts — accept barcode scanner input during cycle count workflow | CLAUDE.md | M |
+| BACKLOG-44 | Purchase order generation with branding — generate printable/emailable POs with merchant logo | CLAUDE.md | M |
+| BACKLOG-45 | Spreadsheet bulk upload — import/update inventory via CSV or Google Sheets | CLAUDE.md | M |
+| BACKLOG-4 | Customer birthday sync for marketing | CLAUDE.md | S |
+| BACKLOG-1 | Frontend polling rate limits | CLAUDE.md | S |
 
-1. **BACKLOG-22** (R-3) — Standardize available vs total stock. Two SQL query changes in `inventory-service.js` and `audit-service.js`. Fixes merchant seeing conflicting numbers across pages.
+### Data Integrity
 
-2. **BACKLOG-31** — Remove dead `services/loyalty/` layer. After L-6 completion, no active callers remain. Clean deletion of ~10 files. Reduces confusion for developers and removes ~3,000 lines of dead code.
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-36 | Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations in orders; stale rows persist forever. Fix: DELETE WHERE variation_id NOT IN processed keys | CLAUDE.md | S |
+| BACKLOG-35 | Sales velocity does not subtract refunds — net sales slightly inflated on refunded items (~2 refunds/day) | CLAUDE.md | S |
+| DB-1 | 14 core tables have nullable `merchant_id` — add NOT NULL constraint via migration | AUDIT-2026-02-28 | M |
 
-3. **BACKLOG-29** — Re-register webhooks for existing tenants. One-time script using the webhook management endpoint. Low risk, prevents `invoice.payment_made` gap for existing tenants.
+### Testing
 
-### Phase 2: Loyalty Cleanup (2-3 days)
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| TEST-28 | Replace `subscriptions.test.js` — 849 lines testing JS operators, not application code. Rewrite with real route/service tests | AUDIT-2026-02-28 | M |
+| T-1 | Financial/loyalty services have zero test coverage (square-discount-service, purchase-service, reward-service) | CODEBASE_AUDIT_2026-02-25 | L |
+| T-2 | Webhook handlers untested (7 of 8) — order-handler.js (1,316 lines) is highest risk | CODEBASE_AUDIT_2026-02-25 | L |
+| T-3 | 84% of routes untested (21 of 25) — prioritize analytics.js, catalog.js, loyalty.js | CODEBASE_AUDIT_2026-02-25 | L |
+| T-4 | Background jobs 91% untested (10 of 11) | CODEBASE_AUDIT_2026-02-25 | L |
 
-4. **BACKLOG-17** (L-4) — Deduplicate customer lookup helpers. Consolidate 3 functions between loyalty layers. Reduces cross-layer bug risk.
+### Security (Medium)
 
-5. **BACKLOG-21** (R-2) — Shared days-of-stock calculation. Create `calculateDaysOfStock()` in `reorder-math.js` (already partially exists) and update 5 files.
-
-### Phase 3: Feature Work (1-2 weeks)
-
-6. **BACKLOG-4** — Customer birthday sync. Infrastructure exists (webhook handler, customer cache, birthday column). Needs: extend `cacheCustomerDetails()`, add birthday group management cron.
-
-7. **BACKLOG-28** — Vendor dashboard per-vendor config into reorder formula. Shared `reorder-math.js` is ready. Needs: wire `lead_time_days`/`safety_days` from vendor config into reorder.html.
-
-8. **BACKLOG-13** — Move custom attribute initialization to tenant onboarding. Eliminates 12 Square API calls per server restart.
-
-### Phase 4: Polish (Optional, Low Priority)
-
-9. **BACKLOG-1** — Frontend polling rate limits. Reduce polling frequency, pause when tab hidden.
-
-10. **BACKLOG-23 + BACKLOG-27** — Shared currency/number formatting helpers. Bundle together as one frontend utility effort.
-
-11. **BACKLOG-24 + BACKLOG-25 + BACKLOG-26** — Minor code deduplication (order normalization, location lookups, date formatting). Low risk, low reward — do when touching those files.
-
-12. **BACKLOG-3** — Response format standardization. Large effort (L), touches many routes. Do incrementally per-route as routes are modified.
-
----
-
-## 4. Quick Wins
-
-Items that can be completed in under a day with high confidence:
-
-| Item | Time Estimate | Impact |
-|------|---------------|--------|
-| **BACKLOG-22** (R-3) | 1-2 hours | Fixes data inconsistency across pages |
-| **BACKLOG-29** | 30 minutes | One-time webhook re-registration script |
-| **BACKLOG-5** | 2-3 hours | Order-level dedup in webhook processor |
-| **BACKLOG-7** | 2-3 hours | Batch order fetch in audit job |
-| **BACKLOG-12** | 2-3 hours | Investigate + fix share link validation |
-| **BACKLOG-26** (G-7) | 1 hour | Extract `getToday()` helper |
-| **BACKLOG-24** (G-4) | 1 hour | Extract `fetchAndNormalizeOrder()` |
-| **BACKLOG-25** (G-5) | 1-2 hours | Extract location lookup helpers |
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| S-3 | OAuth callback missing session auth verification (`square-oauth.js:110`) | CODEBASE_AUDIT_2026-02-25 | S |
+| S-4 | CSP allows `'unsafe-inline'` for scripts — audit if inline scripts remain; if not, remove directive | CODEBASE_AUDIT_2026-02-25 | S |
+| S-6 | Admin user listing `/api/auth/users` not scoped by merchant — returns ALL users cross-tenant | CODEBASE_AUDIT_2026-02-25 | S |
+| S-10 | XSS in vendor catalog import validation errors (`vendor-catalog.js:387`) — innerHTML without escaping | CODEBASE_AUDIT_2026-02-25 | S |
 
 ---
 
-## Recently Completed (for context)
+## LOW Priority
 
-| Item | Completed | Summary |
-|------|-----------|---------|
-| BACKLOG-30 | 2026-02-19 | Consolidated order processing — `order-intake.js`, 14 tests |
-| BACKLOG-20 / L-7 | 2026-02-19 | Canonical redemption detection in audit job |
-| BACKLOG-19 / L-6 | 2026-02-19 | Unified `square-api-client.js`, 429 retry ported |
-| BACKLOG-18 / L-5 | 2026-02-19 | Shared `loyalty-queries.js`, 3 bug fixes |
-| BACKLOG-15 / L-2 | 2026-02-17 | Split-row rollover ported to admin layer |
-| BACKLOG-16 / L-3 | 2026-02-17 | Dead `redeemReward()`/`expireRewards()` removed |
-| BACKLOG-14 / R-1 | 2026-02-17 | Shared `reorder-math.js`, 31 tests |
-| BACKLOG-10 | 2026-02-19 | Invoice-driven committed inventory |
-| BACKLOG-11 | 2026-02-19 | `customer.created` webhook wired |
-| BACKLOG-6 | 2026-02-06 | Shared `square-catalog-cleanup.js`, 21 tests |
-| BACKLOG-2 | 2026-02-12 | Delivery routing — investigated, all working |
+### Features
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API | CLAUDE.md | M |
+| BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook — re-register webhooks for active merchants | CLAUDE.md | S |
+| BACKLOG-12 | Driver share link validation failure | CLAUDE.md | S |
+| BACKLOG-43 | Min/Max stock per item per location — investigate Square inventory alert thresholds first | CLAUDE.md | S |
+
+### Code Quality
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| BACKLOG-3 | Response format standardization | CLAUDE.md | M |
+| BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) | CLAUDE.md | M |
+| BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) | CLAUDE.md | S |
+| BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) | CLAUDE.md | S |
+| BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) | CLAUDE.md | S |
+| BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) | CLAUDE.md | S |
+| BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder delete/recreate — velocity data may be inherited | CLAUDE.md | S |
+| BACKLOG-40 | exceljs pulls deprecated transitive deps — evaluate lighter xlsx/csv library before open-source | CLAUDE.md | S |
+
+### Security/Infra (Low)
+
+| ID | Description | Source | Effort |
+|----|-------------|--------|--------|
+| SEC-12/13 | XSS in `logs.js` and `delivery-settings.js` — innerHTML without escaping | AUDIT-2026-02-28 | S |
+| BACKLOG-9 | In-memory global state — PM2 restart recovery (investigated, no immediate action) | CLAUDE.md | S |
+
+---
+
+## Effort Key
+
+| Code | Meaning |
+|------|---------|
+| S | Small — < 1 file change or < 2 hours |
+| M | Medium — 2-5 files or half a day |
+| L | Large — 6+ files or multi-day effort |
