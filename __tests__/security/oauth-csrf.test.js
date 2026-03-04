@@ -91,12 +91,12 @@ describe('OAuth CSRF Protection', () => {
 
             await db.query(`
                 INSERT INTO oauth_states (state, user_id, redirect_uri, expires_at)
-                VALUES ($1, $2, $3, NOW() + INTERVAL '${STATE_EXPIRY_MINUTES} minutes')
-            `, [state, userId, redirectUri]);
+                VALUES ($1, $2, $3, NOW() + INTERVAL '1 minute' * $4)
+            `, [state, userId, redirectUri, STATE_EXPIRY_MINUTES]);
 
             expect(db.query).toHaveBeenCalledWith(
                 expect.stringContaining('INSERT INTO oauth_states'),
-                [state, userId, redirectUri]
+                [state, userId, redirectUri, STATE_EXPIRY_MINUTES]
             );
         });
 
