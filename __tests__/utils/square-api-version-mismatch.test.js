@@ -1,9 +1,24 @@
 /**
  * Tests for Square API VERSION_MISMATCH retry logic
  * Specifically tests setSquareInventoryAlertThreshold retry behavior
+ *
+ * Mocks at the square-client service boundary (makeSquareRequest) instead of
+ * the HTTP transport layer (node-fetch). This avoids 401 auth errors from
+ * makeSquareRequest's response.status checks intercepting mock responses
+ * before the retry logic in setSquareInventoryAlertThreshold can handle them.
  */
 
-// Mock modules BEFORE requiring the module under test
+// Mock square-client at the service boundary — bypasses HTTP layer entirely
+jest.mock('../../services/square/square-client', () => ({
+    getMerchantToken: jest.fn(),
+    makeSquareRequest: jest.fn(),
+    sleep: jest.fn().mockResolvedValue(),
+    generateIdempotencyKey: jest.fn(),
+    SQUARE_BASE_URL: 'https://connect.squareup.com',
+    MAX_RETRIES: 3,
+    RETRY_DELAY_MS: 1000
+}));
+
 jest.mock('../../utils/database', () => ({
     query: jest.fn()
 }));
@@ -15,10 +30,7 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn()
 }));
 
-jest.mock('node-fetch', () => jest.fn());
-
-const fetch = require('node-fetch');
-const db = require('../../utils/database');
+const { makeSquareRequest, getMerchantToken, generateIdempotencyKey } = require('../../services/square/square-client');
 const logger = require('../../utils/logger');
 
 // Import the module under test after mocks are set up
@@ -29,20 +41,6 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     const catalogObjectId = 'TEST_VARIATION_ID';
     const locationId = 'TEST_LOCATION_ID';
     const threshold = 5;
-
-    beforeEach(() => {
-        jest.clearAllMocks();
-        jest.clearAllTimers();
-    });
-
-    afterAll(() => {
-        jest.clearAllTimers();
-    });
-
-    // Mock merchant token response
-    const mockMerchantTokenResponse = {
-        rows: [{ square_access_token: 'encrypted_test_token' }]
-    };
 
     // Mock catalog object response (for retrieval)
     const createCatalogResponse = (version) => ({
@@ -66,41 +64,41 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
         }
     });
 
-    // Factory for VERSION_MISMATCH error response — must create fresh jest.fn()
-    // per use because restoreMocks: true resets mock implementations between tests
-    const createVersionMismatchError = () => ({
-        ok: false,
-        status: 400,
-        json: jest.fn().mockResolvedValue({
-            errors: [{
-                category: 'INVALID_REQUEST_ERROR',
-                code: 'VERSION_MISMATCH',
-                detail: 'Object version does not match latest database version.',
-                field: 'version'
-            }]
-        })
-    });
+    // Factory for VERSION_MISMATCH error (matches what makeSquareRequest throws)
+    const createVersionMismatchError = () => {
+        const err = new Error('Square API error: 400 - [{"category":"INVALID_REQUEST_ERROR","code":"VERSION_MISMATCH","detail":"Object version does not match latest database version.","field":"version"}]');
+        err.nonRetryable = true;
+        err.squareErrors = [{
+            category: 'INVALID_REQUEST_ERROR',
+            code: 'VERSION_MISMATCH',
+            detail: 'Object version does not match latest database version.',
+            field: 'version'
+        }];
+        return err;
+    };
+
+    let idempotencyCounter;
 
     beforeEach(() => {
         jest.clearAllMocks();
-        // Reset fetch mock
-        fetch.mockReset();
+        jest.clearAllTimers();
+        idempotencyCounter = 0;
+
+        // Re-establish mock implementations (restoreMocks: true resets them between tests)
+        getMerchantToken.mockResolvedValue('test-access-token');
+        generateIdempotencyKey.mockImplementation((prefix) => `${prefix || 'key'}-${++idempotencyCounter}`);
+        makeSquareRequest.mockReset();
+    });
+
+    afterAll(() => {
+        jest.clearAllTimers();
     });
 
     it('should succeed on first attempt when no version conflict', async () => {
-        // Mock db query for merchant token
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
-        // Mock fetch responses: retrieve then update
-        fetch
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createSuccessResponse(101))
-            });
+        // Mock makeSquareRequest responses: retrieve then update
+        makeSquareRequest
+            .mockResolvedValueOnce(createCatalogResponse(100))
+            .mockResolvedValueOnce(createSuccessResponse(101));
 
         const result = await squareApi.setSquareInventoryAlertThreshold(
             catalogObjectId,
@@ -111,8 +109,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
 
         expect(result.success).toBe(true);
         expect(result.catalog_object.version).toBe(101);
-        // Should only have 2 fetch calls: retrieve + update
-        expect(fetch).toHaveBeenCalledTimes(2);
+        // Should only have 2 makeSquareRequest calls: retrieve + update
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
         // Should not log any VERSION_MISMATCH retry warnings
         expect(logger.warn).not.toHaveBeenCalledWith(
             'VERSION_MISMATCH on inventory alert update, retrying with fresh version',
@@ -121,28 +119,17 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     });
 
     it('should retry and succeed after VERSION_MISMATCH on first attempt', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // First attempt: retrieve succeeds, update fails with VERSION_MISMATCH
         // Second attempt: retrieve succeeds with new version, update succeeds
-        fetch
+        makeSquareRequest
             // Attempt 1: retrieve
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
+            .mockResolvedValueOnce(createCatalogResponse(100))
             // Attempt 1: update fails
-            .mockResolvedValueOnce(createVersionMismatchError())
+            .mockRejectedValueOnce(createVersionMismatchError())
             // Attempt 2: retrieve with new version
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(101))
-            })
+            .mockResolvedValueOnce(createCatalogResponse(101))
             // Attempt 2: update succeeds
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createSuccessResponse(102))
-            });
+            .mockResolvedValueOnce(createSuccessResponse(102));
 
         const result = await squareApi.setSquareInventoryAlertThreshold(
             catalogObjectId,
@@ -153,8 +140,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
 
         expect(result.success).toBe(true);
         expect(result.catalog_object.version).toBe(102);
-        // Should have 4 fetch calls: retrieve + update (fail) + retrieve + update (success)
-        expect(fetch).toHaveBeenCalledTimes(4);
+        // Should have 4 makeSquareRequest calls: retrieve + update (fail) + retrieve + update (success)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(4);
         // Should log retry warning
         expect(logger.warn).toHaveBeenCalledWith(
             'VERSION_MISMATCH on inventory alert update, retrying with fresh version',
@@ -168,31 +155,17 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     });
 
     it('should retry multiple times before succeeding', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // Fail twice, succeed on third attempt
-        fetch
+        makeSquareRequest
             // Attempt 1
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError())
+            .mockResolvedValueOnce(createCatalogResponse(100))
+            .mockRejectedValueOnce(createVersionMismatchError())
             // Attempt 2
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(101))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError())
+            .mockResolvedValueOnce(createCatalogResponse(101))
+            .mockRejectedValueOnce(createVersionMismatchError())
             // Attempt 3
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(102))
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createSuccessResponse(103))
-            });
+            .mockResolvedValueOnce(createCatalogResponse(102))
+            .mockResolvedValueOnce(createSuccessResponse(103));
 
         const result = await squareApi.setSquareInventoryAlertThreshold(
             catalogObjectId,
@@ -202,8 +175,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
         );
 
         expect(result.success).toBe(true);
-        // Should have 6 fetch calls (3 attempts x 2 calls each)
-        expect(fetch).toHaveBeenCalledTimes(6);
+        // Should have 6 makeSquareRequest calls (3 attempts x 2 calls each)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(6);
         // Should log retry warnings for attempts 1 and 2
         const versionMismatchWarnings = logger.warn.mock.calls.filter(
             call => call[0] === 'VERSION_MISMATCH on inventory alert update, retrying with fresh version'
@@ -212,28 +185,17 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     });
 
     it('should fail after max retries exhausted', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // All 3 attempts fail with VERSION_MISMATCH
-        fetch
+        makeSquareRequest
             // Attempt 1
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError())
+            .mockResolvedValueOnce(createCatalogResponse(100))
+            .mockRejectedValueOnce(createVersionMismatchError())
             // Attempt 2
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(101))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError())
+            .mockResolvedValueOnce(createCatalogResponse(101))
+            .mockRejectedValueOnce(createVersionMismatchError())
             // Attempt 3
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(102))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError());
+            .mockResolvedValueOnce(createCatalogResponse(102))
+            .mockRejectedValueOnce(createVersionMismatchError());
 
         await expect(
             squareApi.setSquareInventoryAlertThreshold(
@@ -244,8 +206,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
             )
         ).rejects.toThrow('VERSION_MISMATCH');
 
-        // Should have 6 fetch calls (3 attempts x 2 calls each)
-        expect(fetch).toHaveBeenCalledTimes(6);
+        // Should have 6 makeSquareRequest calls (3 attempts x 2 calls each)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(6);
         // Should log final error
         expect(logger.error).toHaveBeenCalledWith(
             'Failed to update Square inventory alert threshold',
@@ -259,29 +221,19 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     });
 
     it('should not retry on non-VERSION_MISMATCH errors', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
+        // Retrieve succeeds, update fails with a non-VERSION_MISMATCH error
+        const invalidValueError = new Error('Square API error: 400 - [{"category":"INVALID_REQUEST_ERROR","code":"INVALID_VALUE","detail":"Invalid value provided.","field":"threshold"}]');
+        invalidValueError.nonRetryable = true;
+        invalidValueError.squareErrors = [{
+            category: 'INVALID_REQUEST_ERROR',
+            code: 'INVALID_VALUE',
+            detail: 'Invalid value provided.',
+            field: 'threshold'
+        }];
 
-        // Retrieve succeeds, update fails with a 400 error that's NOT VERSION_MISMATCH
-        // Using INVALID_VALUE which is a non-retryable 400 error
-        const invalidValueError = {
-            ok: false,
-            status: 400,
-            json: jest.fn().mockResolvedValue({
-                errors: [{
-                    category: 'INVALID_REQUEST_ERROR',
-                    code: 'INVALID_VALUE',
-                    detail: 'Invalid value provided.',
-                    field: 'threshold'
-                }]
-            })
-        };
-
-        fetch
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
-            .mockResolvedValueOnce(invalidValueError);
+        makeSquareRequest
+            .mockResolvedValueOnce(createCatalogResponse(100))
+            .mockRejectedValueOnce(invalidValueError);
 
         await expect(
             squareApi.setSquareInventoryAlertThreshold(
@@ -292,8 +244,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
             )
         ).rejects.toThrow('INVALID_VALUE');
 
-        // Should only have 2 fetch calls (no retry at setSquareInventoryAlertThreshold level)
-        expect(fetch).toHaveBeenCalledTimes(2);
+        // Should only have 2 makeSquareRequest calls (no retry)
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
         // Should not log VERSION_MISMATCH retry warning
         expect(logger.warn).not.toHaveBeenCalledWith(
             'VERSION_MISMATCH on inventory alert update, retrying with fresh version',
@@ -302,13 +254,8 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     });
 
     it('should fail immediately if catalog object not found', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // Retrieve returns no object
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: jest.fn().mockResolvedValue({ object: null })
-        });
+        makeSquareRequest.mockResolvedValueOnce({ object: null });
 
         await expect(
             squareApi.setSquareInventoryAlertThreshold(
@@ -319,23 +266,18 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
             )
         ).rejects.toThrow(`Catalog object not found: ${catalogObjectId}`);
 
-        // Should only have 1 fetch call
-        expect(fetch).toHaveBeenCalledTimes(1);
+        // Should only have 1 makeSquareRequest call
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
     });
 
     it('should fail immediately if object is not a variation', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // Retrieve returns wrong type
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: jest.fn().mockResolvedValue({
-                object: {
-                    type: 'ITEM',
-                    id: catalogObjectId,
-                    version: 100
-                }
-            })
+        makeSquareRequest.mockResolvedValueOnce({
+            object: {
+                type: 'ITEM',
+                id: catalogObjectId,
+                version: 100
+            }
         });
 
         await expect(
@@ -347,7 +289,7 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
             )
         ).rejects.toThrow('Object is not a variation: ITEM');
 
-        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
     });
 
     it('should require merchantId', async () => {
@@ -360,27 +302,16 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
             )
         ).rejects.toThrow('merchantId is required for setSquareInventoryAlertThreshold');
 
-        expect(fetch).not.toHaveBeenCalled();
+        expect(makeSquareRequest).not.toHaveBeenCalled();
     });
 
     it('should use unique idempotency keys for each retry attempt', async () => {
-        db.query.mockResolvedValue(mockMerchantTokenResponse);
-
         // Fail once, succeed on second
-        fetch
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(100))
-            })
-            .mockResolvedValueOnce(createVersionMismatchError())
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createCatalogResponse(101))
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                json: jest.fn().mockResolvedValue(createSuccessResponse(102))
-            });
+        makeSquareRequest
+            .mockResolvedValueOnce(createCatalogResponse(100))
+            .mockRejectedValueOnce(createVersionMismatchError())
+            .mockResolvedValueOnce(createCatalogResponse(101))
+            .mockResolvedValueOnce(createSuccessResponse(102));
 
         await squareApi.setSquareInventoryAlertThreshold(
             catalogObjectId,
@@ -390,8 +321,9 @@ describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
         );
 
         // Check that different idempotency keys were used
-        const updateCalls = fetch.mock.calls.filter(call =>
-            call[0].includes('/v2/catalog/object') &&
+        // Update calls are POSTs to /v2/catalog/object (no object ID suffix)
+        const updateCalls = makeSquareRequest.mock.calls.filter(call =>
+            call[0] === '/v2/catalog/object' &&
             call[1]?.method === 'POST'
         );
 
