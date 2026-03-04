@@ -11,6 +11,14 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ## Observed Code Issues
 
+### BUG: `processRefund` non-deterministic idempotency key allows duplicate refund inserts
+
+**File**: `services/loyalty-admin/purchase-service.js:~673`
+**Issue**: The refund idempotency key includes `Date.now()`, making it `refund:${orderId}:${varId}:${qty}:${Date.now()}`. If the same refund webhook fires twice (common with Square — 4-5 webhooks per event), each gets a unique key and BOTH are inserted into `loyalty_purchase_events`. This double-decrements the customer's loyalty progress. Compare with `processQualifyingPurchase` which correctly uses a deterministic key: `${orderId}:${varId}:${qty}`.
+**Impact**: Medium — duplicate refund records cause over-counted refunds, potentially revoking rewards that should remain earned. Low frequency (~2 refunds/day per BACKLOG-35), but each refund could be double-counted.
+**Fix**: Remove `Date.now()` from the idempotency key. Use `refund:${squareOrderId}:${variationId}:${quantity}` (deterministic, matching the purchase pattern).
+**Source**: Discovered during T-3 test writing (2026-03-04)
+
 ### OAuth `/connect` error handler uses global error handler instead of redirect
 
 **File**: `routes/square-oauth.js`
@@ -171,6 +179,10 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | File | Description |
 |----|------|-------------|
 | T-1 | `__tests__/routes/oauth-trial.test.js` | Test suite fails with `Cannot find module 'square'` — Square SDK not available in test environment. Tests pass locally when SDK is installed. Fix: add `square` to `devDependencies` or mock it in the test setup before this matters for real CI/CD pipeline. |
+| T-2 | `services/webhook-handlers/order-handler.js` | 57 tests added (2026-03-04). 1,316 lines, mixed responsibilities (velocity, loyalty, delivery, cart activity, refunds). Flag for split into handler-per-concern modules. |
+| T-3 | `services/loyalty-admin/purchase-service.js` | 20 tests added (2026-03-04). ~840 lines. **BUG FOUND**: `processRefund` idempotency key uses `Date.now()` (line ~673), making it non-deterministic — duplicate refund webhooks get different keys and both insert, causing double-decremented loyalty progress. Purchase path uses deterministic keys correctly. Fix: remove `Date.now()` from refund idempotency key. |
+| T-4 | `services/loyalty-admin/reward-service.js` | 31 tests added (2026-03-04). ~680 lines. No bugs found. Flag: exceeds 300-line limit; detection strategies (catalog ID, free item, discount amount) could be separate modules. |
+| T-5 | `services/loyalty-admin/square-discount-service.js` | 39 tests added (2026-03-04). ~1,465 lines. No bugs found. Flag: 5x over 300-line limit; contains CRUD, orchestration, validation, sync, and customer notes — at least 3 separate concerns. |
 
 ### ~~Historical `total_price_cents` NULL rows in `loyalty_purchase_events`~~ DONE 2026-03-04
 
