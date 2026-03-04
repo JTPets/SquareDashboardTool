@@ -36,6 +36,11 @@ const db = require('../utils/database');
 const logger = require('../utils/logger');
 const squareApi = require('../utils/square-api');
 const { generateIdempotencyKey } = require('../utils/square-api');
+
+/** Hash a password reset token with SHA-256 for secure storage (SEC-7) */
+function hashResetToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
 const subscriptionHandler = require('../utils/subscription-handler');
 const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
@@ -487,10 +492,11 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
             passwordSetupToken = crypto.randomBytes(32).toString('hex');
             const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+            // Store hashed token (SEC-7: never store plaintext reset tokens)
             await db.query(`
                 INSERT INTO password_reset_tokens (user_id, token, expires_at)
                 VALUES ($1, $2, $3)
-            `, [userId, passwordSetupToken, tokenExpiry]);
+            `, [userId, hashResetToken(passwordSetupToken), tokenExpiry]);
 
             await db.query(`
                 UPDATE subscribers SET user_id = $1 WHERE id = $2

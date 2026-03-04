@@ -14,8 +14,8 @@
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
 | ~~SEC-5~~ | ~~JSON.stringify script injection in `public/js/vendor-catalog.js:1123`~~ — **RESOLVED 2026-03-04**: Added `.replace(/<\//g, '<\\/')` after JSON.stringify to prevent `</script>` breakout | AUDIT-2026-02-28 | S |
-| SEC-6 | Google OAuth tokens stored in plaintext in `utils/google-auth.js` — encrypt with AES-256-GCM (same pattern as `token-encryption.js`) | CODEBASE_AUDIT_2026-02-25 | M |
-| SEC-7 | Password reset tokens stored as plaintext hex in database — hash with SHA-256 before storage, compare hashed values on verification | CODEBASE_AUDIT_2026-02-25 | M |
+| ~~SEC-6~~ | ~~Google OAuth tokens stored in plaintext in `utils/google-auth.js`~~ — **RESOLVED 2026-03-04**: Tokens encrypted with AES-256-GCM via `token-encryption.js` before storage; decrypted on retrieval; backward-compatible with legacy plaintext tokens | CODEBASE_AUDIT_2026-02-25 | M |
+| ~~SEC-7~~ | ~~Password reset tokens stored as plaintext hex in database~~ — **RESOLVED 2026-03-04**: Tokens hashed with SHA-256 before storage in both `routes/auth.js` and `routes/subscriptions.js`; verification hashes incoming token before DB lookup | CODEBASE_AUDIT_2026-02-25 | M |
 | ~~S-1~~ | ~~SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`)~~ — **RESOLVED 2026-03-04**: All 6 locations use parameterized `INTERVAL '1 day' * $N` / `INTERVAL '1 minute' * $N` pattern. Test file `oauth-csrf.test.js` also updated. | CODEBASE_AUDIT_2026-02-25 | S |
 | ~~S-2~~ | ~~`/output` directory served without auth (`server.js:221`)~~ — **RESOLVED 2026-03-04**: Added `requireAuth` to `/output/logs` and `/output/backups`; `/output/feeds` remains public for Google Merchant Center | CODEBASE_AUDIT_2026-02-25 | S |
 
