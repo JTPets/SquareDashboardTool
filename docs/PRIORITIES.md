@@ -73,7 +73,7 @@
 |----|-------------|--------|--------|
 | S-3 | OAuth callback missing session auth verification (`square-oauth.js:110`) | CODEBASE_AUDIT_2026-02-25 | S |
 | S-4 | CSP allows `'unsafe-inline'` for scripts — audit if inline scripts remain; if not, remove directive | CODEBASE_AUDIT_2026-02-25 | S |
-| S-6 | Admin user listing `/api/auth/users` not scoped by merchant — returns ALL users cross-tenant | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-6~~ | ~~Admin user listing `/api/auth/users` not scoped by merchant~~ — **RESOLVED 2026-03-04**: All admin user endpoints (list, create, update, reset-password, unlock) now scoped by `activeMerchantId` via `user_merchants` JOIN. Create user also links to merchant in transaction. | CODEBASE_AUDIT_2026-02-25 | S |
 | S-10 | XSS in vendor catalog import validation errors (`vendor-catalog.js:387`) — innerHTML without escaping | CODEBASE_AUDIT_2026-02-25 | S |
 
 ---
