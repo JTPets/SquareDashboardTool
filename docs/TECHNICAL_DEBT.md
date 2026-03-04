@@ -53,6 +53,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Low — only affects merchants who connected Google before the fix. Tokens will self-heal on next API call that triggers a refresh. Only one merchant (JTPets) currently has Google OAuth connected.
 **Source**: Observed during SEC-6 fix (2026-03-04)
 
+### Popup report window has inline `<script>` blocked by CSP
+
+**File**: `public/js/vendor-catalog.js:1122`
+**Issue**: The `openBatchReport()` function generates an HTML document written to a popup via `window.open('', '_blank')` + `document.write()`. The generated HTML contains an inline `<script>` block (lines 1122-1148) used for CSV download functionality. Since S-4 removed `'unsafe-inline'` from `scriptSrc` in the CSP, and popup windows opened via `window.open('')` inherit the opener's CSP, this inline script is blocked. The CSV download button in price update reports is non-functional.
+**Impact**: Medium — CSV download from price update report popup does not work. Workaround: externalize the inline script to a separate JS file loaded via `<script src="...">`, or refactor to avoid `document.write()` entirely (e.g., use a blob URL or server-rendered page).
+**Source**: Observed during S-4 audit (2026-03-04)
+
 ---
 
 ## Security (Low Severity)
