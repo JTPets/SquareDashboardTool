@@ -1,0 +1,115 @@
+# Roadmap — Future Planned Work
+
+> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
+
+**Last Updated**: 2026-03-04
+
+Items here are planned but not yet started. They represent significant future initiatives beyond the active priority list.
+
+---
+
+## 1. Sales Velocity Refactor (DRAFT — 5 phases)
+
+**Resolves**: BACKLOG-35 (refunds not subtracted), BACKLOG-36 (phantom velocity rows), variation ID remapping corruption
+
+**Source**: [archived plan](./archive/PLAN-sales-velocity-refactor.md)
+
+Replace the current Orders API-based velocity calculation with an `inventory_changes` table sourced from Square's Inventory Changes API. This provides an immutable append-only ledger of inventory adjustments that preserves original variation IDs and natively handles refunds.
+
+| Phase | Description | Risk | Effort |
+|-------|-------------|------|--------|
+| 1 | Schema + backfill service (additive only, no behavior changes) | Low | M |
+| 2 | Webhook integration — capture inventory changes in real-time | Low-Med | M |
+| 3 | New velocity recalculation from local data (parallel mode) | Med | M |
+| 4 | Cutover — switch source of truth from Orders API to local aggregation | Med | S |
+| 5 | Cleanup — deprecate old sync functions, close BACKLOG items | Low | S |
+
+**Key benefits**: 0 API calls per velocity sync (currently ~40), handles refunds natively, eliminates phantom rows, preserves variation ID history.
+
+**Prerequisites**: Answer 5 open questions (see archived plan Section 8) — test `total_price_money` reliability, backfill depth, remapped ID behavior, partial refund adjustments, non-sale SOLD adjustments.
+
+---
+
+## 2. Architecture Splits (Refactor-on-Touch)
+
+Oversized files to split when next modified. Not proactive — triggered by touching the file.
+
+| File | Lines | Suggested Split |
+|------|-------|----------------|
+| `routes/loyalty.js` | 2,134 | 5 thin route files + loyalty services |
+| `services/expiry/discount-service.js` | 2,097 | tier-evaluator, discount-crud, automation, settings, seeder |
+| `services/delivery/delivery-service.js` | 1,918 | order-crud, route-generator, pod-manager, customer-lookup |
+| `routes/analytics.js` | 874 | Extract reorder-suggestions-service.js |
+| `server.js` | ~1,050 | Remove dead imports + comment lines, further split TBD |
+
+**Source**: CODEBASE_AUDIT_2026-02-25 (A-6), AUDIT-2026-02-28 Phase 3
+
+---
+
+## 3. Open-Source Readiness
+
+Prepare for public release. Estimated 1-2 days focused effort.
+
+| Item | Description | Effort |
+|------|-------------|--------|
+| OSS-1-7 | Remove JTPets branding from 6 HTML files, replace referral links with configurable values | S |
+| OSS-8-21 | Centralize currency/locale/timezone — currently hardcoded CAD, en-CA, America/Toronto across ~60 locations | M |
+| OSS-22-27 | Make pet-store-specific AI prompts, seniors discount config, delivery URLs configurable | S |
+| Dual Square API versions | Consolidate `SQUARE_API_VERSION` to single constant in `config/constants.js` | S |
+| Frontend util extraction | Shared `showToast`, `escapeJsString`, `formatDate` (7 copies each) | S |
+
+**Source**: AUDIT-2026-02-28 Section 10
+
+---
+
+## 4. Unified Audit Logging (Pre-Franchise)
+
+**Priority**: Low (single store), High (before franchise deployment)
+
+Replace fragmented audit trails (`webhook_events`, `loyalty_audit_logs`, `delivery_audit_log`, `sync_history`) with a single `audit_log` table.
+
+**Schema**: `actor, action, entity_type, entity_id, before_value (JSONB), after_value (JSONB), merchant_id, created_at`
+
+**Missing coverage**: inventory changes, catalog edits, admin actions, manual overrides.
+
+**Source**: CLAUDE.md Architectural Tech Debt
+
+---
+
+## 5. Distributed Locking for Cron Jobs (Pre-Franchise)
+
+Required before multi-instance deployment. Currently cron jobs assume single-instance execution. Need advisory locks or a distributed lock table to prevent duplicate job runs.
+
+**Source**: CODE_AUDIT_REPORT (HIGH-4)
+
+---
+
+## 6. CI/CD Pipeline
+
+No automated test execution before deploy. Deployment is manual (`pm2 restart`).
+
+**Recommended**: GitHub Actions workflow — `npm test` on push/PR. Simple `deploy.sh` script that pulls, installs, tests, restarts PM2 only on success.
+
+**Source**: CODEBASE_AUDIT_2026-02-25 (C-2)
+
+---
+
+## 7. Future Integrations
+
+| ID | Description | Effort | Depends On |
+|----|-------------|--------|------------|
+| BACKLOG-46 | QuickBooks daily sync — auto-sync sales summaries and inventory to QuickBooks Online | L | — |
+| BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce | XL | Multi-POS abstraction |
+| BACKLOG-48 | Clover POS integration | XL | Multi-POS abstraction |
+| BACKLOG-49 | Stripe payment integration — alternative payment processor | L | — |
+
+---
+
+## 8. Subscription System Cleanup
+
+| Item | Description |
+|------|-------------|
+| `merchants.subscription_status` auto-transition | Status stays stale at 'trial'. Add cron to update for cleaner admin reporting |
+| Decide SaaS billing provider | Stripe vs Square for SqTools subscriptions (BACKLOG-50 dependency) |
+
+**Source**: MULTI-TENANT-AUDIT Subscription System Observations

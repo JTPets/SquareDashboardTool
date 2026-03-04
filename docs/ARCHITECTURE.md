@@ -1,6 +1,8 @@
 # Architecture Reference
 
-> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Security Audit](./SECURITY_AUDIT.md)
+> **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Roadmap](./ROADMAP.md)
+>
+> **Last Updated**: 2026-03-04
 
 ---
 
@@ -11,14 +13,14 @@
 ├── server.js                 # ~1,000 lines - route setup, middleware
 ├── config/constants.js       # Centralized configuration
 ├── database/
-│   ├── schema.sql            # 51 tables
-│   └── migrations/           # 003-046
-├── routes/                   # 24 route modules (~257 routes total)
+│   ├── schema.sql            # 51+ tables
+│   └── migrations/           # 003-063
+├── routes/                   # 28 route modules (~260+ routes total)
 ├── middleware/
 │   ├── auth.js               # Authentication middleware
-│   ├── merchant.js           # Multi-tenant context
+│   ├── merchant.js           # Multi-tenant context + subscription enforcement
 │   ├── security.js           # Rate limiting, CORS, CSP
-│   └── validators/           # 24 validator modules
+│   └── validators/           # 26 validator modules
 ├── services/
 │   ├── webhook-processor.js  # Webhook routing
 │   ├── sync-queue.js         # Sync state (persisted to DB)
@@ -63,7 +65,7 @@
 ## Middleware Stack
 
 ```
-Request → requireAuth → loadMerchantContext → requireMerchant → validators.* → Route Handler
+Request → requireAuth → loadMerchantContext → requireMerchant → requireValidSubscription → validators.* → Route Handler
 ```
 
 ### Middleware Functions
@@ -78,7 +80,18 @@ Request → requireAuth → loadMerchantContext → requireMerchant → validato
 | `optionalAuth` | `middleware/auth.js` | Auth optional, adds user if present |
 | `loadMerchantContext` | `middleware/merchant.js` | Loads merchant from session |
 | `requireMerchant` | `middleware/merchant.js` | Ensures merchant context exists |
+| `requireValidSubscription` | `middleware/merchant.js` | Checks trial/subscription status — redirects expired merchants to upgrade page |
 | `validators.*` | `middleware/validators/` | Input validation per route |
+
+### Subscription Enforcement (added 2026-03-01)
+
+`requireValidSubscription` checks `merchants.subscription_status` and `trial_ends_at`:
+- **active**: Full access
+- **trial**: Access if `trial_ends_at > NOW()`; expired trials redirect to `/upgrade.html`
+- **expired/canceled**: Redirect to `/upgrade.html`
+- NULL `trial_ends_at`: Grandfathered (full access — pre-trial merchants)
+
+`services/subscription-bridge.js` syncs payment events from the `subscribers` table (System B) to `merchants.subscription_status` (System A). Webhook handlers update both tables on subscription lifecycle events.
 
 ---
 
@@ -132,7 +145,7 @@ Managed in `utils/square-webhooks.js`. Full audit completed 2026-02-11.
 
 **Not subscribed** (100+ events): No matching features for bookings, labor, terminals, disputes, payouts, bank accounts, cards, transfer orders, custom attributes, etc.
 
-See [TECHNICAL_DEBT.md — Square Webhook Subscription Audit](./TECHNICAL_DEBT.md#square-webhook-subscription-audit-2026-02-11) for the full audit.
+See [archived TECHNICAL_DEBT.md](./archive/TECHNICAL_DEBT.md#square-webhook-subscription-audit-2026-02-11) for the full webhook subscription audit (2026-02-11).
 
 ### Committed Inventory Architecture (COMPLETE — BACKLOG-10)
 
@@ -271,9 +284,21 @@ services/                     # Business logic services
 │   ├── seniors-service.js    # Seniors discount pricing rule management
 │   └── age-calculator.js     # Age calculation from birthday
 │
-├── square/                   # Square API integration
-│   ├── index.js
-│   └── api.js                # Sync, inventory, custom attributes, prices
+├── square/                   # Square API integration (split from monolith 2026-02-28)
+│   ├── index.js              # Facade — re-exports all modules
+│   ├── api.js                # Backward-compat shim (107 lines)
+│   ├── square-client.js      # Shared infra: getMerchantToken, makeSquareRequest, retry
+│   ├── square-catalog-sync.js    # Full + delta catalog sync
+│   ├── square-inventory.js       # Inventory counts, alerts, committed inventory
+│   ├── square-velocity.js        # Sales velocity sync + incremental updates
+│   ├── square-vendors.js         # Vendor sync + reconciliation
+│   ├── square-locations.js       # Location sync
+│   ├── square-custom-attributes.js  # Custom attribute CRUD + push helpers
+│   ├── square-pricing.js        # Price + cost updates, catalog content
+│   ├── square-diagnostics.js    # Fix location mismatches, alerts, enable items
+│   └── square-sync-orchestrator.js  # fullSync orchestration
+│
+├── subscription-bridge.js    # Syncs payment events to merchants.subscription_status
 │
 └── bundle-calculator.js      # Bundle order optimization (individual vs bundle cost)
 ```
@@ -346,7 +371,8 @@ await squareClient.orders.createOrder({
 |------|---------|
 | `middleware/merchant.js` | `getSquareClientForMerchant()` — Creates authenticated SDK client (for SDK methods) |
 | `services/loyalty-admin/square-api-client.js` | `SquareApiClient` — Direct HTTP with 429 retry (for loyalty/webhook handlers) |
-| `services/square/api.js` | High-level Square API operations (sync, inventory, custom attributes) |
+| `services/square/square-client.js` | Shared infra: `getMerchantToken`, `makeSquareRequest` with retry/rate-limit |
+| `services/square/index.js` | Facade — re-exports all 10 split modules (see Services Directory above) |
 | `services/webhook-processor.js` | Webhook signature verification |
 
 ---
