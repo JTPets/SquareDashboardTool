@@ -19,6 +19,14 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Fix**: Remove `Date.now()` from the idempotency key. Use `refund:${squareOrderId}:${variationId}:${quantity}` (deterministic, matching the purchase pattern).
 **Source**: Discovered during T-3 test writing (2026-03-04)
 
+### BUG: Velocity update failure in `handleOrderCreatedOrUpdated` blocks loyalty processing
+
+**File**: `services/webhook-handlers/order-handler.js:~256-281`
+**Issue**: The `squareApi.updateSalesVelocityFromOrder()` call is NOT wrapped in try-catch. If it throws (transient DB error, connection timeout), the error propagates up and prevents `_processDeliveryRouting()` and `_processLoyalty()` from executing. Loyalty points are silently not awarded for that order. The handler returns an unhandled promise rejection instead of a graceful result.
+**Impact**: Medium — a transient velocity DB write error silently prevents loyalty point accrual. Customers don't earn points. No retry mechanism exists. The order webhook is marked as processed by the webhook processor, so it won't be retried.
+**Fix**: Wrap the velocity update in try-catch, log the error, and continue with delivery routing and loyalty processing.
+**Source**: Discovered during T-2 test writing (2026-03-04)
+
 ### OAuth `/connect` error handler uses global error handler instead of redirect
 
 **File**: `routes/square-oauth.js`
@@ -118,6 +126,18 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | P-5 | `services/gmc/merchant-service.js:57-70` | Google OAuth token listener duplicated on every `getAuthClient()` call — leaks listeners |
 | P-7 | `middleware/merchant.js:19-20` | `clientCache` (Map) has no maximum size or LRU eviction — grows unbounded with merchant count |
 | P-8 | `services/sync-queue.js:232-242` | Follow-up syncs block sequentially — could fire async |
+
+---
+
+## File Size / Refactoring Flags
+
+Files exceeding the 300-line limit (from CLAUDE.md Code Rules). Flagged during T-1/T-2 test writing (2026-03-04).
+
+| File | Lines | Reason | Recommended Action |
+|------|-------|--------|--------------------|
+| `services/webhook-handlers/order-handler.js` | 1,432 | Mixed responsibilities: velocity updates, delivery routing, cart tracking, loyalty orchestration, refund processing, customer identification. 10+ private methods. | Split into `OrderVelocityHandler`, `OrderDeliveryRouter`, `OrderLoyaltyProcessor` — each <300 lines. Keep `OrderHandler` as thin orchestrator. |
+| `services/loyalty-admin/square-discount-service.js` | 1,464 | Mixed: CRUD operations (group/discount/pricing rule), orchestration, validation, sync, price updates, customer notes — 13 exports. | Split into `square-discount-crud.js` (create/delete/update), `square-discount-orchestration.js` (createSquareCustomerGroupDiscount, cleanup), `square-discount-validation.js` (validate, sync prices). |
+| `services/loyalty-admin/purchase-service.js` | 837 | Core financial logic — `updateRewardProgress` alone is ~150 lines with complex while loop + split-row logic. | Extract split-row logic into `reward-progress-engine.js`. Keep purchase recording and refund processing. |
 
 ---
 

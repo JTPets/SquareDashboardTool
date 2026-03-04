@@ -1129,13 +1129,485 @@ describe('OrderHandler', () => {
 
             const ctx = makeContext();
 
-            // This will throw since velocity error isn't caught in order handler
-            // The test documents the current behavior
+            // BUG: Velocity error IS propagated (not caught) — blocks delivery + loyalty
+            // The velocity call at line ~266 is NOT wrapped in try-catch, so if
+            // updateSalesVelocityFromOrder throws, _processDeliveryRouting and
+            // _processLoyalty are never reached.
+            // This is a real issue: a transient DB write error in velocity tracking
+            // silently prevents loyalty points from being awarded.
             try {
                 await handler.handleOrderCreatedOrUpdated(ctx);
             } catch (e) {
                 expect(e.message).toBe('DB write failed');
             }
+
+            // Verify loyalty was NOT processed due to uncaught velocity error
+            expect(mockProcessLoyaltyOrder).not.toHaveBeenCalled();
+        });
+    });
+
+    // ========================================================================
+    // normalizeSquareOrder — nested field normalization
+    // ========================================================================
+
+    describe('normalizeSquareOrder — nested fields', () => {
+        it('should normalize fulfillment fields (pickupDetails, deliveryDetails)', () => {
+            const order = {
+                id: 'ord_1',
+                fulfillments: [{
+                    type: 'DELIVERY',
+                    pickupDetails: {
+                        recipient: {
+                            phoneNumber: '555-1234',
+                            emailAddress: 'test@test.com',
+                            displayName: 'John Doe'
+                        }
+                    },
+                    deliveryDetails: {
+                        recipient: {
+                            phoneNumber: '555-5678'
+                        }
+                    }
+                }]
+            };
+
+            const result = normalizeSquareOrder(order);
+
+            expect(result.fulfillments[0].pickup_details).toBe(order.fulfillments[0].pickupDetails);
+            expect(result.fulfillments[0].delivery_details).toBe(order.fulfillments[0].deliveryDetails);
+            expect(result.fulfillments[0].pickup_details.recipient.phone_number).toBe('555-1234');
+            expect(result.fulfillments[0].pickup_details.recipient.email_address).toBe('test@test.com');
+            expect(result.fulfillments[0].pickup_details.recipient.display_name).toBe('John Doe');
+        });
+
+        it('should normalize tender customer IDs', () => {
+            const order = {
+                id: 'ord_1',
+                tenders: [
+                    { customerId: 'cust_1', id: 'tender_1' },
+                    { customer_id: 'cust_2', id: 'tender_2' } // Already snake_case
+                ]
+            };
+
+            const result = normalizeSquareOrder(order);
+
+            expect(result.tenders[0].customer_id).toBe('cust_1');
+            expect(result.tenders[1].customer_id).toBe('cust_2');
+        });
+
+        it('should normalize discount fields (catalogObjectId, appliedMoney, amountMoney)', () => {
+            const order = {
+                id: 'ord_1',
+                discounts: [{
+                    catalogObjectId: 'disc_1',
+                    appliedMoney: { amount: 500 },
+                    amountMoney: { amount: 500 }
+                }]
+            };
+
+            const result = normalizeSquareOrder(order);
+
+            expect(result.discounts[0].catalog_object_id).toBe('disc_1');
+            expect(result.discounts[0].applied_money).toEqual({ amount: 500 });
+            expect(result.discounts[0].amount_money).toEqual({ amount: 500 });
+        });
+
+        it('should not overwrite existing snake_case fields', () => {
+            const order = {
+                id: 'ord_1',
+                customer_id: 'existing_cust',
+                customerId: 'camel_cust',
+                line_items: [{ name: 'existing' }],
+                lineItems: [{ name: 'camel' }]
+            };
+
+            const result = normalizeSquareOrder(order);
+
+            // Existing snake_case should be preserved
+            expect(result.customer_id).toBe('existing_cust');
+            expect(result.line_items).toEqual([{ name: 'existing' }]);
+        });
+
+        it('should handle order with no optional arrays', () => {
+            const order = { id: 'ord_1' };
+            const result = normalizeSquareOrder(order);
+            expect(result.id).toBe('ord_1');
+            // No errors from missing discounts/fulfillments/tenders
+        });
+    });
+
+    // ========================================================================
+    // DRAFT order routing to cart activity
+    // ========================================================================
+
+    describe('DRAFT order cart routing', () => {
+        it('should route DRAFT orders to cart activity service', async () => {
+            mockCartActivity.createFromDraftOrder.mockResolvedValueOnce({
+                id: 42, item_count: 3, status: 'active'
+            });
+
+            const ctx = makeContext({
+                data: {
+                    order_created: {
+                        id: 'draft_order_1',
+                        state: 'DRAFT',
+                        line_items: [{ catalog_object_id: 'var_1', quantity: '1', total_money: { amount: 500 }, base_price_money: { amount: 500 } }],
+                        source: { name: 'Square Online' }
+                    }
+                },
+                entityId: 'draft_order_1'
+            });
+
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockCartActivity.createFromDraftOrder).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 'draft_order_1', state: 'DRAFT' }),
+                1
+            );
+            expect(result.cartActivity).toEqual({
+                id: 42, itemCount: 3, status: 'active'
+            });
+        });
+
+        it('should NOT process DRAFT orders for delivery, velocity, or loyalty', async () => {
+            const ctx = makeContext({
+                data: {
+                    order_created: {
+                        id: 'draft_order_1',
+                        state: 'DRAFT',
+                        line_items: [{ catalog_object_id: 'var_1', quantity: '1', total_money: { amount: 500 }, base_price_money: { amount: 500 } }]
+                    }
+                },
+                entityId: 'draft_order_1'
+            });
+
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Velocity only runs for COMPLETED orders
+            expect(mockUpdateVelocity).not.toHaveBeenCalled();
+            // Loyalty only runs for COMPLETED orders
+            expect(mockProcessLoyaltyOrder).not.toHaveBeenCalled();
+            // Delivery ingest should NOT happen for DRAFT
+            expect(mockDeliveryApi.ingestSquareOrder).not.toHaveBeenCalled();
+        });
+    });
+
+    // ========================================================================
+    // CANCELED order cleanup
+    // ========================================================================
+
+    describe('CANCELED order cleanup', () => {
+        it('should mark cart as canceled for CANCELED orders', async () => {
+            const ctx = makeContext({
+                data: {
+                    order_updated: {
+                        id: 'canceled_order',
+                        state: 'CANCELED',
+                        line_items: [{ catalog_object_id: 'var_1', quantity: '1', total_money: { amount: 500 }, base_price_money: { amount: 500 } }]
+                    }
+                },
+                entityId: 'canceled_order',
+                event: { type: 'order.updated' }
+            });
+
+            await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockCartActivity.markCanceled).toHaveBeenCalledWith('canceled_order', 1);
+        });
+
+        it('should handle CANCELED order with delivery fulfillment', async () => {
+            const ctx = makeContext({
+                data: {
+                    order_updated: {
+                        id: 'canceled_delivery',
+                        state: 'CANCELED',
+                        line_items: [{ catalog_object_id: 'var_1', quantity: '1', total_money: { amount: 500 }, base_price_money: { amount: 500 } }],
+                        fulfillments: [{ type: 'DELIVERY', state: 'CANCELED' }]
+                    }
+                },
+                entityId: 'canceled_delivery',
+                event: { type: 'order.updated' }
+            });
+
+            await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockDeliveryApi.handleSquareOrderUpdate).toHaveBeenCalledWith(
+                1, 'canceled_delivery', 'CANCELED'
+            );
+        });
+    });
+
+    // ========================================================================
+    // _processLoyalty error containment
+    // ========================================================================
+
+    describe('_processLoyalty error containment', () => {
+        it('should catch loyalty errors without crashing the handler', async () => {
+            mockProcessLoyaltyOrder.mockRejectedValueOnce(new Error('Loyalty DB down'));
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Handler should still return successfully
+            expect(result.handled).toBe(true);
+            expect(result.loyaltyError).toBe('Loyalty DB down');
+        });
+
+        it('should continue when customer identification fails', async () => {
+            mockCustomerService.identifyCustomerFromOrder.mockResolvedValueOnce({
+                customerId: null,
+                method: null,
+                success: false
+            });
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Should still call processLoyaltyOrder with null customer
+            expect(mockProcessLoyaltyOrder).toHaveBeenCalledWith(
+                expect.objectContaining({ squareCustomerId: null })
+            );
+        });
+
+        it('should process refunds present on completed order', async () => {
+            mockProcessRefundsForLoyalty.mockResolvedValueOnce({
+                processed: true,
+                refundsProcessed: [{ id: 1 }, { id: 2 }]
+            });
+
+            const ctx = makeContext({
+                data: {
+                    order_created: {
+                        id: 'order_refund',
+                        state: 'COMPLETED',
+                        customer_id: 'cust_1',
+                        line_items: [{ catalog_object_id: 'var_1', quantity: '2', total_money: { amount: 2000 }, base_price_money: { amount: 1000 } }],
+                        tenders: [{ customer_id: 'cust_1' }],
+                        refunds: [
+                            { id: 'ref_1', status: 'COMPLETED' },
+                            { id: 'ref_2', status: 'COMPLETED' }
+                        ],
+                        location_id: 'loc_1'
+                    }
+                },
+                entityId: 'order_refund'
+            });
+
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockProcessRefundsForLoyalty).toHaveBeenCalled();
+            expect(result.loyaltyRefunds).toEqual({ refundsProcessed: 2 });
+        });
+
+        it('should skip loyalty processing for already-processed order', async () => {
+            mockProcessLoyaltyOrder.mockResolvedValueOnce({
+                alreadyProcessed: true,
+                purchaseEvents: []
+            });
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Redemption detection should be skipped
+            expect(mockDetectRedemption).not.toHaveBeenCalled();
+        });
+
+        it('should record redemption when detected on order', async () => {
+            mockDetectRedemption.mockResolvedValueOnce({
+                detected: true,
+                rewardId: 42,
+                offerName: 'Buy 12 Get 1 Free'
+            });
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(result.loyaltyRedemption).toEqual({
+                rewardId: 42,
+                offerName: 'Buy 12 Get 1 Free'
+            });
+        });
+    });
+
+    // ========================================================================
+    // handleRefundCreatedOrUpdated — additional edge cases
+    // ========================================================================
+
+    describe('handleRefundCreatedOrUpdated — additional edge cases', () => {
+        it('should handle order with no refunds array', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({
+                    order: { id: 'order_1' } // No refunds property
+                })
+            });
+
+            const ctx = {
+                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1,
+                event: { type: 'refund.created' }
+            };
+
+            const result = await handler.handleRefundCreatedOrUpdated(ctx);
+
+            expect(result.handled).toBe(true);
+            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
+            delete global.fetch;
+        });
+
+        it('should handle order with empty refunds array', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({
+                    order: { id: 'order_1', refunds: [] }
+                })
+            });
+
+            const ctx = {
+                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1,
+                event: { type: 'refund.created' }
+            };
+
+            const result = await handler.handleRefundCreatedOrUpdated(ctx);
+
+            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
+            delete global.fetch;
+        });
+
+        it('should handle fetch network error (connection refused)', async () => {
+            global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+            const ctx = {
+                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1,
+                event: { type: 'refund.created' }
+            };
+
+            const result = await handler.handleRefundCreatedOrUpdated(ctx);
+
+            // Should catch and log error, not crash
+            expect(result.handled).toBe(true);
+            expect(result.error).toBe('ECONNREFUSED');
+            delete global.fetch;
+        });
+
+        it('should handle null order in response', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({ order: null })
+            });
+
+            const ctx = {
+                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1,
+                event: { type: 'refund.created' }
+            };
+
+            const result = await handler.handleRefundCreatedOrUpdated(ctx);
+
+            expect(result.handled).toBe(true);
+            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
+            delete global.fetch;
+        });
+    });
+
+    // ========================================================================
+    // handlePaymentUpdated — cache interaction edge cases
+    // ========================================================================
+
+    describe('handlePaymentUpdated — cache edge cases', () => {
+        it('should re-run identification when cache has no customer but has pointsAwarded', async () => {
+            // Simulate cache from order webhook where customer was not identified
+            OrderHandler._orderProcessingCache.set('order_1:1', {
+                customerId: null,
+                pointsAwarded: false,
+                redemptionChecked: false
+            });
+
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            await handler.handlePaymentUpdated(ctx);
+
+            // Should fetch order and re-process (falls through to full processing)
+            expect(mockSquareClient.orders.get).toHaveBeenCalled();
+            expect(mockProcessLoyaltyOrder).toHaveBeenCalled();
+        });
+
+        it('should use cached customer_id when available (avoids 6-method chain)', async () => {
+            OrderHandler._orderProcessingCache.set('order_1:1', {
+                customerId: 'cached_cust',
+                pointsAwarded: false,
+                redemptionChecked: false
+            });
+
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            await handler.handlePaymentUpdated(ctx);
+
+            // Should pass cached customer, not re-identify
+            expect(mockProcessLoyaltyOrder).toHaveBeenCalledWith(
+                expect.objectContaining({ squareCustomerId: 'cached_cust' })
+            );
+        });
+    });
+
+    // ========================================================================
+    // handleFulfillmentUpdated — delivery routing
+    // ========================================================================
+
+    describe('handleFulfillmentUpdated — delivery routing', () => {
+        it('should handle FAILED fulfillment as cancellation', async () => {
+            const ctx = {
+                data: {
+                    order_id: 'order_1',
+                    fulfillment: {
+                        uid: 'ff_1',
+                        type: 'DELIVERY',
+                        state: 'FAILED'
+                    }
+                },
+                merchantId: 1,
+                event: { type: 'order.fulfillment.updated' }
+            };
+
+            const result = await handler.handleFulfillmentUpdated(ctx);
+
+            expect(mockDeliveryApi.handleSquareOrderUpdate).toHaveBeenCalledWith(
+                1, 'order_1', 'CANCELED'
+            );
+            expect(result.deliveryUpdate.action).toBe('removed');
+        });
+
+        it('should ignore non-DELIVERY/SHIPMENT fulfillment types', async () => {
+            const ctx = {
+                data: {
+                    order_id: 'order_1',
+                    fulfillment: {
+                        uid: 'ff_1',
+                        type: 'PICKUP',
+                        state: 'COMPLETED'
+                    }
+                },
+                merchantId: 1,
+                event: { type: 'order.fulfillment.updated' }
+            };
+
+            // Need the Square client mock for velocity
+            mockSquareClient.orders.get.mockResolvedValueOnce({
+                order: { id: 'order_1', state: 'COMPLETED', line_items: [{ catalog_object_id: 'v1', quantity: '1' }] }
+            });
+
+            const result = await handler.handleFulfillmentUpdated(ctx);
+
+            // Should NOT route to delivery
+            expect(mockDeliveryApi.handleSquareOrderUpdate).not.toHaveBeenCalled();
         });
     });
 });

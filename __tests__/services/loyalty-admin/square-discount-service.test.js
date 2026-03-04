@@ -811,3 +811,323 @@ describe('validateEarnedRewardsDiscounts', () => {
         expect(result.issues[0].issue).toBe('CUSTOMER_NOT_IN_GROUP');
     });
 });
+
+// ============================================================================
+// TESTS — addCustomerToGroup
+// ============================================================================
+
+describe('addCustomerToGroup', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should add customer to group successfully', async () => {
+        mockFetchSuccess({});
+
+        const result = await addCustomerToGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockFetch).toHaveBeenCalledWith(
+            'https://connect.squareup.com/v2/customers/cust_1/groups/grp_1',
+            expect.objectContaining({ method: 'PUT' })
+        );
+    });
+
+    it('should return error when no access token', async () => {
+        getSquareAccessToken.mockResolvedValueOnce(null);
+
+        const result = await addCustomerToGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No access token');
+    });
+
+    it('should return error on API failure', async () => {
+        mockFetchError(404, { errors: [{ code: 'NOT_FOUND' }] });
+
+        const result = await addCustomerToGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(false);
+    });
+
+    it('should handle network error', async () => {
+        mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+        const result = await addCustomerToGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('ECONNREFUSED');
+    });
+});
+
+// ============================================================================
+// TESTS — removeCustomerFromGroup
+// ============================================================================
+
+describe('removeCustomerFromGroup', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should remove customer from group successfully', async () => {
+        const result = await removeCustomerFromGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(true);
+    });
+
+    it('should succeed when customer already removed (404)', async () => {
+        const { getSquareApi } = require('../../../services/loyalty-admin/shared-utils');
+        getSquareApi.mockReturnValueOnce({
+            getMerchantToken: jest.fn().mockResolvedValue('test-token'),
+            makeSquareRequest: jest.fn().mockRejectedValue(new Error('404 Not Found'))
+        });
+
+        const result = await removeCustomerFromGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        // 404 is treated as success (already removed)
+        expect(result.success).toBe(true);
+    });
+
+    it('should return error on non-404 failure', async () => {
+        const { getSquareApi } = require('../../../services/loyalty-admin/shared-utils');
+        getSquareApi.mockReturnValueOnce({
+            getMerchantToken: jest.fn().mockResolvedValue('test-token'),
+            makeSquareRequest: jest.fn().mockRejectedValue(new Error('500 Internal Server Error'))
+        });
+
+        const result = await removeCustomerFromGroup({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('500');
+    });
+});
+
+// ============================================================================
+// TESTS — deleteCustomerGroup
+// ============================================================================
+
+describe('deleteCustomerGroup', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should delete group successfully', async () => {
+        const result = await deleteCustomerGroup({
+            merchantId: 1,
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(true);
+    });
+
+    it('should succeed when group already deleted (404)', async () => {
+        const { getSquareApi } = require('../../../services/loyalty-admin/shared-utils');
+        getSquareApi.mockReturnValueOnce({
+            getMerchantToken: jest.fn().mockResolvedValue('test-token'),
+            makeSquareRequest: jest.fn().mockRejectedValue(new Error('404 Not Found'))
+        });
+
+        const result = await deleteCustomerGroup({
+            merchantId: 1,
+            groupId: 'grp_gone'
+        });
+
+        expect(result.success).toBe(true);
+    });
+
+    it('should return error on non-404 failure', async () => {
+        const { getSquareApi } = require('../../../services/loyalty-admin/shared-utils');
+        getSquareApi.mockReturnValueOnce({
+            getMerchantToken: jest.fn().mockResolvedValue('test-token'),
+            makeSquareRequest: jest.fn().mockRejectedValue(new Error('Rate limited'))
+        });
+
+        const result = await deleteCustomerGroup({
+            merchantId: 1,
+            groupId: 'grp_1'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Rate limited');
+    });
+});
+
+// ============================================================================
+// TESTS — deleteRewardDiscountObjects
+// ============================================================================
+
+describe('deleteRewardDiscountObjects', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should delegate to deleteCatalogObjects and return result', async () => {
+        const result = await deleteRewardDiscountObjects({
+            merchantId: 1,
+            objectIds: ['disc_1', 'ps_1', 'pr_1']
+        });
+
+        expect(deleteCatalogObjects).toHaveBeenCalledWith(
+            1,
+            ['disc_1', 'ps_1', 'pr_1'],
+            { auditContext: 'loyalty-reward-cleanup' }
+        );
+        expect(result.success).toBe(true);
+        expect(result.deleted).toBe(3);
+    });
+
+    it('should return errors when some objects fail to delete', async () => {
+        deleteCatalogObjects.mockResolvedValueOnce({
+            success: false,
+            deleted: ['disc_1'],
+            errors: [{ objectId: 'ps_1', error: 'NOT_FOUND' }]
+        });
+
+        const result = await deleteRewardDiscountObjects({
+            merchantId: 1,
+            objectIds: ['disc_1', 'ps_1']
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.deleted).toBe(1);
+        expect(result.errors).toHaveLength(1);
+    });
+});
+
+// ============================================================================
+// TESTS — updateRewardDiscountAmount
+// ============================================================================
+
+describe('updateRewardDiscountAmount', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should update discount maximum_amount_money', async () => {
+        // Step 1: Fetch existing discount
+        mockFetchSuccess({
+            object: {
+                id: 'disc_1',
+                version: 5,
+                is_deleted: false,
+                discount_data: {
+                    name: 'Loyalty: Buy 12',
+                    discount_type: 'FIXED_PERCENTAGE',
+                    percentage: '100',
+                    maximum_amount_money: { amount: 3999, currency: 'CAD' }
+                }
+            }
+        });
+
+        // Step 2: Upsert with new amount
+        mockFetchSuccess({ id_mappings: [] });
+
+        const result = await updateRewardDiscountAmount({
+            merchantId: 1,
+            squareDiscountId: 'disc_1',
+            newAmountCents: 4599,
+            rewardId: 42
+        });
+
+        expect(result.success).toBe(true);
+
+        // Verify the batch-upsert was called with the new amount
+        const upsertCall = mockFetch.mock.calls[1];
+        const body = JSON.parse(upsertCall[1].body);
+        const updatedDiscount = body.batches[0].objects[0];
+        expect(updatedDiscount.discount_data.maximum_amount_money.amount).toBe(4599);
+        expect(updatedDiscount.version).toBe(5);
+    });
+
+    it('should return error when no access token', async () => {
+        getSquareAccessToken.mockResolvedValueOnce(null);
+
+        const result = await updateRewardDiscountAmount({
+            merchantId: 1,
+            squareDiscountId: 'disc_1',
+            newAmountCents: 4599,
+            rewardId: 42
+        });
+
+        expect(result.success).toBe(false);
+    });
+
+    it('should return error when discount is deleted', async () => {
+        mockFetchSuccess({
+            object: { id: 'disc_1', version: 5, is_deleted: true, discount_data: {} }
+        });
+
+        const result = await updateRewardDiscountAmount({
+            merchantId: 1,
+            squareDiscountId: 'disc_1',
+            newAmountCents: 4599,
+            rewardId: 42
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not found or deleted');
+    });
+
+    it('should return error when fetch returns non-ok', async () => {
+        mockFetchError(404, 'Not Found');
+
+        const result = await updateRewardDiscountAmount({
+            merchantId: 1,
+            squareDiscountId: 'disc_gone',
+            newAmountCents: 4599,
+            rewardId: 42
+        });
+
+        expect(result.success).toBe(false);
+    });
+
+    it('should return error when upsert fails', async () => {
+        // Fetch succeeds
+        mockFetchSuccess({
+            object: {
+                id: 'disc_1', version: 5, is_deleted: false,
+                discount_data: { maximum_amount_money: { amount: 3999, currency: 'CAD' } }
+            }
+        });
+
+        // Upsert fails
+        mockFetchError(400, { errors: [{ code: 'INVALID_VALUE' }] });
+
+        const result = await updateRewardDiscountAmount({
+            merchantId: 1,
+            squareDiscountId: 'disc_1',
+            newAmountCents: -100, // Invalid amount
+            rewardId: 42
+        });
+
+        expect(result.success).toBe(false);
+    });
+});

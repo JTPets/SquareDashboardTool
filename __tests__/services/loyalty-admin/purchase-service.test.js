@@ -847,4 +847,507 @@ describe('updateRewardProgress', () => {
         expect(earnedTransition).toBe(true);
         expect(result.status).toBe('earned');
     });
+
+    it('should handle multi-threshold: 30 units toward "buy 12" earns 2 rewards with rollover', async () => {
+        // Scenario: 30 units total, required 12 each
+        // Expected: earn reward 1 (12 units), earn reward 2 (12 units), 6 rollover
+        let earnCount = 0;
+        let quantityQueryCount = 0;
+        let rewardIds = [200, 201]; // Two rewards to be earned
+        let inProgressQueried = false;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            // Total quantity check (in updateRewardProgress — has reward_id IS NULL)
+            if (sql.includes('total_quantity') && sql.includes('reward_id IS NULL')) {
+                quantityQueryCount++;
+                if (quantityQueryCount === 1) return { rows: [{ total_quantity: 30 }] };
+                if (quantityQueryCount === 2) return { rows: [{ total_quantity: 18 }] };
+                return { rows: [{ total_quantity: 6 }] };
+            }
+
+            // Get in_progress reward
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                if (!inProgressQueried) {
+                    inProgressQueried = true;
+                    return {
+                        rows: [{
+                            id: rewardIds[0], status: 'in_progress',
+                            current_quantity: 30, required_quantity: 12
+                        }]
+                    };
+                }
+                return { rows: [] };
+            }
+
+            // UPDATE quantity
+            if (sql.includes('UPDATE loyalty_rewards') && sql.includes('current_quantity = $1')) {
+                return { rows: [] };
+            }
+
+            // Lock rows
+            if (sql.includes('UPDATE loyalty_purchase_events') && sql.includes('cumulative_qty')) {
+                return { rows: [{ id: 1, quantity: 12, cumulative_qty: 12 }] };
+            }
+
+            // Earn transition
+            if (sql.includes("SET status = 'earned'")) {
+                earnCount++;
+                return { rows: [] };
+            }
+
+            // Create next in_progress reward for second cycle
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return {
+                    rows: [{
+                        id: rewardIds[earnCount] || 202,
+                        status: 'in_progress',
+                        current_quantity: earnCount === 1 ? 18 : 6,
+                        required_quantity: 12
+                    }]
+                };
+            }
+
+            // Window dates
+            if (sql.includes('MIN(window_start_date) as start_date')) {
+                return { rows: [{ start_date: '2026-01-01', end_date: '2027-01-01' }] };
+            }
+
+            // updateCustomerSummary
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases') && sql.includes('last_purchase'))
+                return { rows: [{ current_quantity: 6, lifetime_purchases: 30, last_purchase: null, window_start: null, window_end: null }] };
+            if (sql.includes('COUNT(*)') && sql.includes("status = 'earned'") && !sql.includes("'redeemed'"))
+                return { rows: [{ count: 2 }] };
+            if (sql.includes('COUNT(*)') && sql.includes("status = 'redeemed'") && !sql.includes("'earned'"))
+                return { rows: [{ count: 0 }] };
+            if (sql.includes('COUNT(*)') && sql.includes("IN ('earned', 'redeemed')"))
+                return { rows: [{ count: 2 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'")
+                && sql.includes('ORDER BY'))
+                return { rows: [{ id: 200 }] };
+            if (sql.includes('INSERT INTO loyalty_customer_summary'))
+                return { rows: [] };
+
+            return { rows: [] };
+        });
+
+        const result = await updateRewardProgress(mockClient, {
+            merchantId: 1,
+            offerId: OFFER.id,
+            squareCustomerId: 'cust_1',
+            offer: OFFER
+        });
+
+        // Should have earned 2 rewards (while loop iterated twice)
+        expect(earnCount).toBe(2);
+        // Final state: 6 remaining units (not enough for a third reward)
+        expect(result.currentQuantity).toBe(6);
+    });
+
+    it('should handle split-row crossing: lock full rows + split partial row', async () => {
+        let splitCreated = false;
+        let excessCreated = false;
+        let quantityQueryCount = 0;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            // Quantity check — 14 units available, 12 needed
+            if (sql.includes('total_quantity') && sql.includes('reward_id IS NULL')) {
+                quantityQueryCount++;
+                if (quantityQueryCount === 1) return { rows: [{ total_quantity: 14 }] };
+                return { rows: [{ total_quantity: 2 }] }; // After earning, 2 rollover
+            }
+
+            // Existing in_progress reward
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                return {
+                    rows: [{
+                        id: 200, status: 'in_progress',
+                        current_quantity: 14, required_quantity: 12
+                    }]
+                };
+            }
+
+            // UPDATE quantity
+            if (sql.includes('UPDATE loyalty_rewards') && sql.includes('current_quantity = $1')) {
+                return { rows: [] };
+            }
+
+            // Lock fully consumed rows — locked 10 out of 12 needed
+            if (sql.includes('UPDATE loyalty_purchase_events') && sql.includes('cumulative_qty')) {
+                return {
+                    rows: [
+                        { id: 1, quantity: 5, cumulative_qty: 5 },
+                        { id: 2, quantity: 5, cumulative_qty: 10 }
+                    ]
+                };
+            }
+
+            // Crossing row query — find the row that straddles the threshold
+            if (sql.includes('FROM loyalty_purchase_events lpe') && sql.includes('LIMIT 1')
+                && sql.includes('reward_id IS NULL') && sql.includes('ORDER BY purchased_at ASC')) {
+                return {
+                    rows: [{
+                        id: 3, quantity: 4, square_order_id: 'ord_3', variation_id: 'var_1',
+                        unit_price_cents: 1000, total_price_cents: 4000,
+                        purchased_at: '2026-01-15', idempotency_key: 'key_3',
+                        window_start_date: '2026-01-01', window_end_date: '2027-01-01',
+                        square_location_id: 'loc_1', receipt_url: null,
+                        customer_source: 'order', payment_type: 'CARD'
+                    }]
+                };
+            }
+
+            // INSERT child rows (split_locked and split_excess are in idempotency_key param)
+            // Locked child has 18 params (idempotency_key at index 14)
+            // Excess child has 17 params (reward_id is NULL literal, idempotency_key at index 13)
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && params && Array.isArray(params)) {
+                const paramsStr = JSON.stringify(params);
+                if (paramsStr.includes('split_locked')) {
+                    splitCreated = true;
+                    return { rows: [{ id: 101 }] };
+                }
+                if (paramsStr.includes('split_excess')) {
+                    excessCreated = true;
+                    return { rows: [{ id: 102 }] };
+                }
+            }
+
+            // Earn transition
+            if (sql.includes("SET status = 'earned'")) {
+                return { rows: [] };
+            }
+
+            // Window dates
+            if (sql.includes('MIN(window_start_date)')) {
+                return { rows: [{ start_date: '2026-01-01', end_date: '2027-01-01' }] };
+            }
+
+            // updateCustomerSummary
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 2, lifetime_purchases: 14 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+
+            return { rows: [] };
+        });
+
+        await updateRewardProgress(mockClient, {
+            merchantId: 1,
+            offerId: OFFER.id,
+            squareCustomerId: 'cust_1',
+            offer: OFFER
+        });
+
+        // Verify both split children were created
+        expect(splitCreated).toBe(true);
+        expect(excessCreated).toBe(true);
+    });
+
+    it('should update existing in_progress reward quantity', async () => {
+        let updatedQuantity = null;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 8 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                return {
+                    rows: [{
+                        id: 200, status: 'in_progress',
+                        current_quantity: 5, required_quantity: 12
+                    }]
+                };
+            }
+            if (sql.includes('UPDATE loyalty_rewards') && sql.includes('current_quantity = $1')) {
+                updatedQuantity = params[0];
+                return { rows: [] };
+            }
+            // updateCustomerSummary
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await updateRewardProgress(mockClient, {
+            merchantId: 1,
+            offerId: OFFER.id,
+            squareCustomerId: 'cust_1',
+            offer: OFFER
+        });
+
+        expect(updatedQuantity).toBe(8); // Updated from 5 to 8
+        expect(result.currentQuantity).toBe(8);
+        expect(result.status).toBe('in_progress');
+    });
+});
+
+// ============================================================================
+// TESTS — processRefund — additional edge cases
+// ============================================================================
+
+describe('processRefund — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetOfferForVariation.mockResolvedValue(OFFER);
+    });
+
+    it('should NOT revoke earned reward when remaining quantity still meets threshold', async () => {
+        let revokedReward = false;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+            // INSERT refund
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -1 }] };
+            }
+
+            // Earned reward check — has one
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return {
+                    rows: [{
+                        id: 50,
+                        offer_id: OFFER.id,
+                        square_customer_id: 'cust_1',
+                        status: 'earned'
+                    }]
+                };
+            }
+
+            // Locked quantity — still above required (13 >= 12)
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 13 }] };
+            }
+
+            // Revoke — should NOT be called
+            if (sql.includes("SET status = 'revoked'")) {
+                revokedReward = true;
+                return { rows: [] };
+            }
+
+            // updateRewardProgress
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total_quantity') && !sql.includes('reward_id =')) {
+                return { rows: [{ total_quantity: 0 }] };
+            }
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                return { rows: [] };
+            }
+
+            // updateCustomerSummary
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 1,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+        expect(result.rewardAffected).toBe(true); // Earned reward exists
+        expect(revokedReward).toBe(false); // But was NOT revoked
+    });
+
+    it('should handle refund where no earned reward exists', async () => {
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -2 }] };
+            }
+
+            // No earned reward
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [] };
+            }
+
+            // updateRewardProgress
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 3 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 200, status: 'in_progress', current_quantity: 5, required_quantity: 12 }] };
+            }
+            if (sql.includes('UPDATE loyalty_rewards') && sql.includes('current_quantity')) {
+                return { rows: [] };
+            }
+            // updateCustomerSummary
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 3, lifetime_purchases: 5 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+        expect(result.rewardAffected).toBe(false);
+    });
+
+    it('should handle zero quantity refund', async () => {
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                // Verify the quantity is -0 (still negative direction)
+                expect(params[6]).toBe(-0);
+                return { rows: [{ id: 101, quantity: -0 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 5 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'"))
+                return { rows: [{ id: 200, status: 'in_progress', current_quantity: 5, required_quantity: 12 }] };
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: null, end_date: null }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        // Should not throw
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 0,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+    });
+
+    it('should handle null unitPriceCents (total_price_cents should be null)', async () => {
+        let capturedTotalPrice = 'NOT_SET';
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                capturedTotalPrice = params[8]; // total_price_cents
+                return { rows: [{ id: 101, quantity: -2 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            unitPriceCents: undefined,
+            refundedAt: new Date()
+        });
+
+        // When unitPriceCents is undefined, total should be null (not NaN)
+        expect(capturedTotalPrice).toBeNull();
+    });
+});
+
+// ============================================================================
+// TESTS — updateCustomerSummary direct
+// ============================================================================
+
+describe('updateCustomerSummary', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should upsert customer summary with correct stats', async () => {
+        let upsertParams = null;
+        let queryIndex = 0;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            queryIndex++;
+            // Query 1: Stats query (has COALESCE + current_quantity + lifetime_purchases)
+            if (sql.includes('COALESCE') && sql.includes('current_quantity') && sql.includes('lifetime_purchases')) {
+                return {
+                    rows: [{
+                        current_quantity: 8,
+                        lifetime_purchases: 20,
+                        last_purchase: '2026-03-01',
+                        window_start: '2026-01-01',
+                        window_end: '2027-01-01'
+                    }]
+                };
+            }
+            // Query 2: Earned count
+            if (sql.includes('COUNT(*)') && sql.includes("status = 'earned'") && !sql.includes("'redeemed'")) {
+                return { rows: [{ count: 1 }] };
+            }
+            // Query 3: Redeemed count
+            if (sql.includes('COUNT(*)') && sql.includes("status = 'redeemed'") && !sql.includes("'earned'")) {
+                return { rows: [{ count: 2 }] };
+            }
+            // Query 4: Total earned+redeemed
+            if (sql.includes('COUNT(*)') && sql.includes("IN ('earned', 'redeemed')")) {
+                return { rows: [{ count: 3 }] };
+            }
+            // Query 5: Required quantity
+            if (sql.includes('SELECT required_quantity FROM loyalty_offers')) {
+                return { rows: [{ required_quantity: 12 }] };
+            }
+            // Query 6: Get earned reward ID
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'")) {
+                return { rows: [{ id: 42 }] };
+            }
+            // Query 7: Upsert
+            if (sql.includes('INSERT INTO loyalty_customer_summary')) {
+                upsertParams = params;
+                return { rows: [] };
+            }
+            return { rows: [] };
+        });
+
+        await updateCustomerSummary(mockClient, 1, 'cust_1', 10);
+
+        expect(upsertParams).not.toBeNull();
+        // Verify key fields:
+        // [merchantId, customerId, offerId, current_quantity, required_quantity,
+        //  window_start, window_end, has_earned, earned_reward_id,
+        //  lifetime, total_earned, total_redeemed, last_purchase]
+        expect(upsertParams[0]).toBe(1);           // merchantId
+        expect(upsertParams[1]).toBe('cust_1');     // customerId
+        expect(upsertParams[2]).toBe(10);           // offerId
+        expect(upsertParams[3]).toBe(8);            // current_quantity
+        expect(upsertParams[4]).toBe(12);           // required_quantity
+        expect(upsertParams[7]).toBe(true);         // has_earned_reward
+        expect(upsertParams[8]).toBe(42);           // earned_reward_id
+        expect(upsertParams[9]).toBe(20);           // lifetime_purchases
+        expect(upsertParams[10]).toBe(3);           // total_rewards_earned
+        expect(upsertParams[11]).toBe(2);           // total_rewards_redeemed
+    });
 });
