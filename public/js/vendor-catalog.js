@@ -1077,8 +1077,8 @@
       </div>
     </div>
     <div class="actions">
-      <button class="btn-csv" data-action="downloadCSV">Download CSV</button>
-      <button class="btn-print" data-action="printReport">Print Report</button>
+      <button class="btn-csv" id="downloadCSVBtn">Download CSV</button>
+      <button class="btn-print" id="printReportBtn">Print Report</button>
     </div>
   </div>
   <table>
@@ -1119,38 +1119,46 @@
       html += `
     </tbody>
   </table>
-  <script data-cfasync="false">
-    const reportData = ${JSON.stringify(report.priceUpdates).replace(/<\//g, '<\\/')};
-    function downloadCSV() {
-      const headers = ['Our SKU','Item Name','UPC','Vendor Item #','Our Price','Vendor SRP','Vendor Cost','Diff ($)','Diff (%)','Match Method'];
-      const rows = reportData.map(p => [
-        p.our_sku || '',
-        '"' + (p.our_item_name || p.product_name || '').replace(/"/g, '""') + '"',
-        p.upc || '',
-        p.vendor_item_number || '',
-        (p.our_price_cents / 100).toFixed(2),
-        (p.vendor_srp_cents / 100).toFixed(2),
-        (p.vendor_cost_cents / 100).toFixed(2),
-        (p.price_diff_cents / 100).toFixed(2),
-        p.price_diff_percent.toFixed(1),
-        p.match_method || ''
-      ]);
-      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'price-update-report.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  <\/script>
 </body>
 </html>
       `;
 
       reportWindow.document.write(html);
       reportWindow.document.close();
+
+      // Attach event listeners programmatically (CSP-compliant, no inline script)
+      const csvBtn = reportWindow.document.getElementById('downloadCSVBtn');
+      if (csvBtn) {
+        csvBtn.addEventListener('click', function() {
+          const headers = ['Our SKU','Item Name','UPC','Vendor Item #','Our Price','Vendor SRP','Vendor Cost','Diff ($)','Diff (%)','Match Method'];
+          const rows = report.priceUpdates.map(p => [
+            p.our_sku || '',
+            '"' + (p.our_item_name || p.product_name || '').replace(/"/g, '""') + '"',
+            p.upc || '',
+            p.vendor_item_number || '',
+            (p.our_price_cents / 100).toFixed(2),
+            (p.vendor_srp_cents / 100).toFixed(2),
+            (p.vendor_cost_cents / 100).toFixed(2),
+            (p.price_diff_cents / 100).toFixed(2),
+            p.price_diff_percent.toFixed(1),
+            p.match_method || ''
+          ]);
+          const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'price-update-report.csv';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+      }
+      const printBtn = reportWindow.document.getElementById('printReportBtn');
+      if (printBtn) {
+        printBtn.addEventListener('click', function() {
+          reportWindow.print();
+        });
+      }
     }
 
     // Update push button count
