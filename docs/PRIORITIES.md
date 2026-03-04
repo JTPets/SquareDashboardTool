@@ -16,7 +16,7 @@
 | SEC-5 | JSON.stringify script injection in `public/js/vendor-catalog.js:1123` — add `.replace(/<\//g, '<\\/')` after JSON.stringify to prevent `</script>` breakout | AUDIT-2026-02-28 | S |
 | SEC-6 | Google OAuth tokens stored in plaintext in `utils/google-auth.js` — encrypt with AES-256-GCM (same pattern as `token-encryption.js`) | CODEBASE_AUDIT_2026-02-25 | M |
 | SEC-7 | Password reset tokens stored as plaintext hex in database — hash with SHA-256 before storage, compare hashed values on verification | CODEBASE_AUDIT_2026-02-25 | M |
-| S-1 | SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`) — use `INTERVAL '1 day' * $N` parameterized pattern | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-1~~ | ~~SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`)~~ — **RESOLVED 2026-03-04**: All 6 locations use parameterized `INTERVAL '1 day' * $N` / `INTERVAL '1 minute' * $N` pattern. Test file `oauth-csrf.test.js` also updated. | CODEBASE_AUDIT_2026-02-25 | S |
 | S-2 | `/output` directory served without auth (`server.js:221`) — contains backups, logs. Add `requireAuth` middleware or restrict subdirectories | CODEBASE_AUDIT_2026-02-25 | S |
 
 ### Reliability
