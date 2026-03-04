@@ -1120,7 +1120,7 @@
     </tbody>
   </table>
   <script data-cfasync="false">
-    const reportData = ${JSON.stringify(report.priceUpdates)};
+    const reportData = ${JSON.stringify(report.priceUpdates).replace(/<\//g, '<\\/')};
     function downloadCSV() {
       const headers = ['Our SKU','Item Name','UPC','Vendor Item #','Our Price','Vendor SRP','Vendor Cost','Diff ($)','Diff (%)','Match Method'];
       const rows = reportData.map(p => [

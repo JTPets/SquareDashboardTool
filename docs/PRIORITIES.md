@@ -13,17 +13,17 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| SEC-5 | JSON.stringify script injection in `public/js/vendor-catalog.js:1123` — add `.replace(/<\//g, '<\\/')` after JSON.stringify to prevent `</script>` breakout | AUDIT-2026-02-28 | S |
+| ~~SEC-5~~ | ~~JSON.stringify script injection in `public/js/vendor-catalog.js:1123`~~ — **RESOLVED 2026-03-04**: Added `.replace(/<\//g, '<\\/')` after JSON.stringify to prevent `</script>` breakout | AUDIT-2026-02-28 | S |
 | SEC-6 | Google OAuth tokens stored in plaintext in `utils/google-auth.js` — encrypt with AES-256-GCM (same pattern as `token-encryption.js`) | CODEBASE_AUDIT_2026-02-25 | M |
 | SEC-7 | Password reset tokens stored as plaintext hex in database — hash with SHA-256 before storage, compare hashed values on verification | CODEBASE_AUDIT_2026-02-25 | M |
 | ~~S-1~~ | ~~SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`)~~ — **RESOLVED 2026-03-04**: All 6 locations use parameterized `INTERVAL '1 day' * $N` / `INTERVAL '1 minute' * $N` pattern. Test file `oauth-csrf.test.js` also updated. | CODEBASE_AUDIT_2026-02-25 | S |
-| S-2 | `/output` directory served without auth (`server.js:221`) — contains backups, logs. Add `requireAuth` middleware or restrict subdirectories | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~S-2~~ | ~~`/output` directory served without auth (`server.js:221`)~~ — **RESOLVED 2026-03-04**: Added `requireAuth` to `/output/logs` and `/output/backups`; `/output/feeds` remains public for Google Merchant Center | CODEBASE_AUDIT_2026-02-25 | S |
 
 ### Reliability
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| ERR-1/2 | Add `asyncHandler` to `square-oauth.js` `/connect` and `/callback` routes — currently use manual try/catch, risk unhandled rejections | AUDIT-2026-02-28 | S |
+| ~~ERR-1/2~~ | ~~Add `asyncHandler` to `square-oauth.js` `/connect` and `/callback` routes~~ — **RESOLVED 2026-03-04**: Both routes wrapped with `asyncHandler` | AUDIT-2026-02-28 | S |
 | E-1 | Fire-and-forget email in DB error handler (`server.js:1001`) — add `.catch()` for silent email failures during DB outage | CODEBASE_AUDIT_2026-02-25 | S |
 
 ### Business

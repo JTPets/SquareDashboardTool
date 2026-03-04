@@ -11,6 +11,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ## Observed Code Issues
 
+### OAuth `/connect` error handler uses global error handler instead of redirect
+
+**File**: `routes/square-oauth.js`
+**Issue**: After wrapping `/connect` with `asyncHandler` (ERR-1/2 fix), the manual try/catch was removed. Previously, errors redirected the user to `/dashboard.html?error=...`. Now errors pass to Express's global error handler, which returns JSON. The `/callback` route retains its try/catch for Square-specific error message building.
+**Impact**: Users hitting an OAuth connect error see a JSON error response instead of being redirected to the dashboard. Low likelihood — requires DB failure or missing env vars.
+**Source**: Observed during ERR-1/2 fix (2026-03-04)
+
 ### `reconcileVendorId` silent no-op
 
 **File**: `services/square/square-vendors.js` (originally `api.js:304-340`)
