@@ -138,6 +138,14 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ---
 
+## Testing
+
+| ID | File | Description |
+|----|------|-------------|
+| T-1 | `__tests__/routes/oauth-trial.test.js` | Test suite fails with `Cannot find module 'square'` — Square SDK not available in test environment. Tests pass locally when SDK is installed. Fix: add `square` to `devDependencies` or mock it in the test setup before this matters for real CI/CD pipeline. |
+
+---
+
 ## Grading History
 
 | Date | Grade | Notes |
