@@ -231,7 +231,7 @@ describe('S-10: Vendor catalog validation errors are HTML-escaped', () => {
 // ==================== S-2: /output Directory Auth ====================
 
 describe('S-2: /output directory requires authentication', () => {
-    test('server.js protects /output with auth check', () => {
+    test('server.js protects /output/logs and /output/backups with requireAuth middleware', () => {
         const fs = require('fs');
         const path = require('path');
         const serverSource = fs.readFileSync(
@@ -239,12 +239,14 @@ describe('S-2: /output directory requires authentication', () => {
             'utf8'
         );
 
-        // /output route must have auth middleware before express.static
-        expect(serverSource).toMatch(/app\.use\('\/output'/);
-        // The auth check should come before express.static
-        const outputSection = serverSource.match(/app\.use\('\/output'[\s\S]*?express\.static/);
-        expect(outputSection).toBeTruthy();
-        expect(outputSection[0]).toContain('req.session');
+        // /output/logs and /output/backups must have requireAuth before express.static
+        const logsRoute = serverSource.match(/app\.use\('\/output\/logs'.*express\.static/);
+        expect(logsRoute).toBeTruthy();
+        expect(logsRoute[0]).toContain('requireAuth');
+
+        const backupsRoute = serverSource.match(/app\.use\('\/output\/backups'.*express\.static/);
+        expect(backupsRoute).toBeTruthy();
+        expect(backupsRoute[0]).toContain('requireAuth');
     });
 });
 
