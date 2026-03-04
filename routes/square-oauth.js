@@ -80,51 +80,45 @@ function validateOAuthConfig() {
  * Initiate Square OAuth flow
  * Requires authenticated user
  */
-router.get('/connect', requireAuth, async (req, res) => {
-    try {
-        validateOAuthConfig();
+router.get('/connect', requireAuth, asyncHandler(async (req, res) => {
+    validateOAuthConfig();
 
-        // Generate cryptographically secure state parameter
-        const state = crypto.randomBytes(32).toString('hex');
-        // SECURITY: Validate redirect URL — only allow relative paths to prevent open redirect
-        const redirectAfter = isLocalPath(req.query.redirect) ? req.query.redirect : '/dashboard.html';
+    // Generate cryptographically secure state parameter
+    const state = crypto.randomBytes(32).toString('hex');
+    // SECURITY: Validate redirect URL — only allow relative paths to prevent open redirect
+    const redirectAfter = isLocalPath(req.query.redirect) ? req.query.redirect : '/dashboard.html';
 
-        // Store state in database with expiry
-        await db.query(`
-            INSERT INTO oauth_states (state, user_id, redirect_uri, expires_at)
-            VALUES ($1, $2, $3, NOW() + INTERVAL '1 minute' * $4)
-        `, [state, req.session.user.id, redirectAfter, STATE_EXPIRY_MINUTES]);
+    // Store state in database with expiry
+    await db.query(`
+        INSERT INTO oauth_states (state, user_id, redirect_uri, expires_at)
+        VALUES ($1, $2, $3, NOW() + INTERVAL '1 minute' * $4)
+    `, [state, req.session.user.id, redirectAfter, STATE_EXPIRY_MINUTES]);
 
-        logger.info('OAuth flow initiated', {
-            userId: req.session.user.id,
-            redirect: redirectAfter
-        });
+    logger.info('OAuth flow initiated', {
+        userId: req.session.user.id,
+        redirect: redirectAfter
+    });
 
-        // Build Square authorization URL
-        const baseUrl = SQUARE_ENVIRONMENT === 'sandbox'
-            ? 'https://connect.squareupsandbox.com'
-            : 'https://connect.squareup.com';
+    // Build Square authorization URL
+    const baseUrl = SQUARE_ENVIRONMENT === 'sandbox'
+        ? 'https://connect.squareupsandbox.com'
+        : 'https://connect.squareup.com';
 
-        const authUrl = new URL(`${baseUrl}/oauth2/authorize`);
-        authUrl.searchParams.set('client_id', SQUARE_APPLICATION_ID);
-        authUrl.searchParams.set('scope', REQUIRED_SCOPES.join(' '));
-        authUrl.searchParams.set('session', 'false');
-        authUrl.searchParams.set('state', state);
+    const authUrl = new URL(`${baseUrl}/oauth2/authorize`);
+    authUrl.searchParams.set('client_id', SQUARE_APPLICATION_ID);
+    authUrl.searchParams.set('scope', REQUIRED_SCOPES.join(' '));
+    authUrl.searchParams.set('session', 'false');
+    authUrl.searchParams.set('state', state);
 
-        res.redirect(authUrl.toString());
-
-    } catch (error) {
-        logger.error('OAuth connect error:', error);
-        res.redirect('/dashboard.html?error=' + encodeURIComponent('Failed to start Square connection'));
-    }
-});
+    res.redirect(authUrl.toString());
+}));
 
 /**
  * GET /api/square/oauth/callback
  * Handle OAuth callback from Square
  * This is called after user authorizes on Square's site
  */
-router.get('/callback', async (req, res) => {
+router.get('/callback', asyncHandler(async (req, res) => {
     const { code, state, error, error_description } = req.query;
 
     // Handle OAuth errors from Square
@@ -390,7 +384,7 @@ router.get('/callback', async (req, res) => {
         // Always show error details for OAuth errors (not sensitive)
         res.redirect('/dashboard.html?error=' + encodeURIComponent(errorMessage + ' (' + errorDetail + ')'));
     }
-});
+}));
 
 /**
  * POST /api/square/oauth/revoke

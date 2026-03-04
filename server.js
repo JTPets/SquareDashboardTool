@@ -218,13 +218,11 @@ app.use((req, res, next) => {
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
-// S-2: Require authentication for /output directory (contains backups, logs, generated files)
-app.use('/output', (req, res, next) => {
-    if (!req.session || !req.session.user) {
-        return res.status(401).json({ success: false, error: 'Authentication required' });
-    }
-    next();
-}, express.static(path.join(__dirname, 'output')));
+// S-2: Require authentication for sensitive /output subdirectories (logs, backups)
+// /output/feeds remains public for Google Merchant Center
+app.use('/output/logs', requireAuth, express.static(path.join(__dirname, 'output/logs')));
+app.use('/output/backups', requireAuth, express.static(path.join(__dirname, 'output/backups')));
+app.use('/output', express.static(path.join(__dirname, 'output')));
 
 // Configure multer for POD photo uploads
 const podUpload = multer({
