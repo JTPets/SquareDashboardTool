@@ -259,7 +259,7 @@ async function updateRewardProgress(client, data) {
         // Step 2: Split the crossing row if we still need more units
         if (neededFromCrossing > 0) {
             const crossingResult = await client.query(`
-                SELECT id, quantity, square_order_id, variation_id, unit_price_cents,
+                SELECT id, quantity, square_order_id, variation_id, unit_price_cents, total_price_cents,
                        purchased_at, idempotency_key, window_start_date, window_end_date,
                        square_location_id, receipt_url, customer_source, payment_type
                 FROM loyalty_purchase_events lpe
@@ -283,18 +283,19 @@ async function updateRewardProgress(client, data) {
                 const excessQty = crossingQty - neededFromCrossing;
 
                 // Create locked child (portion that goes to this reward)
+                const lockedTotalPriceCents = cr.unit_price_cents ? neededFromCrossing * cr.unit_price_cents : null;
                 await client.query(`
                     INSERT INTO loyalty_purchase_events (
                         merchant_id, offer_id, square_customer_id, square_order_id,
-                        square_location_id, variation_id, quantity, unit_price_cents,
+                        square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
                         purchased_at, window_start_date, window_end_date,
                         reward_id, original_event_id, idempotency_key,
                         receipt_url, customer_source, payment_type
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                 `, [
                     merchantId, offerId, squareCustomerId, cr.square_order_id,
-                    cr.square_location_id, cr.variation_id, neededFromCrossing, cr.unit_price_cents,
+                    cr.square_location_id, cr.variation_id, neededFromCrossing, cr.unit_price_cents, lockedTotalPriceCents,
                     cr.purchased_at, cr.window_start_date, cr.window_end_date,
                     reward.id, cr.id, cr.idempotency_key + ':split_locked:' + reward.id,
                     cr.receipt_url, cr.customer_source, cr.payment_type
@@ -302,18 +303,19 @@ async function updateRewardProgress(client, data) {
 
                 // Create unlocked excess child (rollover for next cycle)
                 if (excessQty > 0) {
+                    const excessTotalPriceCents = cr.unit_price_cents ? excessQty * cr.unit_price_cents : null;
                     await client.query(`
                         INSERT INTO loyalty_purchase_events (
                             merchant_id, offer_id, square_customer_id, square_order_id,
-                            square_location_id, variation_id, quantity, unit_price_cents,
+                            square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
                             purchased_at, window_start_date, window_end_date,
                             reward_id, original_event_id, idempotency_key,
                             receipt_url, customer_source, payment_type
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, $12, $13, $14, $15, $16)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, $13, $14, $15, $16, $17)
                     `, [
                         merchantId, offerId, squareCustomerId, cr.square_order_id,
-                        cr.square_location_id, cr.variation_id, excessQty, cr.unit_price_cents,
+                        cr.square_location_id, cr.variation_id, excessQty, cr.unit_price_cents, excessTotalPriceCents,
                         cr.purchased_at, cr.window_start_date, cr.window_end_date,
                         cr.id, cr.idempotency_key + ':split_excess:' + reward.id,
                         cr.receipt_url, cr.customer_source, cr.payment_type
@@ -471,6 +473,7 @@ async function updateRewardProgress(client, data) {
  * @param {string} purchaseData.variationId - Square variation ID
  * @param {number} purchaseData.quantity - Quantity purchased
  * @param {number} [purchaseData.unitPriceCents] - Unit price for audit
+ * @param {number} [purchaseData.totalPriceCents] - Total line item price (quantity × unit) for audit
  * @param {Date} purchaseData.purchasedAt - Purchase timestamp
  * @param {string} [purchaseData.squareLocationId] - Square location ID
  * @param {string} [purchaseData.receiptUrl] - Square receipt URL from tender
@@ -481,7 +484,7 @@ async function updateRewardProgress(client, data) {
 async function processQualifyingPurchase(purchaseData, options = {}) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
-        quantity, unitPriceCents, purchasedAt, squareLocationId, receiptUrl,
+        quantity, unitPriceCents, totalPriceCents, purchasedAt, squareLocationId, receiptUrl,
         customerSource = 'order', paymentType = null
     } = purchaseData;
 
@@ -565,15 +568,15 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
         const eventResult = await client.query(`
             INSERT INTO loyalty_purchase_events (
                 merchant_id, offer_id, square_customer_id, square_order_id,
-                square_location_id, variation_id, quantity, unit_price_cents,
+                square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
                 purchased_at, window_start_date, window_end_date,
                 is_refund, idempotency_key, receipt_url, customer_source, payment_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
-            squareLocationId, variationId, quantity, unitPriceCents,
+            squareLocationId, variationId, quantity, unitPriceCents, totalPriceCents || null,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
             false, idempotencyKey, receiptUrl || null, customerSource, paymentType
@@ -687,19 +690,20 @@ async function processRefund(refundData) {
         const windowEndDate = new Date(refundDate);
         windowEndDate.setMonth(windowEndDate.getMonth() + offer.window_months);
 
-        // Record the refund event
+        // Record the refund event (total_price_cents is negative to match refund direction)
+        const refundTotalPriceCents = unitPriceCents ? refundQuantity * unitPriceCents : null;
         const eventResult = await client.query(`
             INSERT INTO loyalty_purchase_events (
                 merchant_id, offer_id, square_customer_id, square_order_id,
-                square_location_id, variation_id, quantity, unit_price_cents,
+                square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
                 purchased_at, window_start_date, window_end_date,
                 is_refund, original_event_id, idempotency_key
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, TRUE, $13, $14)
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
-            squareLocationId, variationId, refundQuantity, unitPriceCents,
+            squareLocationId, variationId, refundQuantity, unitPriceCents, refundTotalPriceCents,
             refundedAt || new Date(), refundDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0], originalEventId, idempotencyKey
         ]);

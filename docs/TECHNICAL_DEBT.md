@@ -144,6 +144,15 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 |----|------|-------------|
 | T-1 | `__tests__/routes/oauth-trial.test.js` | Test suite fails with `Cannot find module 'square'` — Square SDK not available in test environment. Tests pass locally when SDK is installed. Fix: add `square` to `devDependencies` or mock it in the test setup before this matters for real CI/CD pipeline. |
 
+### Historical `total_price_cents` NULL rows in `loyalty_purchase_events`
+
+**Date logged**: 2026-03-04
+**Files**: `services/loyalty-admin/purchase-service.js`, `services/loyalty-admin/order-intake.js`
+**Issue**: The `total_price_cents` column (added in migration 025) was never populated prior to the 2026-03-04 fix. All rows inserted before that date have `total_price_cents = NULL`. New rows are now correctly populated as `quantity * unit_price_cents`.
+**Fix**: Backfill query: `UPDATE loyalty_purchase_events SET total_price_cents = quantity * unit_price_cents WHERE total_price_cents IS NULL AND unit_price_cents IS NOT NULL;`
+**Impact**: Low — current reports use `unit_price_cents` only. Backfill is safe to run at any time (idempotent, no side effects).
+**Priority**: Low
+
 ---
 
 ## Grading History
