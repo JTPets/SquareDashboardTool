@@ -133,6 +133,7 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
             const variationId = lineItem.catalog_object_id;
             const quantity = parseInt(lineItem.quantity) || 0;
             const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
+            const totalPriceCents = quantity * unitPriceCents;
 
             try {
                 const result = await processQualifyingPurchase({
@@ -142,6 +143,7 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
                     variationId,
                     quantity,
                     unitPriceCents,
+                    totalPriceCents,
                     purchasedAt: order.created_at || new Date(),
                     squareLocationId: order.location_id,
                     receiptUrl,
