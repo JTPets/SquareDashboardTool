@@ -798,14 +798,30 @@ async function syncCommittedInventory(merchantId) {
         deleted_invoice_ids: deletedInvoiceIds
     };
 
-    // Warn if no changes were made despite existing committed records
+    // Check if any committed rows have non-open statuses that should have been cleaned up
     if (rowsBefore > 0 && rowsDeleted === 0) {
-        logger.warn(`No stale rows deleted despite ${rowsBefore} committed records — verify invoice status sync`, {
-            merchantId,
-            rowsBefore,
-            rowsRemaining,
-            openInvoiceCount: openInvoiceIds.size
-        });
+        const staleStatusResult = await db.query(
+            `SELECT count(*)::int AS cnt FROM committed_inventory
+             WHERE merchant_id = $1 AND invoice_status != ALL($2)`,
+            [merchantId, openStatuses]
+        );
+        const staleStatusCount = staleStatusResult.rows[0].cnt;
+
+        if (staleStatusCount > 0) {
+            logger.warn(`${staleStatusCount} committed record(s) have non-open invoice status but were not deleted — verify invoice status sync`, {
+                merchantId,
+                rowsBefore,
+                rowsRemaining,
+                staleStatusCount,
+                openInvoiceCount: openInvoiceIds.size
+            });
+        } else {
+            logger.info(`${rowsBefore} committed records retained, all invoices open`, {
+                merchantId,
+                rowsRemaining,
+                openInvoiceCount: openInvoiceIds.size
+            });
+        }
     }
 
     logger.info('Committed inventory reconciliation complete', {
