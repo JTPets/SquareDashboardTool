@@ -4,6 +4,10 @@
  * Verifies that missing vendors are fetched from Square and upserted
  * before variation_vendors INSERT, preventing FK violations during
  * delta catalog sync.
+ *
+ * Mocks at the square-client service boundary (makeSquareRequest) instead of
+ * the HTTP transport layer (node-fetch), following the pattern in
+ * square-api-version-mismatch.test.js.
  */
 
 jest.mock('../../utils/database', () => ({
@@ -17,28 +21,16 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn(),
 }));
 
-// Mock token-encryption — mark token as already encrypted so getMerchantToken
-// calls decryptToken instead of trying to re-encrypt
-jest.mock('../../utils/token-encryption', () => ({
-    decryptToken: jest.fn().mockReturnValue('decrypted-test-token'),
-    isEncryptedToken: jest.fn().mockReturnValue(true),
-    encryptToken: jest.fn().mockReturnValue('encrypted'),
+// Mock square-client at the service boundary — bypasses HTTP layer entirely
+jest.mock('../../services/square/square-client', () => ({
+    getMerchantToken: jest.fn(),
+    makeSquareRequest: jest.fn(),
+    sleep: jest.fn().mockResolvedValue(),
 }));
-
-// Mock node-fetch
-jest.mock('node-fetch', () => jest.fn());
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const fetch = require('node-fetch');
-
-/** Helper: default db.query mock that handles getMerchantToken lookup */
-function defaultDbMock(sql) {
-    if (typeof sql === 'string' && sql.includes('square_access_token') && sql.includes('merchants')) {
-        return Promise.resolve({ rows: [{ square_access_token: 'enc:test-token' }] });
-    }
-    return Promise.resolve({ rows: [] });
-}
+const { getMerchantToken, makeSquareRequest } = require('../../services/square/square-client');
 
 const { ensureVendorsExist } = require('../../services/square/api');
 
@@ -47,20 +39,22 @@ describe('ensureVendorsExist', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-        db.query.mockImplementation(defaultDbMock);
+        getMerchantToken.mockResolvedValue('test-access-token');
+        db.query.mockImplementation(async (sql) => {
+            if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
+                return { rows: [] };
+            }
+            return { rows: [] };
+        });
     });
 
     test('does nothing when vendor list is empty', async () => {
         await ensureVendorsExist([], MERCHANT_ID);
-        // Only the setup query (if any) — no vendor lookups
-        expect(fetch).not.toHaveBeenCalled();
+        expect(makeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('does nothing when all vendors already exist locally', async () => {
         db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
             if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
                 return { rows: [{ id: 'VENDOR_A' }, { id: 'VENDOR_B' }] };
             }
@@ -68,14 +62,11 @@ describe('ensureVendorsExist', () => {
         });
 
         await ensureVendorsExist(['VENDOR_A', 'VENDOR_B'], MERCHANT_ID);
-        expect(fetch).not.toHaveBeenCalled();
+        expect(makeSquareRequest).not.toHaveBeenCalled();
     });
 
     test('fetches missing vendor from Square and upserts it', async () => {
         db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
             if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
                 return { rows: [{ id: 'VENDOR_A' }] };
             }
@@ -85,24 +76,23 @@ describe('ensureVendorsExist', () => {
             return { rows: [] };
         });
 
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({
-                vendor: {
-                    id: 'VENDOR_B',
-                    name: 'Acme Pet Supplies',
-                    status: 'ACTIVE',
-                    contacts: [{ name: 'John', email_address: 'john@acme.com', phone_number: '555-1234' }]
-                }
-            })
+        makeSquareRequest.mockResolvedValueOnce({
+            vendor: {
+                id: 'VENDOR_B',
+                name: 'Acme Pet Supplies',
+                status: 'ACTIVE',
+                contacts: [{ name: 'John', email_address: 'john@acme.com', phone_number: '555-1234' }]
+            }
         });
 
         await ensureVendorsExist(['VENDOR_A', 'VENDOR_B'], MERCHANT_ID);
 
         // Should have fetched VENDOR_B from Square
-        expect(fetch).toHaveBeenCalledTimes(1);
-        const fetchUrl = fetch.mock.calls[0][0];
-        expect(fetchUrl).toContain('/v2/vendors/VENDOR_B');
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
+        expect(makeSquareRequest).toHaveBeenCalledWith(
+            '/v2/vendors/VENDOR_B',
+            expect.objectContaining({ accessToken: 'test-access-token' })
+        );
 
         // Should have upserted into vendors table
         const insertCalls = db.query.mock.calls.filter(
@@ -120,47 +110,20 @@ describe('ensureVendorsExist', () => {
     });
 
     test('deduplicates vendor IDs', async () => {
-        db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
-            if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
-                return { rows: [] };
-            }
-            return { rows: [] };
-        });
-
-        fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                vendor: { id: 'VENDOR_X', name: 'Test', status: 'ACTIVE', contacts: [] }
-            })
+        makeSquareRequest.mockResolvedValue({
+            vendor: { id: 'VENDOR_X', name: 'Test', status: 'ACTIVE', contacts: [] }
         });
 
         // Pass same vendor ID 3 times
         await ensureVendorsExist(['VENDOR_X', 'VENDOR_X', 'VENDOR_X'], MERCHANT_ID);
 
         // Should only fetch once
-        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(makeSquareRequest).toHaveBeenCalledTimes(1);
     });
 
     test('logs warning and continues when Square fetch fails', async () => {
-        db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
-            if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
-                return { rows: [] };
-            }
-            return { rows: [] };
-        });
-
-        // Simulate 400 NOT_FOUND from Square (deleted vendor — non-retryable)
-        fetch.mockResolvedValueOnce({
-            ok: false,
-            status: 400,
-            json: async () => ({ errors: [{ code: 'NOT_FOUND', detail: 'Vendor not found' }] })
-        });
+        // Simulate a failed Square request
+        makeSquareRequest.mockRejectedValueOnce(new Error('NOT_FOUND: Vendor not found'));
 
         // Should not throw
         await ensureVendorsExist(['DELETED_VENDOR'], MERCHANT_ID);
@@ -172,21 +135,8 @@ describe('ensureVendorsExist', () => {
     });
 
     test('handles vendor with no contacts gracefully', async () => {
-        db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
-            if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
-                return { rows: [] };
-            }
-            return { rows: [] };
-        });
-
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: async () => ({
-                vendor: { id: 'VENDOR_NC', name: 'No Contact Corp', status: 'ACTIVE' }
-            })
+        makeSquareRequest.mockResolvedValueOnce({
+            vendor: { id: 'VENDOR_NC', name: 'No Contact Corp', status: 'ACTIVE' }
         });
 
         await ensureVendorsExist(['VENDOR_NC'], MERCHANT_ID);
@@ -203,34 +153,24 @@ describe('ensureVendorsExist', () => {
     });
 
     test('fetches multiple missing vendors individually', async () => {
-        db.query.mockImplementation(async (sql) => {
-            if (typeof sql === 'string' && sql.includes('square_access_token')) {
-                return { rows: [{ square_access_token: 'enc:test-token' }] };
-            }
-            if (typeof sql === 'string' && sql.includes('SELECT id FROM vendors')) {
-                return { rows: [] };
-            }
-            return { rows: [] };
-        });
-
-        fetch
+        makeSquareRequest
             .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
-                    vendor: { id: 'V1', name: 'Vendor One', status: 'ACTIVE', contacts: [] }
-                })
+                vendor: { id: 'V1', name: 'Vendor One', status: 'ACTIVE', contacts: [] }
             })
             .mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
-                    vendor: { id: 'V2', name: 'Vendor Two', status: 'INACTIVE', contacts: [] }
-                })
+                vendor: { id: 'V2', name: 'Vendor Two', status: 'INACTIVE', contacts: [] }
             });
 
         await ensureVendorsExist(['V1', 'V2'], MERCHANT_ID);
 
-        expect(fetch).toHaveBeenCalledTimes(2);
-        expect(fetch.mock.calls[0][0]).toContain('/v2/vendors/V1');
-        expect(fetch.mock.calls[1][0]).toContain('/v2/vendors/V2');
+        expect(makeSquareRequest).toHaveBeenCalledTimes(2);
+        expect(makeSquareRequest).toHaveBeenCalledWith(
+            '/v2/vendors/V1',
+            expect.objectContaining({ accessToken: 'test-access-token' })
+        );
+        expect(makeSquareRequest).toHaveBeenCalledWith(
+            '/v2/vendors/V2',
+            expect.objectContaining({ accessToken: 'test-access-token' })
+        );
     });
 });
