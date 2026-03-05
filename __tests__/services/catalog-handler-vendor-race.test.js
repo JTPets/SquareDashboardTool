@@ -55,7 +55,9 @@ describe('CatalogHandler - Vendor INSERT race condition', () => {
     function makeVendorContext(overrides = {}) {
         return {
             event: { type: 'vendor.created' },
-            entityId: 'V-NEW-ID',
+            // entityId is the event reference ID (a UUID), NOT the vendor ID.
+            // The handler must use data.vendor.id instead.
+            entityId: 'event-ref-uuid-not-vendor-id',
             merchantId: 1,
             data: {
                 vendor: {

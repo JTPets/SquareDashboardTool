@@ -150,7 +150,7 @@ class CatalogHandler {
      * @private
      */
     async _handleVendorChange(context) {
-        const { data, merchantId, event, entityId } = context;
+        const { data, merchantId, event } = context;
         const result = { handled: true };
 
         if (process.env.WEBHOOK_CATALOG_SYNC === 'false') {
@@ -170,8 +170,10 @@ class CatalogHandler {
             return result;
         }
 
-        // Use entityId (canonical) with fallback to nested object
-        const vendorId = entityId || vendor.id;
+        // NOTE: Do NOT use entityId (context.entityId / event.data.id) here.
+        // For vendor webhooks, data.id is the event reference ID (a UUID), not the vendor ID.
+        // The actual vendor ID lives at data.object.vendor.id (i.e. vendor.id in our context).
+        const vendorId = vendor.id;
 
         logger.info('Vendor change detected via webhook', {
             vendorId,
