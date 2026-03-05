@@ -1,6 +1,7 @@
 # Dead Code Report
 
 > **Audit Date**: 2026-03-05
+> **Investigation Date**: 2026-03-05
 > **Scope**: Full codebase scan — server.js, routes/, services/, middleware/, utils/, jobs/, public/js/
 > **Previous Report**: docs/archive/DEAD-CODE-REPORT.md (2026-02-19 — found 0 actionable items post-cleanup)
 
@@ -8,133 +9,360 @@
 
 ## Summary
 
-| Category | Count | Lines Removable |
-|----------|-------|-----------------|
-| Dead imports (server.js) | 7 | ~7 |
-| Dead variables (server.js) | 5 | ~20 |
-| Orphaned module (middleware) | 1 file | ~211 |
-| Dead exports (middleware/auth.js) | 3 | ~35 |
-| Dead export (utils/database.js) | 1 | ~8 |
-| Orphaned module (utils/merchant-db.js) | 1 file | ~567 |
-| Re-export stubs (utils/) | 10 files | ~130 |
-| Duplicate function (routes/) | 1 | ~4 |
-| Legacy dual-write (services/) | 1 block | ~20 |
-| **Total** | **~30 items** | **~1,002 lines** |
+| Category | Count | Lines Removable | Verdict |
+|----------|-------|-----------------|---------|
+| Dead imports (server.js) | 11 | ~30 | DELETE |
+| Dead variables (server.js) | 4 | ~20 | DELETE (3) + WIRE IN (security) |
+| Orphaned module (middleware) | 1 file | ~211 | DELETE |
+| Orphaned module (utils/merchant-db.js) | 1 file | ~567 | DELETE |
+| Dead exports (middleware/auth.js) | 3 | ~35 | DELETE |
+| Dead export (utils/database.js) | 1 | ~8 | DELETE |
+| Re-export stubs (utils/) | 10 files | ~130 | DELETE (update 66 consumers) |
+| Duplicate function (routes/) | 1 | ~4 | REFACTOR |
+| Legacy dual-write (services/) | 1 block | ~20 | KEEP |
+| **Total actionable** | **~32 items** | **~1,025 lines** | |
 
 ---
 
-## P0: Orphaned Modules (Safe to Delete Entirely)
+## Investigation 1: `utils/merchant-db.js`
 
-### 1. `middleware/subscription-check.js` (~211 lines)
+> What is it? Was it replaced? Is any logic missing?
 
-**Classification**: SAFE TO DELETE
+### Verdict: DELETE
 
-5 exports (`subscriptionCheck`, `apiSubscriptionCheck`, `requireSubscription`, `isPublicRoute`, `getSubscriberEmail`) — zero production consumers. Only imported by its own test file.
+**What it is**: A 567-line class-based database abstraction that auto-injects `merchant_id` into SQL queries via a `$merchant_id` placeholder. Contains 40+ convenience methods: `getItems()`, `getVariations()`, `getCategories()`, `getLocations()`, `getInventory()`, `getPurchaseOrders()`, `getSalesVelocity()`, plus generic CRUD (`insert`, `update`, `delete`, `softDelete`, `count`, `exists`).
 
-**Reason**: System B subscription enforcement was removed from server.js (2026-03-01). System A (`requireValidSubscription` in merchant.js) is the sole enforcement layer. This file is fully orphaned.
+**Was it replaced?** Yes. The codebase uses direct `db.query()` calls with explicit `merchant_id` parameters in the services layer. MerchantDB was added in commit `697cf5a` (2026-02-27, PR #913) but was never imported, instantiated, or referenced by any other file.
 
-### 2. `utils/merchant-db.js` (~567 lines)
+**Is any logic missing?** No. Every MerchantDB method has an equivalent in the current services layer:
 
-**Classification**: NEEDS VERIFICATION
+| MerchantDB Method | Current Implementation |
+|---|---|
+| `getItems()` | `services/catalog/item-service.js:71-108` |
+| `getVariations()` | `services/catalog/variation-service.js:25+` |
+| `getCategories()` | `services/catalog/item-service.js:45-62` |
+| `getLocations()` | `services/catalog/item-service.js:20-37` |
+| `getInventory()` | `services/catalog/inventory-service.js` |
+| `insert/update/delete` | Inline `db.query()` across services |
 
-Full `MerchantDB` class with 40+ methods — never imported or instantiated anywhere in the codebase. Only referenced in its own JSDoc example comment.
+**Additional finding**: Contains SEC-9 security vulnerability — `update()` method (lines 451-465) interpolates column names into SQL without validation. Unreachable since the class is never instantiated, but deletion eliminates the vulnerability.
 
-**Reason**: Appears to be a proposed abstraction pattern that was never adopted. The codebase uses direct `db.query()` with `merchant_id` filtering instead. If confirmed as abandoned design, delete entirely.
-
----
-
-## P1: Dead Imports & Variables in `server.js`
-
-### Dead Imports (7 items)
-
-| Line | Import | Reason | Classification |
-|------|--------|--------|----------------|
-| 7 | `const startupTime = Date.now()` | Never referenced after declaration | SAFE TO DELETE |
-| 16 | `const cron = require('node-cron')` | Never used; jobs module manages cron internally | SAFE TO DELETE |
-| 31 | `const subscriptionHandler = require('./utils/subscription-handler')` | Subscription enforcement moved to merchant middleware | SAFE TO DELETE |
-| 35 | `const deliveryApi = require('./utils/delivery-api')` | Delivery routes extracted to routes/delivery.js | SAFE TO DELETE |
-| 36 | `const loyaltyService = require('./utils/loyalty-service')` | Loyalty routes extracted to routes/loyalty.js | SAFE TO DELETE |
-| 37 | `const loyaltyReports = require('./utils/loyalty-reports')` | Reports extracted to loyalty route module | SAFE TO DELETE |
-| 38 | `const gmcApi = require('./utils/merchant-center-api')` | GMC routes extracted to routes/gmc.js | SAFE TO DELETE |
-
-### Dead Destructured Imports (2 items)
-
-| Line | Import | Reason | Classification |
-|------|--------|--------|----------------|
-| 63 | `{ generateDailyBatch }` from `utils/cycle-count-utils` | Never used; cycle counts handled by extracted routes | SAFE TO DELETE |
-| 65 | `loggedSync` from `routes/sync` destructuring | Never referenced; only `runSmartSync` and `isSyncNeeded` used | SAFE TO DELETE |
-
-### Dead Variables (4 items)
-
-| Line | Variable | Reason | Classification |
-|------|----------|--------|----------------|
-| 126 | `deliveryRateLimit` | Configured but never applied to any route | NEEDS VERIFICATION |
-| 127 | `deliveryStrictRateLimit` | Configured but never applied to any route | NEEDS VERIFICATION |
-| 129 | `sensitiveOperationRateLimit` | Configured but never applied to any route | NEEDS VERIFICATION |
-| 228-241 | `podUpload` (multer config) | Configured but never applied; delivery routes may have own config | NEEDS VERIFICATION |
-
-> **Note on rate limiters**: These 3 rate-limit variables + `podUpload` were likely intended to be wired into routes but never were. Before deleting, verify whether `routes/delivery.js` has its own upload/rate-limit config. If so, these are dead. If not, they should be wired in (security gap).
+**Evidence**:
+- Zero `require` references: `grep -r "merchant-db\|MerchantDB" --include="*.js"` returns only self-references
+- Zero test coverage
+- Single commit, never modified
+- Architectural mismatch: CLAUDE.md specifies routes -> services -> db pattern; MerchantDB is a redundant data-access layer
 
 ---
 
-## P1: Dead Exports
+## Investigation 2: `middleware/subscription-check.js`
 
-### `middleware/auth.js` — 3 unused exports
+> What does it do? Is its logic duplicated or abandoned?
 
-| Line | Export | Reason | Classification |
-|------|--------|--------|----------------|
-| 143-145 | `getCurrentUser(req)` | 0 non-test consumers; trivial accessor (`req.session?.user`) | SAFE TO DELETE |
-| 77-103 | `requireRole(...roles)` | 0 non-test consumers; superseded by `requireMerchantRole()` in merchant.js | SAFE TO DELETE |
-| 130-136 | `optionalAuth(req, res, next)` | 0 non-test consumers; sets `req.user` but no route reads it | SAFE TO DELETE |
+### Verdict: DELETE (file + test file)
 
-### `utils/database.js` — 1 unused export
+**What it does**: Email-based subscription enforcement ("System B") with 5 exports:
+- `subscriptionCheck` — Global middleware checking subscription status by session email
+- `apiSubscriptionCheck` — API wrapper returning JSON 403
+- `requireSubscription(status)` — Factory middleware for specific subscription statuses
+- `isPublicRoute(path)` — Route whitelist for paths not requiring subscription
+- `getSubscriberEmail(req)` — Extracts email from session (hardened against header/cookie spoofing)
 
-| Line | Export | Reason | Classification |
-|------|--------|--------|----------------|
-| 44, 2409 | `getPoolStats()` | Exported but never imported by any file | SAFE TO DELETE |
+**Is logic duplicated?** Yes. System A (`requireValidSubscription` in `middleware/merchant.js:148-169`) covers all checks:
 
----
+| Check | System B (this file) | System A (merchant.js) |
+|-------|---------------------|----------------------|
+| Trial expiry | Via `checkSubscriptionStatus()` | Explicit `trial_ends_at` check |
+| Subscription expiry | Via `checkSubscriptionStatus()` | Explicit `subscription_ends_at` check |
+| Suspension | Via `checkSubscriptionStatus()` | Explicit `subscription_status` check |
+| Route exemptions | `PUBLIC_ROUTES` array | `subscriptionExcludedPaths` in server.js |
+| Response | 403 Forbidden | 402 Payment Required |
 
-## P2: Re-export Stubs (DC-1 from TECHNICAL_DEBT.md)
+**Difference**: System B is email-based (now deprecated). System A is merchant-context-based (active). System B was removed from server.js on 2026-03-01 with explicit comment: "System B email-based subscriptionCheck removed — System A is the sole enforcement layer."
 
-10 files in `utils/` that simply re-export from `services/`. All have active consumers, but the stub pattern is tech debt. Removing requires updating all consumer import paths.
-
-| File | Real Source | Consumer Count | Classification |
-|------|------------|----------------|----------------|
-| `utils/square-api.js` | `services/square` | 24 | SAFE TO DELETE (update consumers) |
-| `utils/loyalty-service.js` | `services/loyalty-admin` | 15 | SAFE TO DELETE (update consumers) |
-| `utils/delivery-api.js` | `services/delivery` | 5 | SAFE TO DELETE (update consumers) |
-| `utils/expiry-discount.js` | `services/expiry` | 4 | SAFE TO DELETE (update consumers) |
-| `utils/cycle-count-utils.js` | `services/inventory` | 3 | SAFE TO DELETE (update consumers) |
-| `utils/merchant-center-api.js` | `services/gmc/merchant-service` | 3 | SAFE TO DELETE (update consumers) |
-| `utils/loyalty-reports.js` | `services/reports` | 2 | SAFE TO DELETE (update consumers) |
-| `utils/gmc-feed.js` | `services/gmc/feed-service` | 2 | SAFE TO DELETE (update consumers) |
-| `utils/vendor-catalog.js` | `services/vendor` | 2 | SAFE TO DELETE (update consumers) |
-| `utils/google-sheets.js` | `google-auth` | 1 (test only) | SAFE TO DELETE |
+**Test file**: `__tests__/middleware/subscription-check.test.js` (293 lines, 67 tests) — all test System B-specific behavior. Delete alongside the module.
 
 ---
 
-## P3: Code Quality Issues (Not Strictly Dead)
+## Investigation 3: Re-export Stubs in `utils/`
 
-### Duplicate function: `hashResetToken`
+> For each stub: every consumer, what they need, correct direct import path. Confirm service module exports everything.
 
-- `routes/auth.js:19-21` and `routes/subscriptions.js:40-43` — identical 3-line SHA-256 hash function
-- Already tracked in TECHNICAL_DEBT.md
-- **Recommendation**: Extract to `utils/password.js` (which already exists)
+### Verdict: DELETE all 10 (update 66 consumer files)
 
-### Duplicate import pattern: `routes/subscriptions.js:37-38`
+All 10 stubs are one-line pass-through re-exports with zero added logic. Every function consumers import through the stub is confirmed available in the target service module. No missing exports, no circular dependency issues.
 
-```javascript
-const squareApi = require('../utils/square-api');
-const { generateIdempotencyKey } = require('../utils/square-api');
-```
-- Same module required twice; consolidate to single import
+### Stub 1: `utils/square-api.js` -> `services/square`
 
-### Legacy dual-write: `services/loyalty-admin/reward-service.js:94-113`
+| Consumer | Imports Used | New Import Path |
+|----------|-------------|-----------------|
+| `server.js` | Full module | `./services/square` |
+| `routes/delivery.js` | `generateIdempotencyKey` | `../services/square` |
+| `routes/square-oauth.js` | Full module | `../services/square` |
+| `routes/sync.js` | Full module | `../services/square` |
+| `routes/cycle-counts.js` | Full module | `../services/square` |
+| `routes/vendor-catalog.js` | `generateIdempotencyKey` | `../services/square` |
+| `routes/gmc.js` | Full module | `../services/square` |
+| `routes/square-attributes.js` | Full module | `../services/square` |
+| `routes/subscriptions.js` | Full module + destructured | `../services/square` |
+| `services/catalog/inventory-service.js` | Full module | `../square` |
+| `services/catalog/audit-service.js` | Full module | `../square` |
+| `services/catalog/variation-service.js` | Full module | `../square` |
+| `services/webhook-handlers/catalog-handler.js` | Full module | `../square` |
+| `services/webhook-handlers/inventory-handler.js` | Full module | `../square` |
+| `services/webhook-handlers/order-handler.js` | Full module | `../square` |
+| `services/expiry/discount-service.js` | Lazy require | `../square` |
+| `services/loyalty-admin/shared-utils.js` | Lazy require | `../square` |
+| `jobs/webhook-retry-job.js` | Full module | `../services/square` |
+| `jobs/committed-inventory-reconciliation-job.js` | Full module | `../services/square` |
+| 4 test files | Various | `../../services/square` |
 
-- Inserts into legacy `loyalty_redemptions` table alongside modern `loyalty_rewards` table
-- Explicitly commented as "LEGACY: Remove after migration"
-- **Classification**: KEEP (intentional backward compatibility during migration)
+**Export coverage**: 100% — `services/square/index.js` re-exports everything consumers need.
+
+### Stub 2: `utils/loyalty-service.js` -> `services/loyalty-admin`
+
+| Consumer | Imports Used | New Import Path |
+|----------|-------------|-----------------|
+| `server.js` | Full module | `./services/loyalty-admin` |
+| `routes/loyalty/audit.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/customers.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/discounts.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/offers.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/processing.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/rewards.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/settings.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/square-integration.js` | Specific functions | `../../services/loyalty-admin` |
+| `routes/loyalty/variations.js` | Specific functions | `../../services/loyalty-admin` |
+| `services/webhook-handlers/order-handler.js` | Specific functions | `../loyalty-admin` |
+| `services/webhook-handlers/loyalty-handler.js` | Specific functions | `../loyalty-admin` |
+| `services/webhook-handlers/customer-handler.js` | Specific functions | `../loyalty-admin` |
+| `jobs/loyalty-catchup-job.js` | Specific functions | `../services/loyalty-admin` |
+| 1 test file | Various | `../../services/loyalty-admin` |
+
+**Export coverage**: 100% — `services/loyalty-admin/index.js` exports 61 functions across 21 modules.
+
+### Stub 3: `utils/delivery-api.js` -> `services/delivery`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `server.js` | `./services/delivery` |
+| `routes/delivery.js` | `../services/delivery` |
+| `routes/driver-api.js` | `../services/delivery` |
+| `services/webhook-handlers/order-handler.js` | `../delivery` |
+| 1 test file | `../../services/delivery` |
+
+**Export coverage**: 100% — 29 functions available.
+
+### Stub 4: `utils/expiry-discount.js` -> `services/expiry`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `server.js` | `./services/expiry` |
+| `routes/expiry-discounts.js` | `../services/expiry` |
+| `services/catalog/inventory-service.js` | `../expiry` |
+| `jobs/expiry-discount-job.js` | `../services/expiry` |
+
+**Export coverage**: 100% — 24 functions available.
+
+### Stub 5: `utils/cycle-count-utils.js` -> `services/inventory`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `server.js` | `./services/inventory` |
+| `routes/cycle-counts.js` | `../services/inventory` |
+| `jobs/cycle-count-job.js` | `../services/inventory` |
+
+**Export coverage**: 100% — 2 functions: `generateDailyBatch`, `sendCycleCountReport`.
+
+### Stub 6: `utils/merchant-center-api.js` -> `services/gmc/merchant-service`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `server.js` | `./services/gmc/merchant-service` |
+| `routes/gmc.js` | `../services/gmc/merchant-service` |
+| `jobs/sync-job.js` | `../services/gmc/merchant-service` |
+
+**Export coverage**: 100% — 8 functions available.
+
+### Stub 7: `utils/loyalty-reports.js` -> `services/reports`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `server.js` | `./services/reports` |
+| `routes/loyalty/reports.js` | `../../services/reports` |
+
+**Export coverage**: 100% — 6 report generation functions.
+
+### Stub 8: `utils/gmc-feed.js` -> `services/gmc/feed-service`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `routes/gmc.js` | `../services/gmc/feed-service` |
+| `routes/sync.js` | `../services/gmc/feed-service` |
+
+**Export coverage**: 100% — 10 functions.
+
+### Stub 9: `utils/vendor-catalog.js` -> `services/vendor`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| `routes/vendor-catalog.js` | `../services/vendor` |
+| 1 test file | `../../services/vendor` |
+
+**Export coverage**: 100% — 16 functions.
+
+### Stub 10: `utils/google-sheets.js` -> `utils/google-auth`
+
+| Consumer | New Import Path |
+|----------|-----------------|
+| 1 test file | `../utils/google-auth` |
+
+**Export coverage**: 100%. Misnamed stub (handles GMC OAuth, not Sheets). Only 1 test consumer.
+
+---
+
+## Investigation 4: Rate Limiters in `server.js`
+
+> Should these be wired in, or deleted? What routes are exposed?
+
+### Verdict: DELETE the server.js variables (they are redundant) + WIRE IN rate limiting on unprotected delivery/driver endpoints (separate security task)
+
+**Critical finding**: `routes/delivery.js` (lines 61-62) and `routes/gmc.js` (line 45) each create their **own instances** of these rate limiters by importing `configureDeliveryRateLimit`, `configureDeliveryStrictRateLimit`, and `configureSensitiveOperationRateLimit` directly from `middleware/security.js`. The server.js copies are leftover from before route extraction and are fully redundant.
+
+**Rate limiter specs**:
+- `configureDeliveryRateLimit()` — 30 requests/minute, keyed by user ID or IP
+- `configureDeliveryStrictRateLimit()` — 10 requests/5 minutes, for expensive operations
+- `configureSensitiveOperationRateLimit()` — 5 requests/hour per merchant, for token regeneration
+
+**`podUpload` multer config** (server.js:228-241): Dead. Both `routes/delivery.js` (lines 65-78) and `routes/driver-api.js` (lines 37-51) define their own identical multer configs. The `multer` import on line 15 is also dead — its only use is the dead `podUpload`.
+
+### Security Gaps Discovered (Separate from dead code cleanup)
+
+The following delivery endpoints have **NO rate limiting** beyond the global 100/15min:
+
+**P0 — Public driver API (unauthenticated, token-based):**
+
+| Endpoint | Risk |
+|----------|------|
+| `POST /api/driver/:token/orders/:orderId/pod` | **CRITICAL**: 10MB file upload, 100/15min = 1GB potential |
+| `POST /api/driver/:token/orders/:orderId/complete` | State change, no per-token limit |
+| `POST /api/driver/:token/orders/:orderId/skip` | State change, no per-token limit |
+| `POST /api/driver/:token/finish` | State change, no per-token limit |
+
+**P1 — Authenticated delivery routes missing rate limiter:**
+
+| Endpoint | Should Have |
+|----------|-------------|
+| `PATCH /api/delivery/orders/:id` | `deliveryRateLimit` |
+| `DELETE /api/delivery/orders/:id` | `deliveryRateLimit` |
+| `POST /api/delivery/orders/:id/skip` | `deliveryRateLimit` |
+| `POST /api/delivery/orders/:id/complete` | `deliveryRateLimit` |
+| `POST /api/delivery/route/finish` | `deliveryRateLimit` |
+| `PUT /api/delivery/settings` | `deliveryRateLimit` |
+| `POST /api/delivery/backfill-customers` | `deliveryStrictRateLimit` |
+
+> **Action**: File these as a security task (not dead code cleanup). The server.js variables should still be deleted — they are unused duplicates. The security gaps should be fixed in `routes/delivery.js` and `routes/driver-api.js` where the rate limiters are already instantiated.
+
+---
+
+## Investigation 5: Dead Exports in `middleware/auth.js`
+
+> Test usage? Needed for BACKLOG-41 (user access control)?
+
+### Verdict: DELETE all 3
+
+**Test usage**: All 3 functions have test coverage in `__tests__/middleware/auth.test.js` (16 tests total). These tests would be deleted alongside the functions.
+
+**BACKLOG-41 analysis**: BACKLOG-41 specifies "manager, clerk, accountant permissions" — these are **merchant-scoped roles**, not global roles.
+
+| Function | Needed for BACKLOG-41? | Reason |
+|----------|----------------------|--------|
+| `requireRole(...roles)` | **NO** | Checks global `req.session.user.role`. BACKLOG-41 needs merchant-scoped roles (`user_merchants.role`). `requireMerchantRole()` in merchant.js already handles this correctly. |
+| `getCurrentUser(req)` | **NO** | Trivial one-liner (`req.session?.user`). BACKLOG-41 audit logging will use `req.session.user.id` + `req.merchantContext.id` directly. |
+| `optionalAuth(req, res, next)` | **NO** | Sets `req.user` from session but no route reads `req.user`. BACKLOG-41 endpoints require full auth (`requireAuth` + `requireMerchantRole()`). |
+
+**Two role systems exist**:
+- **Global roles** (`users.role`): `admin`, `user`, `readonly` — platform-wide, used by `requireRole()` (dead)
+- **Merchant roles** (`user_merchants.role`): `owner`, `admin`, `user`, `readonly` — per-tenant, used by `requireMerchantRole()` (active)
+
+BACKLOG-41 will extend the merchant role system (adding `manager`, `clerk`, `accountant` to the `user_merchants.role` constraint). `requireMerchantRole()` already supports arbitrary role strings. No changes to auth.js needed.
+
+---
+
+## Investigation 6: Server.js Dead Imports
+
+> Confirm each is truly unused end-to-end.
+
+### Verdict: DELETE all 11
+
+Every import was verified by searching the full 1,186-line server.js for any reference beyond the import line (dot notation, function calls, bracket notation, middleware usage, variable passing).
+
+| # | Line | Import | References in server.js | Verdict |
+|---|------|--------|------------------------|---------|
+| 1 | 7 | `startupTime = Date.now()` | 0 | DELETE |
+| 2 | 15 | `multer = require('multer')` | Only used by dead `podUpload` (line 228) | DELETE |
+| 3 | 16 | `cron = require('node-cron')` | 0 (cron logic in `jobs/cron-scheduler.js`) | DELETE |
+| 4 | 31 | `subscriptionHandler = require(...)` | 0 | DELETE |
+| 5 | 33 | `expiryDiscount = require(...)` | 0 (not to be confused with `expiryDiscountsRoutes` on line 60, which IS used) | DELETE |
+| 6 | 35 | `deliveryApi = require(...)` | 0 | DELETE |
+| 7 | 36 | `loyaltyService = require(...)` | 0 | DELETE |
+| 8 | 37 | `loyaltyReports = require(...)` | 0 | DELETE |
+| 9 | 38 | `gmcApi = require(...)` | 0 | DELETE |
+| 10 | 63 | `{ generateDailyBatch }` destructured | 0 | DELETE |
+| 11 | 65 | `loggedSync` in destructuring | 0 (`runSmartSync` used at line 1035; `isSyncNeeded` at line 1022) | DELETE (keep other destructured names) |
+
+**Line 228-241**: `podUpload` multer config — dead. `routes/delivery.js:65-78` and `routes/driver-api.js:37-51` each have their own identical configs.
+
+**Line 126-129**: 3 rate limiter variables — dead (superseded by route-local instances, see Investigation 4).
+
+---
+
+## Final Verdicts
+
+| Item | Verdict | Reason |
+|------|---------|--------|
+| **`utils/merchant-db.js`** | **DELETE** | 567-line class never imported. All methods duplicated in services layer. Contains SEC-9 vulnerability. Confirmed dead via git history + exhaustive grep. |
+| **`middleware/subscription-check.js`** | **DELETE** | System B removed 2026-03-01. System A covers all checks. Zero production consumers. Delete test file too. |
+| **10 re-export stubs** | **DELETE** (update 66 consumers) | All stubs are one-line pass-throughs. 100% export coverage in target modules confirmed. No circular dependency issues. Mechanical find-replace refactor. |
+| **3 rate limiter variables (server.js)** | **DELETE** | Redundant — `routes/delivery.js` and `routes/gmc.js` create their own instances. |
+| **`podUpload` + `multer` import (server.js)** | **DELETE** | Both delivery.js and driver-api.js define own multer configs. |
+| **8 dead imports (server.js)** | **DELETE** | All confirmed zero references beyond import line. |
+| **`expiryDiscount` import (server.js:33)** | **DELETE** | Zero references. Distinct from `expiryDiscountsRoutes` (line 60) which IS used. |
+| **`loggedSync` + `generateDailyBatch`** | **DELETE** | Destructured but never called. Fix: remove from destructuring. |
+| **`getCurrentUser` (auth.js)** | **DELETE** | Trivial accessor, zero consumers, not needed for BACKLOG-41. |
+| **`requireRole` (auth.js)** | **DELETE** | Superseded by `requireMerchantRole()`. BACKLOG-41 will use merchant-scoped roles. |
+| **`optionalAuth` (auth.js)** | **DELETE** | Zero consumers, not needed for any planned feature. |
+| **`getPoolStats` (database.js)** | **DELETE** | Exported, never imported. |
+| **`hashResetToken` duplication** | **REFACTOR** | Extract to `utils/password.js`. Not dead, but duplicated. |
+| **Legacy dual-write (reward-service.js)** | **KEEP** | Intentional backward compatibility. Explicitly marked "LEGACY: Remove after migration." |
+| **Delivery rate limiting gaps** | **WIRE IN** (separate task) | 7 authenticated + 5 public endpoints missing rate limits. File as security task, not dead code cleanup. |
+| **`clearClientCache` (merchant.js)** | **KEEP** | Utility function for cache management. Low cost to keep, may be useful for operations/debugging. |
+
+---
+
+## Recommended Cleanup Order
+
+### Phase 1: Zero-Risk Deletions (~830 lines)
+
+1. Delete `middleware/subscription-check.js` + its test file (~504 lines)
+2. Delete `utils/merchant-db.js` (~567 lines, also resolves SEC-9)
+3. Remove 11 dead imports from server.js (lines 7, 15-16, 31, 33, 35-38, 63 partial, 65 partial)
+4. Remove dead `podUpload` config from server.js (lines 228-241)
+5. Remove 3 dead rate limiter variables from server.js (lines 126-129)
+6. Remove 3 dead exports + functions from `middleware/auth.js` + their 16 tests
+7. Remove `getPoolStats` export + function from `utils/database.js`
+
+### Phase 2: Stub Elimination (~130 lines deleted, 66 files updated)
+
+8. Update 66 consumer files to import directly from `services/` modules
+9. Delete 10 re-export stub files from `utils/`
+10. Consolidate `hashResetToken` into `utils/password.js`
+
+### Phase 3: Security Hardening (not dead code — separate task)
+
+11. Add rate limiting to 7 unprotected delivery write endpoints in `routes/delivery.js`
+12. Add per-token rate limiting to 5 public driver API endpoints in `routes/driver-api.js`
+13. Consolidate 3 identical multer configs into shared utility
 
 ---
 
@@ -143,7 +371,7 @@ const { generateIdempotencyKey } = require('../utils/square-api');
 | Area | Files Scanned | Status |
 |------|--------------|--------|
 | `routes/` (36 files + 11 subroutes) | 47 | Clean — all routes registered in server.js |
-| `services/` (12 subdirectories, 84 files) | 84 | Clean — O-1 (`updateVariationPrice`) already resolved |
+| `services/` (12 subdirectories, 84 files) | 84 | Clean — O-1 already resolved |
 | `jobs/` (13 files) | 13 | Clean — all jobs registered in cron-scheduler.js |
 | `public/js/` (38 files) | 38 | Clean — all files referenced by HTML pages |
 | `middleware/validators/` (21 files) | 21 | Clean — all validators used by routes |
@@ -158,38 +386,21 @@ const { generateIdempotencyKey } = require('../utils/square-api');
 | `getAllVariationAssignments` (loyalty-admin) | Dead (2026-02-19) | RESOLVED — deleted 2026-02-19 |
 | `updateVariationPrice` (square-pricing.js) | Dead (TECHNICAL_DEBT O-1) | RESOLVED — function no longer exists |
 | CSP TODO in security.js | Stale (2026-02-19) | RESOLVED — updated 2026-02-19 |
-| DEAD-6-12 in server.js | 7 dead imports noted | STILL PRESENT — confirmed in this report |
-| DC-1 re-export stubs | 9 stubs noted | STILL PRESENT — 10 stubs confirmed |
-
----
-
-## Recommended Cleanup Order
-
-### Phase 1: Zero-Risk Deletions (~250 lines)
-1. Delete `middleware/subscription-check.js` (entire file)
-2. Remove 7 dead imports from server.js (lines 7, 16, 31, 35-38)
-3. Remove 2 dead destructured imports from server.js (lines 63, 65)
-4. Remove 3 dead exports from `middleware/auth.js` (`getCurrentUser`, `requireRole`, `optionalAuth`)
-5. Remove `getPoolStats` export from `utils/database.js`
-
-### Phase 2: Requires Decision (~567 lines)
-6. Decide on `utils/merchant-db.js` — delete if confirmed obsolete
-7. Decide on server.js rate limiters — wire to routes or delete
-8. Decide on `podUpload` multer config — check if delivery routes have own config
-
-### Phase 3: Refactoring (~130 lines, higher effort)
-9. Update 55+ consumer imports to remove 10 re-export stubs in `utils/`
-10. Extract `hashResetToken` to shared utility
+| DEAD-6-12 in server.js | 7 dead imports noted | CONFIRMED — 11 total (includes newly found expiryDiscount, multer) |
+| DC-1 re-export stubs | 9 stubs noted | CONFIRMED — 10 stubs, all safe to delete |
 
 ---
 
 ## Methodology
 
-- **Unused imports**: Read each file's `require()` statements, then searched entire codebase for each imported variable name
+- **Unused imports**: Read each file's `require()` statements, then searched entire file for variable usage (dot notation, function calls, bracket notation, middleware parameters, destructuring)
 - **Unused exports**: For each `module.exports`, grepped all production code (excluding `__tests__/` and `node_modules/`)
 - **Orphaned files**: Cross-referenced route registrations in server.js, job registrations in cron-scheduler.js, HTML `<script>` tags for frontend JS
-- **Commented-out code**: Scanned for blocks of 3+ consecutive lines of commented JavaScript code patterns
-- **Re-export stubs**: Identified files that only re-export from another module, traced all consumers
+- **Re-export stubs**: Read each stub, traced all consumers, read target service modules to confirm 100% export coverage
+- **Rate limiters**: Read `middleware/security.js` definitions, searched both server.js and route files for instantiation and application
+- **Auth exports**: Compared `requireRole` vs `requireMerchantRole`, analyzed BACKLOG-41 requirements for role system compatibility
+- **MerchantDB**: Read all 567 lines, compared each method against existing service implementations, checked git history
+- **Subscription-check**: Compared System A vs System B check-by-check, verified server.js removal comments
 
-**Tools**: File reads, ripgrep searches, cross-reference analysis across all directories
+**Tools**: File reads, ripgrep searches, git log, cross-reference analysis across all directories
 **Coverage**: 246 JavaScript files scanned (excluding node_modules, .git, __tests__)
