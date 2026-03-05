@@ -61,6 +61,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Low — only affects merchants who connected Google before the fix. Tokens will self-heal on next API call that triggers a refresh. Only one merchant (JTPets) currently has Google OAuth connected.
 **Source**: Observed during SEC-6 fix (2026-03-04)
 
+### ~~Vendor webhook handler used event reference ID instead of vendor ID~~ RESOLVED (2026-03-05)
+
+**File**: `services/webhook-handlers/catalog-handler.js`
+**Issue**: The `_handleVendorChange` handler extracted the vendor ID from `entityId` (which maps to `event.data.id` — the Square event reference UUID), not the actual vendor ID at `data.object.vendor.id`. This caused vendor ID oscillation: the handler would see a UUID as a "new" vendor ID, migrate all FK references to it, then the next sync would try to re-insert the real Square vendor ID and hit the unique constraint — triggering an infinite migration loop.
+**Fix**: Changed `vendorId` extraction to use `vendor.id` (from `data.vendor.id`, i.e. `event.data.object.vendor.id`) instead of `entityId`. Added explanatory comment. Updated test fixture to use a different `entityId` from `vendor.id` to prove the fix.
+**Source**: Discovered via vendor ID oscillation in production (2026-03-05)
+
 ### ~~Popup report window has inline `<script>` blocked by CSP~~ RESOLVED (2026-03-04)
 
 **File**: `public/js/vendor-catalog.js`
