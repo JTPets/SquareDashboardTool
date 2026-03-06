@@ -87,7 +87,7 @@ async function query(text, params) {
         logger.error('Database query error', {
             message: error.message,
             query: text.substring(0, 100),
-            params: params
+            paramCount: params?.length ?? 0
         });
         throw error;
     } finally {
