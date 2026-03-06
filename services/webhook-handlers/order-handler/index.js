@@ -21,7 +21,6 @@
  */
 
 const logger = require('../../../utils/logger');
-const deliveryApi = require('../../delivery');
 const loyaltyService = require('../../loyalty-admin');
 const { getSquareClientForMerchant } = require('../../../middleware/merchant');
 const TTLCache = require('../../../utils/ttl-cache');
@@ -35,6 +34,11 @@ const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identif
 const { normalizeSquareOrder, fetchFullOrder } = require('./order-normalize');
 const { processCartActivity, checkCartConversion, markCartCanceled } = require('./order-cart');
 const { completedOrderVelocityCache, updateVelocityFromOrder, updateVelocityFromFulfillment } = require('./order-velocity');
+const {
+    ingestDeliveryOrder, handleOrderCancellation, handleOrderCompletion,
+    refreshDeliveryOrderCustomerIfNeeded, handleFulfillmentDeliveryUpdate,
+    autoIngestFromFulfillment
+} = require('./order-delivery');
 
 /**
  * Cache of order processing results for dedup between order.* and payment.* webhooks.
@@ -278,69 +282,29 @@ class OrderHandler {
 
     /**
      * Auto-ingest order for delivery
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _ingestDeliveryOrder(order, merchantId, result) {
-        try {
-            const deliverySettings = await deliveryApi.getSettings(merchantId);
-            const autoIngest = deliverySettings?.auto_ingest_ready_orders !== false;
-
-            if (!autoIngest) {
-                return;
-            }
-
-            const deliveryOrder = await deliveryApi.ingestSquareOrder(merchantId, order);
-            if (deliveryOrder) {
-                result.deliveryOrder = {
-                    id: deliveryOrder.id,
-                    customerName: deliveryOrder.customer_name,
-                    isNew: !deliveryOrder.square_synced_at
-                };
-                logger.info('Ingested Square order for delivery', {
-                    merchantId,
-                    squareOrderId: order.id,
-                    deliveryOrderId: deliveryOrder.id
-                });
-            }
-        } catch (deliveryError) {
-            logger.error('Failed to ingest order for delivery', {
-                error: deliveryError.message,
-                orderId: order.id
-            });
-        }
+        return ingestDeliveryOrder(order, merchantId, result);
     }
 
     /**
      * Handle order cancellation
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _handleOrderCancellation(orderId, merchantId, result) {
-        try {
-            await deliveryApi.handleSquareOrderUpdate(merchantId, orderId, 'CANCELED');
-            logger.info('Removed cancelled order from delivery queue', { squareOrderId: orderId });
-        } catch (cancelError) {
-            logger.error('Failed to handle order cancellation for delivery', {
-                error: cancelError.message,
-                orderId
-            });
-        }
+        return handleOrderCancellation(orderId, merchantId, result);
     }
 
     /**
      * Handle order completion
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _handleOrderCompletion(orderId, merchantId, result) {
-        try {
-            await deliveryApi.handleSquareOrderUpdate(merchantId, orderId, 'COMPLETED');
-            result.deliveryCompletion = { squareOrderId: orderId };
-            logger.info('Marked delivery order as completed via webhook', { squareOrderId: orderId });
-        } catch (completeError) {
-            logger.error('Failed to handle order completion for delivery', {
-                error: completeError.message,
-                orderId
-            });
-        }
+        return handleOrderCompletion(orderId, merchantId, result);
     }
 
     /**
@@ -372,150 +336,11 @@ class OrderHandler {
 
     /**
      * Refresh customer data for orders that were ingested with incomplete data
-     * Triggered when order state changes from DRAFT to OPEN/COMPLETED
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result) {
-        try {
-            // Check if we have this order and it needs refresh
-            const existingOrder = await deliveryApi.getOrderBySquareId(merchantId, order.id);
-            if (!existingOrder || !existingOrder.needs_customer_refresh) {
-                return;
-            }
-
-            logger.info('Refreshing customer data for delivery order', {
-                merchantId,
-                squareOrderId: order.id,
-                deliveryOrderId: existingOrder.id,
-                previousName: existingOrder.customer_name,
-                newState: order.state
-            });
-
-            // Fetch full order from Square API since webhook often lacks fulfillment details
-            let fullOrder = order;
-            if (!order.fulfillments || order.fulfillments.length === 0) {
-                logger.info('Fetching full order from Square API for customer refresh', {
-                    squareOrderId: order.id,
-                    merchantId
-                });
-                fullOrder = await this._fetchFullOrder(order.id, merchantId);
-                if (!fullOrder) {
-                    logger.warn('Could not fetch full order for customer refresh', {
-                        squareOrderId: order.id,
-                        merchantId
-                    });
-                    return;
-                }
-            }
-
-            // Find delivery fulfillment
-            const deliveryFulfillment = fullOrder.fulfillments?.find(f =>
-                f.type === 'DELIVERY' || f.type === 'SHIPMENT'
-            );
-
-            let customerName = null;
-            let phone = null;
-
-            // Extract customer data from fulfillment recipient
-            if (deliveryFulfillment) {
-                const deliveryDetails = deliveryFulfillment.deliveryDetails || deliveryFulfillment.delivery_details;
-                const shipmentDetails = deliveryFulfillment.shipmentDetails || deliveryFulfillment.shipment_details;
-                const details = deliveryDetails || shipmentDetails;
-
-                if (details?.recipient) {
-                    customerName = details.recipient.displayName || details.recipient.display_name;
-                    phone = details.recipient.phoneNumber || details.recipient.phone_number;
-                }
-            }
-
-            // Fallback: lookup customer via customer ID if still missing
-            const squareCustomerId = fullOrder.customerId || fullOrder.customer_id;
-            if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
-                try {
-                    const customerService = new LoyaltyCustomerService(merchantId);
-                    await customerService.initialize();
-                    const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
-
-                    if (customerDetails) {
-                        if (!customerName && customerDetails.displayName) {
-                            customerName = customerDetails.displayName;
-                        }
-                        if (!phone && customerDetails.phone) {
-                            phone = customerDetails.phone;
-                        }
-                    }
-                } catch (lookupError) {
-                    logger.warn('Customer lookup failed during refresh', {
-                        merchantId,
-                        squareCustomerId,
-                        error: lookupError.message
-                    });
-                }
-            }
-
-            // Build updates
-            const updates = {
-                squareOrderState: order.state,
-                needsCustomerRefresh: false  // Clear the flag
-            };
-
-            if (customerName && customerName !== 'Unknown Customer' && customerName !== existingOrder.customer_name) {
-                updates.customerName = customerName;
-            }
-            if (phone && !existingOrder.phone) {
-                updates.phone = phone;
-            }
-            if (squareCustomerId && !existingOrder.square_customer_id) {
-                updates.squareCustomerId = squareCustomerId;
-            }
-
-            // Also refresh order data (line items, totals) since DRAFT orders have incomplete data
-            if (fullOrder.lineItems || fullOrder.line_items) {
-                const lineItems = fullOrder.lineItems || fullOrder.line_items || [];
-                updates.squareOrderData = {
-                    lineItems: lineItems.map(item => ({
-                        name: item.name,
-                        quantity: item.quantity,
-                        variationName: item.variationName || item.variation_name,
-                        modifiers: item.modifiers || [],
-                        note: item.note
-                    })),
-                    totalMoney: fullOrder.totalMoney || fullOrder.total_money,
-                    createdAt: fullOrder.createdAt || fullOrder.created_at,
-                    state: fullOrder.state
-                };
-                logger.info('Refreshing order data (line items, total)', {
-                    merchantId,
-                    squareOrderId: order.id,
-                    lineItemCount: lineItems.length,
-                    totalAmount: updates.squareOrderData.totalMoney?.amount
-                });
-            }
-
-            await deliveryApi.updateOrder(merchantId, existingOrder.id, updates);
-
-            logger.info('Delivery order customer refreshed', {
-                action: 'DELIVERY_CUSTOMER_REFRESHED',
-                merchantId,
-                deliveryOrderId: existingOrder.id,
-                squareOrderId: order.id,
-                previousName: existingOrder.customer_name,
-                newName: updates.customerName || existingOrder.customer_name,
-                hasPhone: !!(updates.phone || existingOrder.phone)
-            });
-
-            result.deliveryCustomerRefresh = {
-                orderId: existingOrder.id,
-                previousName: existingOrder.customer_name,
-                newName: updates.customerName || existingOrder.customer_name
-            };
-        } catch (refreshError) {
-            logger.error('Failed to refresh delivery order customer', {
-                error: refreshError.message,
-                squareOrderId: order.id,
-                merchantId
-            });
-        }
+        return refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result);
     }
 
     /**
@@ -851,100 +676,20 @@ class OrderHandler {
 
     /**
      * Handle delivery status update from fulfillment
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _handleFulfillmentDeliveryUpdate(squareOrderId, fulfillment, merchantId, result) {
-        const fulfillmentState = fulfillment.state;
-        const fulfillmentType = fulfillment.type;
-
-        // Only process delivery/shipment fulfillments
-        if (fulfillmentType !== 'DELIVERY' && fulfillmentType !== 'SHIPMENT') {
-            return;
-        }
-
-        try {
-            if (fulfillmentState === 'COMPLETED' || fulfillmentState === 'CANCELED') {
-                await deliveryApi.handleSquareOrderUpdate(merchantId, squareOrderId, fulfillmentState);
-                result.deliveryUpdate = {
-                    orderId: squareOrderId,
-                    fulfillmentState,
-                    action: fulfillmentState === 'COMPLETED' ? 'marked_completed' : 'removed'
-                };
-                logger.info('Delivery order updated via fulfillment webhook', {
-                    squareOrderId,
-                    fulfillmentState,
-                    merchantId
-                });
-            } else if (fulfillmentState === 'FAILED') {
-                await deliveryApi.handleSquareOrderUpdate(merchantId, squareOrderId, 'CANCELED');
-                result.deliveryUpdate = {
-                    orderId: squareOrderId,
-                    fulfillmentState: 'FAILED',
-                    action: 'removed'
-                };
-                logger.info('Failed delivery order removed via fulfillment webhook', {
-                    squareOrderId,
-                    merchantId
-                });
-            } else if (!['COMPLETED', 'CANCELED', 'FAILED'].includes(fulfillmentState)) {
-                // Auto-ingest non-terminal states
-                await this._autoIngestFromFulfillment(squareOrderId, fulfillmentState, merchantId, result);
-            }
-        } catch (deliveryError) {
-            logger.warn('Delivery order update via fulfillment webhook failed', {
-                error: deliveryError.message,
-                orderId: squareOrderId
-            });
-            result.deliveryError = deliveryError.message;
-        }
+        return handleFulfillmentDeliveryUpdate(squareOrderId, fulfillment, merchantId, result);
     }
 
     /**
      * Auto-ingest order from fulfillment update
+     * Delegates to extracted order-delivery module.
      * @private
      */
     async _autoIngestFromFulfillment(squareOrderId, fulfillmentState, merchantId, result) {
-        try {
-            const deliverySettings = await deliveryApi.getSettings(merchantId);
-            const autoIngest = deliverySettings?.auto_ingest_ready_orders !== false;
-
-            if (!autoIngest) {
-                logger.info('Skipped auto-ingest - disabled in settings', {
-                    squareOrderId,
-                    fulfillmentState,
-                    merchantId
-                });
-                return;
-            }
-
-            const squareClient = await getSquareClientForMerchant(merchantId);
-            const orderResponse = await squareClient.orders.get({ orderId: squareOrderId });
-            const fullOrder = orderResponse.order;
-
-            if (fullOrder) {
-                const deliveryOrder = await deliveryApi.ingestSquareOrder(merchantId, fullOrder);
-                if (deliveryOrder) {
-                    result.deliveryUpdate = {
-                        orderId: squareOrderId,
-                        fulfillmentState,
-                        action: 'ingested',
-                        deliveryOrderId: deliveryOrder.id
-                    };
-                    logger.info('Auto-ingested delivery order via fulfillment webhook', {
-                        squareOrderId,
-                        fulfillmentState,
-                        deliveryOrderId: deliveryOrder.id,
-                        merchantId
-                    });
-                }
-            }
-        } catch (ingestError) {
-            logger.warn('Auto-ingest via fulfillment webhook failed', {
-                error: ingestError.message,
-                squareOrderId,
-                fulfillmentState
-            });
-        }
+        return autoIngestFromFulfillment(squareOrderId, fulfillmentState, merchantId, result);
     }
 
     /**
