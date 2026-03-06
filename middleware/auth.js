@@ -71,38 +71,6 @@ function requireAdmin(req, res, next) {
 }
 
 /**
- * Check if user has one of the specified roles
- * @param {string[]} roles - Array of allowed roles
- */
-function requireRole(...roles) {
-    return (req, res, next) => {
-        if (!req.session || !req.session.user) {
-            return res.status(401).json({
-                error: 'Authentication required',
-                code: 'UNAUTHORIZED'
-            });
-        }
-
-        if (!roles.includes(req.session.user.role)) {
-            logger.warn('Role access denied', {
-                userId: req.session.user.id,
-                email: req.session.user.email,
-                userRole: req.session.user.role,
-                requiredRoles: roles,
-                path: req.path
-            });
-
-            return res.status(403).json({
-                error: `Access requires one of these roles: ${roles.join(', ')}`,
-                code: 'FORBIDDEN'
-            });
-        }
-
-        return next();
-    };
-}
-
-/**
  * Check if user can modify data (not readonly)
  */
 function requireWriteAccess(req, res, next) {
@@ -121,27 +89,6 @@ function requireWriteAccess(req, res, next) {
     }
 
     return next();
-}
-
-/**
- * Optional authentication - doesn't require login but attaches user if logged in
- * Sets req.user to the session user if available, otherwise undefined
- */
-function optionalAuth(req, res, next) {
-    // Attach user info to request if logged in, don't block unauthenticated requests
-    if (req.session && req.session.user) {
-        req.user = req.session.user;
-    }
-    return next();
-}
-
-/**
- * Get current user from session
- * @param {Object} req - Express request object
- * @returns {Object|null} User object or null
- */
-function getCurrentUser(req) {
-    return req.session?.user || null;
 }
 
 /**
@@ -175,10 +122,7 @@ module.exports = {
     requireAuth,
     requireAuthApi,
     requireAdmin,
-    requireRole,
     requireWriteAccess,
-    optionalAuth,
-    getCurrentUser,
     logAuthEvent,
     getClientIp
 };
