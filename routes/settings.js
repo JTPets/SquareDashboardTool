@@ -15,6 +15,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
+const { getMerchantSettings, updateMerchantSettings, DEFAULT_MERCHANT_SETTINGS } = require('../services/merchant');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
@@ -29,7 +30,7 @@ const validators = require('../middleware/validators/settings');
 router.get('/settings/merchant', requireAuth, requireMerchant, validators.get, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
-    const settings = await db.getMerchantSettings(merchantId);
+    const settings = await getMerchantSettings(merchantId);
 
     res.json({
         success: true,
@@ -74,7 +75,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
             }
         }
 
-        const updated = await db.updateMerchantSettings(merchantId, settings);
+        const updated = await updateMerchantSettings(merchantId, settings);
 
         logger.info('Merchant settings updated', {
             merchantId,
@@ -96,7 +97,7 @@ router.put('/settings/merchant', requireAuth, requireMerchant, validators.update
 router.get('/settings/merchant/defaults', requireAuth, validators.defaults, async (req, res) => {
     res.json({
         success: true,
-        defaults: db.DEFAULT_MERCHANT_SETTINGS
+        defaults: DEFAULT_MERCHANT_SETTINGS
     });
 });
 

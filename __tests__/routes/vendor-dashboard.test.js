@@ -14,10 +14,14 @@ jest.mock('../../utils/logger', () => ({
 
 jest.mock('../../utils/database', () => ({
     query: jest.fn(),
+}));
+
+jest.mock('../../services/merchant', () => ({
     getMerchantSettings: jest.fn(),
 }));
 
 const db = require('../../utils/database');
+const { getMerchantSettings } = require('../../services/merchant');
 
 describe('Vendor Dashboard Routes', () => {
     beforeEach(() => {
@@ -42,7 +46,7 @@ describe('Vendor Dashboard Routes', () => {
 
             test('uses merchant_id filter in query', async () => {
                 const merchantId = 1;
-                db.getMerchantSettings.mockResolvedValue({ default_supply_days: 45, reorder_safety_days: 7 });
+                getMerchantSettings.mockResolvedValue({ default_supply_days: 45, reorder_safety_days: 7 });
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -54,7 +58,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('filters only ACTIVE vendors', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -65,7 +69,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('excludes deleted and discontinued items from counts', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -77,7 +81,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('OOS uses raw quantity = 0, no velocity filter', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -89,7 +93,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('runs unassigned items query with NOT EXISTS', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -101,7 +105,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('OOS guards against LEFT JOIN NULL rows', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -112,7 +116,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('reorder value computed via per-item query using shared formula', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([]);
 
                 const { getVendorDashboard } = require('../../services/vendor-dashboard');
@@ -129,7 +133,7 @@ describe('Vendor Dashboard Routes', () => {
         describe('Response format', () => {
 
             test('returns all required vendor fields', async () => {
-                db.getMerchantSettings.mockResolvedValue({ default_supply_days: 30 });
+                getMerchantSettings.mockResolvedValue({ default_supply_days: 30 });
                 mockDashboardQueries([{
                     id: 'V1', name: 'Vendor A', schedule_type: 'anytime',
                     order_day: null, receive_day: null, lead_time_days: 5,
@@ -168,7 +172,7 @@ describe('Vendor Dashboard Routes', () => {
             });
 
             test('numeric fields are integers, not strings', async () => {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([{
                     id: 'V1', name: 'Test', schedule_type: 'anytime',
                     order_day: null, receive_day: null, lead_time_days: '7',

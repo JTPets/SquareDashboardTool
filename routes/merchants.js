@@ -17,6 +17,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
+const { getMerchantSettings } = require('../services/merchant');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { getUserMerchants, switchActiveMerchant } = require('../middleware/merchant');
@@ -110,7 +111,7 @@ router.get('/config', requireAuth, validators.config, asyncHandler(async (req, r
         const merchantId = req.merchantContext?.id;
         if (merchantId) {
             try {
-                merchantSettings = await db.getMerchantSettings(merchantId);
+                merchantSettings = await getMerchantSettings(merchantId);
             } catch (e) {
                 logger.warn('Failed to load merchant settings for config', { merchantId, error: e.message });
             }

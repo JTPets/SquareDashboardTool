@@ -195,17 +195,6 @@ async function close() {
     logger.info('Database pool closed');
 }
 
-// ==================== MERCHANT SETTINGS (delegated to services/merchant) ====================
-// These functions are now implemented in services/merchant/settings-service.js
-// We re-export them here for backward compatibility with existing code
-const merchantSettingsService = require('../services/merchant');
-const {
-    getMerchantSettings,
-    updateMerchantSettings,
-    getMerchantSetting,
-    DEFAULT_MERCHANT_SETTINGS
-} = merchantSettingsService;
-
 /**
  * Check if the database pool is shutting down
  * @returns {boolean} True if shutdown is in progress
@@ -223,9 +212,4 @@ module.exports = {
     pool,
     isPoolShuttingDown,
     getPoolStats,
-    // Merchant settings functions
-    getMerchantSettings,
-    updateMerchantSettings,
-    getMerchantSetting,
-    DEFAULT_MERCHANT_SETTINGS
 };

@@ -14,10 +14,14 @@ jest.mock('../../utils/logger', () => ({
 
 jest.mock('../../utils/database', () => ({
     query: jest.fn(),
+}));
+
+jest.mock('../../services/merchant', () => ({
     getMerchantSettings: jest.fn(),
 }));
 
 const db = require('../../utils/database');
+const { getMerchantSettings } = require('../../services/merchant');
 const { computeStatus, getVendorDashboard, updateVendorSettings, STATUS_PRIORITY } = require('../../services/vendor-dashboard');
 
 describe('Vendor Dashboard Service', () => {
@@ -112,7 +116,7 @@ describe('Vendor Dashboard Service', () => {
         const merchantId = 1;
 
         beforeEach(() => {
-            db.getMerchantSettings.mockResolvedValue({
+            getMerchantSettings.mockResolvedValue({
                 default_supply_days: 45,
                 reorder_safety_days: 7
             });
@@ -173,7 +177,7 @@ describe('Vendor Dashboard Service', () => {
 
             await getVendorDashboard(merchantId);
 
-            expect(db.getMerchantSettings).toHaveBeenCalledWith(merchantId);
+            expect(getMerchantSettings).toHaveBeenCalledWith(merchantId);
         });
 
         test('passes supply days and safety days separately to vendor query', async () => {
@@ -207,7 +211,7 @@ describe('Vendor Dashboard Service', () => {
             process.env.REORDER_SAFETY_DAYS = '7';
 
             try {
-                db.getMerchantSettings.mockResolvedValue({});
+                getMerchantSettings.mockResolvedValue({});
                 mockDashboardQueries([], []);
 
                 await getVendorDashboard(merchantId);
