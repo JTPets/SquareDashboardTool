@@ -1106,14 +1106,17 @@ describe('OrderHandler', () => {
             mockUpdateVelocity.mockRejectedValueOnce(new Error('DB write failed'));
 
             const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
 
-            // This will throw since velocity error isn't caught in order handler
-            // The test documents the current behavior
-            try {
-                await handler.handleOrderCreatedOrUpdated(ctx);
-            } catch (e) {
-                expect(e.message).toBe('DB write failed');
-            }
+            // Velocity error is now caught — loyalty and delivery still process
+            expect(result.handled).toBe(true);
+            expect(result.salesVelocity.error).toBe('DB write failed');
+            expect(logger.warn).toHaveBeenCalledWith(
+                'Sales velocity update failed — continuing with delivery and loyalty',
+                expect.objectContaining({ error: 'DB write failed' })
+            );
+            // Loyalty should still have been processed
+            expect(mockProcessLoyaltyOrder).toHaveBeenCalled();
         });
     });
 
@@ -1141,11 +1144,61 @@ describe('OrderHandler', () => {
             );
             expect(result.loyalty).toBeDefined();
             expect(result.loyalty.purchasesRecorded).toBe(1);
+            expect(result.loyalty.isRedemptionOrder).toBe(false);
         });
 
-        it('should run redemption detection via payment path (no _checkOrderForRedemption pre-check)', async () => {
-            // RISK-3 documents: payment path calls detectRewardRedemptionFromOrder
-            // but NOT _checkOrderForRedemption. Verify redemption detection still runs.
+        it('should run _checkOrderForRedemption pre-check before purchases (RISK-3 fix)', async () => {
+            const db = require('../../utils/database');
+            // Simulate a redemption discount on the order
+            mockSquareClient.orders.get.mockResolvedValueOnce({
+                order: {
+                    id: 'order_redemption',
+                    state: 'COMPLETED',
+                    customer_id: 'cust_1',
+                    line_items: [{ catalog_object_id: 'var_1', quantity: '1', total_money: { amount: 1000 } }],
+                    discounts: [{ uid: 'd1', catalog_object_id: 'disc_loyalty', name: 'Reward' }],
+                    tenders: [{ customer_id: 'cust_1' }],
+                    location_id: 'loc_1'
+                }
+            });
+
+            // _checkOrderForRedemption queries DB for discount match
+            db.query.mockResolvedValueOnce({ rows: [{
+                id: 77,
+                offer_id: 5,
+                square_customer_id: 'cust_1',
+                offer_name: 'Buy 10 Get 1 Free'
+            }] });
+
+            mockDetectRedemption.mockResolvedValueOnce({
+                detected: true,
+                rewardId: 77,
+                offerName: 'Buy 10 Get 1 Free'
+            });
+
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_redemption', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            const result = await handler.handlePaymentUpdated(ctx);
+
+            // Pre-check should have queried DB for reward match
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('square_discount_id'),
+                [1, 'disc_loyalty']
+            );
+            // Redemption detection should still run after purchases
+            expect(mockDetectRedemption).toHaveBeenCalled();
+            expect(result.loyaltyRedemption).toEqual({
+                rewardId: 77,
+                offerName: 'Buy 10 Get 1 Free'
+            });
+            // Loyalty result should include isRedemptionOrder flag
+            expect(result.loyalty.isRedemptionOrder).toBe(true);
+        });
+
+        it('should run full redemption detection via payment path', async () => {
             mockDetectRedemption.mockResolvedValueOnce({
                 detected: true,
                 rewardId: 77,

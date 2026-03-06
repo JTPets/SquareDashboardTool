@@ -260,20 +260,29 @@ class OrderHandler {
                 });
                 result.salesVelocity = { method: 'incremental', deduplicated: true };
             } else {
-                completedOrderVelocityCache.set(velocityDedupKey, true);
-                const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
-                result.salesVelocity = {
-                    method: 'incremental',
-                    updated: velocityResult.updated,
-                    skipped: velocityResult.skipped,
-                    periods: velocityResult.periods
-                };
-                if (velocityResult.updated > 0) {
-                    logger.info('Sales velocity updated incrementally from completed order', {
-                        orderId: order.id,
+                try {
+                    completedOrderVelocityCache.set(velocityDedupKey, true);
+                    const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
+                    result.salesVelocity = {
+                        method: 'incremental',
                         updated: velocityResult.updated,
-                        merchantId
+                        skipped: velocityResult.skipped,
+                        periods: velocityResult.periods
+                    };
+                    if (velocityResult.updated > 0) {
+                        logger.info('Sales velocity updated incrementally from completed order', {
+                            orderId: order.id,
+                            updated: velocityResult.updated,
+                            merchantId
+                        });
+                    }
+                } catch (velocityError) {
+                    logger.warn('Sales velocity update failed — continuing with delivery and loyalty', {
+                        orderId: order.id,
+                        merchantId,
+                        error: velocityError.message
                     });
+                    result.salesVelocity = { method: 'incremental', error: velocityError.message };
                 }
             }
         }
@@ -1287,6 +1296,21 @@ class OrderHandler {
                 customerSource = identification.customerSource;
             }
 
+            // Check for redemption BEFORE processing purchases (matching _processLoyalty pattern)
+            // Ensures "new purchases start fresh reward window" guarantee holds
+            // even when only payment.* webhook fires
+            const redemptionCheck = await this._checkOrderForRedemption(order, merchantId);
+
+            if (redemptionCheck.isRedemptionOrder) {
+                logger.info('Payment path: processing redemption order - new purchases will start fresh window', {
+                    orderId: order.id,
+                    rewardBeingRedeemed: redemptionCheck.rewardId,
+                    offerId: redemptionCheck.offerId,
+                    merchantId,
+                    source
+                });
+            }
+
             // Consolidated intake: atomic write to both tables (includes dedup)
             const intakeResult = await processLoyaltyOrder({
                 order,
@@ -1310,16 +1334,18 @@ class OrderHandler {
                 result.loyalty = {
                     purchasesRecorded: intakeResult.purchaseEvents.length,
                     customerId: squareCustomerId,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                     source
                 };
                 logger.info(`Loyalty purchases recorded via ${source} webhook`, {
                     orderId: order.id,
                     customerId: squareCustomerId,
-                    purchases: intakeResult.purchaseEvents.length
+                    purchases: intakeResult.purchaseEvents.length,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder
                 });
             }
 
-            // Check for reward redemption
+            // Finalize reward redemption AFTER purchases are recorded
             const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
             if (redemptionResult.detected) {
                 result.loyaltyRedemption = {
