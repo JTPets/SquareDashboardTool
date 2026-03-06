@@ -22,10 +22,10 @@ const pool = new Pool({
     connectionTimeoutMillis: 2000,
 });
 
-// Handle pool errors
+// Handle pool errors — log but do not exit. The pool removes the errored client
+// automatically and PM2 health checks will restart if the pool becomes unusable.
 pool.on('error', (err, client) => {
-    logger.error('FATAL: Database pool error on idle client', { error: err.message, stack: err.stack });
-    process.exit(-1);
+    logger.error('Database pool error on idle client', { error: err.message, stack: err.stack });
 });
 
 // Log pool connection events for monitoring
