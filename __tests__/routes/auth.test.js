@@ -1,16 +1,25 @@
 /**
  * Authentication Routes Test Suite
  *
- * CRITICAL SECURITY TESTS
- * These tests ensure authentication security including:
- * - Login validation and session creation
- * - Account lockout after failed attempts
- * - Password validation and hashing
- * - User enumeration prevention
- * - Password reset token security
+ * Tests routes/auth.js endpoints via supertest:
+ * - POST /api/auth/login
+ * - POST /api/auth/logout
+ * - GET  /api/auth/me
+ * - POST /api/auth/change-password
+ * - GET  /api/auth/users (admin)
+ * - POST /api/auth/users (admin)
+ * - PUT  /api/auth/users/:id (admin)
+ * - POST /api/auth/users/:id/reset-password (admin)
+ * - POST /api/auth/users/:id/unlock (admin)
+ * - POST /api/auth/forgot-password (public)
+ * - POST /api/auth/reset-password (public)
+ * - GET  /api/auth/verify-reset-token (public)
  */
 
-// Mock all dependencies before imports
+// ============================================================================
+// MOCK SETUP
+// ============================================================================
+
 jest.mock('../../utils/logger', () => ({
     info: jest.fn(),
     warn: jest.fn(),
@@ -20,694 +29,951 @@ jest.mock('../../utils/logger', () => ({
 
 jest.mock('../../utils/database', () => ({
     query: jest.fn(),
+    transaction: jest.fn(),
 }));
 
 jest.mock('../../utils/password', () => ({
-    hashPassword: jest.fn(),
+    hashPassword: jest.fn().mockResolvedValue('$2b$10$hashedpassword'),
     verifyPassword: jest.fn(),
-    validatePassword: jest.fn(),
-    generateRandomPassword: jest.fn(),
+    validatePassword: jest.fn().mockReturnValue({ valid: true, errors: [] }),
+    generateRandomPassword: jest.fn().mockReturnValue('GenPass123!'),
 }));
 
 jest.mock('../../middleware/auth', () => ({
-    requireAuth: (req, res, next) => next(),
-    requireAdmin: (req, res, next) => {
-        if (req.session?.user?.role === 'admin') {
-            next();
-        } else {
-            res.status(403).json({ error: 'Admin access required' });
+    requireAuth: (req, res, next) => {
+        if (!req.session?.user) {
+            return res.status(401).json({ error: 'Unauthorized' });
         }
+        next();
     },
-    logAuthEvent: jest.fn(),
+    requireAdmin: (req, res, next) => {
+        if (req.session?.user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+        next();
+    },
+    logAuthEvent: jest.fn().mockResolvedValue(undefined),
     getClientIp: jest.fn(() => '127.0.0.1'),
 }));
 
 jest.mock('../../middleware/security', () => ({
     configureLoginRateLimit: () => (req, res, next) => next(),
+    configurePasswordResetRateLimit: () => (req, res, next) => next(),
 }));
 
+const request = require('supertest');
+const express = require('express');
+const session = require('express-session');
+const crypto = require('crypto');
 const db = require('../../utils/database');
-const { verifyPassword, validatePassword, hashPassword } = require('../../utils/password');
+const { verifyPassword, hashPassword, generateRandomPassword } = require('../../utils/password');
 const { logAuthEvent } = require('../../middleware/auth');
-const logger = require('../../utils/logger');
 
-describe('Authentication Routes', () => {
+// ============================================================================
+// TEST APP SETUP
+// ============================================================================
 
-    // Account lockout constants (from auth.js)
-    const MAX_FAILED_ATTEMPTS = 5;
-    const LOCKOUT_DURATION_MINUTES = 30;
+function createTestApp(opts = {}) {
+    const {
+        authenticated = false,
+        isAdmin = false,
+        activeMerchantId = null,
+        userId = 1,
+    } = opts;
+    const app = express();
+    app.use(express.json());
+    app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: true }));
 
+    app.use((req, res, next) => {
+        if (authenticated) {
+            req.session.user = {
+                id: userId,
+                email: 'admin@test.com',
+                name: 'Test Admin',
+                role: isAdmin ? 'admin' : 'user',
+            };
+        }
+        if (activeMerchantId) {
+            req.session.activeMerchantId = activeMerchantId;
+        }
+        // Stub session methods the login route needs
+        if (!req.session.regenerate) {
+            req.session.regenerate = function (cb) { cb(null); };
+        }
+        if (!req.session.save) {
+            req.session.save = function (cb) { cb(null); };
+        }
+        next();
+    });
+
+    const authRoutes = require('../../routes/auth');
+    app.use('/api/auth', authRoutes);
+
+    // Error handler
+    app.use((err, req, res, _next) => {
+        res.status(500).json({ error: err.message });
+    });
+
+    return app;
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+describe('Auth Routes', () => {
     beforeEach(() => {
         jest.clearAllMocks();
     });
 
+    // ========================================================================
+    // POST /api/auth/login
+    // ========================================================================
+
     describe('POST /api/auth/login', () => {
 
-        describe('Input Validation', () => {
+        it('returns 400 for missing email', async () => {
+            const app = createTestApp();
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ password: 'Test1234!' });
 
-            test('rejects request without email', async () => {
-                const email = undefined;
-                const password = 'password123';
-
-                expect(!email || !password).toBe(true);
-                // Should return 400: "Email and password are required"
-            });
-
-            test('rejects request without password', async () => {
-                const email = 'user@example.com';
-                const password = undefined;
-
-                expect(!email || !password).toBe(true);
-                // Should return 400: "Email and password are required"
-            });
-
-            test('normalizes email to lowercase', () => {
-                const email = 'USER@EXAMPLE.COM';
-                const normalizedEmail = email.toLowerCase().trim();
-
-                expect(normalizedEmail).toBe('user@example.com');
-            });
-
-            test('trims whitespace from email', () => {
-                const email = '  user@example.com  ';
-                const normalizedEmail = email.toLowerCase().trim();
-
-                expect(normalizedEmail).toBe('user@example.com');
-            });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('Validation failed');
         });
 
-        describe('User Enumeration Prevention', () => {
+        it('returns 400 for missing password', async () => {
+            const app = createTestApp();
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'user@test.com' });
 
-            test('returns same error for non-existent user and wrong password', async () => {
-                const genericError = 'Invalid email or password';
-
-                // Error for non-existent user
-                const userNotFoundError = genericError;
-
-                // Error for wrong password
-                const wrongPasswordError = genericError;
-
-                // Both should be identical to prevent enumeration
-                expect(userNotFoundError).toBe(wrongPasswordError);
-            });
-
-            test('logs "user_not_found" separately for security monitoring', async () => {
-                const email = 'nonexistent@example.com';
-
-                // User not found in database
-                db.query.mockResolvedValueOnce({ rows: [] });
-
-                await db.query('SELECT * FROM users WHERE email = $1', [email]);
-
-                // Should log for security monitoring (internal only)
-                expect(db.query).toHaveBeenCalledWith(
-                    expect.stringContaining('SELECT * FROM users'),
-                    [email]
-                );
-            });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toBe('Validation failed');
         });
 
-        describe('Account Lockout', () => {
-
-            test('tracks failed login attempts', async () => {
-                const userId = 123;
-                const currentAttempts = 2;
-                const newAttempts = currentAttempts + 1;
-
-                db.query.mockResolvedValueOnce({ rows: [] });
-
-                await db.query(
-                    'UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3',
-                    [newAttempts, null, userId]
-                );
-
-                expect(db.query).toHaveBeenCalledWith(
-                    expect.stringContaining('UPDATE users SET failed_login_attempts'),
-                    [newAttempts, null, userId]
-                );
-            });
-
-            test('locks account after 5 failed attempts', async () => {
-                const userId = 123;
-                const failedAttempts = 5;
-
-                expect(failedAttempts).toBeGreaterThanOrEqual(MAX_FAILED_ATTEMPTS);
-
-                // Should set locked_until to 30 minutes from now
-                const lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
-                expect(lockUntil.getTime()).toBeGreaterThan(Date.now());
-            });
-
-            test('lockout duration is 30 minutes', () => {
-                expect(LOCKOUT_DURATION_MINUTES).toBe(30);
-
-                const lockDurationMs = LOCKOUT_DURATION_MINUTES * 60 * 1000;
-                expect(lockDurationMs).toBe(1800000); // 30 minutes in ms
-            });
-
-            test('rejects login for locked account', async () => {
-                const lockedUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 min from now
-
-                const isLocked = lockedUntil && new Date(lockedUntil) > new Date();
-                expect(isLocked).toBe(true);
-
-                const remainingMinutes = Math.ceil((new Date(lockedUntil) - new Date()) / 60000);
-                expect(remainingMinutes).toBeLessThanOrEqual(10);
-            });
-
-            test('allows login after lockout expires', async () => {
-                const lockedUntil = new Date(Date.now() - 10 * 60 * 1000); // 10 min ago
-
-                const isLocked = lockedUntil && new Date(lockedUntil) > new Date();
-                expect(isLocked).toBe(false);
-            });
-
-            test('resets failed attempts on successful login', async () => {
-                const userId = 123;
-
-                db.query.mockResolvedValueOnce({ rows: [] });
-
-                await db.query(
-                    'UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login = CURRENT_TIMESTAMP WHERE id = $1',
-                    [userId]
-                );
-
-                expect(db.query).toHaveBeenCalledWith(
-                    expect.stringContaining('failed_login_attempts = 0'),
-                    [userId]
-                );
-            });
-
-            test('logs account lockout event', async () => {
-                const email = 'user@example.com';
-                const attempts = 5;
-
-                logger.warn('Account locked due to failed attempts', {
-                    email,
-                    attempts
-                });
-
-                expect(logger.warn).toHaveBeenCalledWith(
-                    'Account locked due to failed attempts',
-                    expect.objectContaining({ email, attempts })
-                );
-            });
-        });
-
-        describe('Inactive Account Handling', () => {
-
-            test('rejects login for inactive account', async () => {
-                const user = { id: 123, is_active: false };
-
-                expect(user.is_active).toBe(false);
-                // Should return 401: "This account has been deactivated"
-            });
-
-            test('logs inactive account login attempt', async () => {
-                await logAuthEvent(db, {
-                    userId: 123,
-                    email: 'inactive@example.com',
-                    eventType: 'login_failed',
-                    details: { reason: 'account_inactive' }
-                });
-
-                expect(logAuthEvent).toHaveBeenCalled();
-            });
-        });
-
-        describe('Successful Login', () => {
-
-            test('verifies password hash', async () => {
-                const password = 'userPassword123';
-                const passwordHash = '$2b$10$hashedpassword';
-
-                verifyPassword.mockResolvedValueOnce(true);
-
-                const isValid = await verifyPassword(password, passwordHash);
-
-                expect(isValid).toBe(true);
-                expect(verifyPassword).toHaveBeenCalledWith(password, passwordHash);
-            });
-
-            test('creates session with user info', () => {
-                const user = {
-                    id: 123,
-                    email: 'user@example.com',
-                    name: 'Test User',
-                    role: 'user'
-                };
-
-                const session = {
-                    user: {
-                        id: user.id,
-                        email: user.email,
-                        name: user.name,
-                        role: user.role
-                    }
-                };
-
-                expect(session.user.id).toBe(123);
-                expect(session.user.role).toBe('user');
-            });
-
-            test('logs successful login event', async () => {
-                await logAuthEvent(db, {
-                    userId: 123,
-                    email: 'user@example.com',
-                    eventType: 'login_success',
-                    ipAddress: '127.0.0.1',
-                    userAgent: 'Mozilla/5.0'
-                });
-
-                expect(logAuthEvent).toHaveBeenCalledWith(
-                    db,
-                    expect.objectContaining({ eventType: 'login_success' })
-                );
-            });
-        });
-    });
-
-    describe('Password Validation', () => {
-
-        test('requires minimum 8 characters', () => {
-            const password = 'Short1';
-
-            validatePassword.mockReturnValueOnce({
-                isValid: false,
-                errors: ['Password must be at least 8 characters']
-            });
-
-            const result = validatePassword(password);
-            expect(result.isValid).toBe(false);
-        });
-
-        test('requires at least one uppercase letter', () => {
-            const password = 'lowercase123';
-
-            validatePassword.mockReturnValueOnce({
-                isValid: false,
-                errors: ['Password must contain at least one uppercase letter']
-            });
-
-            const result = validatePassword(password);
-            expect(result.isValid).toBe(false);
-        });
-
-        test('requires at least one number', () => {
-            const password = 'NoNumbersHere';
-
-            validatePassword.mockReturnValueOnce({
-                isValid: false,
-                errors: ['Password must contain at least one number']
-            });
-
-            const result = validatePassword(password);
-            expect(result.isValid).toBe(false);
-        });
-
-        test('accepts valid password', () => {
-            const password = 'ValidPassword1';
-
-            validatePassword.mockReturnValueOnce({
-                isValid: true,
-                errors: []
-            });
-
-            const result = validatePassword(password);
-            expect(result.isValid).toBe(true);
-        });
-    });
-
-    describe('Password Change', () => {
-
-        test('requires current password verification', async () => {
-            const currentPassword = 'OldPassword1';
-            const storedHash = '$2b$10$oldhash';
-
-            verifyPassword.mockResolvedValueOnce(true);
-
-            const isValid = await verifyPassword(currentPassword, storedHash);
-            expect(isValid).toBe(true);
-        });
-
-        test('rejects change if current password is wrong', async () => {
-            const currentPassword = 'WrongPassword1';
-            const storedHash = '$2b$10$oldhash';
-
-            verifyPassword.mockResolvedValueOnce(false);
-
-            const isValid = await verifyPassword(currentPassword, storedHash);
-            expect(isValid).toBe(false);
-        });
-
-        test('validates new password meets requirements', () => {
-            const newPassword = 'NewSecurePass1';
-
-            validatePassword.mockReturnValueOnce({
-                isValid: true,
-                errors: []
-            });
-
-            const result = validatePassword(newPassword);
-            expect(result.isValid).toBe(true);
-        });
-
-        test('hashes new password before storage', async () => {
-            const newPassword = 'NewSecurePass1';
-
-            hashPassword.mockResolvedValueOnce('$2b$10$newhash');
-
-            const hash = await hashPassword(newPassword);
-            expect(hash).toMatch(/^\$2b\$10\$/);
-        });
-    });
-
-    describe('Password Reset', () => {
-
-        test('generates secure reset token', () => {
-            const crypto = require('crypto');
-            const resetToken = crypto.randomBytes(32).toString('hex');
-
-            expect(resetToken).toHaveLength(64);
-            expect(resetToken).toMatch(/^[a-f0-9]+$/);
-        });
-
-        test('reset token expires after 15 minutes', () => {
-            const RESET_TOKEN_EXPIRY_MINUTES = 15;
-            const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MINUTES * 60 * 1000);
-
-            expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
-            expect(expiresAt.getTime()).toBeLessThan(Date.now() + 16 * 60 * 1000);
-        });
-
-        test('stores hashed reset token (not plaintext)', async () => {
-            const crypto = require('crypto');
-            const resetToken = crypto.randomBytes(32).toString('hex');
-            const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-
-            expect(hashedToken).not.toBe(resetToken);
-            expect(hashedToken).toHaveLength(64);
-
+        it('returns 401 for non-existent user (prevents enumeration)', async () => {
+            const app = createTestApp();
             db.query.mockResolvedValueOnce({ rows: [] });
 
-            await db.query(
-                'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
-                [hashedToken, new Date(), 123]
-            );
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'nobody@test.com', password: 'Test1234!' });
 
-            // Verify hashed token is stored, not plaintext
-            expect(db.query).toHaveBeenCalledWith(
-                expect.stringContaining('reset_token'),
-                expect.arrayContaining([hashedToken])
-            );
+            expect(res.status).toBe(401);
+            expect(res.body.error).toBe('Invalid email or password');
+            expect(logAuthEvent).toHaveBeenCalledWith(db, expect.objectContaining({
+                eventType: 'login_failed',
+                details: { reason: 'user_not_found' },
+            }));
         });
 
-        test('prevents user enumeration on forgot password', () => {
-            // Should return success message regardless of whether email exists
-            const successMessage = 'If an account exists with that email, a reset link has been sent.';
+        it('returns 401 for inactive account', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{ id: 1, email: 'inactive@test.com', is_active: false }],
+            });
 
-            expect(successMessage).not.toContain('not found');
-            expect(successMessage).not.toContain('does not exist');
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'inactive@test.com', password: 'Test1234!' });
+
+            expect(res.status).toBe(401);
+            expect(res.body.error).toBe('This account has been deactivated');
         });
 
-        test('validates reset token before allowing password change', async () => {
-            const crypto = require('crypto');
-            const resetToken = 'valid_reset_token_123';
-            const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-
+        it('returns 401 for locked account with remaining time', async () => {
+            const app = createTestApp();
+            const lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
             db.query.mockResolvedValueOnce({
                 rows: [{
-                    id: 123,
-                    reset_token: hashedToken,
-                    reset_token_expires: new Date(Date.now() + 10 * 60 * 1000)
-                }]
+                    id: 1, email: 'locked@test.com', is_active: true,
+                    locked_until: lockedUntil.toISOString(),
+                }],
             });
 
-            const result = await db.query(
-                'SELECT * FROM users WHERE reset_token = $1 AND reset_token_expires > NOW()',
-                [hashedToken]
-            );
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'locked@test.com', password: 'Test1234!' });
 
-            expect(result.rows.length).toBe(1);
+            expect(res.status).toBe(401);
+            expect(res.body.error).toMatch(/Account is locked/);
         });
 
-        test('rejects expired reset token', async () => {
-            db.query.mockResolvedValueOnce({ rows: [] });
+        it('returns 401 for wrong password and increments attempts', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 5, email: 'user@test.com', is_active: true,
+                    locked_until: null, password_hash: '$2b$10$hash',
+                    failed_login_attempts: 2,
+                }],
+            });
+            verifyPassword.mockResolvedValueOnce(false);
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE failed_login_attempts
 
-            const result = await db.query(
-                'SELECT * FROM users WHERE reset_token = $1 AND reset_token_expires > NOW()',
-                ['expired_token_hash']
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'user@test.com', password: 'WrongPass1!' });
+
+            expect(res.status).toBe(401);
+            expect(res.body.error).toBe('Invalid email or password');
+            // Should increment attempts from 2 to 3
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('UPDATE users SET failed_login_attempts'),
+                [3, null, 5]
             );
-
-            expect(result.rows.length).toBe(0);
         });
 
-        test('invalidates reset token after use', async () => {
+        it('locks account after 5th failed attempt', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 5, email: 'user@test.com', is_active: true,
+                    locked_until: null, password_hash: '$2b$10$hash',
+                    failed_login_attempts: 4,
+                }],
+            });
+            verifyPassword.mockResolvedValueOnce(false);
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE
+
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'user@test.com', password: 'WrongPass1!' });
+
+            expect(res.status).toBe(401);
+            expect(res.body.error).toMatch(/Too many failed attempts/);
+            // locked_until should be set (not null)
+            const updateCall = db.query.mock.calls[1];
+            expect(updateCall[1][0]).toBe(5); // newFailedAttempts
+            expect(updateCall[1][1]).toBeInstanceOf(Date); // lockUntil
+        });
+
+        it('succeeds with valid credentials', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 10, email: 'user@test.com', name: 'User',
+                    role: 'user', is_active: true, locked_until: null,
+                    password_hash: '$2b$10$hash', failed_login_attempts: 0,
+                }],
+            });
+            verifyPassword.mockResolvedValueOnce(true);
+            db.query.mockResolvedValueOnce({ rows: [] }); // reset attempts
+
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'user@test.com', password: 'Valid1234!' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.user).toEqual({
+                id: 10, email: 'user@test.com', name: 'User', role: 'user',
+            });
+        });
+
+        it('normalizes email to lowercase', async () => {
+            const app = createTestApp();
             db.query.mockResolvedValueOnce({ rows: [] });
 
-            await db.query(
-                'UPDATE users SET reset_token = NULL, reset_token_expires = NULL WHERE id = $1',
-                [123]
-            );
+            await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'USER@TEST.COM', password: 'Test1234!' });
 
             expect(db.query).toHaveBeenCalledWith(
-                expect.stringContaining('reset_token = NULL'),
-                [123]
+                expect.stringContaining('SELECT'),
+                ['user@test.com']
+            );
+        });
+
+        it('allows login after lockout period expires', async () => {
+            const app = createTestApp();
+            const expiredLock = new Date(Date.now() - 5 * 60 * 1000);
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 1, email: 'user@test.com', is_active: true,
+                    locked_until: expiredLock.toISOString(),
+                    password_hash: '$2b$10$hash', failed_login_attempts: 5,
+                }],
+            });
+            verifyPassword.mockResolvedValueOnce(true);
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const res = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'user@test.com', password: 'Valid1234!' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+        });
+    });
+
+    // ========================================================================
+    // POST /api/auth/logout
+    // ========================================================================
+
+    describe('POST /api/auth/logout', () => {
+
+        it('succeeds and clears session for authenticated user', async () => {
+            const app = createTestApp({ authenticated: true });
+
+            const res = await request(app)
+                .post('/api/auth/logout');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(logAuthEvent).toHaveBeenCalledWith(db, expect.objectContaining({
+                eventType: 'logout',
+            }));
+        });
+
+        it('succeeds even without session (anonymous user)', async () => {
+            const app = createTestApp({ authenticated: false });
+
+            const res = await request(app)
+                .post('/api/auth/logout');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(logAuthEvent).not.toHaveBeenCalled();
+        });
+    });
+
+    // ========================================================================
+    // GET /api/auth/me
+    // ========================================================================
+
+    describe('GET /api/auth/me', () => {
+
+        it('returns user info when authenticated', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true });
+
+            const res = await request(app).get('/api/auth/me');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.authenticated).toBe(true);
+            expect(res.body.user).toMatchObject({
+                id: 1,
+                email: 'admin@test.com',
+                role: 'admin',
+            });
+        });
+
+        it('returns 401 when not authenticated', async () => {
+            const app = createTestApp({ authenticated: false });
+
+            const res = await request(app).get('/api/auth/me');
+
+            expect(res.status).toBe(401);
+            expect(res.body.authenticated).toBe(false);
+        });
+    });
+
+    // ========================================================================
+    // POST /api/auth/change-password
+    // ========================================================================
+
+    describe('POST /api/auth/change-password', () => {
+
+        it('returns 401 when not authenticated', async () => {
+            const app = createTestApp({ authenticated: false });
+
+            const res = await request(app)
+                .post('/api/auth/change-password')
+                .send({ currentPassword: 'Old1234!', newPassword: 'New1234!' });
+
+            expect(res.status).toBe(401);
+        });
+
+        it('returns 400 for missing fields', async () => {
+            const app = createTestApp({ authenticated: true });
+
+            const res = await request(app)
+                .post('/api/auth/change-password')
+                .send({});
+
+            expect(res.status).toBe(400);
+        });
+
+        it('returns 401 if current password is wrong', async () => {
+            const app = createTestApp({ authenticated: true });
+            db.query.mockResolvedValueOnce({
+                rows: [{ password_hash: '$2b$10$hash' }],
+            });
+            verifyPassword.mockResolvedValueOnce(false);
+
+            const res = await request(app)
+                .post('/api/auth/change-password')
+                .send({ currentPassword: 'Wrong1234!', newPassword: 'New12345!' });
+
+            expect(res.status).toBe(401);
+            expect(res.body.error).toBe('Current password is incorrect');
+        });
+
+        it('returns 404 if user not found in DB', async () => {
+            const app = createTestApp({ authenticated: true });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const res = await request(app)
+                .post('/api/auth/change-password')
+                .send({ currentPassword: 'Old1234!', newPassword: 'New12345!' });
+
+            expect(res.status).toBe(404);
+        });
+
+        it('succeeds with valid current and new password', async () => {
+            const app = createTestApp({ authenticated: true });
+            db.query.mockResolvedValueOnce({
+                rows: [{ password_hash: '$2b$10$oldhash' }],
+            });
+            verifyPassword.mockResolvedValueOnce(true);
+            hashPassword.mockResolvedValueOnce('$2b$10$newhash');
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE
+
+            const res = await request(app)
+                .post('/api/auth/change-password')
+                .send({ currentPassword: 'Old1234!', newPassword: 'New12345!' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(logAuthEvent).toHaveBeenCalledWith(db, expect.objectContaining({
+                eventType: 'password_change',
+            }));
+        });
+    });
+
+    // ========================================================================
+    // ADMIN ROUTES — GET /api/auth/users
+    // ========================================================================
+
+    describe('GET /api/auth/users', () => {
+
+        it('returns 401 when not authenticated', async () => {
+            const app = createTestApp({ authenticated: false });
+            const res = await request(app).get('/api/auth/users');
+            expect(res.status).toBe(401);
+        });
+
+        it('returns 403 when not admin', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: false });
+            const res = await request(app).get('/api/auth/users');
+            expect(res.status).toBe(403);
+        });
+
+        it('returns 403 when no active merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: null });
+            const res = await request(app).get('/api/auth/users');
+            expect(res.status).toBe(403);
+            expect(res.body.error).toBe('No active merchant selected');
+        });
+
+        it('returns merchant-scoped user list', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 42 });
+            db.query.mockResolvedValueOnce({
+                rows: [
+                    { id: 1, email: 'admin@test.com', name: 'Admin', role: 'admin', merchant_role: 'admin' },
+                    { id: 2, email: 'user@test.com', name: 'User', role: 'user', merchant_role: 'user' },
+                ],
+            });
+
+            const res = await request(app).get('/api/auth/users');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.users).toHaveLength(2);
+            // Verify merchant scoping
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('um.merchant_id = $1'),
+                [42]
             );
         });
     });
 
-    describe('Admin User Management', () => {
+    // ========================================================================
+    // ADMIN ROUTES — POST /api/auth/users
+    // ========================================================================
 
-        test('admin can create new user', async () => {
-            const newUser = {
-                email: 'newuser@example.com',
-                name: 'New User',
-                role: 'user'
-            };
+    describe('POST /api/auth/users', () => {
 
-            db.query.mockResolvedValueOnce({ rows: [] }); // Check email not exists
-            db.query.mockResolvedValueOnce({ rows: [{ id: 456 }] }); // Insert user
-
-            // Should generate temp password
-            const { generateRandomPassword } = require('../../utils/password');
-            generateRandomPassword.mockReturnValueOnce('TempPass123');
-
-            expect(generateRandomPassword()).toBe('TempPass123');
+        it('returns 403 when no active merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: null });
+            const res = await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'new@test.com', name: 'New User' });
+            expect(res.status).toBe(403);
         });
 
-        test('admin can unlock locked account', async () => {
-            const userId = 123;
+        it('returns 400 for duplicate email', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 99 }] }); // existing user
 
+            const res = await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'existing@test.com', name: 'Dup' });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/already exists/);
+        });
+
+        it('creates user with generated password when none provided', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [] }); // no duplicate
+            generateRandomPassword.mockReturnValueOnce('RandPass99!');
+            hashPassword.mockResolvedValueOnce('$2b$10$hashed');
+            const newUser = { id: 50, email: 'new@test.com', name: 'New', role: 'user', created_at: '2026-01-01' };
+            db.transaction.mockImplementation(async (cb) => {
+                const fakeClient = {
+                    query: jest.fn()
+                        .mockResolvedValueOnce({ rows: [newUser] }) // INSERT user
+                        .mockResolvedValueOnce({ rows: [] }), // INSERT user_merchants
+                };
+                return cb(fakeClient);
+            });
+
+            const res = await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'new@test.com', name: 'New' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.generatedPassword).toBe('RandPass99!');
+            expect(res.body.user.id).toBe(50);
+        });
+
+        it('creates user with provided password (no generated password in response)', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
             db.query.mockResolvedValueOnce({ rows: [] });
+            hashPassword.mockResolvedValueOnce('$2b$10$hashed');
+            const newUser = { id: 51, email: 'new2@test.com', name: 'New2', role: 'admin', created_at: '2026-01-01' };
+            db.transaction.mockImplementation(async (cb) => {
+                const fakeClient = {
+                    query: jest.fn()
+                        .mockResolvedValueOnce({ rows: [newUser] })
+                        .mockResolvedValueOnce({ rows: [] }),
+                };
+                return cb(fakeClient);
+            });
 
-            await db.query(
-                'UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1',
-                [userId]
-            );
+            const res = await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'new2@test.com', name: 'New2', role: 'admin', password: 'Explicit1!' });
 
-            expect(db.query).toHaveBeenCalledWith(
-                expect.stringContaining('locked_until = NULL'),
-                [userId]
-            );
+            expect(res.status).toBe(200);
+            expect(res.body.generatedPassword).toBeUndefined();
         });
 
-        test('admin can force password reset', async () => {
-            const userId = 123;
+        it('returns 400 for invalid role', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
 
+            const res = await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'new@test.com', role: 'superadmin' });
+
+            expect(res.status).toBe(400);
+        });
+
+        it('links new user to admin merchant via transaction', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 7 });
             db.query.mockResolvedValueOnce({ rows: [] });
+            hashPassword.mockResolvedValueOnce('$2b$10$h');
+            const fakeClient = { query: jest.fn() };
+            fakeClient.query
+                .mockResolvedValueOnce({ rows: [{ id: 60, email: 'a@b.com', name: 'A', role: 'user', created_at: '' }] })
+                .mockResolvedValueOnce({ rows: [] });
+            db.transaction.mockImplementation(async (cb) => cb(fakeClient));
 
-            await db.query(
-                'UPDATE users SET must_change_password = TRUE WHERE id = $1',
-                [userId]
+            await request(app)
+                .post('/api/auth/users')
+                .send({ email: 'a@b.com', name: 'A' });
+
+            // Second client query should be the user_merchants INSERT
+            expect(fakeClient.query).toHaveBeenCalledWith(
+                expect.stringContaining('user_merchants'),
+                [60, 7, 'user']
             );
-
-            expect(db.query).toHaveBeenCalledWith(
-                expect.stringContaining('must_change_password'),
-                [userId]
-            );
-        });
-
-        test('non-admin cannot access admin endpoints', () => {
-            const userRole = 'user';
-
-            expect(userRole).not.toBe('admin');
-            // Should return 403
         });
     });
 
-    describe('Session Security', () => {
+    // ========================================================================
+    // ADMIN ROUTES — PUT /api/auth/users/:id
+    // ========================================================================
 
-        test('handles session expiry gracefully', () => {
-            // When session expires, user should be prompted to re-authenticate
-            const expiredSession = {
-                user: null,
-                cookie: {
-                    expires: new Date(Date.now() - 1000) // Expired 1 second ago
-                }
-            };
+    describe('PUT /api/auth/users/:id', () => {
 
-            // Session middleware should detect this
-            const isSessionValid = expiredSession.user !== null &&
-                (!expiredSession.cookie?.expires || expiredSession.cookie.expires > new Date());
+        it('returns 404 if user not in merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [] }); // user_merchants check
 
-            expect(isSessionValid).toBe(false);
+            const res = await request(app)
+                .put('/api/auth/users/99')
+                .send({ name: 'Updated' });
+
+            expect(res.status).toBe(404);
         });
 
-        test('regenerates session ID on login to prevent session fixation', async () => {
-            // Session fixation attack: attacker sets a known session ID before victim logs in
-            // Prevention: regenerate session ID after successful authentication
+        it('prevents admin from deactivating themselves', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1, userId: 5 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, email: 'admin@test.com' }] });
 
-            const mockSession = {
-                regenerate: jest.fn((callback) => callback()),
-                user: null,
-                id: 'old-session-id-attacker-knows'
-            };
+            const res = await request(app)
+                .put('/api/auth/users/5')
+                .send({ is_active: false });
 
-            // Simulate successful login - session should be regenerated
-            await new Promise((resolve) => {
-                mockSession.regenerate((err) => {
-                    // After regeneration, set user data
-                    mockSession.user = { id: 123, email: 'user@example.com' };
-                    mockSession.id = 'new-secure-session-id';
-                    resolve();
-                });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/cannot deactivate your own/);
+        });
+
+        it('returns 400 when no fields to update', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 2, email: 'u@t.com' }] });
+
+            const res = await request(app)
+                .put('/api/auth/users/2')
+                .send({});
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/No fields to update/);
+        });
+
+        it('updates user name and role', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 2, email: 'u@t.com' }] }); // exists check
+            db.query.mockResolvedValueOnce({
+                rows: [{ id: 2, email: 'u@t.com', name: 'Updated', role: 'admin', is_active: true }],
             });
 
-            expect(mockSession.regenerate).toHaveBeenCalled();
-            expect(mockSession.id).not.toBe('old-session-id-attacker-knows');
-            expect(mockSession.user).not.toBeNull();
+            const res = await request(app)
+                .put('/api/auth/users/2')
+                .send({ name: 'Updated', role: 'admin' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.user.name).toBe('Updated');
+            expect(res.body.user.role).toBe('admin');
         });
 
-        test('session ID changes after authentication', () => {
-            // Before login
-            const preLoginSessionId = 'pre-login-session-12345';
-
-            // After login - new session ID (simulated)
-            const postLoginSessionId = 'post-login-session-67890';
-
-            expect(preLoginSessionId).not.toBe(postLoginSessionId);
-        });
-
-        test('does not include sensitive data in session', () => {
-            // Session should only contain minimal necessary data
-            const validSession = {
-                user: {
-                    id: 123,
-                    email: 'user@example.com',
-                    name: 'Test User',
-                    role: 'user'
-                }
-            };
-
-            // Session should NOT contain:
-            expect(validSession.user).not.toHaveProperty('password');
-            expect(validSession.user).not.toHaveProperty('password_hash');
-            expect(validSession.user).not.toHaveProperty('reset_token');
-            expect(validSession.user).not.toHaveProperty('square_access_token');
-        });
-
-        test('session cookie is configured securely', () => {
-            // Secure session configuration
-            const secureConfig = {
-                httpOnly: true,  // Prevents XSS from stealing cookie
-                secure: true,    // HTTPS only (in production)
-                sameSite: 'lax', // CSRF protection
-                maxAge: 24 * 60 * 60 * 1000 // 24 hours
-            };
-
-            expect(secureConfig.httpOnly).toBe(true);
-            expect(secureConfig.secure).toBe(true);
-            expect(secureConfig.sameSite).toBe('lax');
-        });
-
-        test('logout destroys session completely', async () => {
-            const mockSession = {
-                destroy: jest.fn((callback) => callback()),
-                user: { id: 123 }
-            };
-
-            await new Promise((resolve) => {
-                mockSession.destroy((err) => {
-                    resolve();
-                });
+        it('deactivation logs user_deactivated event', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1, userId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 99, email: 'victim@t.com' }] });
+            db.query.mockResolvedValueOnce({
+                rows: [{ id: 99, email: 'victim@t.com', is_active: false }],
             });
 
-            expect(mockSession.destroy).toHaveBeenCalled();
-        });
+            await request(app)
+                .put('/api/auth/users/99')
+                .send({ is_active: false });
 
-        test('concurrent session detection logs event', async () => {
-            // When same user logs in from different location
-            const firstLogin = {
-                userId: 123,
-                sessionId: 'session-device-1',
-                ipAddress: '192.168.1.100',
-                userAgent: 'Chrome/Windows'
-            };
-
-            const secondLogin = {
-                userId: 123,
-                sessionId: 'session-device-2',
-                ipAddress: '10.0.0.50',
-                userAgent: 'Safari/Mac'
-            };
-
-            // Both sessions for same user - should be logged for security
-            expect(firstLogin.userId).toBe(secondLogin.userId);
-            expect(firstLogin.ipAddress).not.toBe(secondLogin.ipAddress);
+            expect(logAuthEvent).toHaveBeenCalledWith(db, expect.objectContaining({
+                eventType: 'user_deactivated',
+            }));
         });
     });
 
-    describe('Security Logging', () => {
+    // ========================================================================
+    // ADMIN ROUTES — POST /api/auth/users/:id/reset-password
+    // ========================================================================
 
-        test('logs all authentication events', async () => {
-            const events = [
-                'login_success',
-                'login_failed',
-                'logout',
-                'password_changed',
-                'password_reset_requested',
-                'password_reset_completed',
-                'account_locked',
-                'account_unlocked'
-            ];
+    describe('POST /api/auth/users/:id/reset-password', () => {
 
-            for (const eventType of events) {
-                await logAuthEvent(db, {
-                    userId: 123,
-                    email: 'user@example.com',
-                    eventType,
-                    ipAddress: '127.0.0.1'
-                });
-            }
-
-            expect(logAuthEvent).toHaveBeenCalledTimes(events.length);
+        it('returns 403 when no active merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: null });
+            const res = await request(app).post('/api/auth/users/2/reset-password');
+            expect(res.status).toBe(403);
         });
 
-        test('includes IP address in auth events', async () => {
-            await logAuthEvent(db, {
-                userId: 123,
-                eventType: 'login_success',
-                ipAddress: '192.168.1.100'
-            });
+        it('returns 404 if user not in merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [] });
 
-            expect(logAuthEvent).toHaveBeenCalledWith(
-                db,
-                expect.objectContaining({ ipAddress: '192.168.1.100' })
-            );
+            const res = await request(app).post('/api/auth/users/99/reset-password');
+            expect(res.status).toBe(404);
         });
 
-        test('includes user agent in auth events', async () => {
-            await logAuthEvent(db, {
-                userId: 123,
-                eventType: 'login_success',
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        it('generates password when none provided', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 2, email: 'u@t.com' }] });
+            generateRandomPassword.mockReturnValueOnce('AutoGen1!');
+            hashPassword.mockResolvedValueOnce('$2b$10$h');
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE
+
+            const res = await request(app).post('/api/auth/users/2/reset-password');
+
+            expect(res.status).toBe(200);
+            expect(res.body.generatedPassword).toBe('AutoGen1!');
+        });
+
+        it('resets lockout when password is reset', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ id: 2, email: 'u@t.com' }] });
+            hashPassword.mockResolvedValueOnce('$2b$10$h');
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            await request(app).post('/api/auth/users/2/reset-password');
+
+            const updateCall = db.query.mock.calls[1];
+            expect(updateCall[0]).toContain('failed_login_attempts = 0');
+            expect(updateCall[0]).toContain('locked_until = NULL');
+        });
+    });
+
+    // ========================================================================
+    // ADMIN ROUTES — POST /api/auth/users/:id/unlock
+    // ========================================================================
+
+    describe('POST /api/auth/users/:id/unlock', () => {
+
+        it('returns 404 if user not in merchant', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [] }); // member check
+
+            const res = await request(app).post('/api/auth/users/99/unlock');
+            expect(res.status).toBe(404);
+        });
+
+        it('unlocks user and resets failed attempts', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ user_id: 5 }] }); // member check
+            db.query.mockResolvedValueOnce({ rows: [{ id: 5, email: 'locked@t.com' }] }); // UPDATE
+
+            const res = await request(app).post('/api/auth/users/5/unlock');
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(logAuthEvent).toHaveBeenCalledWith(db, expect.objectContaining({
+                eventType: 'account_unlocked',
+            }));
+        });
+
+        it('returns 404 if UPDATE finds no matching user', async () => {
+            const app = createTestApp({ authenticated: true, isAdmin: true, activeMerchantId: 1 });
+            db.query.mockResolvedValueOnce({ rows: [{ user_id: 5 }] }); // member check passes
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE returns empty
+
+            const res = await request(app).post('/api/auth/users/5/unlock');
+            expect(res.status).toBe(404);
+        });
+    });
+
+    // ========================================================================
+    // PUBLIC — POST /api/auth/forgot-password
+    // ========================================================================
+
+    describe('POST /api/auth/forgot-password', () => {
+
+        it('returns success even if email not found (anti-enumeration)', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const res = await request(app)
+                .post('/api/auth/forgot-password')
+                .send({ email: 'nobody@test.com' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            expect(res.body.message).toMatch(/If an account exists/);
+        });
+
+        it('generates token and stores hashed version (SEC-7)', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, email: 'user@test.com' }] }); // find user
+            db.query.mockResolvedValueOnce({ rows: [] }); // DELETE old tokens
+            db.query.mockResolvedValueOnce({ rows: [] }); // INSERT new token
+
+            const res = await request(app)
+                .post('/api/auth/forgot-password')
+                .send({ email: 'user@test.com' });
+
+            expect(res.status).toBe(200);
+            // Verify hashed token is stored, not plaintext
+            const insertCall = db.query.mock.calls[2];
+            expect(insertCall[0]).toContain('password_reset_tokens');
+            const storedToken = insertCall[1][1]; // hashed token
+            expect(storedToken).toHaveLength(64); // SHA-256 hex = 64 chars
+        });
+
+        it('deletes old tokens before creating new one', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1, email: 'user@test.com' }] });
+            db.query.mockResolvedValueOnce({ rows: [] });
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            await request(app)
+                .post('/api/auth/forgot-password')
+                .send({ email: 'user@test.com' });
+
+            const deleteCall = db.query.mock.calls[1];
+            expect(deleteCall[0]).toContain('DELETE FROM password_reset_tokens');
+        });
+
+        it('returns 400 for missing email', async () => {
+            const app = createTestApp();
+
+            const res = await request(app)
+                .post('/api/auth/forgot-password')
+                .send({});
+
+            expect(res.status).toBe(400);
+        });
+    });
+
+    // ========================================================================
+    // PUBLIC — POST /api/auth/reset-password
+    // ========================================================================
+
+    describe('POST /api/auth/reset-password', () => {
+
+        const validToken = crypto.randomBytes(32).toString('hex');
+
+        it('returns 400 for invalid token format', async () => {
+            const app = createTestApp();
+
+            const res = await request(app)
+                .post('/api/auth/reset-password')
+                .send({ token: 'short', newPassword: 'NewPass123!' });
+
+            expect(res.status).toBe(400);
+        });
+
+        it('returns 400 for expired or invalid token', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [] }); // token not found
+            db.query.mockResolvedValueOnce({ rows: [] }); // exhausted check
+
+            const res = await request(app)
+                .post('/api/auth/reset-password')
+                .send({ token: validToken, newPassword: 'NewPass123!' });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/Invalid or expired/);
+        });
+
+        it('succeeds with valid token and resets password', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 1, user_id: 5, token: 'hashed',
+                    expires_at: new Date(Date.now() + 3600000),
+                    attempts_remaining: 5, email: 'user@test.com',
+                }],
+            });
+            db.query.mockResolvedValueOnce({ rows: [] }); // decrement attempts
+            hashPassword.mockResolvedValueOnce('$2b$10$newhash');
+            db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE user password
+            db.query.mockResolvedValueOnce({ rows: [] }); // mark token used
+
+            const res = await request(app)
+                .post('/api/auth/reset-password')
+                .send({ token: validToken, newPassword: 'NewPass123!' });
+
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(true);
+            // Verify password was updated and lockout cleared
+            const passwordUpdate = db.query.mock.calls[2];
+            expect(passwordUpdate[0]).toContain('failed_login_attempts = 0');
+            expect(passwordUpdate[0]).toContain('locked_until = NULL');
+        });
+
+        it('decrements attempts_remaining before processing', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 7, user_id: 5, attempts_remaining: 3, email: 'u@t.com',
+                }],
+            });
+            db.query.mockResolvedValueOnce({ rows: [] }); // decrement
+            hashPassword.mockResolvedValueOnce('$2b$10$h');
+            db.query.mockResolvedValueOnce({ rows: [] }); // update user
+            db.query.mockResolvedValueOnce({ rows: [] }); // mark used
+
+            await request(app)
+                .post('/api/auth/reset-password')
+                .send({ token: validToken, newPassword: 'NewPass123!' });
+
+            const decrementCall = db.query.mock.calls[1];
+            expect(decrementCall[0]).toContain('attempts_remaining');
+            expect(decrementCall[1]).toEqual([7]);
+        });
+
+        it('returns 400 when token attempts exhausted', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [] }); // main query (no valid token)
+            db.query.mockResolvedValueOnce({
+                rows: [{ id: 1, attempts_remaining: 0 }],
+            }); // exhausted check
+
+            const res = await request(app)
+                .post('/api/auth/reset-password')
+                .send({ token: validToken, newPassword: 'NewPass123!' });
+
+            expect(res.status).toBe(400);
+        });
+    });
+
+    // ========================================================================
+    // PUBLIC — GET /api/auth/verify-reset-token
+    // ========================================================================
+
+    describe('GET /api/auth/verify-reset-token', () => {
+
+        const validToken = crypto.randomBytes(32).toString('hex');
+
+        it('returns valid:false for invalid token', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const res = await request(app)
+                .get(`/api/auth/verify-reset-token?token=${validToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.valid).toBe(false);
+        });
+
+        it('returns valid:true with email for valid token', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    id: 1, email: 'user@test.com',
+                    expires_at: new Date(Date.now() + 3600000),
+                    attempts_remaining: 5,
+                }],
             });
 
-            expect(logAuthEvent).toHaveBeenCalledWith(
-                db,
-                expect.objectContaining({ userAgent: expect.stringContaining('Mozilla') })
-            );
+            const res = await request(app)
+                .get(`/api/auth/verify-reset-token?token=${validToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body.valid).toBe(true);
+            expect(res.body.email).toBe('user@test.com');
+        });
+
+        it('returns 400 for missing token', async () => {
+            const app = createTestApp();
+
+            const res = await request(app)
+                .get('/api/auth/verify-reset-token');
+
+            expect(res.status).toBe(400);
+        });
+
+        it('returns 400 for non-hex token', async () => {
+            const app = createTestApp();
+
+            const res = await request(app)
+                .get('/api/auth/verify-reset-token?token=not-hex-string-that-is-exactly-64-characters-long-xxxxxxxxxxxxxxxxx');
+
+            expect(res.status).toBe(400);
+        });
+
+        it('hashes token before DB lookup (SEC-7)', async () => {
+            const app = createTestApp();
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            await request(app)
+                .get(`/api/auth/verify-reset-token?token=${validToken}`);
+
+            const expectedHash = crypto.createHash('sha256').update(validToken).digest('hex');
+            const queryCall = db.query.mock.calls[0];
+            expect(queryCall[1]).toContain(expectedHash);
         });
     });
 });
