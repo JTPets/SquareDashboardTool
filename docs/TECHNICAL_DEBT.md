@@ -18,6 +18,31 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Fix**: Removed `Date.now()` from idempotency key. Now uses deterministic `refund:${squareOrderId}:${variationId}:${quantity}` matching the purchase pattern. Added pre-INSERT idempotency check (SELECT before transaction) matching `processQualifyingPurchase`. 2 new tests verify dedup and deterministic key.
 **Source**: Discovered during T-3 test writing (2026-03-04), fixed 2026-03-06
 
+### ~~E-1: Fire-and-forget email missing `.catch()` in DB error handler~~ RESOLVED (2026-03-06)
+
+**File**: `server.js:1048`
+**Issue**: `emailNotifier.sendCritical('Database Connection Lost', err)` was called without `.catch()` inside `db.pool.on('error')`. During a DB outage, if the email also fails, this creates an unhandled promise rejection that could crash the process.
+**Fix**: Added `.catch(emailErr => logger.error('Failed to send DB error email', { error: emailErr.message }))`.
+
+### ~~BACKLOG-36: Phantom velocity rows never self-correct~~ RESOLVED (2026-03-06)
+
+**File**: `services/square/square-velocity.js`
+**Issue**: `syncSalesVelocity` and `syncSalesVelocityAllPeriods` only upserted variations found in orders. Variations that stopped selling retained stale velocity rows forever, inflating reorder suggestions.
+**Fix**: Added `DELETE FROM sales_velocity WHERE variation_id NOT IN (processed keys) AND merchant_id AND period_days` after each upsert batch. When no sales exist for a period, all rows for that period/merchant are deleted.
+
+### ~~BACKLOG-35: Sales velocity does not subtract refunds~~ RESOLVED (2026-03-06)
+
+**File**: `services/square/square-velocity.js`
+**Issue**: Both sync functions counted `order.line_items` quantities but ignored `order.returns[].return_line_items`, making net sales slightly inflated on refunded items (~2 refunds/day at JTPets).
+**Fix**: After processing line items, both functions now iterate `order.returns` and subtract `return_line_items` quantities and revenue. Net values are floored at 0 to prevent negative velocity. The incremental `updateSalesVelocityFromOrder` (webhook path) is not changed — it only processes new orders, not historical refunds. The daily reconciliation sync corrects any drift.
+
+### Incremental velocity update does not subtract refunds
+
+**File**: `services/square/square-velocity.js:updateSalesVelocityFromOrder`
+**Issue**: The webhook-triggered incremental velocity update (`updateSalesVelocityFromOrder`) uses additive SQL (`total_quantity_sold + $4`). It does not handle refund events. When a refund occurs, the velocity is slightly inflated until the next full sync corrects it. This is acceptable because: (1) refunds are ~2/day, (2) the daily reconciliation sync runs `syncSalesVelocityAllPeriods` which now subtracts refunds correctly.
+**Impact**: Minor — velocity slightly inflated for refunded items between daily syncs.
+**Source**: Observed during BACKLOG-35 fix (2026-03-06)
+
 ### OAuth `/connect` error handler uses global error handler instead of redirect
 
 **File**: `routes/square-oauth.js`

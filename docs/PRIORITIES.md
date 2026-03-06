@@ -25,7 +25,7 @@
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
 | ~~ERR-1/2~~ | ~~Add `asyncHandler` to `square-oauth.js` `/connect` and `/callback` routes~~ — **RESOLVED 2026-03-04**: Both routes wrapped with `asyncHandler` | AUDIT-2026-02-28 | S |
-| E-1 | Fire-and-forget email in DB error handler (`server.js:1001`) — add `.catch()` for silent email failures during DB outage | CODEBASE_AUDIT_2026-02-25 | S |
+| ~~E-1~~ | ~~Fire-and-forget email in DB error handler (`server.js:1001`) — add `.catch()` for silent email failures during DB outage~~ — **RESOLVED 2026-03-06**: Added `.catch(err => logger.error(...))` to prevent unhandled rejection | CODEBASE_AUDIT_2026-02-25 | S |
 
 ### Business
 
@@ -55,8 +55,8 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| BACKLOG-36 | Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations in orders; stale rows persist forever. Fix: DELETE WHERE variation_id NOT IN processed keys | CLAUDE.md | S |
-| BACKLOG-35 | Sales velocity does not subtract refunds — net sales slightly inflated on refunded items (~2 refunds/day) | CLAUDE.md | S |
+| ~~BACKLOG-36~~ | ~~Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations in orders; stale rows persist forever~~ — **RESOLVED 2026-03-06**: Added DELETE WHERE variation_id NOT IN (processed keys) after upsert in both `syncSalesVelocity` and `syncSalesVelocityAllPeriods`. 3 tests. | CLAUDE.md | S |
+| ~~BACKLOG-35~~ | ~~Sales velocity does not subtract refunds — net sales slightly inflated on refunded items (~2 refunds/day)~~ — **RESOLVED 2026-03-06**: Both sync functions now subtract `order.returns[].return_line_items` quantities and revenue. Net values floored at 0. 4 tests. | CLAUDE.md | S |
 | DB-1 | 14 core tables have nullable `merchant_id` — add NOT NULL constraint via migration | AUDIT-2026-02-28 | M |
 
 ### Testing

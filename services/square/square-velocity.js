@@ -122,6 +122,26 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                     data.total_quantity += parseFloat(lineItem.quantity) || 0;
                     data.total_revenue += parseInt(lineItem.total_money?.amount) || 0;
                 }
+
+                // BACKLOG-35: Subtract refunded quantities from velocity
+                const returns = order.returns || [];
+                for (const ret of returns) {
+                    for (const returnItem of ret.return_line_items || []) {
+                        const variationId = returnItem.catalog_object_id;
+                        const locationId = returnItem.source_line_item_uid
+                            ? order.location_id : order.location_id;
+
+                        if (!variationId || !locationId) continue;
+
+                        const key = `${variationId}:${locationId}`;
+                        if (salesData.has(key)) {
+                            const data = salesData.get(key);
+                            data.total_quantity -= parseFloat(returnItem.quantity) || 0;
+                            data.total_revenue -= parseInt(returnItem.return_amounts?.total_money?.amount
+                                || returnItem.total_money?.amount) || 0;
+                        }
+                    }
+                }
             }
 
             ordersProcessed += orders.length;
@@ -169,10 +189,13 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                 continue;
             }
 
-            const dailyAvg = data.total_quantity / periodDays;
-            const weeklyAvg = data.total_quantity / (periodDays / 7);
-            const monthlyAvg = data.total_quantity / (periodDays / 30);
-            const dailyRevenueAvg = data.total_revenue / periodDays;
+            // Floor at 0 — refunds can't make net sales negative
+            const netQuantity = Math.max(0, data.total_quantity);
+            const netRevenue = Math.max(0, data.total_revenue);
+            const dailyAvg = netQuantity / periodDays;
+            const weeklyAvg = netQuantity / (periodDays / 7);
+            const monthlyAvg = netQuantity / (periodDays / 30);
+            const dailyRevenueAvg = netRevenue / periodDays;
 
             await db.query(`
                 INSERT INTO sales_velocity (
@@ -198,8 +221,8 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                 data.variation_id,
                 data.location_id,
                 periodDays,
-                data.total_quantity,
-                data.total_revenue,
+                netQuantity,
+                netRevenue,
                 startDate,
                 endDate,
                 dailyAvg,
@@ -215,6 +238,39 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
             logger.info('Skipped sales velocity entries for deleted variations', {
                 skipped: skippedCount
             });
+        }
+
+        // BACKLOG-36: Delete stale velocity rows for variations no longer appearing in orders
+        const processedVariationIds = [...existingVariationIds];
+        if (processedVariationIds.length > 0) {
+            const delPlaceholders = processedVariationIds.map((_, i) => `$${i + 1}`).join(',');
+            const deleteResult = await db.query(
+                `DELETE FROM sales_velocity
+                 WHERE merchant_id = $${processedVariationIds.length + 1}
+                   AND period_days = $${processedVariationIds.length + 2}
+                   AND variation_id NOT IN (${delPlaceholders})`,
+                [...processedVariationIds, merchantId, periodDays]
+            );
+            if (deleteResult.rowCount > 0) {
+                logger.info('Removed stale velocity rows', {
+                    deleted: deleteResult.rowCount,
+                    period_days: periodDays,
+                    merchantId
+                });
+            }
+        } else {
+            // No variations had sales — delete all rows for this period/merchant
+            const deleteResult = await db.query(
+                'DELETE FROM sales_velocity WHERE merchant_id = $1 AND period_days = $2',
+                [merchantId, periodDays]
+            );
+            if (deleteResult.rowCount > 0) {
+                logger.info('Removed all stale velocity rows (no sales in period)', {
+                    deleted: deleteResult.rowCount,
+                    period_days: periodDays,
+                    merchantId
+                });
+            }
         }
 
         logger.info('Sales velocity sync complete', { combinations: savedCount, period_days: periodDays });
@@ -404,6 +460,33 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                         }
                     }
                 }
+
+                // BACKLOG-35: Subtract refunded quantities from velocity
+                const returns = order.returns || [];
+                for (const ret of returns) {
+                    for (const returnItem of ret.return_line_items || []) {
+                        const variationId = returnItem.catalog_object_id;
+                        const locationId = order.location_id;
+
+                        if (!variationId || !locationId) continue;
+
+                        const refundQty = parseFloat(returnItem.quantity) || 0;
+                        const refundRevenue = parseInt(returnItem.return_amounts?.total_money?.amount
+                            || returnItem.total_money?.amount) || 0;
+
+                        for (const days of PERIODS) {
+                            if (orderClosedAt >= periodBoundaries[days]) {
+                                const key = `${variationId}:${locationId}`;
+                                const periodMap = salesDataByPeriod.get(days);
+                                if (periodMap.has(key)) {
+                                    const itemData = periodMap.get(key);
+                                    itemData.total_quantity -= refundQty;
+                                    itemData.total_revenue -= refundRevenue;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             ordersProcessed += orders.length;
@@ -484,10 +567,13 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                     continue;
                 }
 
-                const dailyAvg = data.total_quantity / periodDays;
-                const weeklyAvg = data.total_quantity / (periodDays / 7);
-                const monthlyAvg = data.total_quantity / (periodDays / 30);
-                const dailyRevenueAvg = data.total_revenue / periodDays;
+                // Floor at 0 — refunds can't make net sales negative
+                const netQuantity = Math.max(0, data.total_quantity);
+                const netRevenue = Math.max(0, data.total_revenue);
+                const dailyAvg = netQuantity / periodDays;
+                const weeklyAvg = netQuantity / (periodDays / 7);
+                const monthlyAvg = netQuantity / (periodDays / 30);
+                const dailyRevenueAvg = netRevenue / periodDays;
 
                 await db.query(`
                     INSERT INTO sales_velocity (
@@ -513,8 +599,8 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                     data.variation_id,
                     data.location_id,
                     periodDays,
-                    data.total_quantity,
-                    data.total_revenue,
+                    netQuantity,
+                    netRevenue,
                     periodStartDate,
                     endDate,
                     dailyAvg,
@@ -530,6 +616,40 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                 logger.info(`Skipped sales velocity entries for deleted variations (${periodDays}d)`, {
                     skipped: skippedCount
                 });
+            }
+
+            // BACKLOG-36: Delete stale velocity rows for this period
+            const periodVariationIds = [...new Set(
+                [...periodMap.values()]
+                    .filter(d => existingVariationIds.has(d.variation_id))
+                    .map(d => d.variation_id)
+            )];
+            if (periodVariationIds.length > 0) {
+                const delPlaceholders = periodVariationIds.map((_, i) => `$${i + 1}`).join(',');
+                const deleteResult = await db.query(
+                    `DELETE FROM sales_velocity
+                     WHERE merchant_id = $${periodVariationIds.length + 1}
+                       AND period_days = $${periodVariationIds.length + 2}
+                       AND variation_id NOT IN (${delPlaceholders})`,
+                    [...periodVariationIds, merchantId, periodDays]
+                );
+                if (deleteResult.rowCount > 0) {
+                    logger.info(`Removed stale velocity rows (${periodDays}d)`, {
+                        deleted: deleteResult.rowCount,
+                        merchantId
+                    });
+                }
+            } else {
+                const deleteResult = await db.query(
+                    'DELETE FROM sales_velocity WHERE merchant_id = $1 AND period_days = $2',
+                    [merchantId, periodDays]
+                );
+                if (deleteResult.rowCount > 0) {
+                    logger.info(`Removed all stale velocity rows (${periodDays}d, no sales)`, {
+                        deleted: deleteResult.rowCount,
+                        merchantId
+                    });
+                }
             }
 
             summary[`${periodDays}d`] = savedCount;
