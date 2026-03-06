@@ -100,9 +100,41 @@ async function getAllSettings(merchantId) {
     return settings;
 }
 
+/**
+ * Get settings for a merchant as a flat key-value object.
+ * Ensures default settings exist before querying.
+ *
+ * Extracted from routes/loyalty/settings.js (O-10)
+ *
+ * @param {number} merchantId - REQUIRED: Merchant ID
+ * @returns {Promise<Object>} Flat { key: value } map
+ */
+async function getSettings(merchantId) {
+    if (!merchantId) {
+        throw new Error('merchantId is required for getSettings - tenant isolation required');
+    }
+
+    // Ensure default settings exist
+    await initializeDefaultSettings(merchantId);
+
+    const result = await db.query(`
+        SELECT setting_key, setting_value, description
+        FROM loyalty_settings
+        WHERE merchant_id = $1
+    `, [merchantId]);
+
+    const settings = result.rows.reduce((acc, row) => {
+        acc[row.setting_key] = row.setting_value;
+        return acc;
+    }, {});
+
+    return settings;
+}
+
 module.exports = {
     getSetting,
     updateSetting,
     initializeDefaultSettings,
-    getAllSettings
+    getAllSettings,
+    getSettings
 };

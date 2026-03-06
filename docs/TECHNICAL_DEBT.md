@@ -186,9 +186,9 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | O-5 | `services/square/square-catalog-sync.js` | Business logic (brand extraction, expiry parsing) leaking into API sync layer — should be in service callbacks |
 | O-6 | `services/square/square-velocity.js` | Soft coupling to loyalty-admin via lazy `require()` — intentional, documented |
 | ~~O-7~~ | ~~`routes/analytics.js:97-876`~~ | ~~`GET /api/reorder-suggestions` handler is ~780 lines inline~~ **RESOLVED** (2026-03-06): Extracted to `services/catalog/reorder-service.js` (5 exported functions). Route handler is now 10 lines. 33 unit tests + 31 route tests pass. |
-| O-8 | `routes/loyalty/processing.js:85-128` | `POST /manual-entry` has 44 lines inline business logic (response message construction, status code branching). Should delegate to service |
-| O-9 | `routes/loyalty/square-integration.js` | `POST /create-square-reward` has 51 lines inline state-transition logic. Should delegate to service |
-| O-10 | `routes/loyalty/settings.js` | `GET /settings` has direct DB query instead of delegating to service layer. Violates thin-route pattern |
+| ~~O-8~~ | ~~`routes/loyalty/processing.js:85-128`~~ | ~~`POST /manual-entry` has 44 lines inline business logic~~ **RESOLVED** (2026-03-06): Extracted to `services/loyalty-admin/manual-entry-service.js`. Route is now 10 lines. 8 unit tests. |
+| ~~O-9~~ | ~~`routes/loyalty/square-integration.js`~~ | ~~`POST /create-square-reward` has 51 lines inline state-transition logic~~ **RESOLVED** (2026-03-06): Extracted to `services/loyalty-admin/square-reward-service.js`. Route is now 10 lines. 6 unit tests. |
+| ~~O-10~~ | ~~`routes/loyalty/settings.js`~~ | ~~`GET /settings` has direct DB query~~ **RESOLVED** (2026-03-06): Added `getSettings()` to `services/loyalty-admin/settings-service.js`. Route is now 3 lines. 3 unit tests. |
 
 ---
 
@@ -203,7 +203,10 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | T-5 | `services/loyalty-admin/square-discount-service.js` | 39 tests added (2026-03-04). ~1,465 lines. No bugs found. Flag: 5x over 300-line limit; contains CRUD, orchestration, validation, sync, and customer notes — at least 3 separate concerns. |
 | T-6 | `routes/analytics.js` + `services/catalog/reorder-service.js` | 31 route tests + 33 service unit tests (2026-03-06). Covers sales-velocity and reorder-suggestions endpoints. No bugs found. O-7 resolved — handler extracted to service. |
 | T-7 | `routes/catalog.js` | 52 tests added (2026-03-06). Covers all 19 endpoints. No bugs found. Clean thin-facade pattern — all logic delegated to catalogService. |
-| T-8 | `routes/loyalty/` | 48 tests added (2026-03-06). Covers offers (10), rewards (5), processing (11), customers (12), cross-cutting auth (10). No bugs found. Flags: O-8 (manual-entry inline logic), O-9 (create-square-reward inline logic), O-10 (settings direct DB query). |
+| T-8 | `routes/loyalty/` | 48 tests added (2026-03-06). Covers offers (10), rewards (5), processing (11), customers (12), cross-cutting auth (10). No bugs found. ~~Flags: O-8, O-9, O-10~~ all RESOLVED (2026-03-06). |
+| T-9 | `services/loyalty-admin/manual-entry-service.js` | 8 tests (2026-03-06). O-8 extraction. No bugs found. |
+| T-10 | `services/loyalty-admin/square-reward-service.js` | 6 tests (2026-03-06). O-9 extraction. No bugs found. |
+| T-11 | `services/loyalty-admin/settings-service.js` | 3 tests (2026-03-06). O-10 extraction — getSettings(). No bugs found. |
 
 ### ~~Velocity update error not caught in order handler~~ FIXED 2026-03-06
 

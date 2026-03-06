@@ -60,7 +60,8 @@ const {
     getSetting,
     updateSetting,
     initializeDefaultSettings,
-    getAllSettings
+    getAllSettings,
+    getSettings
 } = require('./settings-service');
 
 // Offer admin service
@@ -170,6 +171,12 @@ const { getLoyaltyStats, getAuditFindings, resolveAuditFinding } = require('./au
 // Square sync service (A-18: extracted from routes/loyalty/square-integration.js)
 const { linkOfferToSquareTier, getRewardForSquareSync, syncRewardsToPOS, getPendingSyncCounts } = require('./square-sync-service');
 
+// Manual entry service (O-8: extracted from routes/loyalty/processing.js)
+const { processManualEntry } = require('./manual-entry-service');
+
+// Square reward service (O-9: extracted from routes/loyalty/square-integration.js)
+const { createSquareReward } = require('./square-reward-service');
+
 // Backfill orchestration service (A-12: extracted from routes/loyalty/processing.js)
 const { runBackfill } = require('./backfill-orchestration-service');
 
@@ -197,6 +204,7 @@ module.exports = {
     updateSetting,
     initializeDefaultSettings,
     getAllSettings,
+    getSettings,
 
     // Offer management
     createOffer,
@@ -310,6 +318,12 @@ module.exports = {
     // Audit
     logAuditEvent,
     getAuditLogs,
+
+    // Manual entry (O-8)
+    processManualEntry,
+
+    // Square reward creation (O-9)
+    createSquareReward,
 
     // Redemption audit
     auditMissedRedemptions
