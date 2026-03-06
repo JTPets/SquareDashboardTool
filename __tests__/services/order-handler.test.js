@@ -959,15 +959,11 @@ describe('OrderHandler', () => {
 
     describe('handleRefundCreatedOrUpdated', () => {
         it('should process completed refund with order refunds', async () => {
-            // Mock fetch globally for the refund handler's direct API call
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: true,
-                json: () => Promise.resolve({
-                    order: {
-                        id: 'order_1',
-                        refunds: [{ id: 'refund_1', status: 'COMPLETED' }]
-                    }
-                })
+            mockSquareClient.orders.get.mockResolvedValueOnce({
+                order: {
+                    id: 'order_1',
+                    refunds: [{ id: 'refund_1', status: 'COMPLETED' }]
+                }
             });
 
             mockProcessRefundsForLoyalty.mockResolvedValueOnce({
@@ -983,8 +979,8 @@ describe('OrderHandler', () => {
 
             const result = await handler.handleRefundCreatedOrUpdated(ctx);
 
+            expect(mockSquareClient.orders.get).toHaveBeenCalledWith({ orderId: 'order_1' });
             expect(result.loyaltyRefunds).toEqual({ refundsProcessed: 1 });
-            delete global.fetch;
         });
 
         it('should skip non-COMPLETED refunds', async () => {
@@ -1026,8 +1022,8 @@ describe('OrderHandler', () => {
             delete process.env.WEBHOOK_ORDER_SYNC;
         });
 
-        it('should skip when no access token available', async () => {
-            mockGetSquareAccessToken.mockResolvedValueOnce(null);
+        it('should handle SDK fetch failure gracefully', async () => {
+            mockSquareClient.orders.get.mockRejectedValueOnce(new Error('Square API error'));
 
             const ctx = {
                 data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
@@ -1037,27 +1033,9 @@ describe('OrderHandler', () => {
 
             const result = await handler.handleRefundCreatedOrUpdated(ctx);
 
-            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
-        });
-
-        it('should handle API fetch failure gracefully', async () => {
-            global.fetch = jest.fn().mockResolvedValue({
-                ok: false,
-                status: 500
-            });
-
-            const ctx = {
-                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
-                merchantId: 1,
-                event: { type: 'refund.created' }
-            };
-
-            const result = await handler.handleRefundCreatedOrUpdated(ctx);
-
-            // Should not crash
             expect(result.handled).toBe(true);
+            expect(result.error).toBe('Square API error');
             expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
-            delete global.fetch;
         });
 
         it('should return error when merchantId is missing', async () => {
@@ -1136,6 +1114,328 @@ describe('OrderHandler', () => {
             } catch (e) {
                 expect(e.message).toBe('DB write failed');
             }
+        });
+    });
+
+    // ========================================================================
+    // RISK-3: Payment-only path — no prior order.* webhook
+    // ========================================================================
+
+    describe('payment-only path (RISK-3)', () => {
+        it('should process loyalty via payment webhook when no order webhook fired (empty cache)', async () => {
+            // No cache entry — simulates order.* webhook not firing
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            const result = await handler.handlePaymentUpdated(ctx);
+
+            // Should fetch order from Square and process loyalty
+            expect(mockSquareClient.orders.get).toHaveBeenCalledWith({ orderId: 'order_1' });
+            expect(mockProcessLoyaltyOrder).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merchantId: 1,
+                    source: 'webhook'
+                })
+            );
+            expect(result.loyalty).toBeDefined();
+            expect(result.loyalty.purchasesRecorded).toBe(1);
+        });
+
+        it('should run redemption detection via payment path (no _checkOrderForRedemption pre-check)', async () => {
+            // RISK-3 documents: payment path calls detectRewardRedemptionFromOrder
+            // but NOT _checkOrderForRedemption. Verify redemption detection still runs.
+            mockDetectRedemption.mockResolvedValueOnce({
+                detected: true,
+                rewardId: 77,
+                offerName: 'Buy 10 Get 1 Free'
+            });
+
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            const result = await handler.handlePaymentUpdated(ctx);
+
+            expect(mockDetectRedemption).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 'order_1' }),
+                1
+            );
+            expect(result.loyaltyRedemption).toEqual({
+                rewardId: 77,
+                offerName: 'Buy 10 Get 1 Free'
+            });
+        });
+
+        it('should run full customer identification when cache is empty (payment-only)', async () => {
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            await handler.handlePaymentUpdated(ctx);
+
+            // Should run the 6-method identification chain (not use cached customer)
+            expect(mockCustomerService.identifyCustomerFromOrder).toHaveBeenCalled();
+        });
+
+        it('should handle payment loyalty error gracefully', async () => {
+            mockSquareClient.orders.get.mockRejectedValueOnce(new Error('SDK timeout'));
+
+            const ctx = {
+                data: { id: 'pay_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1
+            };
+
+            const result = await handler.handlePaymentUpdated(ctx);
+
+            // Should not crash — error caught in _processPaymentForLoyalty
+            expect(result.handled).toBe(true);
+            expect(logger.error).toHaveBeenCalledWith(
+                'Error processing payment for loyalty',
+                expect.objectContaining({ paymentId: 'pay_1' })
+            );
+        });
+    });
+
+    // ========================================================================
+    // RISK-4: identifyCustomerForOrder DB error path
+    // ========================================================================
+
+    describe('identifyCustomerForOrder error handling (RISK-4)', () => {
+        it('should log at error level when customer identification throws', async () => {
+            mockCustomerService.identifyCustomerFromOrder.mockRejectedValueOnce(
+                new Error('DB connection refused')
+            );
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Error propagates to _processLoyalty catch block, logged at error level
+            expect(logger.error).toHaveBeenCalledWith(
+                'Failed to process order for loyalty',
+                expect.objectContaining({
+                    error: 'DB connection refused',
+                    orderId: 'order_1'
+                })
+            );
+            expect(result.loyaltyError).toBe('DB connection refused');
+        });
+
+        it('should still process velocity and delivery when customer identification fails', async () => {
+            mockCustomerService.identifyCustomerFromOrder.mockRejectedValueOnce(
+                new Error('DB timeout')
+            );
+
+            const ctx = makeContext();
+            await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Velocity should still have been updated (runs before loyalty)
+            expect(squareApi.updateSalesVelocityFromOrder).toHaveBeenCalled();
+        });
+
+        it('should not populate cache when customer identification throws', async () => {
+            mockCustomerService.identifyCustomerFromOrder.mockRejectedValueOnce(
+                new Error('DB down')
+            );
+
+            const ctx = makeContext();
+            await handler.handleOrderCreatedOrUpdated(ctx);
+
+            // Cache should NOT be populated — error prevented processing
+            const cached = OrderHandler._orderProcessingCache.get('order_1:1');
+            expect(cached).toBeFalsy();
+        });
+
+        it('should log at error level when LoyaltyCustomerService.initialize throws', async () => {
+            mockCustomerService.initialize.mockRejectedValueOnce(
+                new Error('Failed to load merchant config')
+            );
+
+            const ctx = makeContext();
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(logger.error).toHaveBeenCalledWith(
+                'Failed to process order for loyalty',
+                expect.objectContaining({
+                    error: 'Failed to load merchant config'
+                })
+            );
+            expect(result.loyaltyError).toBe('Failed to load merchant config');
+        });
+    });
+
+    // ========================================================================
+    // RISK-1: Multi-discount order in _checkOrderForRedemption
+    // ========================================================================
+
+    describe('_checkOrderForRedemption multi-discount (RISK-1)', () => {
+        const db = require('../../utils/database');
+
+        it('should check all discounts and match the correct one (3rd of 3)', async () => {
+            // 3 discounts: first two are non-loyalty, third matches a reward
+            db.query
+                .mockResolvedValueOnce({ rows: [] })  // discount 1: no match
+                .mockResolvedValueOnce({ rows: [] })  // discount 2: no match
+                .mockResolvedValueOnce({ rows: [{     // discount 3: match!
+                    id: 99,
+                    offer_id: 5,
+                    square_customer_id: 'cust_abc',
+                    offer_name: 'Buy 12 Get 1 Free'
+                }] });
+
+            const order = {
+                id: 'order_multi',
+                discounts: [
+                    { uid: 'd1', catalog_object_id: 'disc_sale_1', name: 'Summer Sale' },
+                    { uid: 'd2', catalog_object_id: 'disc_sale_2', name: 'Staff Discount' },
+                    { uid: 'd3', catalog_object_id: 'disc_loyalty_1', name: 'Loyalty Reward' }
+                ]
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(true);
+            expect(result.rewardId).toBe(99);
+            expect(result.discountCatalogId).toBe('disc_loyalty_1');
+            expect(db.query).toHaveBeenCalledTimes(3);
+        });
+
+        it('should stop checking after first matching discount (short-circuit)', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{
+                id: 10,
+                offer_id: 2,
+                square_customer_id: 'cust_1',
+                offer_name: 'First Match'
+            }] });
+
+            const order = {
+                id: 'order_shortcircuit',
+                discounts: [
+                    { uid: 'd1', catalog_object_id: 'disc_match', name: 'Match' },
+                    { uid: 'd2', catalog_object_id: 'disc_other', name: 'Other' }
+                ]
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(true);
+            expect(result.rewardId).toBe(10);
+            // Should have queried only once (short-circuited after first match)
+            expect(db.query).toHaveBeenCalledTimes(1);
+        });
+
+        it('should skip discounts without catalog_object_id (manual discounts)', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            const order = {
+                id: 'order_mixed',
+                discounts: [
+                    { uid: 'd1', name: 'Manual 10% Off' },   // No catalog_object_id
+                    { uid: 'd2', name: 'Ad-hoc', catalog_object_id: null },  // Null
+                    { uid: 'd3', catalog_object_id: 'disc_real', name: 'Real Discount' }
+                ]
+            };
+
+            // Only the third discount has a catalog_object_id — one DB query
+            await handler._checkOrderForRedemption(order, 1);
+
+            expect(db.query).toHaveBeenCalledTimes(1);
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('square_discount_id'),
+                [1, 'disc_real']
+            );
+        });
+
+        it('should fall back to free item match when no discount catalog IDs match', async () => {
+            // All discounts have catalog IDs but none match rewards
+            db.query
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] });
+
+            mockMatchFreeItem.mockResolvedValueOnce({
+                reward_id: 55,
+                offer_id: 8,
+                offer_name: 'Free Item Reward',
+                square_customer_id: 'cust_free',
+                matched_variation_id: 'var_free'
+            });
+
+            const order = {
+                id: 'order_fallback',
+                discounts: [
+                    { uid: 'd1', catalog_object_id: 'disc_no_match_1' },
+                    { uid: 'd2', catalog_object_id: 'disc_no_match_2' }
+                ]
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(true);
+            expect(result.rewardId).toBe(55);
+            expect(result.discountCatalogId).toBeNull();
+            expect(mockMatchFreeItem).toHaveBeenCalled();
+        });
+
+        it('should fall back to discount amount match when free item also fails', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+            mockMatchFreeItem.mockResolvedValueOnce(null);
+            mockMatchDiscountAmount.mockResolvedValueOnce({
+                reward_id: 88,
+                offer_id: 12,
+                offer_name: 'Dollar Off Reward',
+                square_customer_id: 'cust_dollar',
+                totalDiscountCents: 500,
+                expectedValueCents: 500
+            });
+
+            const order = {
+                id: 'order_amount_fallback',
+                discounts: [
+                    { uid: 'd1', catalog_object_id: 'disc_x' }
+                ]
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(true);
+            expect(result.rewardId).toBe(88);
+            expect(mockMatchDiscountAmount).toHaveBeenCalled();
+        });
+
+        it('should return isRedemptionOrder=false when all strategies fail', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] });
+            mockMatchFreeItem.mockResolvedValueOnce(null);
+            mockMatchDiscountAmount.mockResolvedValueOnce(null);
+
+            const order = {
+                id: 'order_no_redemption',
+                discounts: [
+                    { uid: 'd1', catalog_object_id: 'disc_none' }
+                ]
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(false);
+        });
+
+        it('should handle order with zero discounts', async () => {
+            mockMatchFreeItem.mockResolvedValueOnce(null);
+            mockMatchDiscountAmount.mockResolvedValueOnce(null);
+
+            const order = {
+                id: 'order_no_discounts',
+                discounts: []
+            };
+
+            const result = await handler._checkOrderForRedemption(order, 1);
+
+            expect(result.isRedemptionOrder).toBe(false);
+            // No DB queries needed — no catalog discounts to check
+            expect(db.query).not.toHaveBeenCalled();
         });
     });
 });
