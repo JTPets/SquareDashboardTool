@@ -1045,7 +1045,8 @@ async function startServer() {
                 error: err.message,
                 stack: err.stack
             });
-            emailNotifier.sendCritical('Database Connection Lost', err);
+            emailNotifier.sendCritical('Database Connection Lost', err)
+                .catch(emailErr => logger.error('Failed to send DB error email', { error: emailErr.message }));
         });
 
     } catch (error) {
