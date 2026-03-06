@@ -74,6 +74,7 @@ jobs/            → Background jobs and cron tasks
 | Route logic | Validation + call service only |
 | New files | Tests + docs reference required |
 | Complexity | Explainable in one sentence |
+| Dependencies | `npm install --save` or `--save-dev` only — never manually edit package.json. Commit package.json and package-lock.json together in the same commit as the code requiring the new dependency. |
 
 **Violations require justification.** If any rule must be broken:
 1. Add a comment at the top of the file/function explaining WHY
