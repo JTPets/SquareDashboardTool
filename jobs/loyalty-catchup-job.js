@@ -20,7 +20,7 @@ const { processLoyaltyOrder } = require('../services/loyalty-admin/order-intake'
 const { LoyaltyCustomerService } = require('../services/loyalty-admin/customer-identification-service');
 
 // Loyalty admin service (for redemption detection)
-const loyaltyService = require('../utils/loyalty-service');
+const loyaltyService = require('../services/loyalty-admin');
 
 // SDK order normalization (camelCase → snake_case)
 const { normalizeSquareOrder } = require('../services/webhook-handlers/order-handler');

@@ -14,7 +14,7 @@
 
 const db = require('../utils/database');
 const logger = require('../utils/logger');
-const squareApi = require('../utils/square-api');
+const squareApi = require('../services/square');
 
 // Track consecutive runs with zero deletions per merchant (resets on PM2 restart)
 const consecutiveZeroDeletions = new Map();

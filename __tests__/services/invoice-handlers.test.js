@@ -18,7 +18,7 @@ jest.mock('../../utils/database', () => ({
     pool: { end: jest.fn().mockResolvedValue() }
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     syncInventory: jest.fn().mockResolvedValue({ counts: 50 }),
     syncCommittedInventory: jest.fn().mockResolvedValue({ synced: true })
 }));

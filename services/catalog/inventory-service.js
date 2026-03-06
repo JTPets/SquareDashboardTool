@@ -12,8 +12,8 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const squareApi = require('../../utils/square-api');
-const expiryDiscount = require('../../utils/expiry-discount');
+const squareApi = require('../square');
+const expiryDiscount = require('../expiry');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 
 /**

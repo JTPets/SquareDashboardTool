@@ -10,7 +10,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const squareApi = require('../../utils/square-api');
+const squareApi = require('../square');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 
 /**

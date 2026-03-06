@@ -28,7 +28,7 @@ const mockUpdateVelocity = jest.fn().mockResolvedValue({
     updated: 3, skipped: 0, periods: [91, 182, 365]
 });
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     updateSalesVelocityFromOrder: mockUpdateVelocity
 }));
 
@@ -38,7 +38,7 @@ const mockMatchDiscountAmount = jest.fn().mockResolvedValue(null);
 const mockProcessRefundsForLoyalty = jest.fn().mockResolvedValue({ processed: false });
 const mockGetSquareAccessToken = jest.fn().mockResolvedValue('test-token');
 
-jest.mock('../../utils/loyalty-service', () => ({
+jest.mock('../../services/loyalty-admin', () => ({
     detectRewardRedemptionFromOrder: mockDetectRedemption,
     matchEarnedRewardByFreeItem: mockMatchFreeItem,
     matchEarnedRewardByDiscountAmount: mockMatchDiscountAmount,
@@ -54,7 +54,7 @@ const mockDeliveryApi = {
     updateOrder: jest.fn().mockResolvedValue()
 };
 
-jest.mock('../../utils/delivery-api', () => mockDeliveryApi);
+jest.mock('../../services/delivery', () => mockDeliveryApi);
 
 const mockSquareClient = {
     orders: {
@@ -122,8 +122,8 @@ jest.mock('../../config/constants', () => ({
 }));
 
 const logger = require('../../utils/logger');
-const squareApi = require('../../utils/square-api');
-const loyaltyService = require('../../utils/loyalty-service');
+const squareApi = require('../../services/square');
+const loyaltyService = require('../../services/loyalty-admin');
 const OrderHandler = require('../../services/webhook-handlers/order-handler');
 const { normalizeSquareOrder } = OrderHandler;
 

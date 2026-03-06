@@ -19,7 +19,7 @@
 
 const logger = require('../../utils/logger');
 const db = require('../../utils/database');
-const squareApi = require('../../utils/square-api');
+const squareApi = require('../square');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 
 // Invoice statuses that represent committed (reserved) inventory

@@ -3,7 +3,6 @@
  * Handles delivery order management, route generation, and POD functionality
  *
  * This service was moved from utils/delivery-api.js as part of P1-3 (utils reorganization).
- * For backward compatibility, utils/delivery-api.js re-exports this module.
  *
  * Usage:
  *   const { getOrders, createOrder } = require('./services/delivery');

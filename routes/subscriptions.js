@@ -34,8 +34,8 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('../utils/database');
 const logger = require('../utils/logger');
-const squareApi = require('../utils/square-api');
-const { generateIdempotencyKey } = require('../utils/square-api');
+const squareApi = require('../services/square');
+const { generateIdempotencyKey } = require('../services/square');
 
 /** Hash a password reset token with SHA-256 for secure storage (SEC-7) */
 function hashResetToken(token) {

@@ -9,10 +9,7 @@ const {
     requireAuth,
     requireAuthApi,
     requireAdmin,
-    requireRole,
     requireWriteAccess,
-    optionalAuth,
-    getCurrentUser,
     getClientIp
 } = require('../../middleware/auth');
 
@@ -232,76 +229,6 @@ describe('Authentication Middleware', () => {
         });
     });
 
-    // ==================== requireRole ====================
-    describe('requireRole', () => {
-
-        test('allows user with matching role', () => {
-            const req = mockRequest({
-                session: { user: { id: 1, role: 'user' } }
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            const middleware = requireRole('user', 'admin');
-            middleware(req, res, next);
-
-            expect(next).toHaveBeenCalled();
-        });
-
-        test('allows user with any of the specified roles', () => {
-            const req = mockRequest({
-                session: { user: { id: 1, role: 'admin' } }
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            const middleware = requireRole('user', 'admin');
-            middleware(req, res, next);
-
-            expect(next).toHaveBeenCalled();
-        });
-
-        test('returns 401 when not authenticated', () => {
-            const req = mockRequest({ session: null });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            const middleware = requireRole('admin');
-            middleware(req, res, next);
-
-            expect(res.status).toHaveBeenCalledWith(401);
-        });
-
-        test('returns 403 when user role not in allowed list', () => {
-            const req = mockRequest({
-                session: { user: { id: 1, email: 'test@test.com', role: 'readonly' } },
-                path: '/api/items'
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            const middleware = requireRole('admin', 'user');
-            middleware(req, res, next);
-
-            expect(res.status).toHaveBeenCalledWith(403);
-            expect(res.jsonData.error).toContain('admin');
-            expect(res.jsonData.error).toContain('user');
-        });
-
-        test('works with single role', () => {
-            const req = mockRequest({
-                session: { user: { id: 1, role: 'admin' } }
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            const middleware = requireRole('admin');
-            middleware(req, res, next);
-
-            expect(next).toHaveBeenCalled();
-        });
-    });
-
     // ==================== requireWriteAccess ====================
     describe('requireWriteAccess', () => {
 
@@ -350,88 +277,6 @@ describe('Authentication Middleware', () => {
 
             expect(res.status).toHaveBeenCalledWith(403);
             expect(res.jsonData.error).toContain('read-only');
-        });
-    });
-
-    // ==================== optionalAuth ====================
-    describe('optionalAuth', () => {
-
-        test('always calls next()', () => {
-            const req = mockRequest({ session: null });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            optionalAuth(req, res, next);
-
-            expect(next).toHaveBeenCalled();
-        });
-
-        test('does not block authenticated users', () => {
-            const req = mockRequest({
-                session: { user: { id: 1 } }
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            optionalAuth(req, res, next);
-
-            expect(next).toHaveBeenCalled();
-        });
-
-        test('attaches user to req when logged in', () => {
-            const user = { id: 1, email: 'test@test.com', role: 'user' };
-            const req = mockRequest({
-                session: { user }
-            });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            optionalAuth(req, res, next);
-
-            expect(req.user).toEqual(user);
-            expect(next).toHaveBeenCalled();
-        });
-
-        test('does not attach user when not logged in', () => {
-            const req = mockRequest({ session: null });
-            const res = mockResponse();
-            const next = jest.fn();
-
-            optionalAuth(req, res, next);
-
-            expect(req.user).toBeUndefined();
-            expect(next).toHaveBeenCalled();
-        });
-    });
-
-    // ==================== getCurrentUser ====================
-    describe('getCurrentUser', () => {
-
-        test('returns user from session', () => {
-            const user = { id: 1, email: 'test@test.com', role: 'user' };
-            const req = mockRequest({
-                session: { user }
-            });
-
-            const result = getCurrentUser(req);
-
-            expect(result).toEqual(user);
-        });
-
-        test('returns null when no session', () => {
-            const req = mockRequest({ session: null });
-
-            const result = getCurrentUser(req);
-
-            expect(result).toBeNull();
-        });
-
-        test('returns null when session has no user', () => {
-            const req = mockRequest({ session: {} });
-
-            const result = getCurrentUser(req);
-
-            expect(result).toBeNull();
         });
     });
 

@@ -17,7 +17,7 @@
 
 const logger = require('../../utils/logger');
 const db = require('../../utils/database');
-const squareApi = require('../../utils/square-api');
+const squareApi = require('../square');
 
 class CatalogHandler {
     /**

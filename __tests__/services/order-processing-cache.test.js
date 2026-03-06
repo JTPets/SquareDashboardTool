@@ -14,11 +14,11 @@ jest.mock('../../utils/logger', () => ({
     debug: jest.fn()
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     updateSalesVelocityFromOrder: jest.fn().mockResolvedValue({ updated: 0, skipped: 0 })
 }));
 
-jest.mock('../../utils/loyalty-service', () => ({
+jest.mock('../../services/loyalty-admin', () => ({
     detectRewardRedemptionFromOrder: jest.fn().mockResolvedValue({ detected: false }),
     matchEarnedRewardByFreeItem: jest.fn().mockResolvedValue(null),
     matchEarnedRewardByDiscountAmount: jest.fn().mockResolvedValue(null),
@@ -27,7 +27,7 @@ jest.mock('../../utils/loyalty-service', () => ({
     getSquareAccessToken: jest.fn().mockResolvedValue('test-token')
 }));
 
-jest.mock('../../utils/delivery-api', () => ({
+jest.mock('../../services/delivery', () => ({
     getSettings: jest.fn().mockResolvedValue({ auto_ingest_ready_orders: false }),
     ingestSquareOrder: jest.fn().mockResolvedValue(null),
     handleSquareOrderUpdate: jest.fn().mockResolvedValue(),

@@ -3,17 +3,12 @@
  * Express API server with Square POS integration
  */
 
-// Early startup logging (logger not yet initialized)
-const startupTime = Date.now();
-
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const fs = require('fs').promises;
-const multer = require('multer');
-const cron = require('node-cron');
 const db = require('./utils/database');
 
 // Store cron task references for graceful shutdown
@@ -25,24 +20,18 @@ let httpServer = null;
 // Webhook processing is now handled by services/webhook-processor.js
 const syncQueue = require('./services/sync-queue');
 
-const squareApi = require('./utils/square-api');
+const squareApi = require('./services/square');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
-const subscriptionHandler = require('./utils/subscription-handler');
 const crypto = require('crypto');
-const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-encryption');
-const deliveryApi = require('./utils/delivery-api');
-const loyaltyService = require('./utils/loyalty-service');
-const loyaltyReports = require('./utils/loyalty-reports');
-const gmcApi = require('./utils/merchant-center-api');
 const webhookRetry = require('./utils/webhook-retry');
 
 // Jobs module (cron jobs, backups, etc.)
 const jobs = require('./jobs');
 
 // Security middleware
-const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -60,9 +49,8 @@ const webhooksSquareRoute = require('./routes/webhooks/square');
 const expiryDiscountsRoutes = require('./routes/expiry-discounts');
 const vendorCatalogRoutes = require('./routes/vendor-catalog');
 const cycleCountsRoutes = require('./routes/cycle-counts');
-const { generateDailyBatch } = require('./utils/cycle-count-utils');
 const syncRoutes = require('./routes/sync');
-const { runSmartSync, isSyncNeeded, loggedSync } = require('./routes/sync');
+const { runSmartSync, isSyncNeeded } = require('./routes/sync');
 const catalogRoutes = require('./routes/catalog');
 const aiAutofillRoutes = require('./routes/ai-autofill');
 const squareAttributesRoutes = require('./routes/square-attributes');
@@ -122,11 +110,6 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
 // Rate limiting
 app.use(configureRateLimit());
 
-// Delivery-specific rate limiters (applied to routes below)
-const deliveryRateLimit = configureDeliveryRateLimit();
-const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
-// Sensitive operation rate limiter (V006 fix - token regeneration)
-const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
 
 // CORS configuration
 app.use(configureCors());
@@ -223,22 +206,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/output/logs', requireAuth, express.static(path.join(__dirname, 'output/logs')));
 app.use('/output/backups', requireAuth, express.static(path.join(__dirname, 'output/backups')));
 app.use('/output', express.static(path.join(__dirname, 'output')));
-
-// Configure multer for POD photo uploads
-const podUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB max
-    },
-    fileFilter: (req, file, cb) => {
-        // Only accept images
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'), false);
-        }
-    }
-});
 
 // Structured request logging
 app.use((req, res, next) => {

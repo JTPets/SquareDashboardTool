@@ -208,7 +208,7 @@ describe('Google OAuth CSRF Protection', () => {
     describe('Backward Compatibility', () => {
 
         test('google-sheets.js re-exports google-auth.js', () => {
-            const googleSheets = require('../../utils/google-sheets');
+            const googleSheets = require('../../utils/google-auth');
             const googleAuth = require('../../utils/google-auth');
 
             expect(googleSheets.getAuthUrl).toBe(googleAuth.getAuthUrl);

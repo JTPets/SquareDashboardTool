@@ -11,7 +11,7 @@
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
-const expiryDiscount = require('../utils/expiry-discount');
+const expiryDiscount = require('../services/expiry');
 
 /**
  * Run expiry discount automation for a single merchant

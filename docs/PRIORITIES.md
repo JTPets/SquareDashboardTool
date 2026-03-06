@@ -18,6 +18,7 @@
 | ~~SEC-7~~ | ~~Password reset tokens stored as plaintext hex in database~~ — **RESOLVED 2026-03-04**: Tokens hashed with SHA-256 before storage in both `routes/auth.js` and `routes/subscriptions.js`; verification hashes incoming token before DB lookup | CODEBASE_AUDIT_2026-02-25 | M |
 | ~~S-1~~ | ~~SQL injection via template literal interpolation in INTERVAL clauses (6 locations in `cart-activity-service.js`, `square-oauth.js`, `google-auth.js`)~~ — **RESOLVED 2026-03-04**: All 6 locations use parameterized `INTERVAL '1 day' * $N` / `INTERVAL '1 minute' * $N` pattern. Test file `oauth-csrf.test.js` also updated. | CODEBASE_AUDIT_2026-02-25 | S |
 | ~~S-2~~ | ~~`/output` directory served without auth (`server.js:221`)~~ — **RESOLVED 2026-03-04**: Added `requireAuth` to `/output/logs` and `/output/backups`; `/output/feeds` remains public for Google Merchant Center | CODEBASE_AUDIT_2026-02-25 | S |
+| SEC-14 | 12 delivery/driver API endpoints lack per-endpoint rate limiting beyond global 100/15min cap. Includes public 10MB file upload (`POST /api/driver/:token/orders/:orderId/pod`) — 100 requests = 1GB potential DoS. 4 unauthenticated driver-api.js endpoints + 7 authenticated delivery.js write endpoints need per-route rate limiting via `deliveryRateLimit`/`deliveryStrictRateLimit`. | DEAD-CODE-REPORT-2026-03-05 | M |
 
 ### Reliability
 
