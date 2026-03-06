@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-04
+**Last Updated**: 2026-03-06
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
@@ -194,7 +194,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | File | Description |
 |----|------|-------------|
 | T-1 | `__tests__/routes/oauth-trial.test.js` | Test suite fails with `Cannot find module 'square'` — Square SDK not available in test environment. Tests pass locally when SDK is installed. Fix: add `square` to `devDependencies` or mock it in the test setup before this matters for real CI/CD pipeline. |
-| T-2 | `services/webhook-handlers/order-handler.js` | 72 tests (2026-03-06, up from 57). 1,425 lines, mixed responsibilities (velocity, loyalty, delivery, cart activity, refunds). Flag for split into handler-per-concern modules. **BUG-1 FIXED**: `handleRefundCreatedOrUpdated` used raw `fetch()` instead of SDK — replaced with `getSquareClientForMerchant()` pattern. **BUG-2 FIXED**: redundant lazy `require('../loyalty-admin/customer-identification-service')` removed. **RISK-3 FIXED** (2026-03-06): `_processPaymentForLoyalty` now calls `_checkOrderForRedemption` before `processLoyaltyOrder`, matching the `_processLoyalty` pattern. **VELOCITY FIXED** (2026-03-06): wrapped `updateSalesVelocityFromOrder` in try/catch — failure no longer kills loyalty/delivery pipeline. **RISK-1 TESTED**: multi-discount orders query DB per-discount (N queries for N discounts). No batch optimization — acceptable at current volume but should use `ANY($1)` if discount counts grow. |
+| T-2 | `services/webhook-handlers/order-handler/` | **SPLIT COMPLETE** (2026-03-06): 1,425-line monolith split into `index.js` (~545 lines orchestration) + 5 focused modules: `order-normalize.js`, `order-cart.js`, `order-velocity.js`, `order-delivery.js`, `order-loyalty.js`. 88 tests pass with zero assertion changes. **BUG-1 FIXED**: raw `fetch()` replaced with SDK. **BUG-2 FIXED**: redundant lazy require removed. **RISK-3 FIXED**: payment path calls `checkOrderForRedemption` before `processLoyaltyOrder`. **VELOCITY FIXED**: wrapped in try/catch, logs at WARN. **RISK-1 TESTED**: multi-discount N+1 query — acceptable at current volume. |
 | T-3 | `services/loyalty-admin/purchase-service.js` | 20 tests added (2026-03-04). ~840 lines. **BUG FOUND**: `processRefund` idempotency key uses `Date.now()` (line ~673), making it non-deterministic — duplicate refund webhooks get different keys and both insert, causing double-decremented loyalty progress. Purchase path uses deterministic keys correctly. Fix: remove `Date.now()` from refund idempotency key. |
 | T-4 | `services/loyalty-admin/reward-service.js` | 31 tests added (2026-03-04). ~680 lines. No bugs found. Flag: exceeds 300-line limit; detection strategies (catalog ID, free item, discount amount) could be separate modules. |
 | T-5 | `services/loyalty-admin/square-discount-service.js` | 39 tests added (2026-03-04). ~1,465 lines. No bugs found. Flag: 5x over 300-line limit; contains CRUD, orchestration, validation, sync, and customer notes — at least 3 separate concerns. |
