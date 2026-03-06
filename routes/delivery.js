@@ -160,7 +160,7 @@ router.get('/orders/:id', requireAuth, requireMerchant, validators.getOrder, asy
  * PATCH /api/delivery/orders/:id
  * Update a delivery order (notes, status)
  */
-router.patch('/orders/:id', requireAuth, requireMerchant, validators.updateOrder, asyncHandler(async (req, res) => {
+router.patch('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, validators.updateOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const updates = {};
 
@@ -201,7 +201,7 @@ router.patch('/orders/:id', requireAuth, requireMerchant, validators.updateOrder
  * DELETE /api/delivery/orders/:id
  * Delete a manual delivery order (only allowed for manual orders not on route)
  */
-router.delete('/orders/:id', requireAuth, requireMerchant, validators.deleteOrder, asyncHandler(async (req, res) => {
+router.delete('/orders/:id', deliveryRateLimit, requireAuth, requireMerchant, validators.deleteOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const deleted = await deliveryApi.deleteOrder(merchantId, req.params.id);
 
@@ -220,7 +220,7 @@ router.delete('/orders/:id', requireAuth, requireMerchant, validators.deleteOrde
  * POST /api/delivery/orders/:id/skip
  * Mark an order as skipped (driver couldn't deliver)
  */
-router.post('/orders/:id/skip', requireAuth, requireMerchant, validators.skipOrder, asyncHandler(async (req, res) => {
+router.post('/orders/:id/skip', deliveryRateLimit, requireAuth, requireMerchant, validators.skipOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const order = await deliveryApi.skipOrder(merchantId, req.params.id, req.session.user.id);
 
@@ -235,7 +235,7 @@ router.post('/orders/:id/skip', requireAuth, requireMerchant, validators.skipOrd
  * POST /api/delivery/orders/:id/complete
  * Mark an order as completed and sync to Square
  */
-router.post('/orders/:id/complete', requireAuth, requireMerchant, validators.completeOrder, asyncHandler(async (req, res) => {
+router.post('/orders/:id/complete', deliveryRateLimit, requireAuth, requireMerchant, validators.completeOrder, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const order = await deliveryApi.getOrderById(merchantId, req.params.id);
 
@@ -645,7 +645,7 @@ router.get('/route/:id', requireAuth, requireMerchant, validators.getRoute, asyn
  * POST /api/delivery/route/finish
  * Finish the active route and roll skipped orders back to pending
  */
-router.post('/route/finish', requireAuth, requireMerchant, validators.finishRoute, asyncHandler(async (req, res) => {
+router.post('/route/finish', deliveryRateLimit, requireAuth, requireMerchant, validators.finishRoute, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const { routeId } = req.body;
 
@@ -704,7 +704,7 @@ router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, r
  * PUT /api/delivery/settings
  * Update delivery settings for the merchant
  */
-router.put('/settings', requireAuth, requireMerchant, validators.updateSettings, asyncHandler(async (req, res) => {
+router.put('/settings', deliveryRateLimit, requireAuth, requireMerchant, validators.updateSettings, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const {
         startAddress,
@@ -926,7 +926,7 @@ router.post('/sync', deliveryStrictRateLimit, requireAuth, requireMerchant, vali
  * Backfill customer data for orders with "Unknown Customer"
  * Looks up customer details from Square API using square_customer_id
  */
-router.post('/backfill-customers', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
+router.post('/backfill-customers', deliveryStrictRateLimit, requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
 
     logger.info('Starting customer backfill for delivery orders', { merchantId });
