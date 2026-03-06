@@ -5,7 +5,6 @@
  * Provides CRUD operations with automatic defaults and fallback to environment variables.
  *
  * This service was extracted from utils/database.js as part of P1-3 (utils reorganization).
- * For backward compatibility, database.js re-exports these functions.
  *
  * Usage:
  *   const { getMerchantSettings, updateMerchantSettings } = require('../services/merchant');
@@ -13,15 +12,7 @@
  */
 
 const logger = require('../../utils/logger');
-
-// Import database query function - we use a getter to avoid circular dependency
-let _db = null;
-function getDb() {
-    if (!_db) {
-        _db = require('../../utils/database');
-    }
-    return _db;
-}
+const db = require('../../utils/database');
 
 /**
  * Default merchant settings values (fallback to env vars or hardcoded defaults)
@@ -73,7 +64,7 @@ async function getMerchantSettings(merchantId) {
         return { ...DEFAULT_MERCHANT_SETTINGS };
     }
 
-    const db = getDb();
+
 
     try {
         // Try to get existing settings
@@ -150,7 +141,7 @@ async function updateMerchantSettings(merchantId, settings) {
         throw new Error('merchantId is required');
     }
 
-    const db = getDb();
+
 
     // Build dynamic update query based on provided settings
     const updates = [];
