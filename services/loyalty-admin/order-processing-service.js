@@ -14,7 +14,7 @@
  */
 
 const logger = require('../../utils/logger');
-const { getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
 const { processOrderForLoyalty } = require('./webhook-processing-service');
 
@@ -42,15 +42,15 @@ async function processOrderManually({ merchantId, squareOrderId }) {
         throw error;
     }
 
-    // Fetch the order from Square using raw API
-    const orderResponse = await fetch(`https://connect.squareup.com/v2/orders/${squareOrderId}`, {
+    // Fetch the order from Square
+    const orderResponse = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${squareOrderId}`, {
         method: 'GET',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'Square-Version': '2024-01-18'
+            'Square-Version': '2025-01-16'
         }
-    });
+    }, 10000);
 
     if (!orderResponse.ok) {
         const errText = await orderResponse.text();

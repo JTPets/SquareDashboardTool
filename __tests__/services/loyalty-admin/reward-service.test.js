@@ -41,7 +41,7 @@ jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
 }));
 
 const mockUpdateCustomerSummary = jest.fn().mockResolvedValue();
-jest.mock('../../../services/loyalty-admin/purchase-service', () => ({
+jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
     updateCustomerSummary: mockUpdateCustomerSummary
 }));
 

@@ -13,6 +13,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
+const { fetchWithTimeout } = require('./shared-utils');
 const { RedemptionTypes } = require('./constants');
 const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-service');
 
@@ -24,14 +25,14 @@ const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-serv
  */
 async function fetchOrderFromSquare(orderId, accessToken) {
     try {
-        const response = await fetch(`https://connect.squareup.com/v2/orders/${orderId}`, {
+        const response = await fetchWithTimeout(`https://connect.squareup.com/v2/orders/${orderId}`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             }
-        });
+        }, 10000);
 
         if (!response.ok) {
             logger.warn('Audit: Square API returned non-OK status', {

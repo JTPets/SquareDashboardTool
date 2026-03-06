@@ -17,8 +17,8 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { getSquareAccessToken } = require('./shared-utils');
-const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('./backfill-service');
+const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('./loyalty-event-prefetch-service');
 const { processOrderForLoyalty } = require('./webhook-processing-service');
 
 /**
@@ -115,15 +115,15 @@ async function runBackfill({ merchantId, days = 7 }) {
             requestBody.cursor = cursor;
         }
 
-        const response = await fetch('https://connect.squareup.com/v2/orders/search', {
+        const response = await fetchWithTimeout('https://connect.squareup.com/v2/orders/search', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2024-01-18'
+                'Square-Version': '2025-01-16'
             },
             body: JSON.stringify(requestBody)
-        });
+        }, 15000);
 
         if (!response.ok) {
             const errText = await response.text();

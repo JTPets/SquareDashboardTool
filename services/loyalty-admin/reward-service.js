@@ -19,8 +19,8 @@ const {
     cleanupSquareCustomerGroupDiscount
 } = require('./square-discount-service');
 
-// Import from purchase-service.js (sibling)
-const { updateCustomerSummary } = require('./purchase-service');
+// Import from customer-summary-service.js (sibling)
+const { updateCustomerSummary } = require('./customer-summary-service');
 
 // ============================================================================
 // REWARD REDEMPTION
@@ -114,7 +114,7 @@ async function redeemReward(redemptionData) {
 
         const redemption = redemptionResult.rows[0];
 
-        // Update reward status
+        // Update reward status (B4 fix: added AND merchant_id for tenant isolation)
         const effectiveRedeemedAt = redeemedAt || null;
         await client.query(`
             UPDATE loyalty_rewards
@@ -123,8 +123,8 @@ async function redeemReward(redemptionData) {
                 redemption_id = $2,
                 redemption_order_id = $3,
                 updated_at = NOW()
-            WHERE id = $4
-        `, [effectiveRedeemedAt, redemption.id, squareOrderId, rewardId]);
+            WHERE id = $4 AND merchant_id = $5
+        `, [effectiveRedeemedAt, redemption.id, squareOrderId, rewardId, merchantId]);
 
         await logAuditEvent({
             merchantId,

@@ -25,9 +25,13 @@
  * - customer-cache-service.js: cacheCustomerDetails, etc.
  * - customer-admin-service.js: getCustomerDetails, lookups, etc.
  * - expiration-service.js: processExpiredWindowEntries, processExpiredEarnedRewards
- * - backfill-service.js: runLoyaltyCatchup, order history
+ * - backfill-service.js: runLoyaltyCatchup, isOrderAlreadyProcessedForLoyalty
+ * - loyalty-event-prefetch-service.js: prefetchRecentLoyaltyEvents
+ * - order-history-audit-service.js: getCustomerOrderHistoryForAudit
  * - square-discount-service.js: Square Customer Group Discount ops
- * - purchase-service.js: processQualifyingPurchase, processRefund, updateRewardProgress
+ * - purchase-service.js: processQualifyingPurchase, processRefund
+ * - reward-progress-service.js: updateRewardProgress
+ * - customer-summary-service.js: updateCustomerSummary
  * - reward-service.js: redeemReward, detectRewardRedemptionFromOrder
  * - webhook-processing-service.js: processOrderForLoyalty, processOrderRefundsForLoyalty
  *
@@ -114,14 +118,22 @@ const {
 
 // Backfill service
 const {
-    prefetchRecentLoyaltyEvents,
-    findCustomerFromPrefetchedEvents,
     isOrderAlreadyProcessedForLoyalty,
     processOrderForLoyaltyIfNeeded,
-    getCustomerOrderHistoryForAudit,
-    addOrdersToLoyaltyTracking,
     runLoyaltyCatchup
 } = require('./backfill-service');
+
+// Loyalty event prefetch service (split from backfill-service.js)
+const {
+    prefetchRecentLoyaltyEvents,
+    findCustomerFromPrefetchedEvents
+} = require('./loyalty-event-prefetch-service');
+
+// Order history audit service (split from backfill-service.js)
+const {
+    getCustomerOrderHistoryForAudit,
+    addOrdersToLoyaltyTracking
+} = require('./order-history-audit-service');
 
 // Square discount services (split from square-discount-service.js)
 const {
@@ -136,10 +148,14 @@ const { syncRewardDiscountPrices, validateEarnedRewardsDiscounts } = require('./
 // Purchase service (NEW - extracted from loyalty-service.js)
 const {
     processQualifyingPurchase,
-    processRefund,
-    updateRewardProgress,
-    updateCustomerSummary
+    processRefund
 } = require('./purchase-service');
+
+// Reward progress service (split from purchase-service.js)
+const { updateRewardProgress } = require('./reward-progress-service');
+
+// Customer summary service (split from purchase-service.js)
+const { updateCustomerSummary } = require('./customer-summary-service');
 
 // Reward service (NEW - extracted from loyalty-service.js and square-discount-service.js)
 const {
