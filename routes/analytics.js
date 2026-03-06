@@ -13,6 +13,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
+const { getMerchantSettings } = require('../services/merchant');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
@@ -103,7 +104,7 @@ router.get('/reorder-suggestions', requireAuth, requireMerchant, validators.getR
         } = req.query;
 
         // Load merchant settings for reorder calculations
-        const merchantSettings = await db.getMerchantSettings(merchantId);
+        const merchantSettings = await getMerchantSettings(merchantId);
 
         // Use supply_days from query, or fall back to merchant setting, or env default
         const defaultSupplyDays = merchantSettings.default_supply_days ||

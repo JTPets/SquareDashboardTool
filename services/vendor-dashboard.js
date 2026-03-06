@@ -16,6 +16,7 @@
  */
 
 const db = require('../utils/database');
+const { getMerchantSettings } = require('./merchant');
 const logger = require('../utils/logger');
 const { calculateReorderQuantity } = require('./catalog/reorder-math');
 
@@ -195,7 +196,7 @@ async function computeReorderValues(merchantId, defaultSupplyDays, safetyDays) {
  * @returns {Promise<object[]>} vendors with stats and computed status
  */
 async function getVendorDashboard(merchantId) {
-    const merchantSettings = await db.getMerchantSettings(merchantId);
+    const merchantSettings = await getMerchantSettings(merchantId);
     const defaultSupplyDays = merchantSettings.default_supply_days ||
         parseInt(process.env.DEFAULT_SUPPLY_DAYS || '45');
     const safetyDays = merchantSettings.reorder_safety_days ??

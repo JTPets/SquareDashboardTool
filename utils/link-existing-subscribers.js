@@ -10,6 +10,7 @@
 
 require('dotenv').config();
 const db = require('./database');
+const { ensureSchema } = require('./schema-manager');
 const { hashPassword, generateRandomPassword } = require('./password');
 const crypto = require('crypto');
 
@@ -18,7 +19,7 @@ async function linkExistingSubscribers() {
 
     try {
         // Ensure database tables exist
-        await db.ensureSchema();
+        await ensureSchema();
 
         // Find subscribers without linked user accounts
         const orphanedSubscribers = await db.query(`

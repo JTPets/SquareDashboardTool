@@ -10,6 +10,7 @@ const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const fs = require('fs').promises;
 const db = require('./utils/database');
+const { ensureSchema } = require('./utils/schema-manager');
 
 // Store cron task references for graceful shutdown
 // Populated by jobs.initializeCronJobs() in startServer()
@@ -784,7 +785,7 @@ async function startServer() {
         logger.info('Database connection successful');
 
         // Ensure database schema is up to date
-        await db.ensureSchema();
+        await ensureSchema();
 
         // NOTE: Legacy backfill code removed (2026-01-05)
         // The startup backfill for NULL merchant_id and orphan user linking has been removed.
