@@ -3,16 +3,12 @@
  * Express API server with Square POS integration
  */
 
-// Early startup logging (logger not yet initialized)
-const startupTime = Date.now();
-
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const fs = require('fs').promises;
-const cron = require('node-cron');
 const db = require('./utils/database');
 
 // Store cron task references for graceful shutdown
@@ -27,14 +23,8 @@ const syncQueue = require('./services/sync-queue');
 const squareApi = require('./services/square');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
-const subscriptionHandler = require('./utils/subscription-handler');
 const crypto = require('crypto');
-const expiryDiscount = require('./utils/expiry-discount');
 const { encryptToken, decryptToken, isEncryptedToken } = require('./utils/token-encryption');
-const deliveryApi = require('./utils/delivery-api');
-const loyaltyService = require('./utils/loyalty-service');
-const loyaltyReports = require('./utils/loyalty-reports');
-const gmcApi = require('./utils/merchant-center-api');
 const webhookRetry = require('./utils/webhook-retry');
 
 // Jobs module (cron jobs, backups, etc.)
@@ -59,9 +49,8 @@ const webhooksSquareRoute = require('./routes/webhooks/square');
 const expiryDiscountsRoutes = require('./routes/expiry-discounts');
 const vendorCatalogRoutes = require('./routes/vendor-catalog');
 const cycleCountsRoutes = require('./routes/cycle-counts');
-const { generateDailyBatch } = require('./utils/cycle-count-utils');
 const syncRoutes = require('./routes/sync');
-const { runSmartSync, isSyncNeeded, loggedSync } = require('./routes/sync');
+const { runSmartSync, isSyncNeeded } = require('./routes/sync');
 const catalogRoutes = require('./routes/catalog');
 const aiAutofillRoutes = require('./routes/ai-autofill');
 const squareAttributesRoutes = require('./routes/square-attributes');
