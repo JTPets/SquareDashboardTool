@@ -5,9 +5,9 @@
  * Focus on boundary conditions: zero quantities, negative amounts,
  * partial refunds, duplicate events, idempotency.
  *
- * KNOWN BUG: processRefund idempotency key uses Date.now(), causing
- * non-deterministic keys that defeat dedup on duplicate webhook fire.
- * See docs/TECHNICAL_DEBT.md.
+ * FIXED BUG (T-3): processRefund idempotency key previously used Date.now(),
+ * causing non-deterministic keys. Now uses deterministic key matching
+ * the purchase path pattern. See docs/TECHNICAL_DEBT.md.
  */
 
 // ============================================================================
@@ -412,6 +412,10 @@ describe('processRefund', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         mockGetOfferForVariation.mockResolvedValue(OFFER);
+        // Reset mockClient implementations (clearAllMocks only clears calls, not implementations)
+        mockClient.query.mockReset();
+        mockClient.release.mockReset();
+        db.pool.connect.mockResolvedValue(mockClient);
     });
 
     it('should throw when merchantId is missing', async () => {
@@ -440,6 +444,7 @@ describe('processRefund', () => {
     });
 
     it('should ensure negative quantity for refund events', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
         mockClient.query.mockImplementation(async (sql, params) => {
             if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
 
@@ -489,6 +494,7 @@ describe('processRefund', () => {
     });
 
     it('should ensure negative quantity even when input is already negative', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
         mockClient.query.mockImplementation(async (sql, params) => {
             if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
 
@@ -520,6 +526,7 @@ describe('processRefund', () => {
     });
 
     it('should revoke earned reward when refund reduces quantity below threshold', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
         let revokedRewardId = null;
         let unlockedRewardId = null;
 
@@ -602,6 +609,7 @@ describe('processRefund', () => {
     });
 
     it('should rollback on error during refund processing', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
         mockClient.query.mockImplementation(async (sql) => {
             if (sql === 'BEGIN') return {};
             if (sql === 'ROLLBACK') return {};
@@ -624,28 +632,45 @@ describe('processRefund', () => {
         expect(queries).toContain('ROLLBACK');
     });
 
-    it('BUG: refund idempotency key uses Date.now() — duplicates not caught', async () => {
-        // This test documents the known bug. The idempotency key for refunds
-        // includes Date.now(), meaning two webhook fires for the same refund
-        // get different keys and BOTH will be inserted.
-        //
-        // Compare with processQualifyingPurchase which uses deterministic keys:
-        //   `${squareOrderId}:${variationId}:${quantity}`
-        //
-        // The refund key should be:
-        //   `refund:${squareOrderId}:${variationId}:${quantity}`
-        // WITHOUT Date.now().
+    it('should return already_processed for duplicate refund idempotency key', async () => {
+        // Idempotency check returns existing row — refund already processed
+        db.query.mockImplementation(async (sql) => {
+            if (sql.includes('idempotency_key')) {
+                return { rows: [{ id: 99 }] };
+            }
+            return { rows: [] };
+        });
 
-        // We verify the bug exists by checking the source behavior:
-        // If two refunds with identical data are processed, both should succeed
-        // (because Date.now() makes keys unique) — this IS the bug.
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date()
+        });
 
-        let insertCount = 0;
+        expect(result).toEqual({ processed: false, reason: 'already_processed' });
+        // Should not acquire a pool connection (deduped before transaction)
+        expect(db.pool.connect).not.toHaveBeenCalled();
+    });
+
+    it('should use deterministic idempotency key (no Date.now())', async () => {
+        let idempotencyKeyUsed = null;
+
+        // First call: no existing event, processes normally
+        db.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('idempotency_key')) {
+                idempotencyKeyUsed = params[1];
+                return { rows: [] };
+            }
+            return { rows: [] };
+        });
+
         mockClient.query.mockImplementation(async (sql, params) => {
             if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
             if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
-                insertCount++;
-                return { rows: [{ id: 100 + insertCount, quantity: -2 }] };
+                return { rows: [{ id: 101, quantity: -2 }] };
             }
             if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
             if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
@@ -667,15 +692,28 @@ describe('processRefund', () => {
             refundedAt: new Date()
         };
 
-        await processRefund(refundData);
-        await processRefund(refundData);
+        const result1 = await processRefund(refundData);
+        expect(result1.processed).toBe(true);
 
-        // BUG: Both refunds inserted (insertCount = 2).
-        // Expected behavior: second should be deduped (insertCount = 1).
-        expect(insertCount).toBe(2); // Documents the bug — this SHOULD be 1
+        // Verify deterministic key format (no Date.now())
+        expect(idempotencyKeyUsed).toBe('refund:ord_1:var_1:2');
+
+        // Second call with same data: idempotency check finds existing row
+        db.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('idempotency_key')) {
+                // Same deterministic key → found existing row
+                expect(params[1]).toBe('refund:ord_1:var_1:2');
+                return { rows: [{ id: 101 }] };
+            }
+            return { rows: [] };
+        });
+
+        const result2 = await processRefund(refundData);
+        expect(result2).toEqual({ processed: false, reason: 'already_processed' });
     });
 
     it('should calculate negative total_price_cents for refund', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
         let capturedTotalPrice = null;
 
         mockClient.query.mockImplementation(async (sql, params) => {
