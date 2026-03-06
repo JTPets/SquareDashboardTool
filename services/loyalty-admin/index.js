@@ -123,16 +123,15 @@ const {
     runLoyaltyCatchup
 } = require('./backfill-service');
 
-// Square discount service
+// Square discount services (split from square-discount-service.js)
 const {
     getSquareLoyaltyProgram,
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount,
-    updateRewardDiscountAmount,
-    syncRewardDiscountPrices,
-    validateEarnedRewardsDiscounts,
     updateCustomerRewardNote
 } = require('./square-discount-service');
+const { updateRewardDiscountAmount } = require('./square-discount-catalog-service');
+const { syncRewardDiscountPrices, validateEarnedRewardsDiscounts } = require('./discount-validation-service');
 
 // Purchase service (NEW - extracted from loyalty-service.js)
 const {
