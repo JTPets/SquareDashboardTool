@@ -12,7 +12,6 @@ const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const fs = require('fs').promises;
-const multer = require('multer');
 const cron = require('node-cron');
 const db = require('./utils/database');
 
@@ -42,7 +41,7 @@ const webhookRetry = require('./utils/webhook-retry');
 const jobs = require('./jobs');
 
 // Security middleware
-const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureDeliveryRateLimit, configureDeliveryStrictRateLimit, configureSensitiveOperationRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
+const { configureHelmet, configurePermissionsPolicy, configureRateLimit, configureCors, corsErrorHandler } = require('./middleware/security');
 const { requireAuth, requireAuthApi, requireAdmin } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 
@@ -122,11 +121,6 @@ if (process.env.DISABLE_SECURITY_HEADERS !== 'true') {
 // Rate limiting
 app.use(configureRateLimit());
 
-// Delivery-specific rate limiters (applied to routes below)
-const deliveryRateLimit = configureDeliveryRateLimit();
-const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
-// Sensitive operation rate limiter (V006 fix - token regeneration)
-const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
 
 // CORS configuration
 app.use(configureCors());
@@ -223,22 +217,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/output/logs', requireAuth, express.static(path.join(__dirname, 'output/logs')));
 app.use('/output/backups', requireAuth, express.static(path.join(__dirname, 'output/backups')));
 app.use('/output', express.static(path.join(__dirname, 'output')));
-
-// Configure multer for POD photo uploads
-const podUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB max
-    },
-    fileFilter: (req, file, cb) => {
-        // Only accept images
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'), false);
-        }
-    }
-});
 
 // Structured request logging
 app.use((req, res, next) => {
