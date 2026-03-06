@@ -46,6 +46,13 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Noise in error logs; may trigger false alarms if error log monitoring is added.
 **Source**: Observed during vendor sync testing
 
+### Currency hardcoded to CAD in loyalty discount catalog objects
+
+**File**: `services/loyalty-admin/square-discount-catalog-service.js` (line ~68)
+**Issue**: `createRewardDiscount` hardcodes `currency: 'CAD'` in the `maximum_amount_money` field of the DISCOUNT catalog object. For multi-tenant SaaS with merchants outside Canada, this must be pulled from merchant config (e.g., `merchants.currency` or Square location settings).
+**Impact**: None currently — all merchants are Canadian. Will break for non-CAD merchants.
+**Source**: Observed during square-discount-service.js split (2026-03-06)
+
 ### `hashResetToken` duplicated in `auth.js` and `subscriptions.js`
 
 **File**: `routes/auth.js`, `routes/subscriptions.js`

@@ -59,19 +59,25 @@ const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared
 const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../../utils/square-catalog-cleanup');
 const {
     getSquareLoyaltyProgram,
+    createSquareCustomerGroupDiscount,
+    cleanupSquareCustomerGroupDiscount,
+    updateCustomerRewardNote
+} = require('../../../services/loyalty-admin/square-discount-service');
+const {
     createRewardCustomerGroup,
     addCustomerToGroup,
     removeCustomerFromGroup,
-    deleteCustomerGroup,
+    deleteCustomerGroup
+} = require('../../../services/loyalty-admin/square-customer-group-service');
+const {
     createRewardDiscount,
     deleteRewardDiscountObjects,
-    createSquareCustomerGroupDiscount,
-    cleanupSquareCustomerGroupDiscount,
-    updateRewardDiscountAmount,
+    updateRewardDiscountAmount
+} = require('../../../services/loyalty-admin/square-discount-catalog-service');
+const {
     syncRewardDiscountPrices,
-    validateEarnedRewardsDiscounts,
-    updateCustomerRewardNote
-} = require('../../../services/loyalty-admin/square-discount-service');
+    validateEarnedRewardsDiscounts
+} = require('../../../services/loyalty-admin/discount-validation-service');
 
 // ============================================================================
 // HELPERS
