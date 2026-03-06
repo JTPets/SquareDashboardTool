@@ -3,6 +3,7 @@
  * Ensures database schema is up to date on server startup.
  * Extracted from utils/database.js — see CLAUDE.md Approved Violations.
  */
+const crypto = require('crypto');
 const { query } = require('./database');
 const logger = require('./logger');
 
@@ -335,6 +336,7 @@ async function ensureSchema() {
         `);
 
         // Insert default settings
+        // TODO(pre-franchise): Replace placeholder URLs with per-merchant onboarding values
         await query(`
             INSERT INTO gmc_settings (setting_key, setting_value, description) VALUES
                 ('website_base_url', 'https://your-store-url.com', 'Base URL for product links'),
@@ -618,6 +620,7 @@ async function ensureSchema() {
         await query('CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code ON promo_code_uses(promo_code_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_promo_code_uses_subscriber ON promo_code_uses(subscriber_id)');
 
+        // TODO(pre-franchise): Move seed promo codes to a separate seed script
         // Insert default promo codes for testing
         await query(`
             INSERT INTO promo_codes (code, description, discount_type, discount_value, max_uses, created_by) VALUES
@@ -1043,7 +1046,7 @@ async function ensureSchema() {
             // Generate tokens for existing merchants
             const merchants = await query('SELECT id FROM merchants WHERE gmc_feed_token IS NULL');
             for (const merchant of merchants.rows) {
-                const token = require('crypto').randomBytes(32).toString('hex');
+                const token = crypto.randomBytes(32).toString('hex');
                 await query('UPDATE merchants SET gmc_feed_token = $1 WHERE id = $2', [token, merchant.id]);
             }
             logger.info('Added gmc_feed_token column to merchants and generated tokens');
@@ -1752,33 +1755,7 @@ async function ensureSchema() {
         }
     }
 
-    // Create gmc_location_settings table if it doesn't exist (for multi-tenant GMC feeds)
-    try {
-        const gmcLocationSettingsCheck = await query(`
-            SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'gmc_location_settings')
-        `);
-
-        if (!gmcLocationSettingsCheck.rows[0].exists) {
-            await query(`
-                CREATE TABLE gmc_location_settings (
-                    id SERIAL PRIMARY KEY,
-                    merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
-                    location_id TEXT NOT NULL,
-                    google_store_code TEXT,
-                    enabled BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(merchant_id, location_id)
-                )
-            `);
-            await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_merchant ON gmc_location_settings(merchant_id)');
-            await query('CREATE INDEX IF NOT EXISTS idx_gmc_location_settings_location ON gmc_location_settings(location_id)');
-            logger.info('Created gmc_location_settings table for multi-tenant GMC feeds');
-            appliedCount++;
-        }
-    } catch (error) {
-        logger.error('Failed to create gmc_location_settings table:', error.message);
-    }
+    // Note: gmc_location_settings is created in the GMC tables block above (line ~555)
 
     // Create gmc_sync_logs table if it doesn't exist (for tracking GMC sync history)
     try {
@@ -2083,8 +2060,7 @@ async function ensureSchema() {
 
     return appliedCount;
     } catch (error) {
-        console.error('FATAL: ensureSchema() failed:', error.message);
-        console.error(error.stack);
+        logger.error('FATAL: ensureSchema() failed', { error: error.message, stack: error.stack });
         throw error;
     }
 }
