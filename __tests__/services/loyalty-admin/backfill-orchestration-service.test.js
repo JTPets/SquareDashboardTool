@@ -18,9 +18,10 @@ jest.mock('../../../utils/logger', () => ({
 
 jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
     getSquareAccessToken: jest.fn(),
+    fetchWithTimeout: jest.fn((url, options) => global.fetch(url, options)),
 }));
 
-jest.mock('../../../services/loyalty-admin/backfill-service', () => ({
+jest.mock('../../../services/loyalty-admin/loyalty-event-prefetch-service', () => ({
     prefetchRecentLoyaltyEvents: jest.fn(),
     findCustomerFromPrefetchedEvents: jest.fn(),
 }));
@@ -32,7 +33,7 @@ jest.mock('../../../services/loyalty-admin/webhook-processing-service', () => ({
 const { runBackfill } = require('../../../services/loyalty-admin/backfill-orchestration-service');
 const db = require('../../../utils/database');
 const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
-const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('../../../services/loyalty-admin/backfill-service');
+const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('../../../services/loyalty-admin/loyalty-event-prefetch-service');
 const { processOrderForLoyalty } = require('../../../services/loyalty-admin/webhook-processing-service');
 
 const MERCHANT_ID = 1;

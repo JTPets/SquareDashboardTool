@@ -14,7 +14,7 @@
  */
 
 const logger = require('../../utils/logger');
-const { getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { searchCachedCustomers, cacheCustomerDetails } = require('./customer-cache-service');
 
 /**
@@ -100,7 +100,7 @@ async function searchCustomers(query, merchantId) {
         };
     }
 
-    const response = await fetch('https://connect.squareup.com/v2/customers/search', {
+    const response = await fetchWithTimeout('https://connect.squareup.com/v2/customers/search', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -108,7 +108,7 @@ async function searchCustomers(query, merchantId) {
             'Square-Version': '2025-01-16'
         },
         body: JSON.stringify(searchBody)
-    });
+    }, 15000);
 
     if (!response.ok) {
         const errText = await response.text();

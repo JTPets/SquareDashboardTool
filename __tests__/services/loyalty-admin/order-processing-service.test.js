@@ -18,6 +18,7 @@ jest.mock('../../../utils/logger', () => ({
 
 jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
     getSquareAccessToken: jest.fn(),
+    fetchWithTimeout: jest.fn((url, options) => global.fetch(url, options)),
 }));
 
 jest.mock('../../../services/loyalty-admin/customer-admin-service', () => ({

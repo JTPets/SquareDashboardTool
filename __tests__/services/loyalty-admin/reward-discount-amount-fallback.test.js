@@ -30,7 +30,7 @@ jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
     createSquareCustomerGroupDiscount: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/purchase-service', () => ({
+jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
     updateCustomerSummary: jest.fn(),
 }));
 

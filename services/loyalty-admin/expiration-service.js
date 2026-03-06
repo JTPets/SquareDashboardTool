@@ -13,7 +13,7 @@ const logger = require('../../utils/logger');
 const { AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
-const { updateRewardProgress } = require('./purchase-service');
+const { updateRewardProgress } = require('./reward-progress-service');
 
 /**
  * Process purchases that have expired from the rolling window
@@ -129,14 +129,14 @@ async function processExpiredEarnedRewards(merchantId) {
             earnedAt: reward.earned_at
         });
 
-        // Revoke the reward
+        // Revoke the reward (B8 fix: added AND merchant_id for tenant isolation)
         await db.query(`
             UPDATE loyalty_rewards
             SET status = 'revoked',
                 revocation_reason = 'Expired - all locked purchases outside window',
                 updated_at = NOW()
-            WHERE id = $1
-        `, [reward.id]);
+            WHERE id = $1 AND merchant_id = $2
+        `, [reward.id, merchantId]);
 
         // Unlock the purchase events
         await db.query(`
