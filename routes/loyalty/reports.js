@@ -14,7 +14,7 @@
 
 const express = require('express');
 const router = express.Router();
-const loyaltyReports = require('../../utils/loyalty-reports');
+const loyaltyReports = require('../../services/reports');
 const brandRedemptionReport = require('../../services/reports/brand-redemption-report');
 const { requireAuth } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');

@@ -16,7 +16,7 @@
 
 const logger = require('../../utils/logger');
 const db = require('../../utils/database');
-const loyaltyService = require('../../utils/loyalty-service');
+const loyaltyService = require('../loyalty-admin');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
 const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');

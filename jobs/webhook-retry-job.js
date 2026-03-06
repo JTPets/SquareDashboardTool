@@ -11,7 +11,7 @@
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const webhookRetry = require('../utils/webhook-retry');
-const squareApi = require('../utils/square-api');
+const squareApi = require('../services/square');
 
 /**
  * Process webhook retries - retries failed webhook events with exponential backoff

@@ -25,7 +25,7 @@ jest.mock('../../services/platform-settings', () => ({
     getSetting: jest.fn(),
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     initializeCustomAttributes: jest.fn().mockResolvedValue({ definitions: [] }),
 }));
 

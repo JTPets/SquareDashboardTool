@@ -24,7 +24,7 @@ jest.mock('../../utils/database', () => ({
     query: jest.fn(),
 }));
 
-jest.mock('../../utils/delivery-api', () => ({
+jest.mock('../../services/delivery', () => ({
     getOrderById: jest.fn(),
     completeOrder: jest.fn(),
 }));
@@ -81,7 +81,7 @@ jest.mock('multer', () => {
     return multerMock;
 }, { virtual: true });
 
-const deliveryApi = require('../../utils/delivery-api');
+const deliveryApi = require('../../services/delivery');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 const logger = require('../../utils/logger');
 

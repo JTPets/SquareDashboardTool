@@ -9,13 +9,13 @@ const mockSetSquareInventoryCount = jest.fn().mockResolvedValue({ success: true 
 const mockUpdateCustomAttributeValues = jest.fn().mockResolvedValue({ success: true });
 
 // Mock square-api before any module loads it
-jest.mock('../../../utils/square-api', () => ({
+jest.mock('../../../services/square', () => ({
     setSquareInventoryCount: mockSetSquareInventoryCount,
     updateCustomAttributeValues: mockUpdateCustomAttributeValues,
 }));
 
 // Mock expiry-discount (used by saveExpirations internally)
-jest.mock('../../../utils/expiry-discount', () => ({
+jest.mock('../../../services/expiry', () => ({
     calculateDaysUntilExpiry: jest.fn().mockReturnValue(180),
     getActiveTiers: jest.fn().mockResolvedValue([
         { id: 1, tier_code: 'OK', min_days_to_expiry: 121, max_days_to_expiry: null, discount_percent: 0 },

@@ -11,7 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../../utils/logger');
-const loyaltyService = require('../../utils/loyalty-service');
+const loyaltyService = require('../../services/loyalty-admin');
 const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');

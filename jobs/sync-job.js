@@ -10,7 +10,7 @@
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
-const gmcApi = require('../utils/merchant-center-api');
+const gmcApi = require('../services/gmc/merchant-service');
 const { runSmartSync } = require('../routes/sync');
 
 /**

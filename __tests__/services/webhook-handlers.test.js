@@ -16,7 +16,7 @@ jest.mock('../../utils/subscription-handler', () => ({
     logEvent: jest.fn().mockResolvedValue()
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     syncCatalog: jest.fn().mockResolvedValue({ items: 10, variations: 20 }),
     deltaSyncCatalog: jest.fn().mockResolvedValue({ items: 10, variations: 20, deltaSync: true }),
     syncInventory: jest.fn().mockResolvedValue({ counts: 50 }),
@@ -26,7 +26,7 @@ jest.mock('../../utils/square-api', () => ({
     syncLocation: jest.fn().mockResolvedValue()
 }));
 
-jest.mock('../../utils/loyalty-service', () => ({
+jest.mock('../../services/loyalty-admin', () => ({
     runLoyaltyCatchup: jest.fn().mockResolvedValue()
 }));
 
@@ -58,7 +58,7 @@ const {
     subscriptionHandler
 } = require('../../services/webhook-handlers');
 const syncQueue = require('../../services/sync-queue');
-const squareApi = require('../../utils/square-api');
+const squareApi = require('../../services/square');
 
 describe('Webhook Handlers Index', () => {
     beforeEach(() => {

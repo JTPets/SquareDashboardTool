@@ -34,7 +34,7 @@ const { makeSquareRequest, getMerchantToken, generateIdempotencyKey } = require(
 const logger = require('../../utils/logger');
 
 // Import the module under test after mocks are set up
-const squareApi = require('../../utils/square-api');
+const squareApi = require('../../services/square');
 
 describe('setSquareInventoryAlertThreshold VERSION_MISMATCH retry', () => {
     const merchantId = 1;

@@ -29,7 +29,7 @@ jest.mock('../../utils/token-encryption', () => ({
     decryptToken: jest.fn(token => token.replace('encrypted_', '')),
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     initializeCustomAttributes: jest.fn().mockResolvedValue({ definitions: [] }),
 }));
 

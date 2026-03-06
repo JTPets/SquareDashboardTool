@@ -16,7 +16,7 @@
 
 const logger = require('../../utils/logger');
 const db = require('../../utils/database');
-const loyaltyService = require('../../utils/loyalty-service');
+const loyaltyService = require('../loyalty-admin');
 const { SeniorsService } = require('../seniors');
 const { SquareApiClient } = require('../loyalty-admin/square-api-client');
 const { cacheCustomerDetails } = require('../loyalty-admin/customer-cache-service');

@@ -21,9 +21,9 @@
  */
 
 const logger = require('../../utils/logger');
-const squareApi = require('../../utils/square-api');
-const deliveryApi = require('../../utils/delivery-api');
-const loyaltyService = require('../../utils/loyalty-service');
+const squareApi = require('../square');
+const deliveryApi = require('../delivery');
+const loyaltyService = require('../loyalty-admin');
 const { getSquareClientForMerchant } = require('../../middleware/merchant');
 const TTLCache = require('../../utils/ttl-cache');
 

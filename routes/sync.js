@@ -19,7 +19,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../utils/database');
-const squareApi = require('../utils/square-api');
+const squareApi = require('../services/square');
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
@@ -408,7 +408,7 @@ router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler
     let gmcFeedResult = null;
     try {
         logger.info('Generating GMC feed after sync...');
-        const gmcFeedModule = require('../utils/gmc-feed');
+        const gmcFeedModule = require('../services/gmc/feed-service');
         gmcFeedResult = await gmcFeedModule.generateFeed();
         logger.info('GMC feed generated successfully', {
             products: gmcFeedResult.stats.total,

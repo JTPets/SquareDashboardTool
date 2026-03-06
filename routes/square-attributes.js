@@ -21,7 +21,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
-const squareApi = require('../utils/square-api');
+const squareApi = require('../services/square');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/square-attributes');

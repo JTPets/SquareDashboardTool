@@ -3,7 +3,6 @@
  * Handles tier evaluation, Square discount object management, and discount automation
  *
  * This service was moved from utils/expiry-discount.js as part of P1-3 (utils reorganization).
- * For backward compatibility, utils/expiry-discount.js re-exports this module.
  *
  * Usage:
  *   const { getActiveTiers, runExpiryDiscountAutomation } = require('./services/expiry');
@@ -17,7 +16,7 @@ const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
 let squareApi = null;
 function getSquareApi() {
     if (!squareApi) {
-        squareApi = require('../../utils/square-api');
+        squareApi = require('../square');
     }
     return squareApi;
 }

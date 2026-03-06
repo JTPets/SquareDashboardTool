@@ -25,7 +25,7 @@ let httpServer = null;
 // Webhook processing is now handled by services/webhook-processor.js
 const syncQueue = require('./services/sync-queue');
 
-const squareApi = require('./utils/square-api');
+const squareApi = require('./services/square');
 const logger = require('./utils/logger');
 const emailNotifier = require('./utils/email-notifier');
 const subscriptionHandler = require('./utils/subscription-handler');

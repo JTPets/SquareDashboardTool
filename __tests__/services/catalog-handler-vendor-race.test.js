@@ -15,14 +15,14 @@ jest.mock('../../utils/subscription-handler', () => ({
     logEvent: jest.fn().mockResolvedValue()
 }));
 
-jest.mock('../../utils/square-api', () => ({
+jest.mock('../../services/square', () => ({
     deltaSyncCatalog: jest.fn().mockResolvedValue({ items: 0, variations: 0, deltaSync: true }),
     syncInventory: jest.fn().mockResolvedValue({ counts: 0 }),
     syncCommittedInventory: jest.fn().mockResolvedValue({ synced: true }),
     syncSalesVelocity: jest.fn().mockResolvedValue({ updated: true }),
 }));
 
-jest.mock('../../utils/loyalty-service', () => ({
+jest.mock('../../services/loyalty-admin', () => ({
     runLoyaltyCatchup: jest.fn().mockResolvedValue()
 }));
 

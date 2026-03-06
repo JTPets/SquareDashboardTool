@@ -11,7 +11,7 @@
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const emailNotifier = require('../utils/email-notifier');
-const { generateDailyBatch } = require('../utils/cycle-count-utils');
+const { generateDailyBatch } = require('../services/inventory');
 
 /**
  * Run daily batch generation for all active merchants

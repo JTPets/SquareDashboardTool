@@ -15,7 +15,7 @@ jest.mock('../../utils/logger', () => ({
 }));
 
 const db = require('../../utils/database');
-const { regeneratePriceReport } = require('../../utils/vendor-catalog');
+const { regeneratePriceReport } = require('../../services/vendor');
 
 describe('vendor-catalog', () => {
     beforeEach(() => {
