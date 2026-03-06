@@ -670,7 +670,19 @@ async function processRefund(refundData) {
     }
 
     const refundQuantity = Math.abs(quantity) * -1;  // Ensure negative
-    const idempotencyKey = `refund:${squareOrderId}:${variationId}:${quantity}:${Date.now()}`;
+    const idempotencyKey = `refund:${squareOrderId}:${variationId}:${quantity}`;
+
+    // Check for existing event (idempotency) — prevents duplicate refund inserts
+    // from rapid-fire webhooks (Square sends 4-5 per event)
+    const existingEvent = await db.query(`
+        SELECT id FROM loyalty_purchase_events
+        WHERE merchant_id = $1 AND idempotency_key = $2
+    `, [merchantId, idempotencyKey]);
+
+    if (existingEvent.rows.length > 0) {
+        logger.debug('Refund event already processed (idempotent)', { idempotencyKey });
+        return { processed: false, reason: 'already_processed' };
+    }
 
     logger.info('Processing loyalty refund', {
         merchantId,
