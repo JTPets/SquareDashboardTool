@@ -998,46 +998,10 @@ async function ensureSchema() {
 
         logger.info('Created expiry discount tables with indexes');
         appliedCount++;
-    } else {
-        // Table exists - check if it has the wrong schema (old_tier_code instead of old_tier_id)
-        const wrongSchemaCheck = await query(`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'expiry_discount_audit_log' AND column_name = 'old_tier_code'
-        `);
-
-        if (wrongSchemaCheck.rows.length > 0) {
-            logger.info('Fixing expiry_discount_audit_log schema (wrong column names detected)...');
-
-            // Drop the old table and recreate with correct schema
-            await query('DROP TABLE IF EXISTS expiry_discount_audit_log CASCADE');
-            await query(`
-                CREATE TABLE expiry_discount_audit_log (
-                    id SERIAL PRIMARY KEY,
-                    variation_id TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    old_tier_id INTEGER,
-                    new_tier_id INTEGER,
-                    old_price_cents INTEGER,
-                    new_price_cents INTEGER,
-                    days_until_expiry INTEGER,
-                    square_sync_status TEXT,
-                    square_error_message TEXT,
-                    triggered_by TEXT DEFAULT 'SYSTEM',
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            `);
-            await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_variation ON expiry_discount_audit_log(variation_id)');
-            await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_action ON expiry_discount_audit_log(action)');
-            await query('CREATE INDEX IF NOT EXISTS idx_expiry_audit_created ON expiry_discount_audit_log(created_at DESC)');
-
-            logger.info('Fixed expiry_discount_audit_log schema');
-            appliedCount++;
-        }
-
-        // Note: expiry_discount_settings are now created per-merchant by ensureMerchantTiers()
-        // in utils/expiry-discount.js when a merchant first accesses the expiry discounts page.
-        // Legacy global settings migration removed as the table now uses (setting_key, merchant_id) unique constraint.
     }
+    // Note: expiry_discount_settings are now created per-merchant by ensureMerchantTiers()
+    // in utils/expiry-discount.js when a merchant first accesses the expiry discounts page.
+    // Legacy global settings migration removed as the table now uses (setting_key, merchant_id) unique constraint.
 
     // ==================== USER AUTHENTICATION RELATED TABLES ====================
     // Note: Users table is created in FOUNDATIONAL TABLES section at the top
