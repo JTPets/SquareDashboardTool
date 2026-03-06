@@ -20,20 +20,23 @@
  * @module services/webhook-handlers/order-handler
  */
 
-const logger = require('../../utils/logger');
-const squareApi = require('../square');
-const deliveryApi = require('../delivery');
-const loyaltyService = require('../loyalty-admin');
-const { getSquareClientForMerchant } = require('../../middleware/merchant');
-const TTLCache = require('../../utils/ttl-cache');
+const logger = require('../../../utils/logger');
+const squareApi = require('../../square');
+const deliveryApi = require('../../delivery');
+const loyaltyService = require('../../loyalty-admin');
+const { getSquareClientForMerchant } = require('../../../middleware/merchant');
+const TTLCache = require('../../../utils/ttl-cache');
 
 // Consolidated order intake (single entry point for all loyalty order processing)
-const { processLoyaltyOrder } = require('../loyalty-admin/order-intake');
+const { processLoyaltyOrder } = require('../../loyalty-admin/order-intake');
 // Customer identification service (6-method fallback chain)
-const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
+const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identification-service');
 
 // Cart activity tracking for DRAFT orders
-const cartActivityService = require('../cart/cart-activity-service');
+const cartActivityService = require('../../cart/cart-activity-service');
+
+// Extracted in Phase 2 split
+const { normalizeSquareOrder, fetchFullOrder } = require('./order-normalize');
 
 /**
  * Cache of order processing results for dedup between order.* and payment.* webhooks.
@@ -51,67 +54,6 @@ const orderProcessingCache = new TTLCache(120000);
  */
 const completedOrderVelocityCache = new TTLCache(60000);
 
-
-/**
- * Normalize Square SDK order fields from camelCase to snake_case.
- * Square SDK v43+ returns camelCase properties, but webhook payloads
- * and most of our codebase expect snake_case. This adds snake_case
- * aliases to critical fields so both formats work.
- *
- * Applied when orders are fetched from the Square API (not webhooks).
- */
-function normalizeSquareOrder(order) {
-    if (!order) return order;
-
-    // Top-level order fields
-    if (order.lineItems && !order.line_items) order.line_items = order.lineItems;
-    if (order.customerId && !order.customer_id) order.customer_id = order.customerId;
-    if (order.locationId && !order.location_id) order.location_id = order.locationId;
-    if (order.totalMoney && !order.total_money) order.total_money = order.totalMoney;
-    if (order.createdAt && !order.created_at) order.created_at = order.createdAt;
-
-    // Normalize discount fields (critical for redemption detection)
-    if (order.discounts) {
-        for (const d of order.discounts) {
-            if (d.catalogObjectId && !d.catalog_object_id) d.catalog_object_id = d.catalogObjectId;
-            if (d.appliedMoney && !d.applied_money) d.applied_money = d.appliedMoney;
-            if (d.amountMoney && !d.amount_money) d.amount_money = d.amountMoney;
-        }
-    }
-
-    // Normalize line item fields (critical for purchase recording)
-    const items = order.line_items || order.lineItems || [];
-    for (const item of items) {
-        if (item.catalogObjectId && !item.catalog_object_id) item.catalog_object_id = item.catalogObjectId;
-        if (item.totalMoney && !item.total_money) item.total_money = item.totalMoney;
-        if (item.basePriceMoney && !item.base_price_money) item.base_price_money = item.basePriceMoney;
-        if (item.variationName && !item.variation_name) item.variation_name = item.variationName;
-    }
-
-    // Normalize tender fields (customer identification fallback)
-    if (order.tenders) {
-        for (const t of order.tenders) {
-            if (t.customerId && !t.customer_id) t.customer_id = t.customerId;
-        }
-    }
-
-    // Normalize fulfillment fields (customer identification fallback)
-    if (order.fulfillments) {
-        for (const f of order.fulfillments) {
-            if (f.pickupDetails && !f.pickup_details) f.pickup_details = f.pickupDetails;
-            if (f.deliveryDetails && !f.delivery_details) f.delivery_details = f.deliveryDetails;
-            const details = f.pickup_details || f.delivery_details;
-            if (details?.recipient) {
-                const r = details.recipient;
-                if (r.phoneNumber && !r.phone_number) r.phone_number = r.phoneNumber;
-                if (r.emailAddress && !r.email_address) r.email_address = r.emailAddress;
-                if (r.displayName && !r.display_name) r.display_name = r.displayName;
-            }
-        }
-    }
-
-    return order;
-}
 
 /**
  * Metrics for tracking webhook order data usage vs API fallback
@@ -260,20 +202,29 @@ class OrderHandler {
                 });
                 result.salesVelocity = { method: 'incremental', deduplicated: true };
             } else {
-                completedOrderVelocityCache.set(velocityDedupKey, true);
-                const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
-                result.salesVelocity = {
-                    method: 'incremental',
-                    updated: velocityResult.updated,
-                    skipped: velocityResult.skipped,
-                    periods: velocityResult.periods
-                };
-                if (velocityResult.updated > 0) {
-                    logger.info('Sales velocity updated incrementally from completed order', {
-                        orderId: order.id,
+                try {
+                    completedOrderVelocityCache.set(velocityDedupKey, true);
+                    const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
+                    result.salesVelocity = {
+                        method: 'incremental',
                         updated: velocityResult.updated,
-                        merchantId
+                        skipped: velocityResult.skipped,
+                        periods: velocityResult.periods
+                    };
+                    if (velocityResult.updated > 0) {
+                        logger.info('Sales velocity updated incrementally from completed order', {
+                            orderId: order.id,
+                            updated: velocityResult.updated,
+                            merchantId
+                        });
+                    }
+                } catch (velocityError) {
+                    logger.warn('Sales velocity update failed — continuing with delivery and loyalty', {
+                        orderId: order.id,
+                        merchantId,
+                        error: velocityError.message
                     });
+                    result.salesVelocity = { method: 'incremental', error: velocityError.message };
                 }
             }
         }
@@ -293,9 +244,7 @@ class OrderHandler {
 
     /**
      * Fetch full order from Square API
-     *
-     * Called when webhook doesn't contain complete order data (which is normal
-     * for notification-style webhooks vs expanded webhooks).
+     * Delegates to extracted order-normalize module.
      *
      * @private
      * @param {string} orderId - Square order ID
@@ -303,23 +252,7 @@ class OrderHandler {
      * @returns {Promise<Object|null>} Order object or null if fetch fails
      */
     async _fetchFullOrder(orderId, merchantId) {
-        try {
-            const squareClient = await getSquareClientForMerchant(merchantId);
-            const orderResponse = await squareClient.orders.get({ orderId });
-            if (orderResponse.order) {
-                // SDK v43+ returns camelCase — normalize to snake_case
-                return normalizeSquareOrder(orderResponse.order);
-            }
-            logger.warn('Order fetch returned no order', { orderId, merchantId });
-            return null;
-        } catch (fetchError) {
-            logger.error('Failed to fetch order from Square API', {
-                orderId,
-                merchantId,
-                error: fetchError.message
-            });
-            return null;
-        }
+        return fetchFullOrder(orderId, merchantId);
     }
 
     /**
@@ -687,7 +620,7 @@ class OrderHandler {
      * @returns {Promise<Object>} Redemption info or { isRedemptionOrder: false }
      */
     async _checkOrderForRedemption(order, merchantId) {
-        const db = require('../../utils/database');
+        const db = require('../../../utils/database');
 
         // Strategy 1: Match by catalog_object_id (exact discount ID match)
         const discounts = order.discounts || [];
@@ -1287,6 +1220,21 @@ class OrderHandler {
                 customerSource = identification.customerSource;
             }
 
+            // Check for redemption BEFORE processing purchases (matching _processLoyalty pattern)
+            // Ensures "new purchases start fresh reward window" guarantee holds
+            // even when only payment.* webhook fires
+            const redemptionCheck = await this._checkOrderForRedemption(order, merchantId);
+
+            if (redemptionCheck.isRedemptionOrder) {
+                logger.info('Payment path: processing redemption order - new purchases will start fresh window', {
+                    orderId: order.id,
+                    rewardBeingRedeemed: redemptionCheck.rewardId,
+                    offerId: redemptionCheck.offerId,
+                    merchantId,
+                    source
+                });
+            }
+
             // Consolidated intake: atomic write to both tables (includes dedup)
             const intakeResult = await processLoyaltyOrder({
                 order,
@@ -1310,16 +1258,18 @@ class OrderHandler {
                 result.loyalty = {
                     purchasesRecorded: intakeResult.purchaseEvents.length,
                     customerId: squareCustomerId,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                     source
                 };
                 logger.info(`Loyalty purchases recorded via ${source} webhook`, {
                     orderId: order.id,
                     customerId: squareCustomerId,
-                    purchases: intakeResult.purchaseEvents.length
+                    purchases: intakeResult.purchaseEvents.length,
+                    isRedemptionOrder: redemptionCheck.isRedemptionOrder
                 });
             }
 
-            // Check for reward redemption
+            // Finalize reward redemption AFTER purchases are recorded
             const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
             if (redemptionResult.detected) {
                 result.loyaltyRedemption = {
