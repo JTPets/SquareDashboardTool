@@ -21,7 +21,6 @@
  */
 
 const logger = require('../../../utils/logger');
-const squareApi = require('../../square');
 const deliveryApi = require('../../delivery');
 const loyaltyService = require('../../loyalty-admin');
 const { getSquareClientForMerchant } = require('../../../middleware/merchant');
@@ -35,6 +34,7 @@ const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identif
 // Extracted in Phase 2 split
 const { normalizeSquareOrder, fetchFullOrder } = require('./order-normalize');
 const { processCartActivity, checkCartConversion, markCartCanceled } = require('./order-cart');
+const { completedOrderVelocityCache, updateVelocityFromOrder, updateVelocityFromFulfillment } = require('./order-velocity');
 
 /**
  * Cache of order processing results for dedup between order.* and payment.* webhooks.
@@ -42,15 +42,6 @@ const { processCartActivity, checkCartConversion, markCartCanceled } = require('
  * 120s TTL ensures self-healing if something goes wrong.
  */
 const orderProcessingCache = new TTLCache(120000);
-
-/**
- * Dedup cache for completed order velocity updates.
- * Prevents calling velocity update for duplicate order.created/order.updated/fulfillment.updated
- * webhooks for the same completed order. Keyed by `${orderId}:${merchantId}`.
- * 60s TTL covers the typical burst window of 4-5 webhooks over ~5 seconds.
- * The velocity function in square-velocity.js has its own 120s dedup as a safety net.
- */
-const completedOrderVelocityCache = new TTLCache(60000);
 
 
 /**
@@ -192,39 +183,7 @@ class OrderHandler {
         // Instead of fetching ALL 91 days of orders (~37 API calls), we update velocity
         // directly from the order data (0 additional API calls)
         if (order && order.state === 'COMPLETED') {
-            const velocityDedupKey = `${order.id}:${merchantId}`;
-            if (completedOrderVelocityCache.has(velocityDedupKey)) {
-                logger.debug('Sales velocity dedup — skipping duplicate order webhook', {
-                    orderId: order.id,
-                    merchantId
-                });
-                result.salesVelocity = { method: 'incremental', deduplicated: true };
-            } else {
-                try {
-                    completedOrderVelocityCache.set(velocityDedupKey, true);
-                    const velocityResult = await squareApi.updateSalesVelocityFromOrder(order, merchantId);
-                    result.salesVelocity = {
-                        method: 'incremental',
-                        updated: velocityResult.updated,
-                        skipped: velocityResult.skipped,
-                        periods: velocityResult.periods
-                    };
-                    if (velocityResult.updated > 0) {
-                        logger.info('Sales velocity updated incrementally from completed order', {
-                            orderId: order.id,
-                            updated: velocityResult.updated,
-                            merchantId
-                        });
-                    }
-                } catch (velocityError) {
-                    logger.warn('Sales velocity update failed — continuing with delivery and loyalty', {
-                        orderId: order.id,
-                        merchantId,
-                        error: velocityError.message
-                    });
-                    result.salesVelocity = { method: 'incremental', error: velocityError.message };
-                }
-            }
+            result.salesVelocity = await updateVelocityFromOrder(order, merchantId);
         }
 
         // Process delivery routing
@@ -871,44 +830,9 @@ class OrderHandler {
         // Fulfillment webhooks don't include line_items, so we fetch THIS order (1 API call)
         // instead of all 91 days of orders (~37 API calls)
         if (fulfillment?.state === 'COMPLETED' && data.order_id) {
-            const velocityDedupKey = `${data.order_id}:${merchantId}`;
-            if (completedOrderVelocityCache.has(velocityDedupKey)) {
-                logger.debug('Sales velocity dedup — skipping duplicate fulfillment webhook', {
-                    orderId: data.order_id,
-                    merchantId
-                });
-                result.salesVelocity = { method: 'incremental', fromFulfillment: true, deduplicated: true };
-            } else {
-                try {
-                    const squareClient = await getSquareClientForMerchant(merchantId);
-                    const orderResponse = await squareClient.orders.get({ orderId: data.order_id });
-
-                    // SDK v43+ returns camelCase — normalize to snake_case
-                    const fulfillmentOrder = normalizeSquareOrder(orderResponse.order);
-                    if (fulfillmentOrder?.state === 'COMPLETED') {
-                        completedOrderVelocityCache.set(velocityDedupKey, true);
-                        const velocityResult = await squareApi.updateSalesVelocityFromOrder(
-                            fulfillmentOrder,
-                            merchantId
-                        );
-                        result.salesVelocity = {
-                            method: 'incremental',
-                            fromFulfillment: true,
-                            updated: velocityResult.updated
-                        };
-                        if (velocityResult.updated > 0) {
-                            logger.info('Sales velocity updated incrementally via fulfillment', {
-                                orderId: data.order_id,
-                                updated: velocityResult.updated
-                            });
-                        }
-                    }
-                } catch (fetchErr) {
-                    logger.warn('Could not fetch order for fulfillment velocity update', {
-                        orderId: data.order_id,
-                        error: fetchErr.message
-                    });
-                }
+            const velocityResult = await updateVelocityFromFulfillment(data.order_id, merchantId);
+            if (velocityResult) {
+                result.salesVelocity = velocityResult;
             }
         }
 
