@@ -157,69 +157,6 @@ async function transaction(callback) {
 }
 
 /**
- * Batch upsert helper for syncing data
- * @param {string} table - Table name
- * @param {Array<Object>} records - Array of records to upsert
- * @param {Array<string>} conflictColumns - Columns for conflict detection
- * @param {Array<string>} updateColumns - Columns to update on conflict
- * @returns {Promise<number>} Number of records affected
- */
-async function batchUpsert(table, records, conflictColumns, updateColumns) {
-    if (!records || records.length === 0) {
-        return 0;
-    }
-
-    const client = await getClient();
-    try {
-        await client.query('BEGIN');
-        let totalAffected = 0;
-
-        // Process in batches of 100 to avoid parameter limits
-        const batchSize = 100;
-        for (let i = 0; i < records.length; i += batchSize) {
-            const batch = records.slice(i, i + batchSize);
-
-            // Build column list from first record
-            const columns = Object.keys(batch[0]);
-            const conflictClause = conflictColumns.join(', ');
-            const updateClause = updateColumns
-                .map(col => `${col} = EXCLUDED.${col}`)
-                .join(', ');
-
-            // Build value placeholders
-            const values = [];
-            const placeholders = batch.map((record, idx) => {
-                const recordValues = columns.map(col => {
-                    const value = record[col];
-                    values.push(value);
-                    return `$${values.length}`;
-                });
-                return `(${recordValues.join(', ')})`;
-            }).join(', ');
-
-            const sql = `
-                INSERT INTO ${table} (${columns.join(', ')})
-                VALUES ${placeholders}
-                ON CONFLICT (${conflictClause})
-                DO UPDATE SET ${updateClause}, updated_at = CURRENT_TIMESTAMP
-            `;
-
-            const result = await client.query(sql, values);
-            totalAffected += result.rowCount;
-        }
-
-        await client.query('COMMIT');
-        return totalAffected;
-    } catch (error) {
-        await client.query('ROLLBACK');
-        logger.error('Batch upsert error', { error: error.message, stack: error.stack });
-        throw error;
-    } finally {
-        client.release();
-    }
-}
-
-/**
  * Test database connection
  * @returns {Promise<boolean>} True if connection successful
  */
@@ -2364,7 +2301,6 @@ module.exports = {
     query,
     getClient,
     transaction,
-    batchUpsert,
     testConnection,
     ensureSchema,
     close,
