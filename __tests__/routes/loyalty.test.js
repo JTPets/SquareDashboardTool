@@ -8,10 +8,10 @@
  * - processing.js: Order processing, manual entry (6 handlers)
  * - customers.js: Customer lookup, search (7 handlers)
  *
- * Issues logged during testing:
- * - settings.js GET /settings has direct DB query (should delegate to service)
- * - processing.js manual-entry has 44 lines inline logic
- * - square-integration.js create-square-reward has 51 lines inline logic
+ * Issues logged during testing (all RESOLVED):
+ * - settings.js GET /settings — O-10 extracted to settings-service.js getSettings()
+ * - processing.js manual-entry — O-8 extracted to manual-entry-service.js
+ * - square-integration.js create-square-reward — O-9 extracted to square-reward-service.js
  */
 
 // ============================================================================
@@ -47,7 +47,7 @@ const mockLoyaltyService = {
     runBackfill: jest.fn(),
     runLoyaltyCatchup: jest.fn(),
     refreshCustomersWithMissingData: jest.fn(),
-    processQualifyingPurchase: jest.fn(),
+    processManualEntry: jest.fn(),
     processExpiredWindowEntries: jest.fn(),
     processExpiredEarnedRewards: jest.fn(),
     // Customers
@@ -79,8 +79,7 @@ const mockLoyaltyService = {
     getSquareLoyaltyProgram: jest.fn(),
     updateSquareTierMapping: jest.fn(),
     getRewardDetails: jest.fn(),
-    createSquareCustomerGroupDiscount: jest.fn(),
-    cleanupSquareCustomerGroupDiscount: jest.fn(),
+    createSquareReward: jest.fn(),
     syncRewardsToPos: jest.fn(),
     getPendingSyncRewards: jest.fn(),
 };
@@ -477,10 +476,11 @@ describe('Loyalty Processing Routes', () => {
 
     describe('POST /api/loyalty/manual-entry', () => {
         it('should record manual purchase entry', async () => {
-            mockLoyaltyService.processQualifyingPurchase.mockResolvedValueOnce({
-                processed: true,
+            mockLoyaltyService.processManualEntry.mockResolvedValueOnce({
+                success: true,
                 purchaseEvent: { id: 100, quantity: 2 },
-                reward: { currentQuantity: 5, requiredQuantity: 12 }
+                reward: { currentQuantity: 5, requiredQuantity: 12 },
+                message: 'Recorded 2 purchase(s). Progress: 5/12'
             });
             const res = await request(app)
                 .post('/api/loyalty/manual-entry')
@@ -496,9 +496,10 @@ describe('Loyalty Processing Routes', () => {
         });
 
         it('should return 400 when variation not qualifying', async () => {
-            mockLoyaltyService.processQualifyingPurchase.mockResolvedValueOnce({
-                processed: false,
-                reason: 'variation_not_qualifying'
+            mockLoyaltyService.processManualEntry.mockResolvedValueOnce({
+                success: false,
+                reason: 'variation_not_qualifying',
+                message: 'This variation is not configured as a qualifying item for any loyalty offer'
             });
             const res = await request(app)
                 .post('/api/loyalty/manual-entry')
@@ -514,9 +515,10 @@ describe('Loyalty Processing Routes', () => {
         });
 
         it('should return 400 when already processed', async () => {
-            mockLoyaltyService.processQualifyingPurchase.mockResolvedValueOnce({
-                processed: false,
-                reason: 'already_processed'
+            mockLoyaltyService.processManualEntry.mockResolvedValueOnce({
+                success: false,
+                reason: 'already_processed',
+                message: 'This purchase has already been recorded'
             });
             const res = await request(app)
                 .post('/api/loyalty/manual-entry')
@@ -530,11 +532,12 @@ describe('Loyalty Processing Routes', () => {
             expect(res.body.message).toContain('already been recorded');
         });
 
-        it('should default quantity to 1', async () => {
-            mockLoyaltyService.processQualifyingPurchase.mockResolvedValueOnce({
-                processed: true,
+        it('should delegate to processManualEntry with request params', async () => {
+            mockLoyaltyService.processManualEntry.mockResolvedValueOnce({
+                success: true,
                 purchaseEvent: { id: 100, quantity: 1 },
-                reward: { currentQuantity: 1, requiredQuantity: 12 }
+                reward: { currentQuantity: 1, requiredQuantity: 12 },
+                message: 'Recorded 1 purchase(s). Progress: 1/12'
             });
             await request(app)
                 .post('/api/loyalty/manual-entry')
@@ -543,16 +546,22 @@ describe('Loyalty Processing Routes', () => {
                     squareCustomerId: 'CUST_1',
                     variationId: 'VAR_1'
                 });
-            expect(mockLoyaltyService.processQualifyingPurchase).toHaveBeenCalledWith(
-                expect.objectContaining({ quantity: 1 })
+            expect(mockLoyaltyService.processManualEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    merchantId: 1,
+                    squareOrderId: 'ORD_1',
+                    squareCustomerId: 'CUST_1',
+                    variationId: 'VAR_1'
+                })
             );
         });
 
-        it('should pass customerSource as manual', async () => {
-            mockLoyaltyService.processQualifyingPurchase.mockResolvedValueOnce({
-                processed: true,
+        it('should pass all body fields to processManualEntry', async () => {
+            mockLoyaltyService.processManualEntry.mockResolvedValueOnce({
+                success: true,
                 purchaseEvent: { id: 100, quantity: 1 },
-                reward: { currentQuantity: 1, requiredQuantity: 12 }
+                reward: { currentQuantity: 1, requiredQuantity: 12 },
+                message: 'Recorded 1 purchase(s). Progress: 1/12'
             });
             await request(app)
                 .post('/api/loyalty/manual-entry')
@@ -560,12 +569,13 @@ describe('Loyalty Processing Routes', () => {
                     squareOrderId: 'ORD_1',
                     squareCustomerId: 'CUST_1',
                     variationId: 'VAR_1',
-                    quantity: 1
+                    quantity: 1,
+                    purchasedAt: '2026-01-15T12:00:00Z'
                 });
-            expect(mockLoyaltyService.processQualifyingPurchase).toHaveBeenCalledWith(
+            expect(mockLoyaltyService.processManualEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    customerSource: 'manual',
-                    unitPriceCents: 0
+                    quantity: 1,
+                    purchasedAt: '2026-01-15T12:00:00Z'
                 })
             );
         });

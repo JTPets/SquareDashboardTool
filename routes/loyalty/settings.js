@@ -8,7 +8,6 @@
 
 const express = require('express');
 const router = express.Router();
-const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const loyaltyService = require('../../services/loyalty-admin');
 const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
@@ -22,21 +21,7 @@ const validators = require('../../middleware/validators/loyalty');
  */
 router.get('/settings', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
-
-    // Ensure default settings exist
-    await loyaltyService.initializeDefaultSettings(merchantId);
-
-    const result = await db.query(`
-        SELECT setting_key, setting_value, description
-        FROM loyalty_settings
-        WHERE merchant_id = $1
-    `, [merchantId]);
-
-    const settings = result.rows.reduce((acc, row) => {
-        acc[row.setting_key] = row.setting_value;
-        return acc;
-    }, {});
-
+    const settings = await loyaltyService.getSettings(merchantId);
     res.json({ settings });
 }));
 

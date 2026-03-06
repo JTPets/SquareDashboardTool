@@ -88,47 +88,15 @@ router.post('/manual-entry', requireAuth, requireMerchant, requireWriteAccess, v
     const merchantId = req.merchantContext.id;
     const { squareOrderId, squareCustomerId, variationId, quantity, purchasedAt } = req.body;
 
-    const qty = parseInt(quantity) || 1;
-
-    logger.info('Manual loyalty entry', {
-        merchantId,
-        squareOrderId,
-        squareCustomerId,
-        variationId,
-        quantity: qty
+    const result = await loyaltyService.processManualEntry({
+        merchantId, squareOrderId, squareCustomerId, variationId, quantity, purchasedAt
     });
 
-    // Process the purchase using the loyalty service
-    const result = await loyaltyService.processQualifyingPurchase({
-        merchantId,
-        squareOrderId,
-        squareCustomerId,
-        variationId,
-        quantity: qty,
-        unitPriceCents: 0,  // Unknown for manual entry
-        purchasedAt: purchasedAt || new Date(),
-        squareLocationId: null,
-        customerSource: 'manual'
-    });
-
-    if (!result.processed) {
-        return res.status(400).json({
-            success: false,
-            reason: result.reason,
-            message: result.reason === 'variation_not_qualifying'
-                ? 'This variation is not configured as a qualifying item for any loyalty offer'
-                : result.reason === 'already_processed'
-                ? 'This purchase has already been recorded'
-                : 'Could not process this purchase'
-        });
+    if (!result.success) {
+        return res.status(400).json(result);
     }
 
-    res.json({
-        success: true,
-        purchaseEvent: result.purchaseEvent,
-        reward: result.reward,
-        message: `Recorded ${qty} purchase(s). Progress: ${result.reward.currentQuantity}/${result.reward.requiredQuantity}`
-    });
+    res.json(result);
 }));
 
 /**

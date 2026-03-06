@@ -88,47 +88,15 @@ router.post('/rewards/:id/create-square-reward', requireAuth, requireMerchant, r
     const rewardId = req.params.id;
     const force = req.query.force === 'true' || req.body.force === true;
 
-    const reward = await loyaltyService.getRewardForSquareSync({ merchantId, rewardId });
+    const result = await loyaltyService.createSquareReward({ merchantId, rewardId, force });
 
-    if (!reward) {
-        return res.status(404).json({ error: 'Reward not found' });
+    if (!result.found) {
+        return res.status(404).json({ error: result.error });
     }
 
-    if (reward.status !== 'earned') {
-        return res.status(400).json({ error: 'Reward must be in "earned" status to sync to POS' });
+    if (!result.eligible) {
+        return res.status(400).json({ error: result.error });
     }
-
-    // Check if already synced
-    if (reward.square_group_id && reward.square_discount_id) {
-        if (!force) {
-            return res.json({
-                success: true,
-                message: 'Already synced to Square POS',
-                groupId: reward.square_group_id,
-                discountId: reward.square_discount_id
-            });
-        }
-
-        // Force mode: cleanup existing discount first
-        logger.info('Force re-sync: cleaning up existing Square discount', {
-            rewardId,
-            merchantId,
-            existingGroupId: reward.square_group_id
-        });
-
-        await loyaltyService.cleanupSquareCustomerGroupDiscount({
-            merchantId,
-            squareCustomerId: reward.square_customer_id,
-            internalRewardId: rewardId
-        });
-    }
-
-    const result = await loyaltyService.createSquareCustomerGroupDiscount({
-        merchantId,
-        squareCustomerId: reward.square_customer_id,
-        internalRewardId: rewardId,
-        offerId: reward.offer_id
-    });
 
     res.json(result);
 }));
