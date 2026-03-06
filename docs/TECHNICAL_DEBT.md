@@ -194,10 +194,18 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | File | Description |
 |----|------|-------------|
 | T-1 | `__tests__/routes/oauth-trial.test.js` | Test suite fails with `Cannot find module 'square'` — Square SDK not available in test environment. Tests pass locally when SDK is installed. Fix: add `square` to `devDependencies` or mock it in the test setup before this matters for real CI/CD pipeline. |
-| T-2 | `services/webhook-handlers/order-handler.js` | 57 tests added (2026-03-04). 1,316 lines, mixed responsibilities (velocity, loyalty, delivery, cart activity, refunds). Flag for split into handler-per-concern modules. |
+| T-2 | `services/webhook-handlers/order-handler.js` | 71 tests (2026-03-06, up from 57). 1,411 lines, mixed responsibilities (velocity, loyalty, delivery, cart activity, refunds). Flag for split into handler-per-concern modules. **BUG-1 FIXED**: `handleRefundCreatedOrUpdated` used raw `fetch()` instead of SDK — replaced with `getSquareClientForMerchant()` pattern. **BUG-2 FIXED**: redundant lazy `require('../loyalty-admin/customer-identification-service')` removed. **RISK-3 CONFIRMED**: payment-only path does NOT call `_checkOrderForRedemption` — redemption pre-check is skipped when only payment.* webhook fires (order.* missed). `detectRewardRedemptionFromOrder` still runs but the "new purchases start fresh window" guarantee is lost. Fix: call `_checkOrderForRedemption` in `_processPaymentForLoyalty` when cache miss. **RISK-1 TESTED**: multi-discount orders query DB per-discount (N queries for N discounts). No batch optimization — acceptable at current volume but should use `ANY($1)` if discount counts grow. |
 | T-3 | `services/loyalty-admin/purchase-service.js` | 20 tests added (2026-03-04). ~840 lines. **BUG FOUND**: `processRefund` idempotency key uses `Date.now()` (line ~673), making it non-deterministic — duplicate refund webhooks get different keys and both insert, causing double-decremented loyalty progress. Purchase path uses deterministic keys correctly. Fix: remove `Date.now()` from refund idempotency key. |
 | T-4 | `services/loyalty-admin/reward-service.js` | 31 tests added (2026-03-04). ~680 lines. No bugs found. Flag: exceeds 300-line limit; detection strategies (catalog ID, free item, discount amount) could be separate modules. |
 | T-5 | `services/loyalty-admin/square-discount-service.js` | 39 tests added (2026-03-04). ~1,465 lines. No bugs found. Flag: 5x over 300-line limit; contains CRUD, orchestration, validation, sync, and customer notes — at least 3 separate concerns. |
+
+### Velocity update error not caught in order handler
+
+**Date logged**: 2026-03-06
+**File**: `services/webhook-handlers/order-handler.js:handleOrderCreatedOrUpdated`
+**Issue**: `squareApi.updateSalesVelocityFromOrder()` is called without try/catch in the `handleOrderCreatedOrUpdated` method. If it throws (e.g., DB write failure), the error propagates up and prevents loyalty processing, delivery routing, and cart activity from executing. Documented by existing test "should handle velocity update failure without blocking loyalty" which confirms the throw behavior.
+**Impact**: Medium — a transient DB error during velocity update kills the entire order processing pipeline for that webhook. Loyalty points, delivery ingestion, and cart tracking all silently fail.
+**Fix**: Wrap velocity update in try/catch, log at WARN, continue processing.
 
 ### ~~Historical `total_price_cents` NULL rows in `loyalty_purchase_events`~~ DONE 2026-03-04
 

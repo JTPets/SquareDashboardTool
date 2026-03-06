@@ -51,8 +51,6 @@ const orderProcessingCache = new TTLCache(120000);
  */
 const completedOrderVelocityCache = new TTLCache(60000);
 
-// Square API version from centralized config
-const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../../config/constants');
 
 /**
  * Normalize Square SDK order fields from camelCase to snake_case.
@@ -585,7 +583,6 @@ class OrderHandler {
             const squareCustomerId = fullOrder.customerId || fullOrder.customer_id;
             if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
                 try {
-                    const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
                     const customerService = new LoyaltyCustomerService(merchantId);
                     await customerService.initialize();
                     const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
@@ -1376,29 +1373,10 @@ class OrderHandler {
             return result;
         }
 
-        const accessToken = await loyaltyService.getSquareAccessToken(merchantId);
-        if (!accessToken) {
-            return result;
-        }
-
         try {
-            const orderResponse = await fetch(
-                `https://connect.squareup.com/v2/orders/${refund.order_id}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Square-Version': SQUARE_API_VERSION
-                    }
-                }
-            );
-
-            if (!orderResponse.ok) {
-                return result;
-            }
-
-            const orderData = await orderResponse.json();
-            const order = orderData.order;
+            const squareClient = await getSquareClientForMerchant(merchantId);
+            const orderResponse = await squareClient.orders.get({ orderId: refund.order_id });
+            const order = orderResponse.order;
 
             if (order && order.refunds && order.refunds.length > 0) {
                 const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, merchantId);
