@@ -77,6 +77,14 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ---
 
+## Expiry Discount Automation
+
+| ID | Description |
+|----|-------------|
+| EXPIRY-REORDER-AUDIT | When a clearance/expiry-discounted item receives a new purchase order or restock event, it should be flagged for re-audit. Current system applies discounts based on expiry tier but has no trigger to re-evaluate when new inventory arrives for a discounted item. Risk: items stay on clearance pricing after being actively restocked. Trigger should be: new PO created OR inventory count increases for a variation currently in an expiry discount tier. |
+
+---
+
 ## Security (Low Severity)
 
 | ID | File | Description |
