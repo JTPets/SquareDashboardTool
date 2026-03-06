@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-04
+**Last Updated**: 2026-03-06
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, MULTI-TENANT-AUDIT, CLAUDE.md backlog
 
 ---
@@ -64,7 +64,7 @@
 |----|-------------|--------|--------|
 | TEST-28 | Replace `subscriptions.test.js` — 849 lines testing JS operators, not application code. Rewrite with real route/service tests | AUDIT-2026-02-28 | M |
 | T-1 | Financial/loyalty services have zero test coverage (square-discount-service, purchase-service, reward-service) | CODEBASE_AUDIT_2026-02-25 | L |
-| T-2 | Webhook handlers untested (7 of 8) — order-handler.js (1,316 lines) is highest risk | CODEBASE_AUDIT_2026-02-25 | L |
+| ~~T-2~~ | ~~Webhook handlers untested (7 of 8) — order-handler.js (1,316 lines) is highest risk~~ — **RESOLVED 2026-03-06**: 88 tests, split into 6-file module (`order-handler/index.js` + 5 sub-modules). See TECHNICAL_DEBT.md T-2 | CODEBASE_AUDIT_2026-02-25 | L |
 | T-3 | 84% of routes untested (21 of 25) — prioritize analytics.js, catalog.js, loyalty.js | CODEBASE_AUDIT_2026-02-25 | L |
 | T-4 | Background jobs 91% untested (10 of 11) | CODEBASE_AUDIT_2026-02-25 | L |
 
