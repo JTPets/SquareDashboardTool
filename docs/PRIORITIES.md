@@ -49,6 +49,7 @@
 | BACKLOG-45 | Spreadsheet bulk upload — import/update inventory via CSV or Google Sheets | CLAUDE.md | M |
 | BACKLOG-4 | Customer birthday sync for marketing | CLAUDE.md | S |
 | BACKLOG-1 | Frontend polling rate limits | CLAUDE.md | S |
+| BACKLOG-51 | Demo account — read-only view of a merchant's SqTools dashboard for sales demos and franchise prospect walkthroughs. Single shared login per merchant, view-only (no mutations), can be enabled/disabled by merchant owner, should not expose sensitive vendor pricing or customer PII. Relates to BACKLOG-41 (user access control) — may be implemented as a role type when that work is done | CLAUDE.md | M |
 
 ### Data Integrity
 
