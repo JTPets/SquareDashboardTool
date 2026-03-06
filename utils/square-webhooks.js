@@ -6,7 +6,7 @@
 const db = require('./database');
 const logger = require('./logger');
 const { decryptToken, isEncryptedToken } = require('./token-encryption');
-const { generateIdempotencyKey } = require('./square-api');
+const { generateIdempotencyKey } = require('../services/square/square-client');
 const { SQUARE: { API_VERSION: SQUARE_API_VERSION } } = require('../config/constants');
 
 // Square API configuration
