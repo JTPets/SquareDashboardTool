@@ -32,11 +32,9 @@ const { processLoyaltyOrder } = require('../../loyalty-admin/order-intake');
 // Customer identification service (6-method fallback chain)
 const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identification-service');
 
-// Cart activity tracking for DRAFT orders
-const cartActivityService = require('../../cart/cart-activity-service');
-
 // Extracted in Phase 2 split
 const { normalizeSquareOrder, fetchFullOrder } = require('./order-normalize');
+const { processCartActivity, checkCartConversion, markCartCanceled } = require('./order-cart');
 
 /**
  * Cache of order processing results for dedup between order.* and payment.* webhooks.
@@ -388,70 +386,29 @@ class OrderHandler {
 
     /**
      * Process DRAFT order for cart activity tracking
+     * Delegates to extracted order-cart module.
      * @private
      */
     async _processCartActivity(order, merchantId, result) {
-        try {
-            const cart = await cartActivityService.createFromDraftOrder(order, merchantId);
-            if (cart) {
-                result.cartActivity = {
-                    id: cart.id,
-                    itemCount: cart.item_count,
-                    status: cart.status
-                };
-                logger.info('DRAFT order routed to cart_activity', {
-                    merchantId,
-                    squareOrderId: order.id,
-                    cartActivityId: cart.id,
-                    source: order.source?.name
-                });
-            }
-        } catch (err) {
-            logger.error('Failed to process cart activity', {
-                merchantId,
-                squareOrderId: order.id,
-                error: err.message
-            });
-        }
+        return processCartActivity(order, merchantId, result);
     }
 
     /**
      * Check for cart conversion when order transitions to OPEN/COMPLETED
+     * Delegates to extracted order-cart module.
      * @private
      */
     async _checkCartConversion(orderId, merchantId) {
-        try {
-            const cart = await cartActivityService.markConverted(orderId, merchantId);
-            if (cart) {
-                logger.info('Cart conversion detected', {
-                    merchantId,
-                    squareOrderId: orderId,
-                    cartActivityId: cart.id
-                });
-            }
-        } catch (err) {
-            logger.warn('Failed to check cart conversion', {
-                merchantId,
-                squareOrderId: orderId,
-                error: err.message
-            });
-        }
+        return checkCartConversion(orderId, merchantId);
     }
 
     /**
      * Mark cart as canceled when order is canceled
+     * Delegates to extracted order-cart module.
      * @private
      */
     async _markCartCanceled(orderId, merchantId) {
-        try {
-            await cartActivityService.markCanceled(orderId, merchantId);
-        } catch (err) {
-            logger.warn('Failed to mark cart canceled', {
-                merchantId,
-                squareOrderId: orderId,
-                error: err.message
-            });
-        }
+        return markCartCanceled(orderId, merchantId);
     }
 
     /**
