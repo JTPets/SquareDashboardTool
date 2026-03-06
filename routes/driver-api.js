@@ -30,8 +30,13 @@ const deliveryApi = require('../services/delivery');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
+const { configureDeliveryRateLimit, configureDeliveryStrictRateLimit } = require('../middleware/security');
 const { validateUploadedImage } = require('../utils/file-validation');
 const validators = require('../middleware/validators/driver-api');
+
+// Rate limiters for public driver endpoints (keyed by IP since no session)
+const deliveryRateLimit = configureDeliveryRateLimit();
+const deliveryStrictRateLimit = configureDeliveryStrictRateLimit();
 
 // Configure multer for POD photo uploads (memory storage for processing)
 const podUpload = multer({
@@ -56,7 +61,7 @@ const podUpload = multer({
  * POST /api/delivery/route/:id/share
  * Generate a shareable token URL for a route
  */
-router.post('/delivery/route/:id/share', requireAuth, requireMerchant, validators.shareRoute, asyncHandler(async (req, res) => {
+router.post('/delivery/route/:id/share', deliveryRateLimit, requireAuth, requireMerchant, validators.shareRoute, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const routeId = req.params.id;
     const { expiresInHours } = req.body;
@@ -99,7 +104,7 @@ router.get('/delivery/route/:id/token', requireAuth, requireMerchant, validators
  * DELETE /api/delivery/route/:id/token
  * Revoke active token for a route
  */
-router.delete('/delivery/route/:id/token', requireAuth, requireMerchant, validators.revokeRouteToken, asyncHandler(async (req, res) => {
+router.delete('/delivery/route/:id/token', deliveryRateLimit, requireAuth, requireMerchant, validators.revokeRouteToken, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const routeId = req.params.id;
 
@@ -117,7 +122,7 @@ router.delete('/delivery/route/:id/token', requireAuth, requireMerchant, validat
  * GET /api/driver/:token
  * PUBLIC: Get route data for contract driver (no auth)
  */
-router.get('/driver/:token', validators.getDriverRoute, asyncHandler(async (req, res) => {
+router.get('/driver/:token', deliveryRateLimit, validators.getDriverRoute, asyncHandler(async (req, res) => {
     const result = await deliveryApi.getRouteOrdersByToken(req.params.token);
 
     if (!result) {
@@ -156,7 +161,7 @@ router.get('/driver/:token', validators.getDriverRoute, asyncHandler(async (req,
  * POST /api/driver/:token/orders/:orderId/complete
  * PUBLIC: Mark order as completed (contract driver)
  */
-router.post('/driver/:token/orders/:orderId/complete', validators.completeOrder, asyncHandler(async (req, res) => {
+router.post('/driver/:token/orders/:orderId/complete', deliveryRateLimit, validators.completeOrder, asyncHandler(async (req, res) => {
     const order = await deliveryApi.completeOrderByToken(req.params.token, req.params.orderId);
     res.json({ success: true, order: { id: order.id, status: order.status } });
 }));
@@ -165,7 +170,7 @@ router.post('/driver/:token/orders/:orderId/complete', validators.completeOrder,
  * POST /api/driver/:token/orders/:orderId/skip
  * PUBLIC: Skip order (contract driver)
  */
-router.post('/driver/:token/orders/:orderId/skip', validators.skipOrder, asyncHandler(async (req, res) => {
+router.post('/driver/:token/orders/:orderId/skip', deliveryRateLimit, validators.skipOrder, asyncHandler(async (req, res) => {
     const order = await deliveryApi.skipOrderByToken(req.params.token, req.params.orderId);
     res.json({ success: true, order: { id: order.id, status: order.status } });
 }));
@@ -174,7 +179,7 @@ router.post('/driver/:token/orders/:orderId/skip', validators.skipOrder, asyncHa
  * POST /api/driver/:token/orders/:orderId/pod
  * PUBLIC: Upload POD photo (contract driver)
  */
-router.post('/driver/:token/orders/:orderId/pod', podUpload.single('photo'), validateUploadedImage('photo'), validators.uploadPod, asyncHandler(async (req, res) => {
+router.post('/driver/:token/orders/:orderId/pod', deliveryStrictRateLimit, podUpload.single('photo'), validateUploadedImage('photo'), validators.uploadPod, asyncHandler(async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No photo uploaded' });
     }
@@ -198,7 +203,7 @@ router.post('/driver/:token/orders/:orderId/pod', podUpload.single('photo'), val
  * POST /api/driver/:token/finish
  * PUBLIC: Finish route and retire token (contract driver)
  */
-router.post('/driver/:token/finish', validators.finishRoute, asyncHandler(async (req, res) => {
+router.post('/driver/:token/finish', deliveryRateLimit, validators.finishRoute, asyncHandler(async (req, res) => {
     const { driverName, driverNotes } = req.body;
 
     const result = await deliveryApi.finishRouteByToken(req.params.token, {
