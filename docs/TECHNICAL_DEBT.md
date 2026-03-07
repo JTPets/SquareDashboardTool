@@ -124,12 +124,11 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Priority**: High — confirmed class of bug (wrong Square API property name).
 **Source**: Square API audit (2026-03-07)
 
-### RISK: `vendor_information` field name may be wrong in catalog sync
+### ~~RISK: `vendor_information` field name may be wrong in catalog sync~~ FALSE POSITIVE
 
 **Files**: `services/square/square-catalog-sync.js:977`, `services/square/square-pricing.js:247,292`
-**Issue**: Reads vendor data from `item_variation_data.vendor_information`. The Square REST API documentation lists the field as `item_variation_vendor_infos` on `CatalogItemVariation`, not `vendor_information`. If this field name is incorrect, every catalog sync: (1) DELETES all `variation_vendors` rows (line 975), (2) never re-creates them because `data.vendor_information` is always falsy. The same field name is used in `square-pricing.js` for reading/writing vendor cost data. Needs verification against actual Square API response to confirm.
-**Impact**: If confirmed wrong, vendor-variation links are destroyed on every catalog sync and vendor cost updates via `square-pricing.js` silently fail. Vendor dashboard may work from data populated by other paths (webhooks, manual entry).
-**Priority**: High — needs immediate verification against live Square API response.
+**Issue**: Reads vendor data from `item_variation_data.vendor_information`. The Square REST API documentation lists the field as `item_variation_vendor_infos` on `CatalogItemVariation`, not `vendor_information`.
+**Resolution**: **FALSE POSITIVE** — verified 2026-03-07 by live Square API call. The field `vendor_information` exists on `item_variation_data` alongside `item_variation_vendor_infos`. Vendor data is not at risk.
 **Source**: Square API audit (2026-03-07)
 
 ### Velocity return revenue uses wrong nested property (harmless due to fallback)
