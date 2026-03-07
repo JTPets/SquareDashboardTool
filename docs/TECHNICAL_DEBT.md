@@ -190,6 +190,21 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Priority**: Medium — data integrity bug.
 **Source**: Square API audit (2026-03-07)
 
+### PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure
+
+**File**: `services/reports/loyalty-reports.js:633-639`
+**Issue**: When the Square API call to fetch the redemption order fails, the catch block logs at `debug` level and continues. The vendor receipt is generated without the "REDEMPTION ORDER" section — the entire record of what free item was given is missing. The receipt appears complete to the user/vendor but is silently missing the most important part.
+**Impact**: Medium — vendor receives a receipt that looks complete but omits the free item details. No indication of failure. A vendor reviewing costs would not know data is missing.
+**Priority**: Medium — should show error placeholder or warning when redemption order fetch fails.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` CSV export references unselected columns
+
+**File**: `services/reports/loyalty-reports.js:1045,1053`
+**Issue**: `generateRedemptionsCSV` accesses `r.redemption_type` (line 1045, defaults to `'STANDARD'`) and `r.admin_notes` (line 1053, defaults to `''`), but the SQL query `getRedemptionsForExport` (lines 300-363) does not SELECT either column. Both are always undefined, producing hardcoded defaults in every CSV row.
+**Impact**: Low — CSV always shows "STANDARD" for type and empty for notes regardless of actual data. Data silently missing from exports.
+**Source**: Square API audit (2026-03-07)
+
 ### `discount-service.js` `timezone` parameter accepted but unused
 
 **File**: `services/expiry/discount-service.js:97-110`
