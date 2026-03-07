@@ -214,7 +214,7 @@ async function syncRewardDiscountPrices({ merchantId }) {
         details: undefined // omit per-reward details from summary log
     });
 
-    return { success: true, ...results };
+    return { success: results.failed === 0, ...results };
 }
 
 /**

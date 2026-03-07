@@ -695,7 +695,8 @@ describe('processRefund', () => {
         const result1 = await processRefund(refundData);
         expect(result1.processed).toBe(true);
 
-        // Verify deterministic key format (no Date.now())
+        // Verify deterministic key format — with returnLineItemUid it uses UID,
+        // without it falls back to quantity
         expect(idempotencyKeyUsed).toBe('refund:ord_1:var_1:2');
 
         // Second call with same data: idempotency check finds existing row
@@ -745,6 +746,220 @@ describe('processRefund', () => {
 
         // total = refundQuantity * unitPriceCents = -3 * 1000 = -3000
         expect(capturedTotalPrice).toBe(-3000);
+    });
+
+    it('LA-5: should use returnLineItemUid in idempotency key when provided', async () => {
+        let idempotencyKeyUsed = null;
+
+        db.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('idempotency_key')) {
+                idempotencyKeyUsed = params[1];
+                return { rows: [] };
+            }
+            return { rows: [] };
+        });
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: params[6] }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date(),
+            returnLineItemUid: 'rli_ABC123'
+        });
+
+        // Key uses UID instead of quantity
+        expect(idempotencyKeyUsed).toBe('refund:ord_1:var_1:rli_ABC123');
+    });
+
+    it('LA-5: two partial refunds of same quantity but different UIDs should not collide', async () => {
+        const keysUsed = [];
+
+        db.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('idempotency_key')) {
+                keysUsed.push(params[1]);
+                return { rows: [] }; // Not yet processed
+            }
+            return { rows: [] };
+        });
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: params[6] }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        // First partial refund
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 1,
+            refundedAt: new Date(),
+            returnLineItemUid: 'rli_FIRST'
+        });
+
+        // Second partial refund — same item, same quantity, different UID
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 1,
+            refundedAt: new Date(),
+            returnLineItemUid: 'rli_SECOND'
+        });
+
+        expect(keysUsed).toHaveLength(2);
+        expect(keysUsed[0]).toBe('refund:ord_1:var_1:rli_FIRST');
+        expect(keysUsed[1]).toBe('refund:ord_1:var_1:rli_SECOND');
+        expect(keysUsed[0]).not.toBe(keysUsed[1]);
+    });
+
+    it('LA-11: should use original purchase window dates for refund', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+
+        let capturedWindowStart = null;
+        let capturedWindowEnd = null;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+            // Original purchase lookup (LA-11)
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return {
+                    rows: [{
+                        window_start_date: '2026-01-15',
+                        window_end_date: '2027-01-15'
+                    }]
+                };
+            }
+
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                capturedWindowStart = params[10];
+                capturedWindowEnd = params[11];
+                return { rows: [{ id: 101, quantity: params[6] }] };
+            }
+
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 5 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: null, end_date: null }] };
+            if (sql.includes('INSERT INTO loyalty_rewards')) {
+                return { rows: [{ id: 200, status: 'in_progress', current_quantity: 5, required_quantity: 12 }] };
+            }
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            unitPriceCents: 3999,
+            refundedAt: '2026-06-15T10:00:00Z', // 5 months after purchase
+            squareLocationId: 'loc_1',
+            returnLineItemUid: 'rli_123'
+        });
+
+        // Window dates should come from original purchase, NOT from refund date
+        expect(capturedWindowStart).toBe('2026-01-15');
+        expect(capturedWindowEnd).toBe('2027-01-15');
+    });
+
+    it('LA-11: should fall back to refund date when no original purchase found', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+
+        let capturedWindowStart = null;
+        let capturedWindowEnd = null;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+            // No original purchase found
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [] };
+            }
+
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                capturedWindowStart = params[10];
+                capturedWindowEnd = params[11];
+                return { rows: [{ id: 101, quantity: params[6] }] };
+            }
+
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const logger = require('../../../utils/logger');
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_orphan',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 1,
+            refundedAt: '2026-06-15T10:00:00Z',
+            squareLocationId: 'loc_1',
+            returnLineItemUid: 'rli_456'
+        });
+
+        // Fallback to refund date since no original purchase exists
+        expect(capturedWindowStart).toBe('2026-06-15');
+        expect(capturedWindowEnd).toBe('2027-06-15');
+
+        expect(logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('No original purchase event found'),
+            expect.objectContaining({ merchantId: 1, squareOrderId: 'ord_orphan' })
+        );
     });
 });
 
