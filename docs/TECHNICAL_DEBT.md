@@ -288,14 +288,11 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Issue**: `processOrderManually()` called `processOrderForLoyalty(order, merchantId)` (legacy path) instead of `processLoyaltyOrder()`.
 **Fix**: Replaced with `processLoyaltyOrder({ order, merchantId, squareCustomerId: order.customer_id, source: 'manual', customerSource: 'order' })`. Return shape mapped from `{ alreadyProcessed, purchaseEvents }` to `{ processed }`. 2 new tests verify correct call signature and already-processed handling.
 
-#### LA-3: Refund processing does not handle `order.returns` (Square's actual refund shape)
+#### ~~LA-3: Refund processing does not handle `order.returns` (Square's actual refund shape)~~ RESOLVED (2026-03-07)
 
 **Severity**: P0 | **Effort**: M
-**Files**: `services/loyalty-admin/webhook-processing-service.js:338-429`
-**Issue**: `processOrderRefundsForLoyalty()` iterates `order.refunds[]` and looks for `refund.return_line_items[]`. But in Square's order model, line-item returns are on `order.returns[].return_line_items[]`, NOT `order.refunds[].return_line_items[]`. The `order.refunds` array contains *payment* refund data (tender info, amounts), not line-item-level returns. The `refund.return_line_items` property does not exist in the Square API spec.
-**Impact**: Refunds are NEVER processed for loyalty. When a customer returns items, their purchase quantity is never decremented, and earned rewards are never revoked. Affects reward integrity.
-**Evidence**: `grep -r 'order\.returns' services/loyalty-admin/` returns zero hits (only the velocity service handles `order.returns`).
-**Fix**: Rewrite to iterate `order.returns[].return_line_items[]` and map to the correct properties (`catalog_object_id`, `quantity`, `return_line_items[].source_line_item_id`).
+**Files**: `services/loyalty-admin/webhook-processing-service.js`
+**Fix**: Rewrote `processOrderRefundsForLoyalty()` to iterate `order.returns[].return_line_items[]` (Square's actual shape). Removed `order.refunds[]` path entirely. Also removed dead-code `tender_id` loop (LA-6) and `refund.status` check (returns don't have status). Each `returnItem.uid` is passed as `returnLineItemUid` to `processRefund()` for unique idempotency (LA-5). 13 new tests in `webhook-refund-processing.test.js`.
 
 #### LA-4: Fire-and-forget `createSquareCustomerGroupDiscount()` can silently fail, leaving reward unsynced
 
@@ -311,21 +308,17 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 
 ### P1 — High (Incorrect Behavior / Edge Cases)
 
-#### LA-5: `processRefund` idempotency key includes raw quantity — partial refunds can collide
+#### ~~LA-5: `processRefund` idempotency key includes raw quantity — partial refunds can collide~~ RESOLVED (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/purchase-service.js:247`
-**Issue**: The refund idempotency key is `refund:${squareOrderId}:${variationId}:${quantity}`. If a customer refunds 2 units, then later refunds 1 more unit of the same item from the same order, the keys differ (`refund:ord:var:2` vs `refund:ord:var:1`) so both inserts succeed. But if Square sends duplicate webhooks for the SAME 2-unit refund, idempotency works. The problem is more subtle: `quantity` is the raw input parameter, not the absolute value. Since `processRefund` negates it with `Math.abs(quantity) * -1`, but the key uses the original `quantity`, the key is `refund:ord:var:2` when quantity=2 and also `refund:ord:var:2` when quantity=-2. So sign is not an issue. However, two separate partial refunds of the same quantity on the same variation **will** collide (both generate `refund:ord:var:1`), silently dropping the second refund.
-**Impact**: Second partial refund of the same size silently dropped. Customer keeps extra loyalty credit.
-**Fix**: Include refund-specific unique data (Square refund ID or `refund.id`) in the idempotency key.
+**Files**: `services/loyalty-admin/purchase-service.js`
+**Fix**: Idempotency key now uses `returnLineItemUid` (the return line item's `uid` from Square) when available: `refund:${orderId}:${variationId}:${returnLineItemUid}`. Falls back to quantity-based key for legacy callers. Two partial refunds of the same quantity now get distinct keys. 2 new tests in `purchase-service.test.js`.
 
-#### LA-6: `processOrderRefundsForLoyalty` uses dead-code `refund.tender_id` loop
+#### ~~LA-6: `processOrderRefundsForLoyalty` uses dead-code `refund.tender_id` loop~~ RESOLVED (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/webhook-processing-service.js:368`
-**Issue**: `for (const tender of refund.tender_id ? [{ tender_id: refund.tender_id }] : [])` — this creates an array with a single dummy object if `tender_id` exists, or an empty array if not. This means if `refund.tender_id` is falsy (which it often is for Square refund objects), the inner loop NEVER executes and no refund line items are processed.
-**Impact**: Refund processing is additionally gatekept by a property that may not exist on the refund object, making the already-broken refund path (LA-3) even more unreliable.
-**Fix**: Remove the tender_id loop entirely — iterate `refund.return_line_items` directly (after fixing LA-3).
+**Files**: `services/loyalty-admin/webhook-processing-service.js`
+**Fix**: Removed as part of LA-3 fix. The entire `order.refunds[]` iteration was replaced with `order.returns[]`. The `tender_id` loop and `refund.status` check are gone — returns are iterated directly.
 
 #### LA-7: Redemption detection Strategy 3 (discount amount) can false-positive on non-loyalty discounts
 
@@ -358,23 +351,19 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Multi-tenant isolation violation. Theoretical data leak between tenants.
 **Fix**: Added `AND merchant_id = $2` to the UPDATE WHERE clause. Also added `AND pe.merchant_id = $1` to the NOT EXISTS subquery in the expired rewards SELECT. 8 tests in `expiration-service.test.js`.
 
-#### LA-11: `processRefund` uses its own window_end_date instead of looking up the original purchase's window
+#### ~~LA-11: `processRefund` uses its own window_end_date instead of looking up the original purchase's window~~ RESOLVED (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/purchase-service.js:274-277`
-**Issue**: When processing a refund, `windowEndDate` is calculated from `refundDate + offer.window_months`. But the refund should use the window dates from the ORIGINAL purchase event it's offsetting, not calculate new ones. A refund 11 months after purchase with a 12-month window will get window dates that extend 12 months past the refund, not the original purchase's window.
-**Impact**: Refund events get incorrect window dates. The `updateRewardProgress` SUM query filters by `window_end_date >= CURRENT_DATE`, so a refund with an artificially extended window will keep being counted long after the original purchase has expired. The net effect is that refunds "persist" longer than the purchases they offset.
-**Fix**: Look up the original purchase event's `window_start_date` and `window_end_date` and use those.
+**Files**: `services/loyalty-admin/purchase-service.js`
+**Fix**: `processRefund()` now looks up the original `loyalty_purchase_events` row for this order+variation (matching by `square_order_id`, `variation_id`, `is_refund = FALSE`) and uses its `window_start_date` and `window_end_date`. Falls back to refund-date-based calculation with a `logger.warn()` if no original purchase is found. 2 new tests in `purchase-service.test.js`.
 
 ### P2 — Medium (Robustness / Test Gaps)
 
-#### LA-12: No test coverage for Square order `returns[]` (the actual refund shape)
+#### ~~LA-12: No test coverage for Square order `returns[]` (the actual refund shape)~~ RESOLVED (2026-03-07)
 
 **Severity**: P2 | **Effort**: M
-**Files**: `__tests__/services/loyalty-admin/` (all test files)
-**Issue**: No test file creates a mock Square order with `order.returns[].return_line_items[]` — the actual Square API shape for line-item refunds. Tests for `processOrderRefundsForLoyalty` use `order.refunds[].return_line_items[]` which matches the code but not reality (see LA-3).
-**Impact**: Tests pass but don't catch that the refund path is completely broken.
-**Fix**: Add tests using real Square order shapes with `returns[]`.
+**Files**: `__tests__/services/loyalty-admin/webhook-refund-processing.test.js`
+**Fix**: Added 13 tests using real Square `order.returns[].return_line_items[]` shape. Tests explicitly verify that `order.refunds[]` is NOT processed (regression test).
 
 #### LA-13: No pagination guard on Square API loops in backfill/catchup
 
@@ -500,22 +489,34 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: During API instability, backfill silently skips customer identification for failed accounts, resulting in fewer orders being processed for loyalty.
 **Fix**: Return `{ events, loyaltyAccounts, failedAccountIds }` so callers can log or retry.
 
+#### ~~LA-28: `discount-validation-service.js` `syncRewardDiscountPrices` returns `success: true` even when updates fail~~ RESOLVED (2026-03-07)
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/discount-validation-service.js:217`
+**Fix**: Changed `return { success: true, ...results }` to `return { success: results.failed === 0, ...results }`. Function now correctly reports failure when discount price sync operations fail.
+
+#### ~~LA-29: `backfill-orchestration-service.js` returns error object instead of throwing for no-locations~~ RESOLVED (2026-03-07)
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/backfill-orchestration-service.js:46-48`
+**Fix**: Changed `return { error: 'No active locations found', processed: 0 }` to `throw new Error('No active locations found')` with `statusCode = 400`, consistent with the access token check on line 57-61.
+
 ### Summary Table
 
 | ID | Severity | Effort | Description |
 |----|----------|--------|-------------|
 | ~~LA-1~~ | ~~P0~~ | ~~S~~ | ~~Backfill-orchestration bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
 | ~~LA-2~~ | ~~P0~~ | ~~S~~ | ~~`processOrderManually()` bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
-| LA-3 | P0 | M | Refund processing uses wrong Square order shape (`refunds` vs `returns`) |
+| ~~LA-3~~ | ~~P0~~ | ~~M~~ | ~~Refund processing uses wrong Square order shape (`refunds` vs `returns`)~~ **RESOLVED** (2026-03-07) |
 | LA-4 | P0 | M | Fire-and-forget Square discount creation — silent failure, no retry |
-| LA-5 | P1 | S | Refund idempotency key collides on same-quantity partial refunds |
-| LA-6 | P1 | S | Dead-code `tender_id` loop gates refund processing |
+| ~~LA-5~~ | ~~P1~~ | ~~S~~ | ~~Refund idempotency key collides on same-quantity partial refunds~~ **RESOLVED** (2026-03-07) |
+| ~~LA-6~~ | ~~P1~~ | ~~S~~ | ~~Dead-code `tender_id` loop gates refund processing~~ **RESOLVED** (2026-03-07) |
 | LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |
 | LA-8 | P1 | S | Customer note update has no retry on version conflict (409) |
 | ~~LA-9~~ | ~~P1~~ | ~~S~~ | ~~Backfill-orchestration builds hybrid camelCase/snake_case order~~ **RESOLVED** (2026-03-07) |
 | ~~LA-10~~ | ~~P1~~ | ~~S~~ | ~~`processExpiredEarnedRewards` unlocks events without merchant_id filter~~ **RESOLVED** (2026-03-07) |
-| LA-11 | P1 | S | Refund uses fresh window dates instead of original purchase's window |
-| LA-12 | P2 | M | No tests use real Square `order.returns[]` shape |
+| ~~LA-11~~ | ~~P1~~ | ~~S~~ | ~~Refund uses fresh window dates instead of original purchase's window~~ **RESOLVED** (2026-03-07) |
+| ~~LA-12~~ | ~~P2~~ | ~~M~~ | ~~No tests use real Square `order.returns[]` shape~~ **RESOLVED** (2026-03-07) |
 | LA-13 | P2 | S | No pagination guard on Square API loops |
 | LA-14 | P2 | S | Expiration error handler misleadingly appears to roll back committed rows |
 | LA-15 | P2 | M | Duplicated line-item evaluation logic between two processing paths |
@@ -531,6 +532,8 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | ~~LA-25~~ | ~~P1~~ | ~~S~~ | ~~Vendor lookup in `offer-admin-service.js` lacks merchant_id filter~~ **RESOLVED** (2026-03-07) |
 | LA-26 | P2 | S | `SquareApiClient` search methods silently truncate to first page |
 | LA-27 | P2 | S | Loyalty event prefetch returns partial data silently on API failures |
+| ~~LA-28~~ | ~~P2~~ | ~~S~~ | ~~`syncRewardDiscountPrices` returns success:true even when updates fail~~ **RESOLVED** (2026-03-07) |
+| ~~LA-29~~ | ~~P2~~ | ~~S~~ | ~~Backfill returns error object instead of throwing for no-locations~~ **RESOLVED** (2026-03-07) |
 
 **Audit scope**: 36 source files in `services/loyalty-admin/`, 24 test files in `__tests__/services/loyalty-admin/`, 10 route modules in `routes/loyalty/`, 2 webhook handlers in `services/webhook-handlers/`.
 **Audit trigger**: Quantity-aggregation bug (multiple line items with same `catalog_object_id`) survived code review because tests used simplified order shapes.

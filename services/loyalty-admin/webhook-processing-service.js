@@ -332,7 +332,12 @@ async function processOrderForLoyalty(order, merchantId, options = {}) {
 
 /**
  * Process refunds in an order (called from webhook handler)
- * @param {Object} order - Square order object with refunds
+ *
+ * Square puts line-item returns in order.returns[].return_line_items[],
+ * NOT in order.refunds[]. Each return entry has a source_line_item_uid
+ * linking back to the original line item.
+ *
+ * @param {Object} order - Square order object with returns
  * @param {number} merchantId - Internal merchant ID
  */
 async function processOrderRefundsForLoyalty(order, merchantId) {
@@ -340,17 +345,17 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
         throw new Error('merchantId is required - tenant isolation required');
     }
 
-    const refunds = order.refunds || [];
-    if (refunds.length === 0) {
-        return { processed: false, reason: 'no_refunds' };
+    const returns = order.returns || [];
+    if (returns.length === 0) {
+        return { processed: false, reason: 'no_returns' };
     }
 
     const squareCustomerId = order.customer_id;
 
-    logger.info('Processing order refunds for loyalty', {
+    logger.info('Processing order returns for loyalty', {
         merchantId,
         orderId: order.id,
-        refundCount: refunds.length
+        returnCount: returns.length
     });
 
     const results = {
@@ -360,67 +365,65 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
         errors: []
     };
 
-    for (const refund of refunds) {
-        if (refund.status !== 'COMPLETED') {
-            continue;  // Only process completed refunds
-        }
+    for (const ret of returns) {
+        for (const returnItem of ret.return_line_items || []) {
+            try {
+                const variationId = returnItem.catalog_object_id;
+                if (!variationId) continue;
 
-        for (const tender of refund.tender_id ? [{ tender_id: refund.tender_id }] : []) {
-            // Process refund line items
-            for (const returnItem of refund.return_line_items || []) {
-                try {
-                    const variationId = returnItem.catalog_object_id;
-                    if (!variationId) continue;
+                const quantity = parseInt(returnItem.quantity) || 0;
+                if (quantity <= 0) continue;
 
-                    const quantity = parseInt(returnItem.quantity) || 0;
-                    if (quantity <= 0) continue;
+                // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
+                // that were free (never counted toward loyalty in the first place)
+                // Convert BigInt to Number for Square SDK v43+
+                const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
+                // Use nullish check to preserve 0 values (free items have total_money = 0)
+                const rawTotalMoney = returnItem.total_money?.amount;
+                const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
 
-                    // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
-                    // that were free (never counted toward loyalty in the first place)
-                    // Convert BigInt to Number for Square SDK v43+
-                    const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
-                    // Use nullish check to preserve 0 values (free items have total_money = 0)
-                    const rawTotalMoney = returnItem.total_money?.amount;
-                    const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
-
-                    if (unitPriceCents > 0 && totalMoneyCents === 0) {
-                        logger.info('Skipping refund of FREE item (was 100% discounted)', {
-                            orderId: order.id,
-                            variationId,
-                            quantity,
-                            reason: 'free_item_refund_no_adjustment_needed'
-                        });
-                        continue;
-                    }
-
-                    const refundResult = await processRefund({
-                        merchantId,
-                        squareOrderId: order.id,
-                        squareCustomerId,
+                if (unitPriceCents > 0 && totalMoneyCents === 0) {
+                    logger.info('Skipping refund of FREE item (was 100% discounted)', {
+                        orderId: order.id,
                         variationId,
                         quantity,
-                        unitPriceCents,
-                        refundedAt: refund.created_at,
-                        squareLocationId: order.location_id
+                        reason: 'free_item_refund_no_adjustment_needed'
                     });
+                    continue;
+                }
 
-                    if (refundResult.processed) {
-                        results.refundsProcessed.push({
-                            variationId,
-                            quantity,
-                            rewardAffected: refundResult.rewardAffected
-                        });
-                    }
-                } catch (error) {
-                    logger.error('Error processing refund line item', {
-                        error: error.message,
-                        orderId: order.id
-                    });
-                    results.errors.push({
-                        refundId: refund.id,
-                        error: error.message
+                // Use source_line_item_uid or uid for unique idempotency per return line item
+                const returnLineItemUid = returnItem.uid || returnItem.source_line_item_uid;
+
+                const refundResult = await processRefund({
+                    merchantId,
+                    squareOrderId: order.id,
+                    squareCustomerId,
+                    variationId,
+                    quantity,
+                    unitPriceCents,
+                    refundedAt: ret.created_at || order.updated_at,
+                    squareLocationId: order.location_id,
+                    returnLineItemUid
+                });
+
+                if (refundResult.processed) {
+                    results.refundsProcessed.push({
+                        variationId,
+                        quantity,
+                        rewardAffected: refundResult.rewardAffected
                     });
                 }
+            } catch (error) {
+                logger.error('Error processing refund line item', {
+                    error: error.message,
+                    orderId: order.id,
+                    returnLineItemUid: returnItem.uid
+                });
+                results.errors.push({
+                    returnUid: returnItem.uid,
+                    error: error.message
+                });
             }
         }
     }

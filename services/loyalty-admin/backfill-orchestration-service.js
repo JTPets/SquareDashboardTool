@@ -44,7 +44,9 @@ async function runBackfill({ merchantId, days = 7 }) {
     const locationIds = locationsResult.rows.map(r => r.id);
 
     if (locationIds.length === 0) {
-        return { error: 'No active locations found', processed: 0 };
+        const error = new Error('No active locations found for this merchant');
+        error.statusCode = 400;
+        throw error;
     }
 
     // Calculate date range

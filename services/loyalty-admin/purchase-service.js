@@ -230,7 +230,8 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
 async function processRefund(refundData) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
-        quantity, unitPriceCents, refundedAt, squareLocationId, originalEventId
+        quantity, unitPriceCents, refundedAt, squareLocationId, originalEventId,
+        returnLineItemUid
     } = refundData;
 
     if (!merchantId) {
@@ -244,7 +245,12 @@ async function processRefund(refundData) {
     }
 
     const refundQuantity = Math.abs(quantity) * -1;  // Ensure negative
-    const idempotencyKey = `refund:${squareOrderId}:${variationId}:${quantity}`;
+
+    // Idempotency key includes returnLineItemUid to distinguish partial refunds
+    // of the same item with the same quantity (LA-5 fix)
+    const idempotencyKey = returnLineItemUid
+        ? `refund:${squareOrderId}:${variationId}:${returnLineItemUid}`
+        : `refund:${squareOrderId}:${variationId}:${quantity}`;
 
     // Check for existing event (idempotency) — prevents duplicate refund inserts
     // from rapid-fire webhooks (Square sends 4-5 per event)
@@ -271,10 +277,35 @@ async function processRefund(refundData) {
     try {
         await client.query('BEGIN');
 
-        // Calculate window dates based on original purchase
-        const refundDate = new Date(refundedAt || Date.now());
-        const windowEndDate = new Date(refundDate);
-        windowEndDate.setMonth(windowEndDate.getMonth() + offer.window_months);
+        // LA-11 fix: Look up the original purchase event's window dates
+        // instead of calculating from the refund date
+        let windowStartDate, windowEndDate;
+        const originalPurchase = await client.query(`
+            SELECT window_start_date, window_end_date
+            FROM loyalty_purchase_events
+            WHERE merchant_id = $1
+              AND square_order_id = $2
+              AND variation_id = $3
+              AND is_refund = FALSE
+              AND quantity > 0
+            ORDER BY purchased_at DESC
+            LIMIT 1
+        `, [merchantId, squareOrderId, variationId]);
+
+        if (originalPurchase.rows.length > 0) {
+            windowStartDate = originalPurchase.rows[0].window_start_date;
+            windowEndDate = originalPurchase.rows[0].window_end_date;
+        } else {
+            // Fallback: no original purchase found (edge case — refund without purchase record)
+            logger.warn('No original purchase event found for refund — using refund date for window', {
+                merchantId, squareOrderId, variationId
+            });
+            const refundDate = new Date(refundedAt || Date.now());
+            windowStartDate = refundDate.toISOString().split('T')[0];
+            const fallbackEnd = new Date(refundDate);
+            fallbackEnd.setMonth(fallbackEnd.getMonth() + offer.window_months);
+            windowEndDate = fallbackEnd.toISOString().split('T')[0];
+        }
 
         // Record the refund event (total_price_cents is negative to match refund direction)
         const refundTotalPriceCents = unitPriceCents ? refundQuantity * unitPriceCents : null;
@@ -290,8 +321,8 @@ async function processRefund(refundData) {
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
             squareLocationId, variationId, refundQuantity, unitPriceCents, refundTotalPriceCents,
-            refundedAt || new Date(), refundDate.toISOString().split('T')[0],
-            windowEndDate.toISOString().split('T')[0], originalEventId, idempotencyKey
+            refundedAt || new Date(), windowStartDate,
+            windowEndDate, originalEventId, idempotencyKey
         ]);
 
         const refundEvent = eventResult.rows[0];

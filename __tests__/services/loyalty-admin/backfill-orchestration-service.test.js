@@ -92,13 +92,11 @@ describe('backfill-orchestration-service', () => {
             .rejects.toThrow('merchantId is required');
     });
 
-    test('returns early when no active locations', async () => {
+    test('throws when no active locations', async () => {
         db.query.mockResolvedValueOnce({ rows: [] }); // no locations
 
-        const result = await runBackfill({ merchantId: MERCHANT_ID });
-
-        expect(result.error).toBe('No active locations found');
-        expect(result.processed).toBe(0);
+        await expect(runBackfill({ merchantId: MERCHANT_ID }))
+            .rejects.toThrow('No active locations found');
     });
 
     test('throws when no Square access token', async () => {
