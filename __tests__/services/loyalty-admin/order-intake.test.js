@@ -369,6 +369,184 @@ describe('processLoyaltyOrder', () => {
             squareCustomerId: 'CUST_456',
         })).rejects.toThrow('merchantId is required');
     });
+
+    test('aggregates 3 separate qty:1 line items for same variation into single call with quantity=3', async () => {
+        const orderWithDuplicateItems = {
+            ...baseOrder,
+            line_items: [
+                {
+                    uid: 'li-1',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 3999 },
+                    gross_sales_money: { amount: 3999 },
+                    total_money: { amount: 3999 },
+                },
+                {
+                    uid: 'li-2',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 3999 },
+                    gross_sales_money: { amount: 3999 },
+                    total_money: { amount: 3999 },
+                },
+                {
+                    uid: 'li-3',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 3999 },
+                    gross_sales_money: { amount: 3999 },
+                    total_money: { amount: 3999 },
+                },
+            ],
+        };
+
+        db.query
+            .mockResolvedValueOnce({ rows: [] }) // idempotency check
+            .mockResolvedValueOnce({ rows: [] }); // discount map query
+
+        mockClient.query
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ id: 99 }] }) // INSERT loyalty_processed_orders
+            .mockResolvedValueOnce({}) // UPDATE final result
+            .mockResolvedValueOnce({}); // COMMIT
+
+        processQualifyingPurchase.mockResolvedValueOnce({
+            processed: true,
+            purchaseEvent: { id: 2001, variation_id: 'VAR_001', quantity: 3 },
+            reward: { status: 'in_progress', currentQuantity: 3 },
+        });
+
+        const result = await processLoyaltyOrder({
+            order: orderWithDuplicateItems,
+            merchantId: 1,
+            squareCustomerId: 'CUST_456',
+            source: 'webhook',
+        });
+
+        // Should produce exactly ONE call to processQualifyingPurchase
+        expect(processQualifyingPurchase).toHaveBeenCalledTimes(1);
+
+        // That call should have aggregated quantity=3 and totalPriceCents=3*3999
+        expect(processQualifyingPurchase).toHaveBeenCalledWith(
+            expect.objectContaining({
+                variationId: 'VAR_001',
+                quantity: 3,
+                unitPriceCents: 3999,
+                totalPriceCents: 11997,
+            }),
+            { transactionClient: mockClient }
+        );
+
+        expect(result.purchaseEvents).toHaveLength(1);
+        expect(result.purchaseEvents[0].quantity).toBe(3);
+    });
+
+    test('aggregates mixed variations correctly — each gets its own call', async () => {
+        const orderWithMixedItems = {
+            ...baseOrder,
+            line_items: [
+                {
+                    uid: 'li-1',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '2',
+                    base_price_money: { amount: 3999 },
+                    gross_sales_money: { amount: 7998 },
+                    total_money: { amount: 7998 },
+                },
+                {
+                    uid: 'li-2',
+                    catalog_object_id: 'VAR_002',
+                    quantity: '1',
+                    base_price_money: { amount: 2499 },
+                    gross_sales_money: { amount: 2499 },
+                    total_money: { amount: 2499 },
+                },
+                {
+                    uid: 'li-3',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 3999 },
+                    gross_sales_money: { amount: 3999 },
+                    total_money: { amount: 3999 },
+                },
+            ],
+        };
+
+        db.query
+            .mockResolvedValueOnce({ rows: [] }) // idempotency check
+            .mockResolvedValueOnce({ rows: [] }); // discount map query
+
+        mockClient.query
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ id: 99 }] }) // INSERT loyalty_processed_orders
+            .mockResolvedValueOnce({}) // UPDATE final result
+            .mockResolvedValueOnce({}); // COMMIT
+
+        processQualifyingPurchase
+            .mockResolvedValueOnce({
+                processed: true,
+                purchaseEvent: { id: 2001, variation_id: 'VAR_001', quantity: 3 },
+                reward: { status: 'in_progress' },
+            })
+            .mockResolvedValueOnce({
+                processed: true,
+                purchaseEvent: { id: 2002, variation_id: 'VAR_002', quantity: 1 },
+                reward: { status: 'in_progress' },
+            });
+
+        const result = await processLoyaltyOrder({
+            order: orderWithMixedItems,
+            merchantId: 1,
+            squareCustomerId: 'CUST_456',
+        });
+
+        // Should produce exactly 2 calls — one per variation
+        expect(processQualifyingPurchase).toHaveBeenCalledTimes(2);
+
+        // VAR_001: 2 + 1 = 3 units, totalPriceCents = 3 * 3999 = 11997
+        expect(processQualifyingPurchase).toHaveBeenCalledWith(
+            expect.objectContaining({
+                variationId: 'VAR_001',
+                quantity: 3,
+                unitPriceCents: 3999,
+                totalPriceCents: 11997,
+            }),
+            { transactionClient: mockClient }
+        );
+
+        // VAR_002: 1 unit, totalPriceCents = 2499
+        expect(processQualifyingPurchase).toHaveBeenCalledWith(
+            expect.objectContaining({
+                variationId: 'VAR_002',
+                quantity: 1,
+                unitPriceCents: 2499,
+                totalPriceCents: 2499,
+            }),
+            { transactionClient: mockClient }
+        );
+
+        expect(result.purchaseEvents).toHaveLength(2);
+    });
+
+    test('idempotency — duplicate order skips processing entirely', async () => {
+        // Override db.query to return "found" for isOrderAlreadyProcessed
+        db.query.mockReset();
+        db.query.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+
+        const result = await processLoyaltyOrder({
+            order: baseOrder,
+            merchantId: 1,
+            squareCustomerId: 'CUST_456',
+        });
+
+        expect(result.alreadyProcessed).toBe(true);
+        expect(result.purchaseEvents).toEqual([]);
+        expect(result.rewardEarned).toBe(false);
+        // Should NOT have opened a transaction or called processQualifyingPurchase
+        expect(db.pool.connect).not.toHaveBeenCalled();
+        expect(processQualifyingPurchase).not.toHaveBeenCalled();
+    });
 });
 
 describe('isOrderAlreadyProcessed', () => {

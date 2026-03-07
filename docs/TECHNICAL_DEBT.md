@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-06
+**Last Updated**: 2026-03-07
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
@@ -10,6 +10,16 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 ---
 
 ## Observed Code Issues
+
+### Historical loyalty_purchase_events with incorrect quantity (needs backfill)
+
+**Files**: `services/loyalty-admin/order-intake.js`, `services/loyalty-admin/purchase-service.js`
+**Issue**: Before the 2026-03-07 fix, when Square POS produced multiple line items with the same `catalog_object_id` in a single order (e.g., 3 bags scanned individually → 3 line items each with `quantity: "1"`), the old idempotency key `orderId:variationId:quantity` caused only the first line item to be recorded. The rest were silently deduped. This resulted in `quantity = 1` in `loyalty_purchase_events` when the actual purchase was 3+ units.
+**Fix applied**: Order-intake now aggregates line items by `variationId` before calling `processQualifyingPurchase`. Idempotency key changed to `orderId:variationId` (quantity removed). New orders are recorded correctly.
+**Remaining work**: Historical rows in `loyalty_purchase_events` still have under-counted quantities. A backfill script is needed to: (1) fetch affected orders from Square API, (2) re-aggregate line items, (3) UPDATE quantity and total_price_cents for existing events where the recorded quantity is less than the actual total. Must also recalculate reward progress for affected customers. Scope: all `loyalty_purchase_events` rows where the order had multiple line items for the same variation.
+**Impact**: Customer reward progress may be behind — customers who should have earned rewards sooner may still be in_progress. Danny Booth case: 30 total units across 10 visits, only 12 recorded with quantity=1.
+**Priority**: Medium — affects reward accuracy for existing customers. New purchases are correct after the fix.
+**Source**: Production bug report (2026-03-07)
 
 ### ~~BUG: `processRefund` non-deterministic idempotency key allows duplicate refund inserts~~ RESOLVED (2026-03-06)
 

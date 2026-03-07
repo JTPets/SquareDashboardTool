@@ -112,10 +112,17 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
             }
         }
 
-        // --- Process each line item ---
+        // --- Aggregate qualifying line items by variationId ---
+        // BUG FIX (2026-03-07): Square POS can produce multiple line items
+        // with the same catalog_object_id (e.g., items scanned individually).
+        // Previously each line item called processQualifyingPurchase separately,
+        // and the idempotency key (orderId:variationId) caused only the first
+        // to be recorded — the rest were silently deduped. Now we aggregate
+        // quantities and revenue per variation before making one call each.
         const purchaseEvents = [];
         let rewardEarned = false;
         const skippedFreeItems = [];
+        const aggregatedByVariation = new Map();
 
         for (const lineItem of lineItems) {
             const skipResult = shouldSkipLineItem(lineItem, lineItemDiscountMap, orderId, merchantId);
@@ -135,15 +142,36 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
             const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
             const totalPriceCents = quantity * unitPriceCents;
 
+            const existing = aggregatedByVariation.get(variationId);
+            if (existing) {
+                existing.quantity += quantity;
+                existing.totalPriceCents += totalPriceCents;
+                // Keep the higher unit price for audit (variations should match,
+                // but if they differ use the max for conservative tracking)
+                if (unitPriceCents > existing.unitPriceCents) {
+                    existing.unitPriceCents = unitPriceCents;
+                }
+            } else {
+                aggregatedByVariation.set(variationId, {
+                    variationId,
+                    quantity,
+                    unitPriceCents,
+                    totalPriceCents
+                });
+            }
+        }
+
+        // --- Process one call per variation with aggregated totals ---
+        for (const [variationId, agg] of aggregatedByVariation) {
             try {
                 const result = await processQualifyingPurchase({
                     merchantId,
                     squareOrderId: orderId,
                     squareCustomerId,
                     variationId,
-                    quantity,
-                    unitPriceCents,
-                    totalPriceCents,
+                    quantity: agg.quantity,
+                    unitPriceCents: agg.unitPriceCents,
+                    totalPriceCents: agg.totalPriceCents,
                     purchasedAt: order.created_at || new Date(),
                     squareLocationId: order.location_id,
                     receiptUrl,
