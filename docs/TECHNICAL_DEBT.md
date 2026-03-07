@@ -205,6 +205,28 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Low — CSV always shows "STANDARD" for type and empty for notes regardless of actual data. Data silently missing from exports.
 **Source**: Square API audit (2026-03-07)
 
+### RISK: Delta sync does not mark child variations as deleted
+
+**File**: `services/square/square-catalog-sync.js:612-629`
+**Issue**: When delta sync marks an item as deleted (line 615), it zeros inventory for all variations (lines 618-623) but does NOT set `is_deleted = TRUE` on the variation rows. Full sync handles variation deletion separately (lines 301-321), but delta sync assumes Square will emit individual variation deletion events. If Square only emits the parent item deletion, orphaned variation records remain with `is_deleted = FALSE` and will appear in queries filtering on that flag.
+**Impact**: Medium — orphaned variation records could appear in reorder suggestions, expiry evaluations, and other queries that join on `variations.is_deleted = FALSE`.
+**Priority**: Medium — data integrity risk during delta sync.
+**Source**: Square API audit (2026-03-07)
+
+### `square-catalog-sync.js` `price_money.amount` of 0 becomes null
+
+**File**: `services/square/square-catalog-sync.js:929`
+**Issue**: `data.price_money?.amount || null` — the `||` operator treats `0` as falsy. Free items (`amount = 0`) are stored with `price_cents = NULL` instead of `0`, misrepresenting them as having no price set. Fix: use `??` (nullish coalescing).
+**Impact**: Low — free items stored as NULL price. Same class of bug as the `daysUntilExpiry || null` issue.
+**Source**: Square API audit (2026-03-07)
+
+### `square-catalog-sync.js` `inventory_alert_threshold` of 0 becomes null
+
+**File**: `services/square/square-catalog-sync.js:871,878,888-889,963`
+**Issue**: Same `||` vs `??` pattern. If `inventory_alert_threshold` is `0` (meaning "alert when at zero stock"), it gets stored as `null`. Multiple locations in the variation sync use this pattern.
+**Impact**: Low — threshold of 0 is uncommon but valid.
+**Source**: Square API audit (2026-03-07)
+
 ### `discount-service.js` `timezone` parameter accepted but unused
 
 **File**: `services/expiry/discount-service.js:97-110`
