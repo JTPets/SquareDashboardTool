@@ -174,6 +174,43 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Low — Square will reject pricing rules referencing non-existent objects, but errors won't surface until the pricing rule upsert.
 **Source**: Square API audit (2026-03-07)
 
+### BUG: `discount-service.js` missing `merchant_id` filter on 3 UPDATE queries
+
+**File**: `services/expiry/discount-service.js:367-371,820-825,886-892`
+**Issue**: Three UPDATE statements on `variation_discount_status` filter only by `variation_id` without `AND merchant_id = $N`: (1) line 370 in `evaluateAllVariations` updating `days_until_expiry`, (2) line 824 in `applyDiscounts` setting `discounted_price_cents`, (3) line 891 removing discount. Violates the multi-tenant pattern — same class as LA-10.
+**Impact**: Low in practice (Square variation IDs are globally unique), but violates codebase security model. Would be a real bug if non-Square IDs were ever used.
+**Priority**: Medium — multi-tenant pattern violation.
+**Source**: Square API audit (2026-03-07)
+
+### BUG: `discount-service.js` `daysUntilExpiry || null` converts 0 to null
+
+**File**: `services/expiry/discount-service.js:430`
+**Issue**: `event.daysUntilExpiry || null` — the `||` operator treats `0` as falsy. When an item expires today (`daysUntilExpiry = 0`), the value is stored as NULL in the `expiry_discount_audit_log`. This loses the distinction between "expires today" and "no expiry date set".
+**Impact**: Medium — audit log data loss for items expiring today. Downstream queries that filter on `days_until_expiry IS NOT NULL` will miss these entries. Fix: use `event.daysUntilExpiry ?? null` (nullish coalescing).
+**Priority**: Medium — data integrity bug.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `timezone` parameter accepted but unused
+
+**File**: `services/expiry/discount-service.js:97-110`
+**Issue**: `calculateDaysUntilExpiry(expirationDate, timezone)` accepts a `timezone` parameter (default `'America/Toronto'`) but uses plain `new Date()` for both `expiry` and `now`, ignoring the timezone entirely. Day calculation uses server-local time regardless of the parameter.
+**Impact**: Low — all deployments currently use America/Toronto, and the server is in the same timezone. Would be a bug for merchants in other timezones.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` inventory_counts subquery missing `merchant_id` filter
+
+**File**: `services/expiry/discount-service.js:1299-1306`
+**Issue**: The inventory_counts subquery in `getTierSummary` groups by `catalog_object_id` across all merchants without filtering by `merchant_id`. The outer query does filter `edt.merchant_id = $1`, but the inventory aggregation could include counts from other merchants if the same `catalog_object_id` appeared in multiple tenants.
+**Impact**: Low — Square catalog object IDs are globally unique across merchants. Same class as the `variation_vendors` JOIN issue.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` EXPIRED in `clearExpiryDiscountForReorder` array is dead code
+
+**File**: `services/expiry/discount-service.js:1816`
+**Issue**: The check `!status.is_auto_apply || !['AUTO50', 'AUTO25', 'EXPIRED'].includes(status.tier_code)` includes `'EXPIRED'` in the array, but the EXPIRED tier has `is_auto_apply = false` by design. The `!status.is_auto_apply` guard short-circuits before the array check is reached, making `'EXPIRED'` unreachable in the array.
+**Impact**: None — dead code only. Could mislead maintainers into thinking EXPIRED is auto-applied.
+**Source**: Square API audit (2026-03-07)
+
 ---
 
 ## Expiry Discount Automation
