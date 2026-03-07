@@ -268,6 +268,275 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ---
 
+## Loyalty Audit 2026-03-07
+
+Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/webhook-handlers/`, routes, and tests) performed after a quantity-aggregation bug survived code review because tests matched code logic instead of real Square order shapes. Findings are prioritized by severity and effort.
+
+### P0 — Critical (Data Corruption / Silent Failures)
+
+#### ~~LA-1: Dual processing path — `backfill-orchestration-service.js` bypasses `processLoyaltyOrder()` intake~~ RESOLVED (2026-03-07)
+
+**Severity**: P0 | **Effort**: S
+**Files**: `services/loyalty-admin/backfill-orchestration-service.js`, `services/loyalty-admin/order-intake.js`
+**Issue**: `backfill-orchestration-service.js` called the legacy `processOrderForLoyalty()` instead of the consolidated `processLoyaltyOrder()`. The legacy path did not aggregate line items by variationId and did not write to `loyalty_processed_orders`.
+**Fix**: Replaced `processOrderForLoyalty(orderForLoyalty, merchantId)` with `processLoyaltyOrder({ order, merchantId, squareCustomerId, source: 'backfill', customerSource })`. Removed the dead camelCase/snake_case `orderForLoyalty` transform block (LA-9). Raw Square order is now passed directly. 3 new tests verify correct call signature, source tag, and absence of camelCase transform.
+
+#### ~~LA-2: `order-processing-service.js` also bypasses `processLoyaltyOrder()` intake~~ RESOLVED (2026-03-07)
+
+**Severity**: P0 | **Effort**: S
+**Files**: `services/loyalty-admin/order-processing-service.js`
+**Issue**: `processOrderManually()` called `processOrderForLoyalty(order, merchantId)` (legacy path) instead of `processLoyaltyOrder()`.
+**Fix**: Replaced with `processLoyaltyOrder({ order, merchantId, squareCustomerId: order.customer_id, source: 'manual', customerSource: 'order' })`. Return shape mapped from `{ alreadyProcessed, purchaseEvents }` to `{ processed }`. 2 new tests verify correct call signature and already-processed handling.
+
+#### LA-3: Refund processing does not handle `order.returns` (Square's actual refund shape)
+
+**Severity**: P0 | **Effort**: M
+**Files**: `services/loyalty-admin/webhook-processing-service.js:338-429`
+**Issue**: `processOrderRefundsForLoyalty()` iterates `order.refunds[]` and looks for `refund.return_line_items[]`. But in Square's order model, line-item returns are on `order.returns[].return_line_items[]`, NOT `order.refunds[].return_line_items[]`. The `order.refunds` array contains *payment* refund data (tender info, amounts), not line-item-level returns. The `refund.return_line_items` property does not exist in the Square API spec.
+**Impact**: Refunds are NEVER processed for loyalty. When a customer returns items, their purchase quantity is never decremented, and earned rewards are never revoked. Affects reward integrity.
+**Evidence**: `grep -r 'order\.returns' services/loyalty-admin/` returns zero hits (only the velocity service handles `order.returns`).
+**Fix**: Rewrite to iterate `order.returns[].return_line_items[]` and map to the correct properties (`catalog_object_id`, `quantity`, `return_line_items[].source_line_item_id`).
+
+#### LA-4: Fire-and-forget `createSquareCustomerGroupDiscount()` can silently fail, leaving reward unsynced
+
+**Severity**: P0 | **Effort**: M
+**Files**: `services/loyalty-admin/reward-progress-service.js:257-285`
+**Issue**: When a reward is earned, `createSquareCustomerGroupDiscount()` is called as fire-and-forget (`.then().catch()`), OUTSIDE the database transaction. If it fails:
+1. The reward is marked 'earned' in the DB (committed)
+2. No Square discount/pricing rule is created
+3. The customer will NOT see the discount at POS
+4. The `.catch()` logs at ERROR but there is no retry mechanism, no flag set for manual sync
+**Impact**: Customer earns reward in our system but never sees it at POS. Silent failure — no admin notification.
+**Fix**: Either: (a) add a `square_sync_status` column to `loyalty_rewards` and set it to 'pending', with a cron job to retry; or (b) make the call inside the transaction and roll back if it fails.
+
+### P1 — High (Incorrect Behavior / Edge Cases)
+
+#### LA-5: `processRefund` idempotency key includes raw quantity — partial refunds can collide
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/purchase-service.js:247`
+**Issue**: The refund idempotency key is `refund:${squareOrderId}:${variationId}:${quantity}`. If a customer refunds 2 units, then later refunds 1 more unit of the same item from the same order, the keys differ (`refund:ord:var:2` vs `refund:ord:var:1`) so both inserts succeed. But if Square sends duplicate webhooks for the SAME 2-unit refund, idempotency works. The problem is more subtle: `quantity` is the raw input parameter, not the absolute value. Since `processRefund` negates it with `Math.abs(quantity) * -1`, but the key uses the original `quantity`, the key is `refund:ord:var:2` when quantity=2 and also `refund:ord:var:2` when quantity=-2. So sign is not an issue. However, two separate partial refunds of the same quantity on the same variation **will** collide (both generate `refund:ord:var:1`), silently dropping the second refund.
+**Impact**: Second partial refund of the same size silently dropped. Customer keeps extra loyalty credit.
+**Fix**: Include refund-specific unique data (Square refund ID or `refund.id`) in the idempotency key.
+
+#### LA-6: `processOrderRefundsForLoyalty` uses dead-code `refund.tender_id` loop
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/webhook-processing-service.js:368`
+**Issue**: `for (const tender of refund.tender_id ? [{ tender_id: refund.tender_id }] : [])` — this creates an array with a single dummy object if `tender_id` exists, or an empty array if not. This means if `refund.tender_id` is falsy (which it often is for Square refund objects), the inner loop NEVER executes and no refund line items are processed.
+**Impact**: Refund processing is additionally gatekept by a property that may not exist on the refund object, making the already-broken refund path (LA-3) even more unreliable.
+**Fix**: Remove the tender_id loop entirely — iterate `refund.return_line_items` directly (after fixing LA-3).
+
+#### LA-7: Redemption detection Strategy 3 (discount amount) can false-positive on non-loyalty discounts
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/reward-service.js:393-449`
+**Issue**: `matchEarnedRewardByDiscountAmount()` sums `total_discount_money` across ALL qualifying line items regardless of discount source. If a merchant runs a 30% off sale on a qualifying item and the sale discount happens to be >= 95% of the expected reward value, Strategy 3 will incorrectly mark the reward as redeemed. There is no check that the discount came from our loyalty system.
+**Impact**: Earned rewards could be auto-redeemed by non-loyalty discounts, consuming the customer's reward without them receiving the intended free item.
+**Fix**: Either: (a) cross-reference `applied_discounts[].discount_uid` against our known discount IDs before counting, or (b) only sum discounts that match our `catalog_object_id`.
+
+#### LA-8: Customer note update has TOCTOU race on `version` field
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/square-discount-service.js:396-528`
+**Issue**: `updateCustomerRewardNote()` does GET customer → read `version` → PUT with `version`. If any other process updates the customer between GET and PUT (e.g., a concurrent reward for another offer, customer profile update from Square), the PUT fails with a version mismatch (409). There is no retry logic.
+**Impact**: Customer note doesn't get the reward notification line. The reward is still valid in our system and POS, but the clerk won't see the note at checkout.
+**Fix**: Add retry-on-409 loop (max 3 attempts with fresh GET each time).
+
+#### ~~LA-9: Backfill-orchestration creates a hybrid camelCase/snake_case order object~~ RESOLVED (2026-03-07)
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/backfill-orchestration-service.js`
+**Issue**: Lines 202-216 built an `orderForLoyalty` object with BOTH `customer_id` and `customerId`, BOTH `line_items` and `lineItems`.
+**Fix**: Removed as part of LA-1 fix. Raw Square order is now passed directly to `processLoyaltyOrder()`. Test confirms no camelCase `lineItems` property is present on the passed order.
+
+#### LA-10: `processExpiredEarnedRewards` unlocks purchase events without merchant_id filter
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/expiration-service.js:142-146`
+**Issue**: `UPDATE loyalty_purchase_events SET reward_id = NULL WHERE reward_id = $1` — no `AND merchant_id = $2` filter. If reward IDs are sequential integers across merchants (they are — it's a serial primary key), this could theoretically unlock purchase events from a different merchant in a shared-ID scenario. Currently single-tenant so no practical risk, but violates the CLAUDE.md rule "EVERY query must filter by `merchant_id`".
+**Impact**: Multi-tenant isolation violation. Theoretical data leak between tenants.
+**Fix**: Add `AND merchant_id = $2` to the WHERE clause.
+
+#### LA-11: `processRefund` uses its own window_end_date instead of looking up the original purchase's window
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/purchase-service.js:274-277`
+**Issue**: When processing a refund, `windowEndDate` is calculated from `refundDate + offer.window_months`. But the refund should use the window dates from the ORIGINAL purchase event it's offsetting, not calculate new ones. A refund 11 months after purchase with a 12-month window will get window dates that extend 12 months past the refund, not the original purchase's window.
+**Impact**: Refund events get incorrect window dates. The `updateRewardProgress` SUM query filters by `window_end_date >= CURRENT_DATE`, so a refund with an artificially extended window will keep being counted long after the original purchase has expired. The net effect is that refunds "persist" longer than the purchases they offset.
+**Fix**: Look up the original purchase event's `window_start_date` and `window_end_date` and use those.
+
+### P2 — Medium (Robustness / Test Gaps)
+
+#### LA-12: No test coverage for Square order `returns[]` (the actual refund shape)
+
+**Severity**: P2 | **Effort**: M
+**Files**: `__tests__/services/loyalty-admin/` (all test files)
+**Issue**: No test file creates a mock Square order with `order.returns[].return_line_items[]` — the actual Square API shape for line-item refunds. Tests for `processOrderRefundsForLoyalty` use `order.refunds[].return_line_items[]` which matches the code but not reality (see LA-3).
+**Impact**: Tests pass but don't catch that the refund path is completely broken.
+**Fix**: Add tests using real Square order shapes with `returns[]`.
+
+#### LA-13: No pagination guard on Square API loops in backfill/catchup
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/backfill-service.js:180-223`, `services/loyalty-admin/backfill-orchestration-service.js:95-237`, `services/loyalty-admin/order-history-audit-service.js:154-197`
+**Issue**: All three files have `do { ... cursor = data.cursor; } while (cursor)` loops with no MAX_ITERATIONS guard. A Square API bug or circular cursor could cause an infinite loop, each iteration making an API call.
+**Impact**: Could exhaust Square API rate limits or cause process hang.
+**Fix**: Add `MAX_PAGES = 100` constant and break with a warning log if exceeded.
+
+#### LA-14: `processExpiredWindowEntries` commits per-row but rolls back ALL rows on error
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/expiration-service.js:43-80`
+**Issue**: The function iterates `expiredResult.rows` and calls `BEGIN`/`COMMIT` per row inside a single client connection. But the catch block calls `ROLLBACK` on the shared client — if row N fails, rows 1..(N-1) are already committed and cannot be rolled back. The ROLLBACK only affects the current failed transaction.
+**Impact**: Partial processing is silently committed. Not a bug per se (each row's COMMIT is correct), but the error handler is misleading — it appears to roll back everything but actually only rolls back the current row.
+**Fix**: Either use `db.transaction()` helper per row, or change the catch block to only log (the individual COMMITs already handle success).
+
+#### LA-15: `webhook-processing-service.js` duplicates line-item evaluation logic from `order-intake.js`
+
+**Severity**: P2 | **Effort**: M
+**Files**: `services/loyalty-admin/webhook-processing-service.js:118-317`, `services/loyalty-admin/order-intake.js:99-414`
+**Issue**: `processOrderForLoyalty()` in `webhook-processing-service.js` contains ~200 lines of line-item evaluation, discount detection, and free-item skipping logic that is duplicated (with slight differences) in `order-intake.js`. The two implementations can drift — for example, `order-intake.js` aggregates by variationId (the fix), but `webhook-processing-service.js` does not.
+**Impact**: Bug fixes applied to one path don't automatically apply to the other. The quantity bug (LA-1/LA-2) is an example of this drift.
+**Fix**: After LA-1 and LA-2 are fixed (all callers use `processLoyaltyOrder`), `processOrderForLoyalty` in `webhook-processing-service.js` becomes dead code. Remove it and update exports.
+
+#### LA-16: Manual entry bypasses line-item aggregation — double-counting possible
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/manual-entry-service.js:41`
+**Issue**: `processManualEntry()` calls `processQualifyingPurchase()` directly (not through `processLoyaltyOrder`). If an admin manually enters the same order+variation twice, the idempotency key (`orderId:variationId`) will catch it. However, manual entries set `unitPriceCents: 0`, so the `totalPriceCents` will be 0 in the DB. This means manual entries contribute to reward progress but show $0 in purchase history, and the discount cap calculation (`MAX(unit_price_cents)`) will ignore them.
+**Impact**: Discount cap correctly ignores $0 entries, but customer-facing audit trails show $0 purchases. If the only qualifying purchases are manual, the reward discount cannot be created (LA-4's $0 guard triggers).
+**Fix**: Accept `unitPriceCents` as optional param in manual entry, or look up catalog price.
+
+#### LA-17: `buildDiscountMap` in `order-intake.js` silently swallows DB errors
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/order-intake.js:289-303`
+**Issue**: The try/catch around the loyalty discount IDs query (lines 289-303) catches DB errors and logs at WARN, then continues with an empty `ourLoyaltyDiscountIds` set. This means if the DB query fails, ALL items (including loyalty redemption items) will be counted toward reward progress.
+**Impact**: During a DB blip, a redemption order could double-count items — the free item that was the reward gets counted as a new qualifying purchase.
+**Fix**: Either re-throw the error (fail the order processing), or at minimum check `orderUsedOurDiscount` before processing items.
+
+#### LA-18: Loyalty catchup uses raw `fetch()` instead of Square SDK
+
+**Severity**: P2 | **Effort**: M
+**Files**: `services/loyalty-admin/backfill-service.js:198-206`, `services/loyalty-admin/backfill-orchestration-service.js:118-126`, `services/loyalty-admin/order-history-audit-service.js:172-180`, `services/loyalty-admin/order-processing-service.js:46-52`, `services/loyalty-admin/redemption-audit-service.js:28-35`
+**Issue**: Five files use raw `fetchWithTimeout()` for Square API calls instead of the Square SDK or `SquareApiClient`. This means they don't get automatic 429 rate-limit retry, don't use the same API version header as the SDK, and maintain their own token decryption.
+**Impact**: Rate-limit errors during backfill cause the entire operation to fail instead of retrying. Inconsistent API version headers across the codebase.
+**Fix**: Migrate to `SquareApiClient` (already available in `square-api-client.js`).
+
+#### LA-19: `loyalty_purchase_events` has no index on `(merchant_id, offer_id, square_customer_id, window_end_date)`
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/reward-progress-service.js:35-47` (query), `database/schema.sql`
+**Issue**: The `updateRewardProgress()` function runs this query pattern on every purchase: `SELECT SUM(quantity) FROM loyalty_purchase_events WHERE merchant_id=$1 AND offer_id=$2 AND square_customer_id=$3 AND window_end_date >= CURRENT_DATE AND reward_id IS NULL`. This is a 5-column filter with no composite index. As the table grows, this becomes increasingly slow.
+**Impact**: Increasing latency on every webhook-triggered purchase. Currently manageable at JTPets volume (~500 events), but will be a problem at scale.
+**Fix**: `CREATE INDEX idx_lpe_reward_progress ON loyalty_purchase_events (merchant_id, offer_id, square_customer_id, window_end_date) WHERE reward_id IS NULL;`
+
+#### LA-20: Redemption detection runs twice on the order webhook path
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/webhook-handlers/order-handler/order-loyalty.js:235`, `services/webhook-handlers/order-handler/order-loyalty.js:289`
+**Issue**: `processLoyalty()` calls `checkOrderForRedemption()` at line 235 (for pre-check logging), then calls `detectRewardRedemptionFromOrder()` at line 289 (to actually redeem). Both functions run the same 3-strategy detection logic against the same order. This means:
+1. Two DB queries per discount to check `loyalty_rewards` (Strategy 1)
+2. Two full `matchEarnedRewardByFreeItem` scans (Strategy 2)
+3. Two full `matchEarnedRewardByDiscountAmount` scans (Strategy 3)
+**Impact**: Doubled DB load and Square API latency on every order with discounts.
+**Fix**: Remove `checkOrderForRedemption()` pre-check or have it set a flag that `detectRewardRedemptionFromOrder()` can reuse.
+
+#### LA-21: No test coverage for multi-threshold reward rollover with split-row edge cases
+
+**Severity**: P2 | **Effort**: M
+**Files**: `__tests__/services/loyalty-admin/purchase-split-row.test.js`
+**Issue**: The split-row test covers basic split scenarios, but doesn't test:
+1. A purchase of 30 units toward a "buy 12" offer (should earn 2 rewards with 6 rollover)
+2. A split row where `excessQty` is 0 (exact match — no excess child created)
+3. A refund that spans across a split boundary
+4. Concurrent split-row operations on the same customer
+**Impact**: Multi-threshold rollover logic is complex and under-tested.
+
+#### LA-22: `isOrderAlreadyProcessed` in `order-intake.js` checks different tables than `isOrderAlreadyProcessedForLoyalty` in `backfill-service.js`
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/order-intake.js:256-268`, `services/loyalty-admin/backfill-service.js:44-51`
+**Issue**: `order-intake.js` checks BOTH `loyalty_processed_orders` AND `loyalty_purchase_events`. `backfill-service.js` checks ONLY `loyalty_purchase_events`. An order that was processed but had zero qualifying items would be in `loyalty_processed_orders` (with `result_type='non_qualifying'`) but NOT in `loyalty_purchase_events`. The backfill would re-process it.
+**Impact**: Backfill re-processes non-qualifying orders on every run, wasting API calls (fetching order from Square) and DB queries.
+**Fix**: Backfill's `isOrderAlreadyProcessedForLoyalty` should also check `loyalty_processed_orders`.
+
+#### LA-23: Currency hardcoded to CAD in loyalty discount creation
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/square-discount-catalog-service.js` (already noted in TECHNICAL_DEBT.md)
+**Note**: Already logged above. Including here for completeness of the loyalty audit.
+
+#### LA-24: `updateCustomerSummary` called after reward revocation in `processRefund` but NOT in `processExpiredEarnedRewards`
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/expiration-service.js:94-189`
+**Issue**: When `processExpiredEarnedRewards` revokes a reward due to expiration, it cleans up Square objects and logs audit events, but never calls `updateCustomerSummary()`. The customer's denormalized summary (total rewards, active status) becomes stale.
+**Impact**: Customer summary shows stale reward count after expiration. Admin dashboard may show incorrect loyalty status.
+**Fix**: Add `updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id)` after revocation.
+
+#### LA-25: Vendor lookup in `offer-admin-service.js` lacks merchant_id filter (tenant isolation)
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/offer-admin-service.js:57`, `services/loyalty-admin/offer-admin-service.js:181`
+**Issue**: `createOffer()` and `updateOffer()` both query `SELECT name, contact_email FROM vendors WHERE id = $1` without `AND merchant_id = $2`. The `vendors` table has a `merchant_id` column. A merchant could reference a vendor belonging to a different merchant by guessing/supplying a vendor ID. Violates the CLAUDE.md rule "EVERY query must filter by `merchant_id`".
+**Impact**: Multi-tenant isolation violation. Merchant A could attach Merchant B's vendor to their loyalty offer.
+**Fix**: Add `AND merchant_id = $2` and pass `merchantId` to both vendor queries.
+
+#### LA-26: `searchLoyaltyEvents` and `searchCustomers` in `SquareApiClient` silently truncate to first page
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/square-api-client.js:188-205`
+**Issue**: Both methods return `data.events || []` / `data.customers || []` without handling Square's pagination cursor. If results exceed the page limit (typically 50), only the first page is returned. Callers (audit, backfill, prefetch) receive incomplete data with no signal that results were truncated.
+**Impact**: Audit and backfill operations may miss loyalty events or customers if a merchant has >50 results. The `prefetchRecentLoyaltyEvents` service handles its own pagination via raw `fetch()`, but any caller using `SquareApiClient.searchLoyaltyEvents()` gets truncated results.
+**Fix**: Add paginated variants or return `{ results, cursor, hasMore }` so callers can decide to paginate.
+
+#### LA-27: Loyalty event prefetch returns partial data silently on API failures
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/loyalty-event-prefetch-service.js:118-149`
+**Issue**: The loyalty account fetch loop catches errors per account and continues. If 50% of account fetches fail (network blip, rate limit), the function returns with half the `loyaltyAccounts` map missing. Callers (`backfill-orchestration-service.js`) use this map for customer identification fallback with no awareness that data is incomplete.
+**Impact**: During API instability, backfill silently skips customer identification for failed accounts, resulting in fewer orders being processed for loyalty.
+**Fix**: Return `{ events, loyaltyAccounts, failedAccountIds }` so callers can log or retry.
+
+### Summary Table
+
+| ID | Severity | Effort | Description |
+|----|----------|--------|-------------|
+| ~~LA-1~~ | ~~P0~~ | ~~S~~ | ~~Backfill-orchestration bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
+| ~~LA-2~~ | ~~P0~~ | ~~S~~ | ~~`processOrderManually()` bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
+| LA-3 | P0 | M | Refund processing uses wrong Square order shape (`refunds` vs `returns`) |
+| LA-4 | P0 | M | Fire-and-forget Square discount creation — silent failure, no retry |
+| LA-5 | P1 | S | Refund idempotency key collides on same-quantity partial refunds |
+| LA-6 | P1 | S | Dead-code `tender_id` loop gates refund processing |
+| LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |
+| LA-8 | P1 | S | Customer note update has no retry on version conflict (409) |
+| ~~LA-9~~ | ~~P1~~ | ~~S~~ | ~~Backfill-orchestration builds hybrid camelCase/snake_case order~~ **RESOLVED** (2026-03-07) |
+| LA-10 | P1 | S | `processExpiredEarnedRewards` unlocks events without merchant_id filter |
+| LA-11 | P1 | S | Refund uses fresh window dates instead of original purchase's window |
+| LA-12 | P2 | M | No tests use real Square `order.returns[]` shape |
+| LA-13 | P2 | S | No pagination guard on Square API loops |
+| LA-14 | P2 | S | Expiration error handler misleadingly appears to roll back committed rows |
+| LA-15 | P2 | M | Duplicated line-item evaluation logic between two processing paths |
+| LA-16 | P2 | S | Manual entry sets $0 price — can't calculate discount cap |
+| LA-17 | P2 | S | `buildDiscountMap` swallows DB errors — could double-count redemption items |
+| LA-18 | P2 | M | Five files use raw `fetch()` instead of `SquareApiClient` — no rate-limit retry |
+| LA-19 | P2 | S | Missing composite index on `loyalty_purchase_events` for reward progress query |
+| LA-20 | P2 | S | Redemption detection runs twice per order webhook |
+| LA-21 | P2 | M | Multi-threshold rollover with split-row edge cases untested |
+| LA-22 | P2 | S | Two idempotency check functions check different tables |
+| LA-23 | P2 | S | Currency hardcoded to CAD (duplicate of existing finding) |
+| LA-24 | P2 | S | Missing `updateCustomerSummary` call after expiration revocation |
+| LA-25 | P1 | S | Vendor lookup in `offer-admin-service.js` lacks merchant_id filter |
+| LA-26 | P2 | S | `SquareApiClient` search methods silently truncate to first page |
+| LA-27 | P2 | S | Loyalty event prefetch returns partial data silently on API failures |
+
+**Audit scope**: 36 source files in `services/loyalty-admin/`, 24 test files in `__tests__/services/loyalty-admin/`, 10 route modules in `routes/loyalty/`, 2 webhook handlers in `services/webhook-handlers/`.
+**Audit trigger**: Quantity-aggregation bug (multiple line items with same `catalog_object_id`) survived code review because tests used simplified order shapes.
+
+---
+
 ## Grading History
 
 | Date | Grade | Notes |

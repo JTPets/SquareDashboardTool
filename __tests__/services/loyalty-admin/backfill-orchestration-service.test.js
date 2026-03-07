@@ -3,6 +3,9 @@
  *
  * Validates backfill logic: location lookup, Square API pagination,
  * qualifying item filtering, customer identification, and diagnostics.
+ *
+ * LA-1 fix: backfill now routes through processLoyaltyOrder() (order-intake)
+ * instead of the legacy processOrderForLoyalty() (webhook-processing-service).
  */
 
 jest.mock('../../../utils/database', () => ({
@@ -26,15 +29,15 @@ jest.mock('../../../services/loyalty-admin/loyalty-event-prefetch-service', () =
     findCustomerFromPrefetchedEvents: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/webhook-processing-service', () => ({
-    processOrderForLoyalty: jest.fn(),
+jest.mock('../../../services/loyalty-admin/order-intake', () => ({
+    processLoyaltyOrder: jest.fn(),
 }));
 
 const { runBackfill } = require('../../../services/loyalty-admin/backfill-orchestration-service');
 const db = require('../../../utils/database');
 const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('../../../services/loyalty-admin/loyalty-event-prefetch-service');
-const { processOrderForLoyalty } = require('../../../services/loyalty-admin/webhook-processing-service');
+const { processLoyaltyOrder } = require('../../../services/loyalty-admin/order-intake');
 
 const MERCHANT_ID = 1;
 const LOCATION_ID = 'LOC_001';
@@ -60,6 +63,14 @@ function setupDbMocks({ locations = [{ id: LOCATION_ID }], qualifyingVariations 
     db.query
         .mockResolvedValueOnce({ rows: locations })          // locations
         .mockResolvedValueOnce({ rows: qualifyingVariations }); // qualifying variations
+}
+
+function mockIntakeResult({ purchaseCount = 1 } = {}) {
+    return {
+        alreadyProcessed: false,
+        purchaseEvents: Array.from({ length: purchaseCount }, (_, i) => ({ id: i + 1 })),
+        rewardEarned: false
+    };
 }
 
 const EMPTY_PREFETCH = { events: [], loyaltyAccounts: {} };
@@ -108,11 +119,7 @@ describe('backfill-orchestration-service', () => {
             json: async () => ({ orders: [order], cursor: null })
         });
 
-        processOrderForLoyalty.mockResolvedValue({
-            processed: true,
-            customerId: 'CUST_1',
-            purchasesRecorded: [{ id: 1 }]
-        });
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
 
         const result = await runBackfill({ merchantId: MERCHANT_ID, days: 7 });
 
@@ -122,7 +129,51 @@ describe('backfill-orchestration-service', () => {
         expect(result.ordersWithQualifyingItems).toBe(1);
         expect(result.loyaltyPurchasesRecorded).toBe(1);
         expect(result.results).toHaveLength(1);
-        expect(processOrderForLoyalty).toHaveBeenCalledTimes(1);
+        expect(processLoyaltyOrder).toHaveBeenCalledTimes(1);
+    });
+
+    test('calls processLoyaltyOrder with correct signature and source=backfill', async () => {
+        setupDbMocks();
+        getSquareAccessToken.mockResolvedValue('fake-token');
+
+        const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ orders: [order], cursor: null })
+        });
+
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
+
+        await runBackfill({ merchantId: MERCHANT_ID });
+
+        expect(processLoyaltyOrder).toHaveBeenCalledWith({
+            order,
+            merchantId: MERCHANT_ID,
+            squareCustomerId: 'CUST_1',
+            source: 'backfill',
+            customerSource: 'order'
+        });
+    });
+
+    test('passes raw Square order object without camelCase transform', async () => {
+        setupDbMocks();
+        getSquareAccessToken.mockResolvedValue('fake-token');
+
+        const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ orders: [order], cursor: null })
+        });
+
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
+
+        await runBackfill({ merchantId: MERCHANT_ID });
+
+        const callArg = processLoyaltyOrder.mock.calls[0][0];
+        // Should pass the raw Square order — no 'lineItems' (camelCase) property
+        expect(callArg.order).toBe(order);
+        expect(callArg.order.lineItems).toBeUndefined();
+        expect(callArg.order.line_items).toBeDefined();
     });
 
     test('skips orders without qualifying items', async () => {
@@ -139,7 +190,7 @@ describe('backfill-orchestration-service', () => {
 
         expect(result.ordersProcessed).toBe(1);
         expect(result.ordersWithQualifyingItems).toBe(0);
-        expect(processOrderForLoyalty).not.toHaveBeenCalled();
+        expect(processLoyaltyOrder).not.toHaveBeenCalled();
     });
 
     test('finds customer from prefetched loyalty events', async () => {
@@ -153,16 +204,18 @@ describe('backfill-orchestration-service', () => {
         });
 
         findCustomerFromPrefetchedEvents.mockReturnValue('CUST_FROM_PREFETCH');
-        processOrderForLoyalty.mockResolvedValue({
-            processed: true,
-            customerId: 'CUST_FROM_PREFETCH',
-            purchasesRecorded: [{ id: 1 }]
-        });
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
 
         const result = await runBackfill({ merchantId: MERCHANT_ID });
 
         expect(result.customersFoundViaPrefetch).toBe(1);
         expect(result.results[0].customerSource).toBe('loyalty_prefetch');
+        expect(processLoyaltyOrder).toHaveBeenCalledWith(
+            expect.objectContaining({
+                squareCustomerId: 'CUST_FROM_PREFETCH',
+                customerSource: 'loyalty_prefetch'
+            })
+        );
     });
 
     test('finds customer from tender customer_id', async () => {
@@ -176,16 +229,18 @@ describe('backfill-orchestration-service', () => {
             json: async () => ({ orders: [order], cursor: null })
         });
 
-        processOrderForLoyalty.mockResolvedValue({
-            processed: true,
-            customerId: 'CUST_FROM_TENDER',
-            purchasesRecorded: [{ id: 1 }]
-        });
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
 
         const result = await runBackfill({ merchantId: MERCHANT_ID });
 
         expect(result.loyaltyPurchasesRecorded).toBe(1);
         expect(findCustomerFromPrefetchedEvents).not.toHaveBeenCalled();
+        expect(processLoyaltyOrder).toHaveBeenCalledWith(
+            expect.objectContaining({
+                squareCustomerId: 'CUST_FROM_TENDER',
+                customerSource: 'tender'
+            })
+        );
     });
 
     test('skips orders with no customer found and collects diagnostics', async () => {
@@ -223,11 +278,7 @@ describe('backfill-orchestration-service', () => {
                 json: async () => ({ orders: [order2], cursor: null })
             });
 
-        processOrderForLoyalty.mockResolvedValue({
-            processed: true,
-            customerId: 'CUST_1',
-            purchasesRecorded: [{ id: 1 }]
-        });
+        processLoyaltyOrder.mockResolvedValue(mockIntakeResult());
 
         const result = await runBackfill({ merchantId: MERCHANT_ID });
 
@@ -247,18 +298,37 @@ describe('backfill-orchestration-service', () => {
             json: async () => ({ orders: [order1, order2], cursor: null })
         });
 
-        processOrderForLoyalty
+        processLoyaltyOrder
             .mockRejectedValueOnce(new Error('Processing failed'))
-            .mockResolvedValueOnce({
-                processed: true,
-                customerId: 'CUST_2',
-                purchasesRecorded: [{ id: 1 }]
-            });
+            .mockResolvedValueOnce(mockIntakeResult());
 
         const result = await runBackfill({ merchantId: MERCHANT_ID });
 
         expect(result.ordersProcessed).toBe(2);
         expect(result.loyaltyPurchasesRecorded).toBe(1);
+    });
+
+    test('skips already-processed orders without counting them as recorded', async () => {
+        setupDbMocks();
+        getSquareAccessToken.mockResolvedValue('fake-token');
+
+        const order = makeOrder('ORD_1', { customerId: 'CUST_1' });
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ orders: [order], cursor: null })
+        });
+
+        processLoyaltyOrder.mockResolvedValue({
+            alreadyProcessed: true,
+            purchaseEvents: [],
+            rewardEarned: false
+        });
+
+        const result = await runBackfill({ merchantId: MERCHANT_ID });
+
+        expect(result.ordersProcessed).toBe(1);
+        expect(result.loyaltyPurchasesRecorded).toBe(0);
+        expect(result.results).toHaveLength(0);
     });
 
     test('includes diagnostics in result', async () => {

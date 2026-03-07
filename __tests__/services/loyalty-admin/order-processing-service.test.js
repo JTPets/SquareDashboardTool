@@ -3,6 +3,9 @@
  *
  * Validates manual order processing: token retrieval, Square API fetch,
  * customer details, diagnostics, and loyalty processing.
+ *
+ * LA-2 fix: manual processing now routes through processLoyaltyOrder() (order-intake)
+ * instead of the legacy processOrderForLoyalty() (webhook-processing-service).
  */
 
 jest.mock('../../../utils/database', () => ({
@@ -25,14 +28,14 @@ jest.mock('../../../services/loyalty-admin/customer-admin-service', () => ({
     getCustomerDetails: jest.fn(),
 }));
 
-jest.mock('../../../services/loyalty-admin/webhook-processing-service', () => ({
-    processOrderForLoyalty: jest.fn(),
+jest.mock('../../../services/loyalty-admin/order-intake', () => ({
+    processLoyaltyOrder: jest.fn(),
 }));
 
 const { processOrderManually } = require('../../../services/loyalty-admin/order-processing-service');
 const { getSquareAccessToken } = require('../../../services/loyalty-admin/shared-utils');
 const { getCustomerDetails } = require('../../../services/loyalty-admin/customer-admin-service');
-const { processOrderForLoyalty } = require('../../../services/loyalty-admin/webhook-processing-service');
+const { processLoyaltyOrder } = require('../../../services/loyalty-admin/order-intake');
 
 const MERCHANT_ID = 1;
 const ORDER_ID = 'ORD_TEST_001';
@@ -110,7 +113,33 @@ describe('order-processing-service', () => {
         expect(result.reason).toContain('no customer ID');
         expect(result.tip).toBeDefined();
         expect(result.diagnostics.hasCustomer).toBe(false);
-        expect(processOrderForLoyalty).not.toHaveBeenCalled();
+        expect(processLoyaltyOrder).not.toHaveBeenCalled();
+    });
+
+    test('calls processLoyaltyOrder with correct signature and source=manual', async () => {
+        getSquareAccessToken.mockResolvedValue('fake-token');
+        const order = makeSquareOrder();
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ order })
+        });
+
+        getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
+        processLoyaltyOrder.mockResolvedValue({
+            alreadyProcessed: false,
+            purchaseEvents: [{ id: 1 }],
+            rewardEarned: false
+        });
+
+        await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
+
+        expect(processLoyaltyOrder).toHaveBeenCalledWith({
+            order,
+            merchantId: MERCHANT_ID,
+            squareCustomerId: 'CUST_1',
+            source: 'manual',
+            customerSource: 'order'
+        });
     });
 
     test('processes order with customer and returns diagnostics', async () => {
@@ -121,10 +150,10 @@ describe('order-processing-service', () => {
         });
 
         getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
-        processOrderForLoyalty.mockResolvedValue({
-            processed: true,
-            customerId: 'CUST_1',
-            purchasesRecorded: [{ id: 1 }]
+        processLoyaltyOrder.mockResolvedValue({
+            alreadyProcessed: false,
+            purchaseEvents: [{ id: 1 }],
+            rewardEarned: false
         });
 
         const result = await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
@@ -133,7 +162,26 @@ describe('order-processing-service', () => {
         expect(result.diagnostics.hasCustomer).toBe(true);
         expect(result.diagnostics.customerDetails.displayName).toBe('John');
         expect(result.diagnostics.lineItems).toHaveLength(1);
-        expect(processOrderForLoyalty).toHaveBeenCalledTimes(1);
+        expect(processLoyaltyOrder).toHaveBeenCalledTimes(1);
+    });
+
+    test('returns processed=false when order was already processed', async () => {
+        getSquareAccessToken.mockResolvedValue('fake-token');
+        global.fetch.mockResolvedValue({
+            ok: true,
+            json: async () => ({ order: makeSquareOrder() })
+        });
+
+        getCustomerDetails.mockResolvedValue({ id: 'CUST_1', displayName: 'John' });
+        processLoyaltyOrder.mockResolvedValue({
+            alreadyProcessed: true,
+            purchaseEvents: [],
+            rewardEarned: false
+        });
+
+        const result = await processOrderManually({ merchantId: MERCHANT_ID, squareOrderId: ORDER_ID });
+
+        expect(result.processed).toBe(false);
     });
 
     test('diagnostics include line item details', async () => {
