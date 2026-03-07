@@ -112,6 +112,7 @@ async function processExpiredEarnedRewards(merchantId) {
           AND NOT EXISTS (
               SELECT 1 FROM loyalty_purchase_events pe
               WHERE pe.reward_id = r.id
+              AND pe.merchant_id = $1
               AND pe.window_end_date >= CURRENT_DATE
           )
     `, [merchantId]);
@@ -138,12 +139,12 @@ async function processExpiredEarnedRewards(merchantId) {
             WHERE id = $1 AND merchant_id = $2
         `, [reward.id, merchantId]);
 
-        // Unlock the purchase events
+        // Unlock the purchase events (LA-10 fix: added merchant_id filter)
         await db.query(`
             UPDATE loyalty_purchase_events
             SET reward_id = NULL, updated_at = NOW()
-            WHERE reward_id = $1
-        `, [reward.id]);
+            WHERE reward_id = $1 AND merchant_id = $2
+        `, [reward.id, merchantId]);
 
         results.revokedRewards.push({
             rewardId: reward.id,

@@ -54,8 +54,8 @@ async function createOffer(offerData) {
     let vendorEmail = null;
     if (vendorId) {
         const vendorResult = await db.query(
-            'SELECT name, contact_email FROM vendors WHERE id = $1',
-            [vendorId]
+            'SELECT name, contact_email FROM vendors WHERE id = $1 AND merchant_id = $2',
+            [vendorId, merchantId]
         );
         if (vendorResult.rows[0]) {
             vendorName = vendorResult.rows[0].name;
@@ -178,8 +178,8 @@ async function updateOffer(offerId, updates, merchantId, userId = null) {
     if (updates.vendor_id !== undefined) {
         if (updates.vendor_id) {
             const vendorResult = await db.query(
-                'SELECT name, contact_email FROM vendors WHERE id = $1',
-                [updates.vendor_id]
+                'SELECT name, contact_email FROM vendors WHERE id = $1 AND merchant_id = $2',
+                [updates.vendor_id, merchantId]
             );
             if (vendorResult.rows[0]) {
                 updates.vendor_name = vendorResult.rows[0].name;
