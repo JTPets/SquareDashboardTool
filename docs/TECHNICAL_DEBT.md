@@ -3,7 +3,7 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
 **Last Updated**: 2026-03-07
-**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT
+**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -115,6 +115,64 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: The `openReportWindow()` function generated an HTML document written to a popup via `window.open()` + `document.write()`. The generated HTML contained an inline `<script>` block for CSV download functionality, which was blocked by CSP after S-4 removed `'unsafe-inline'` from `scriptSrc`.
 **Fix**: Removed the inline `<script>` block entirely. CSV download and print buttons now use event listeners attached programmatically from the opener window after `document.write()` completes. The CSV is generated via Blob URL + temporary `<a>` element click. No new files needed — fix is self-contained in `vendor-catalog.js`.
 **Source**: Observed during S-4 audit (2026-03-04), fixed 2026-03-04
+
+### BUG: `order.refunds` guard prevents loyalty return processing
+
+**Files**: `services/webhook-handlers/order-handler/index.js:514`, `services/webhook-handlers/order-handler/order-loyalty.js:304`
+**Issue**: Both files guard `processOrderRefundsForLoyalty()` with `if (order.refunds && order.refunds.length > 0)`. However, `processOrderRefundsForLoyalty()` (in `services/loyalty-admin/webhook-processing-service.js:348`) processes `order.returns` (line-item returns), NOT `order.refunds` (payment refunds). These are different Square API concepts: `order.refunds` = monetary refunds on tenders, `order.returns` = line items returned to inventory. When a customer returns items without a monetary refund (exchange, store credit), the guard fails and loyalty point adjustments never happen.
+**Impact**: Loyalty points are not decremented for item returns that don't include a payment refund. Severity depends on how often exchanges/store-credit returns occur. The downstream function is correctly implemented — only the guard condition is wrong.
+**Priority**: High — confirmed class of bug (wrong Square API property name).
+**Source**: Square API audit (2026-03-07)
+
+### RISK: `vendor_information` field name may be wrong in catalog sync
+
+**Files**: `services/square/square-catalog-sync.js:977`, `services/square/square-pricing.js:247,292`
+**Issue**: Reads vendor data from `item_variation_data.vendor_information`. The Square REST API documentation lists the field as `item_variation_vendor_infos` on `CatalogItemVariation`, not `vendor_information`. If this field name is incorrect, every catalog sync: (1) DELETES all `variation_vendors` rows (line 975), (2) never re-creates them because `data.vendor_information` is always falsy. The same field name is used in `square-pricing.js` for reading/writing vendor cost data. Needs verification against actual Square API response to confirm.
+**Impact**: If confirmed wrong, vendor-variation links are destroyed on every catalog sync and vendor cost updates via `square-pricing.js` silently fail. Vendor dashboard may work from data populated by other paths (webhooks, manual entry).
+**Priority**: High — needs immediate verification against live Square API response.
+**Source**: Square API audit (2026-03-07)
+
+### Velocity return revenue uses wrong nested property (harmless due to fallback)
+
+**File**: `services/square/square-velocity.js:140-141,474-475`
+**Issue**: `returnItem.return_amounts?.total_money?.amount` — `return_amounts` is a property of `OrderReturn` (the parent object), not `OrderReturnLineItem`. The property is always undefined on the return line item, falling through to the correct fallback `returnItem.total_money?.amount`. Functionally correct but shows confusion about the Square data shape.
+**Impact**: None — fallback is correct. Risk if someone removes the "unnecessary" fallback.
+**Source**: Square API audit (2026-03-07)
+
+### Velocity return location ternary is a no-op
+
+**File**: `services/square/square-velocity.js:131-132`
+**Issue**: `const locationId = returnItem.source_line_item_uid ? order.location_id : order.location_id;` — both branches return the same value. The ternary is dead code.
+**Impact**: None — functionally correct, just confusing.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` vendor JOIN missing `merchant_id` filter
+
+**File**: `services/reports/loyalty-reports.js:188,539`
+**Issue**: `LEFT JOIN variation_vendors vv ON pe.variation_id = vv.variation_id` and `LEFT JOIN variation_vendors vv ON v.id = vv.variation_id` — both JOINs omit `AND vv.merchant_id = $N`. Violates the multi-tenant pattern. No data leakage in practice (Square variation IDs are globally unique), but inconsistent with the codebase's security model.
+**Impact**: Low — theoretical multi-tenant violation only.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` uses `parseInt()` on SDK BigInt money amounts
+
+**File**: `services/reports/loyalty-reports.js:251,258,261,549,606`
+**Issue**: Fetches orders via `squareClient.orders.get()` (SDK), which returns `Money.amount` as BigInt in SDK v43+. Uses `parseInt(amount)` which works via implicit BigInt→String→Number conversion, but is not the standard pattern. Should use `Number()` for clarity and safety.
+**Impact**: Low — works correctly but fragile. Would break if BigInt string representation changes.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `updateDiscountAppliesTo` is effectively a no-op
+
+**File**: `services/expiry/discount-service.js:660-738`
+**Issue**: The `updateDiscountAppliesTo` function accepts `variationIds` but never includes them in the Square API request body (lines 699-710). The request only re-sends the existing `discount_data` unchanged. The actual work of applying discounts to specific items is done by `upsertPricingRule`, not this function. The function name and JSDoc are misleading.
+**Impact**: Low — function is not called from critical paths (callers use `upsertPricingRule` directly).
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `filterValidVariations` silently assumes all valid on error
+
+**File**: `services/expiry/discount-service.js:967-974`
+**Issue**: When the Square batch-retrieve API call fails, the catch block includes ALL variations as valid to "avoid data loss". This means API failures (rate limiting, network errors) cause deleted/invalid variations to be included in pricing rules, potentially applying discounts to non-existent catalog items.
+**Impact**: Low — Square will reject pricing rules referencing non-existent objects, but errors won't surface until the pricing rule upsert.
+**Source**: Square API audit (2026-03-07)
 
 ---
 
