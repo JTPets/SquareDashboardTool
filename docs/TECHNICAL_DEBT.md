@@ -481,6 +481,30 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Customer summary shows stale reward count after expiration. Admin dashboard may show incorrect loyalty status.
 **Fix**: Add `updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id)` after revocation.
 
+#### LA-25: Vendor lookup in `offer-admin-service.js` lacks merchant_id filter (tenant isolation)
+
+**Severity**: P1 | **Effort**: S
+**Files**: `services/loyalty-admin/offer-admin-service.js:57`, `services/loyalty-admin/offer-admin-service.js:181`
+**Issue**: `createOffer()` and `updateOffer()` both query `SELECT name, contact_email FROM vendors WHERE id = $1` without `AND merchant_id = $2`. The `vendors` table has a `merchant_id` column. A merchant could reference a vendor belonging to a different merchant by guessing/supplying a vendor ID. Violates the CLAUDE.md rule "EVERY query must filter by `merchant_id`".
+**Impact**: Multi-tenant isolation violation. Merchant A could attach Merchant B's vendor to their loyalty offer.
+**Fix**: Add `AND merchant_id = $2` and pass `merchantId` to both vendor queries.
+
+#### LA-26: `searchLoyaltyEvents` and `searchCustomers` in `SquareApiClient` silently truncate to first page
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/square-api-client.js:188-205`
+**Issue**: Both methods return `data.events || []` / `data.customers || []` without handling Square's pagination cursor. If results exceed the page limit (typically 50), only the first page is returned. Callers (audit, backfill, prefetch) receive incomplete data with no signal that results were truncated.
+**Impact**: Audit and backfill operations may miss loyalty events or customers if a merchant has >50 results. The `prefetchRecentLoyaltyEvents` service handles its own pagination via raw `fetch()`, but any caller using `SquareApiClient.searchLoyaltyEvents()` gets truncated results.
+**Fix**: Add paginated variants or return `{ results, cursor, hasMore }` so callers can decide to paginate.
+
+#### LA-27: Loyalty event prefetch returns partial data silently on API failures
+
+**Severity**: P2 | **Effort**: S
+**Files**: `services/loyalty-admin/loyalty-event-prefetch-service.js:118-149`
+**Issue**: The loyalty account fetch loop catches errors per account and continues. If 50% of account fetches fail (network blip, rate limit), the function returns with half the `loyaltyAccounts` map missing. Callers (`backfill-orchestration-service.js`) use this map for customer identification fallback with no awareness that data is incomplete.
+**Impact**: During API instability, backfill silently skips customer identification for failed accounts, resulting in fewer orders being processed for loyalty.
+**Fix**: Return `{ events, loyaltyAccounts, failedAccountIds }` so callers can log or retry.
+
 ### Summary Table
 
 | ID | Severity | Effort | Description |
@@ -509,6 +533,9 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | LA-22 | P2 | S | Two idempotency check functions check different tables |
 | LA-23 | P2 | S | Currency hardcoded to CAD (duplicate of existing finding) |
 | LA-24 | P2 | S | Missing `updateCustomerSummary` call after expiration revocation |
+| LA-25 | P1 | S | Vendor lookup in `offer-admin-service.js` lacks merchant_id filter |
+| LA-26 | P2 | S | `SquareApiClient` search methods silently truncate to first page |
+| LA-27 | P2 | S | Loyalty event prefetch returns partial data silently on API failures |
 
 **Audit scope**: 36 source files in `services/loyalty-admin/`, 24 test files in `__tests__/services/loyalty-admin/`, 10 route modules in `routes/loyalty/`, 2 webhook handlers in `services/webhook-handlers/`.
 **Audit trigger**: Quantity-aggregation bug (multiple line items with same `catalog_object_id`) survived code review because tests used simplified order shapes.
