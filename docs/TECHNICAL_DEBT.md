@@ -274,23 +274,19 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 
 ### P0 — Critical (Data Corruption / Silent Failures)
 
-#### LA-1: Dual processing path — `backfill-orchestration-service.js` bypasses `processLoyaltyOrder()` intake
+#### ~~LA-1: Dual processing path — `backfill-orchestration-service.js` bypasses `processLoyaltyOrder()` intake~~ RESOLVED (2026-03-07)
 
 **Severity**: P0 | **Effort**: S
-**Files**: `services/loyalty-admin/backfill-orchestration-service.js:218`, `services/loyalty-admin/order-intake.js`
-**Issue**: The doc comment on `order-intake.js` says "ALL loyalty order processing MUST route through `processLoyaltyOrder()`" — but `backfill-orchestration-service.js:218` calls the **legacy** `processOrderForLoyalty()` from `webhook-processing-service.js` instead. This legacy path:
-1. Does NOT aggregate line items by variationId (the recently fixed quantity bug)
-2. Does NOT write to `loyalty_processed_orders` (no atomic dedup via ON CONFLICT)
-3. Processes each line item separately, meaning the same multi-line-item dedup bug we just fixed in `order-intake.js` still exists in backfills run via the `/backfill` route
-**Impact**: Backfill operations can under-count quantities, exactly like the bug that prompted this audit. Orders processed via backfill will have incorrect quantities and no `loyalty_processed_orders` record.
-**Fix**: Replace `processOrderForLoyalty(orderForLoyalty, merchantId)` call with `processLoyaltyOrder({ order, merchantId, squareCustomerId, source: 'backfill' })`.
+**Files**: `services/loyalty-admin/backfill-orchestration-service.js`, `services/loyalty-admin/order-intake.js`
+**Issue**: `backfill-orchestration-service.js` called the legacy `processOrderForLoyalty()` instead of the consolidated `processLoyaltyOrder()`. The legacy path did not aggregate line items by variationId and did not write to `loyalty_processed_orders`.
+**Fix**: Replaced `processOrderForLoyalty(orderForLoyalty, merchantId)` with `processLoyaltyOrder({ order, merchantId, squareCustomerId, source: 'backfill', customerSource })`. Removed the dead camelCase/snake_case `orderForLoyalty` transform block (LA-9). Raw Square order is now passed directly. 3 new tests verify correct call signature, source tag, and absence of camelCase transform.
 
-#### LA-2: `order-processing-service.js` also bypasses `processLoyaltyOrder()` intake
+#### ~~LA-2: `order-processing-service.js` also bypasses `processLoyaltyOrder()` intake~~ RESOLVED (2026-03-07)
 
 **Severity**: P0 | **Effort**: S
-**Files**: `services/loyalty-admin/order-processing-service.js:110`
-**Issue**: `processOrderManually()` calls `processOrderForLoyalty(order, merchantId)` (the legacy path) instead of `processLoyaltyOrder()`. Same under-counting risk as LA-1 for manually processed orders.
-**Fix**: Replace with `processLoyaltyOrder()` call.
+**Files**: `services/loyalty-admin/order-processing-service.js`
+**Issue**: `processOrderManually()` called `processOrderForLoyalty(order, merchantId)` (legacy path) instead of `processLoyaltyOrder()`.
+**Fix**: Replaced with `processLoyaltyOrder({ order, merchantId, squareCustomerId: order.customer_id, source: 'manual', customerSource: 'order' })`. Return shape mapped from `{ alreadyProcessed, purchaseEvents }` to `{ processed }`. 2 new tests verify correct call signature and already-processed handling.
 
 #### LA-3: Refund processing does not handle `order.returns` (Square's actual refund shape)
 
@@ -347,13 +343,12 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Customer note doesn't get the reward notification line. The reward is still valid in our system and POS, but the clerk won't see the note at checkout.
 **Fix**: Add retry-on-409 loop (max 3 attempts with fresh GET each time).
 
-#### LA-9: Backfill-orchestration creates a hybrid camelCase/snake_case order object
+#### ~~LA-9: Backfill-orchestration creates a hybrid camelCase/snake_case order object~~ RESOLVED (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/backfill-orchestration-service.js:202-216`
-**Issue**: Lines 202-216 build an `orderForLoyalty` object with BOTH `customer_id` and `customerId`, BOTH `line_items` and `lineItems`. The `processOrderForLoyalty` function uses `order.line_items` (snake_case), so the camelCase duplicates are dead code. But more importantly, the `line_items` array is passed by reference from the raw Square API response, meaning any downstream code that mutates it would affect the original object.
-**Impact**: Currently harmless (no mutation), but fragile and confusing. When LA-1 is fixed to use `processLoyaltyOrder`, this entire transform block becomes unnecessary.
-**Fix**: Part of LA-1 fix — replace entire block with `processLoyaltyOrder()` call.
+**Files**: `services/loyalty-admin/backfill-orchestration-service.js`
+**Issue**: Lines 202-216 built an `orderForLoyalty` object with BOTH `customer_id` and `customerId`, BOTH `line_items` and `lineItems`.
+**Fix**: Removed as part of LA-1 fix. Raw Square order is now passed directly to `processLoyaltyOrder()`. Test confirms no camelCase `lineItems` property is present on the passed order.
 
 #### LA-10: `processExpiredEarnedRewards` unlocks purchase events without merchant_id filter
 
@@ -509,15 +504,15 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 
 | ID | Severity | Effort | Description |
 |----|----------|--------|-------------|
-| LA-1 | P0 | S | Backfill-orchestration bypasses `processLoyaltyOrder()` — quantity bug exists in backfills |
-| LA-2 | P0 | S | `processOrderManually()` bypasses `processLoyaltyOrder()` — same as LA-1 |
+| ~~LA-1~~ | ~~P0~~ | ~~S~~ | ~~Backfill-orchestration bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
+| ~~LA-2~~ | ~~P0~~ | ~~S~~ | ~~`processOrderManually()` bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
 | LA-3 | P0 | M | Refund processing uses wrong Square order shape (`refunds` vs `returns`) |
 | LA-4 | P0 | M | Fire-and-forget Square discount creation — silent failure, no retry |
 | LA-5 | P1 | S | Refund idempotency key collides on same-quantity partial refunds |
 | LA-6 | P1 | S | Dead-code `tender_id` loop gates refund processing |
 | LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |
 | LA-8 | P1 | S | Customer note update has no retry on version conflict (409) |
-| LA-9 | P1 | S | Backfill-orchestration builds hybrid camelCase/snake_case order |
+| ~~LA-9~~ | ~~P1~~ | ~~S~~ | ~~Backfill-orchestration builds hybrid camelCase/snake_case order~~ **RESOLVED** (2026-03-07) |
 | LA-10 | P1 | S | `processExpiredEarnedRewards` unlocks events without merchant_id filter |
 | LA-11 | P1 | S | Refund uses fresh window dates instead of original purchase's window |
 | LA-12 | P2 | M | No tests use real Square `order.returns[]` shape |

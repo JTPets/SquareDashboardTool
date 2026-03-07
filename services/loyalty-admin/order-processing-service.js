@@ -5,18 +5,15 @@
  * Used for manual processing/debugging when webhooks aren't working.
  *
  * Extracted from routes/loyalty/processing.js POST /process-order (A-13)
- * — moved as-is, no refactoring.
  *
  * OBSERVATION LOG (from extraction):
  * - Uses raw fetch() instead of squareClient SDK (pre-dates SDK standardization)
- * - Original had duplicate `const merchantId` declaration (line 76 shadowed line 48) — fixed in extraction
- * - Hardcoded Square-Version header ('2024-01-18') instead of config/constants
  */
 
 const logger = require('../../utils/logger');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { getCustomerDetails } = require('./customer-admin-service');
-const { processOrderForLoyalty } = require('./webhook-processing-service');
+const { processLoyaltyOrder } = require('./order-intake');
 
 /**
  * Fetch a single order from Square and process it for loyalty.
@@ -106,11 +103,17 @@ async function processOrderManually({ merchantId, squareOrderId }) {
         };
     }
 
-    // Process the order for loyalty
-    const loyaltyResult = await processOrderForLoyalty(order, merchantId);
+    // Process the order for loyalty via consolidated intake
+    const loyaltyResult = await processLoyaltyOrder({
+        order,
+        merchantId,
+        squareCustomerId: order.customer_id,
+        source: 'manual',
+        customerSource: 'order'
+    });
 
     return {
-        processed: loyaltyResult.processed,
+        processed: !loyaltyResult.alreadyProcessed && loyaltyResult.purchaseEvents.length > 0,
         result: loyaltyResult,
         diagnostics
     };

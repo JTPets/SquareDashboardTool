@@ -10,8 +10,6 @@
  *
  * OBSERVATION LOG (from extraction):
  * - Uses raw fetch() instead of squareClient SDK
- * - Inconsistent indentation (4-space body was copied as-is from route handler)
- * - Order transform to camelCase duplicates logic in webhook-processing-service
  * - qualifyingVariationIds query duplicates logic in loyalty-queries.js
  */
 
@@ -19,7 +17,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('./loyalty-event-prefetch-service');
-const { processOrderForLoyalty } = require('./webhook-processing-service');
+const { processLoyaltyOrder } = require('./order-intake');
 
 /**
  * Run loyalty backfill from recent Square orders.
@@ -198,31 +196,24 @@ async function runBackfill({ merchantId, days = 7 }) {
                     continue;
                 }
 
-                // Transform to camelCase for loyaltyService
-                const orderForLoyalty = {
-                    id: order.id,
-                    customer_id: customerId,
-                    customerId: customerId,
-                    state: order.state,
-                    created_at: order.created_at,
-                    location_id: order.location_id,
-                    line_items: order.line_items,
-                    lineItems: (order.line_items || []).map(li => ({
-                        ...li,
-                        catalogObjectId: li.catalog_object_id,
-                        quantity: li.quantity,
-                        name: li.name
-                    }))
-                };
+                const customerSource = order.customer_id
+                    ? 'order'
+                    : (customerId === order.tenders?.[0]?.customer_id ? 'tender' : 'loyalty_prefetch');
 
-                const loyaltyResult = await processOrderForLoyalty(orderForLoyalty, merchantId);
-                if (loyaltyResult.processed && loyaltyResult.purchasesRecorded.length > 0) {
-                    loyaltyPurchasesRecorded += loyaltyResult.purchasesRecorded.length;
+                const loyaltyResult = await processLoyaltyOrder({
+                    order,
+                    merchantId,
+                    squareCustomerId: customerId,
+                    source: 'backfill',
+                    customerSource
+                });
+                if (!loyaltyResult.alreadyProcessed && loyaltyResult.purchaseEvents.length > 0) {
+                    loyaltyPurchasesRecorded += loyaltyResult.purchaseEvents.length;
                     results.push({
                         orderId: order.id,
-                        customerId: loyaltyResult.customerId,
-                        customerSource: order.customer_id ? 'order' : 'loyalty_prefetch',
-                        purchasesRecorded: loyaltyResult.purchasesRecorded.length
+                        customerId,
+                        customerSource,
+                        purchasesRecorded: loyaltyResult.purchaseEvents.length
                     });
                 }
             } catch (err) {
