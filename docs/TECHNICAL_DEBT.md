@@ -350,13 +350,13 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Issue**: Lines 202-216 built an `orderForLoyalty` object with BOTH `customer_id` and `customerId`, BOTH `line_items` and `lineItems`.
 **Fix**: Removed as part of LA-1 fix. Raw Square order is now passed directly to `processLoyaltyOrder()`. Test confirms no camelCase `lineItems` property is present on the passed order.
 
-#### LA-10: `processExpiredEarnedRewards` unlocks purchase events without merchant_id filter
+#### ~~LA-10: `processExpiredEarnedRewards` unlocks purchase events without merchant_id filter~~ **RESOLVED** (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
 **Files**: `services/loyalty-admin/expiration-service.js:142-146`
 **Issue**: `UPDATE loyalty_purchase_events SET reward_id = NULL WHERE reward_id = $1` — no `AND merchant_id = $2` filter. If reward IDs are sequential integers across merchants (they are — it's a serial primary key), this could theoretically unlock purchase events from a different merchant in a shared-ID scenario. Currently single-tenant so no practical risk, but violates the CLAUDE.md rule "EVERY query must filter by `merchant_id`".
 **Impact**: Multi-tenant isolation violation. Theoretical data leak between tenants.
-**Fix**: Add `AND merchant_id = $2` to the WHERE clause.
+**Fix**: Added `AND merchant_id = $2` to the UPDATE WHERE clause. Also added `AND pe.merchant_id = $1` to the NOT EXISTS subquery in the expired rewards SELECT. 8 tests in `expiration-service.test.js`.
 
 #### LA-11: `processRefund` uses its own window_end_date instead of looking up the original purchase's window
 
@@ -476,13 +476,13 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Customer summary shows stale reward count after expiration. Admin dashboard may show incorrect loyalty status.
 **Fix**: Add `updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id)` after revocation.
 
-#### LA-25: Vendor lookup in `offer-admin-service.js` lacks merchant_id filter (tenant isolation)
+#### ~~LA-25: Vendor lookup in `offer-admin-service.js` lacks merchant_id filter (tenant isolation)~~ **RESOLVED** (2026-03-07)
 
 **Severity**: P1 | **Effort**: S
 **Files**: `services/loyalty-admin/offer-admin-service.js:57`, `services/loyalty-admin/offer-admin-service.js:181`
 **Issue**: `createOffer()` and `updateOffer()` both query `SELECT name, contact_email FROM vendors WHERE id = $1` without `AND merchant_id = $2`. The `vendors` table has a `merchant_id` column. A merchant could reference a vendor belonging to a different merchant by guessing/supplying a vendor ID. Violates the CLAUDE.md rule "EVERY query must filter by `merchant_id`".
 **Impact**: Multi-tenant isolation violation. Merchant A could attach Merchant B's vendor to their loyalty offer.
-**Fix**: Add `AND merchant_id = $2` and pass `merchantId` to both vendor queries.
+**Fix**: Added `AND merchant_id = $2` to both vendor lookup queries in `createOffer()` and `updateOffer()`. 10 tests in `offer-admin-service.test.js`.
 
 #### LA-26: `searchLoyaltyEvents` and `searchCustomers` in `SquareApiClient` silently truncate to first page
 
@@ -513,7 +513,7 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |
 | LA-8 | P1 | S | Customer note update has no retry on version conflict (409) |
 | ~~LA-9~~ | ~~P1~~ | ~~S~~ | ~~Backfill-orchestration builds hybrid camelCase/snake_case order~~ **RESOLVED** (2026-03-07) |
-| LA-10 | P1 | S | `processExpiredEarnedRewards` unlocks events without merchant_id filter |
+| ~~LA-10~~ | ~~P1~~ | ~~S~~ | ~~`processExpiredEarnedRewards` unlocks events without merchant_id filter~~ **RESOLVED** (2026-03-07) |
 | LA-11 | P1 | S | Refund uses fresh window dates instead of original purchase's window |
 | LA-12 | P2 | M | No tests use real Square `order.returns[]` shape |
 | LA-13 | P2 | S | No pagination guard on Square API loops |
@@ -528,7 +528,7 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | LA-22 | P2 | S | Two idempotency check functions check different tables |
 | LA-23 | P2 | S | Currency hardcoded to CAD (duplicate of existing finding) |
 | LA-24 | P2 | S | Missing `updateCustomerSummary` call after expiration revocation |
-| LA-25 | P1 | S | Vendor lookup in `offer-admin-service.js` lacks merchant_id filter |
+| ~~LA-25~~ | ~~P1~~ | ~~S~~ | ~~Vendor lookup in `offer-admin-service.js` lacks merchant_id filter~~ **RESOLVED** (2026-03-07) |
 | LA-26 | P2 | S | `SquareApiClient` search methods silently truncate to first page |
 | LA-27 | P2 | S | Loyalty event prefetch returns partial data silently on API failures |
 
