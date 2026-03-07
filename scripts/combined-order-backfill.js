@@ -31,6 +31,31 @@ const fs = require('fs');
 const path = require('path');
 
 // ---------------------------------------------------------------------------
+// Async side-effect tracker
+// ---------------------------------------------------------------------------
+// reward-progress-service.js fires createSquareCustomerGroupDiscount and
+// updateCustomerStats as fire-and-forget promises. We monkey-patch the
+// originals to capture those promises so we can await them before db.end().
+const pendingAsyncEffects = [];
+
+const discountService = require('../services/loyalty-admin/square-discount-service');
+const customerCacheService = require('../services/loyalty-admin/customer-cache-service');
+
+const _origCreateDiscount = discountService.createSquareCustomerGroupDiscount;
+discountService.createSquareCustomerGroupDiscount = function (...args) {
+    const p = _origCreateDiscount.apply(this, args);
+    pendingAsyncEffects.push(p.catch(() => {})); // swallow — caller already has .catch
+    return p;
+};
+
+const _origUpdateStats = customerCacheService.updateCustomerStats;
+customerCacheService.updateCustomerStats = function (...args) {
+    const p = _origUpdateStats.apply(this, args);
+    pendingAsyncEffects.push(p.catch(() => {}));
+    return p;
+};
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 const MERCHANT_ID = 3;
@@ -631,13 +656,56 @@ async function main() {
         log(`Mode: ${DRY_RUN ? 'DRY RUN (no changes written)' : 'EXECUTED'}`);
         log(`Log file: ${path.join(logDir, logFileName)}`);
 
+        // --- Drain async side-effects ---
+        // reward-progress-service fires createSquareCustomerGroupDiscount and
+        // updateCustomerStats as fire-and-forget promises. We must wait for them
+        // to complete before closing the DB pool, otherwise in-flight Square API
+        // calls that write back to the DB (e.g. storing square_discount_id on
+        // loyalty_rewards) will fail with "pool is closed".
+        if (pendingAsyncEffects.length > 0) {
+            log('Waiting for async side-effects to settle', { count: pendingAsyncEffects.length });
+            const settled = await Promise.allSettled(pendingAsyncEffects);
+            const failed = settled.filter(r => r.status === 'rejected');
+            log('Async side-effects settled', {
+                total: settled.length,
+                fulfilled: settled.length - failed.length,
+                rejected: failed.length
+            });
+        }
+
+        // --- Check for earned rewards missing their Square discount ---
+        const missingDiscounts = await db.query(`
+            SELECT lr.id AS reward_id, lr.square_customer_id, lr.offer_id,
+                   lo.offer_name, lr.earned_at
+            FROM loyalty_rewards lr
+            JOIN loyalty_offers lo ON lo.id = lr.offer_id AND lo.merchant_id = lr.merchant_id
+            WHERE lr.merchant_id = $1
+              AND lr.status = 'earned'
+              AND lr.square_discount_id IS NULL
+            ORDER BY lr.earned_at DESC
+        `, [MERCHANT_ID]);
+
+        if (missingDiscounts.rows.length > 0) {
+            log('WARNING: Earned rewards missing Square discount', {
+                count: missingDiscounts.rows.length,
+                rewards: missingDiscounts.rows.map(r => ({
+                    rewardId: r.reward_id,
+                    customerId: r.square_customer_id,
+                    offerId: r.offer_id,
+                    offerName: r.offer_name,
+                    earnedAt: r.earned_at
+                }))
+            });
+        } else {
+            log('All earned rewards have Square discounts assigned');
+        }
+
     } catch (err) {
         log('FATAL ERROR', { error: err.message, stack: err.stack });
         logger.error('Combined backfill script failed', { error: err.message, stack: err.stack });
         process.exitCode = 1;
     } finally {
         logStream.end();
-        // Give the pool time to drain, then close
         await db.pool.end();
     }
 }
