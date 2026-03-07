@@ -3,7 +3,7 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
 **Last Updated**: 2026-03-07
-**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT
+**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -115,6 +115,137 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: The `openReportWindow()` function generated an HTML document written to a popup via `window.open()` + `document.write()`. The generated HTML contained an inline `<script>` block for CSV download functionality, which was blocked by CSP after S-4 removed `'unsafe-inline'` from `scriptSrc`.
 **Fix**: Removed the inline `<script>` block entirely. CSV download and print buttons now use event listeners attached programmatically from the opener window after `document.write()` completes. The CSV is generated via Blob URL + temporary `<a>` element click. No new files needed — fix is self-contained in `vendor-catalog.js`.
 **Source**: Observed during S-4 audit (2026-03-04), fixed 2026-03-04
+
+### BUG: `order.refunds` guard prevents loyalty return processing
+
+**Files**: `services/webhook-handlers/order-handler/index.js:514`, `services/webhook-handlers/order-handler/order-loyalty.js:304`
+**Issue**: Both files guard `processOrderRefundsForLoyalty()` with `if (order.refunds && order.refunds.length > 0)`. However, `processOrderRefundsForLoyalty()` (in `services/loyalty-admin/webhook-processing-service.js:348`) processes `order.returns` (line-item returns), NOT `order.refunds` (payment refunds). These are different Square API concepts: `order.refunds` = monetary refunds on tenders, `order.returns` = line items returned to inventory. When a customer returns items without a monetary refund (exchange, store credit), the guard fails and loyalty point adjustments never happen.
+**Impact**: Loyalty points are not decremented for item returns that don't include a payment refund. Severity depends on how often exchanges/store-credit returns occur. The downstream function is correctly implemented — only the guard condition is wrong.
+**Priority**: High — confirmed class of bug (wrong Square API property name).
+**Source**: Square API audit (2026-03-07)
+
+### ~~RISK: `vendor_information` field name may be wrong in catalog sync~~ FALSE POSITIVE
+
+**Files**: `services/square/square-catalog-sync.js:977`, `services/square/square-pricing.js:247,292`
+**Issue**: Reads vendor data from `item_variation_data.vendor_information`. The Square REST API documentation lists the field as `item_variation_vendor_infos` on `CatalogItemVariation`, not `vendor_information`.
+**Resolution**: **FALSE POSITIVE** — verified 2026-03-07 by live Square API call. The field `vendor_information` exists on `item_variation_data` alongside `item_variation_vendor_infos`. Vendor data is not at risk.
+**Source**: Square API audit (2026-03-07)
+
+### Velocity return revenue uses wrong nested property (harmless due to fallback)
+
+**File**: `services/square/square-velocity.js:140-141,474-475`
+**Issue**: `returnItem.return_amounts?.total_money?.amount` — `return_amounts` is a property of `OrderReturn` (the parent object), not `OrderReturnLineItem`. The property is always undefined on the return line item, falling through to the correct fallback `returnItem.total_money?.amount`. Functionally correct but shows confusion about the Square data shape.
+**Impact**: None — fallback is correct. Risk if someone removes the "unnecessary" fallback.
+**Source**: Square API audit (2026-03-07)
+
+### Velocity return location ternary is a no-op
+
+**File**: `services/square/square-velocity.js:131-132`
+**Issue**: `const locationId = returnItem.source_line_item_uid ? order.location_id : order.location_id;` — both branches return the same value. The ternary is dead code.
+**Impact**: None — functionally correct, just confusing.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` vendor JOIN missing `merchant_id` filter
+
+**File**: `services/reports/loyalty-reports.js:188,539`
+**Issue**: `LEFT JOIN variation_vendors vv ON pe.variation_id = vv.variation_id` and `LEFT JOIN variation_vendors vv ON v.id = vv.variation_id` — both JOINs omit `AND vv.merchant_id = $N`. Violates the multi-tenant pattern. No data leakage in practice (Square variation IDs are globally unique), but inconsistent with the codebase's security model.
+**Impact**: Low — theoretical multi-tenant violation only.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` uses `parseInt()` on SDK BigInt money amounts
+
+**File**: `services/reports/loyalty-reports.js:251,258,261,549,606`
+**Issue**: Fetches orders via `squareClient.orders.get()` (SDK), which returns `Money.amount` as BigInt in SDK v43+. Uses `parseInt(amount)` which works via implicit BigInt→String→Number conversion, but is not the standard pattern. Should use `Number()` for clarity and safety.
+**Impact**: Low — works correctly but fragile. Would break if BigInt string representation changes.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `updateDiscountAppliesTo` is effectively a no-op
+
+**File**: `services/expiry/discount-service.js:660-738`
+**Issue**: The `updateDiscountAppliesTo` function accepts `variationIds` but never includes them in the Square API request body (lines 699-710). The request only re-sends the existing `discount_data` unchanged. The actual work of applying discounts to specific items is done by `upsertPricingRule`, not this function. The function name and JSDoc are misleading.
+**Impact**: Low — function is not called from critical paths (callers use `upsertPricingRule` directly).
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `filterValidVariations` silently assumes all valid on error
+
+**File**: `services/expiry/discount-service.js:967-974`
+**Issue**: When the Square batch-retrieve API call fails, the catch block includes ALL variations as valid to "avoid data loss". This means API failures (rate limiting, network errors) cause deleted/invalid variations to be included in pricing rules, potentially applying discounts to non-existent catalog items.
+**Impact**: Low — Square will reject pricing rules referencing non-existent objects, but errors won't surface until the pricing rule upsert.
+**Source**: Square API audit (2026-03-07)
+
+### BUG: `discount-service.js` missing `merchant_id` filter on 3 UPDATE queries
+
+**File**: `services/expiry/discount-service.js:367-371,820-825,886-892`
+**Issue**: Three UPDATE statements on `variation_discount_status` filter only by `variation_id` without `AND merchant_id = $N`: (1) line 370 in `evaluateAllVariations` updating `days_until_expiry`, (2) line 824 in `applyDiscounts` setting `discounted_price_cents`, (3) line 891 removing discount. Violates the multi-tenant pattern — same class as LA-10.
+**Impact**: Low in practice (Square variation IDs are globally unique), but violates codebase security model. Would be a real bug if non-Square IDs were ever used.
+**Priority**: Medium — multi-tenant pattern violation.
+**Source**: Square API audit (2026-03-07)
+
+### BUG: `discount-service.js` `daysUntilExpiry || null` converts 0 to null
+
+**File**: `services/expiry/discount-service.js:430`
+**Issue**: `event.daysUntilExpiry || null` — the `||` operator treats `0` as falsy. When an item expires today (`daysUntilExpiry = 0`), the value is stored as NULL in the `expiry_discount_audit_log`. This loses the distinction between "expires today" and "no expiry date set".
+**Impact**: Medium — audit log data loss for items expiring today. Downstream queries that filter on `days_until_expiry IS NOT NULL` will miss these entries. Fix: use `event.daysUntilExpiry ?? null` (nullish coalescing).
+**Priority**: Medium — data integrity bug.
+**Source**: Square API audit (2026-03-07)
+
+### PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure
+
+**File**: `services/reports/loyalty-reports.js:633-639`
+**Issue**: When the Square API call to fetch the redemption order fails, the catch block logs at `debug` level and continues. The vendor receipt is generated without the "REDEMPTION ORDER" section — the entire record of what free item was given is missing. The receipt appears complete to the user/vendor but is silently missing the most important part.
+**Impact**: Medium — vendor receives a receipt that looks complete but omits the free item details. No indication of failure. A vendor reviewing costs would not know data is missing.
+**Priority**: Medium — should show error placeholder or warning when redemption order fetch fails.
+**Source**: Square API audit (2026-03-07)
+
+### `loyalty-reports.js` CSV export references unselected columns
+
+**File**: `services/reports/loyalty-reports.js:1045,1053`
+**Issue**: `generateRedemptionsCSV` accesses `r.redemption_type` (line 1045, defaults to `'STANDARD'`) and `r.admin_notes` (line 1053, defaults to `''`), but the SQL query `getRedemptionsForExport` (lines 300-363) does not SELECT either column. Both are always undefined, producing hardcoded defaults in every CSV row.
+**Impact**: Low — CSV always shows "STANDARD" for type and empty for notes regardless of actual data. Data silently missing from exports.
+**Source**: Square API audit (2026-03-07)
+
+### RISK: Delta sync does not mark child variations as deleted
+
+**File**: `services/square/square-catalog-sync.js:612-629`
+**Issue**: When delta sync marks an item as deleted (line 615), it zeros inventory for all variations (lines 618-623) but does NOT set `is_deleted = TRUE` on the variation rows. Full sync handles variation deletion separately (lines 301-321), but delta sync assumes Square will emit individual variation deletion events. If Square only emits the parent item deletion, orphaned variation records remain with `is_deleted = FALSE` and will appear in queries filtering on that flag.
+**Impact**: Medium — orphaned variation records could appear in reorder suggestions, expiry evaluations, and other queries that join on `variations.is_deleted = FALSE`.
+**Priority**: Medium — data integrity risk during delta sync.
+**Source**: Square API audit (2026-03-07)
+
+### `square-catalog-sync.js` `price_money.amount` of 0 becomes null
+
+**File**: `services/square/square-catalog-sync.js:929`
+**Issue**: `data.price_money?.amount || null` — the `||` operator treats `0` as falsy. Free items (`amount = 0`) are stored with `price_cents = NULL` instead of `0`, misrepresenting them as having no price set. Fix: use `??` (nullish coalescing).
+**Impact**: Low — free items stored as NULL price. Same class of bug as the `daysUntilExpiry || null` issue.
+**Source**: Square API audit (2026-03-07)
+
+### `square-catalog-sync.js` `inventory_alert_threshold` of 0 becomes null
+
+**File**: `services/square/square-catalog-sync.js:871,878,888-889,963`
+**Issue**: Same `||` vs `??` pattern. If `inventory_alert_threshold` is `0` (meaning "alert when at zero stock"), it gets stored as `null`. Multiple locations in the variation sync use this pattern.
+**Impact**: Low — threshold of 0 is uncommon but valid.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` `timezone` parameter accepted but unused
+
+**File**: `services/expiry/discount-service.js:97-110`
+**Issue**: `calculateDaysUntilExpiry(expirationDate, timezone)` accepts a `timezone` parameter (default `'America/Toronto'`) but uses plain `new Date()` for both `expiry` and `now`, ignoring the timezone entirely. Day calculation uses server-local time regardless of the parameter.
+**Impact**: Low — all deployments currently use America/Toronto, and the server is in the same timezone. Would be a bug for merchants in other timezones.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` inventory_counts subquery missing `merchant_id` filter
+
+**File**: `services/expiry/discount-service.js:1299-1306`
+**Issue**: The inventory_counts subquery in `getTierSummary` groups by `catalog_object_id` across all merchants without filtering by `merchant_id`. The outer query does filter `edt.merchant_id = $1`, but the inventory aggregation could include counts from other merchants if the same `catalog_object_id` appeared in multiple tenants.
+**Impact**: Low — Square catalog object IDs are globally unique across merchants. Same class as the `variation_vendors` JOIN issue.
+**Source**: Square API audit (2026-03-07)
+
+### `discount-service.js` EXPIRED in `clearExpiryDiscountForReorder` array is dead code
+
+**File**: `services/expiry/discount-service.js:1816`
+**Issue**: The check `!status.is_auto_apply || !['AUTO50', 'AUTO25', 'EXPIRED'].includes(status.tier_code)` includes `'EXPIRED'` in the array, but the EXPIRED tier has `is_auto_apply = false` by design. The `!status.is_auto_apply` guard short-circuits before the array check is reached, making `'EXPIRED'` unreachable in the array.
+**Impact**: None — dead code only. Could mislead maintainers into thinking EXPIRED is auto-applied.
+**Source**: Square API audit (2026-03-07)
 
 ---
 
