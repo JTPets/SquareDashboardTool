@@ -80,7 +80,10 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
     }
 
     // Generate idempotency key to prevent duplicate processing
-    const idempotencyKey = `${squareOrderId}:${variationId}:${quantity}`;
+    // Key is orderId:variationId only — order-intake.js aggregates all line items
+    // for the same variation before calling this function, guaranteeing one call
+    // per variation per order.
+    const idempotencyKey = `${squareOrderId}:${variationId}`;
 
     // Check for existing event (idempotency)
     // Use transactionClient if available so the check is within the same snapshot
