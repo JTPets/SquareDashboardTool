@@ -113,35 +113,20 @@ class WebhookProcessor {
     }
 
     /**
-     * Log incoming event to webhook_events table
+     * Log incoming event to webhook_events table.
+     * merchant_id is required (NOT NULL constraint from migration 065).
      *
      * @param {Object} event - The Square webhook event
+     * @param {number} merchantId - Resolved internal merchant ID
      * @returns {Promise<number|null>} The webhook event ID or null
      */
-    async logEvent(event) {
+    async logEvent(event, merchantId) {
         const insertResult = await db.query(`
-            INSERT INTO webhook_events (square_event_id, event_type, square_merchant_id, event_data, status)
-            VALUES ($1, $2, $3, $4, 'processing')
+            INSERT INTO webhook_events (square_event_id, event_type, square_merchant_id, merchant_id, event_data, status)
+            VALUES ($1, $2, $3, $4, $5, 'processing')
             RETURNING id
-        `, [event.event_id, event.type, event.merchant_id, JSON.stringify(event.data)]);
+        `, [event.event_id, event.type, event.merchant_id, merchantId, JSON.stringify(event.data)]);
         return insertResult.rows[0]?.id;
-    }
-
-    /**
-     * Update webhook_events with resolved internal merchant ID
-     *
-     * @param {number} webhookEventId - The webhook event ID
-     * @param {number} merchantId - Internal merchant ID
-     * @returns {Promise<void>}
-     */
-    async updateEventMerchantId(webhookEventId, merchantId) {
-        if (!webhookEventId || !merchantId) {
-            return;
-        }
-        await db.query(
-            'UPDATE webhook_events SET merchant_id = $1 WHERE id = $2',
-            [merchantId, webhookEventId]
-        );
     }
 
     /**
@@ -283,20 +268,28 @@ class WebhookProcessor {
                 return res.json({ received: true, duplicate: true });
             }
 
+            // ==================== RESOLVE MERCHANT ====================
+            const internalMerchantId = await this.resolveMerchant(event.merchant_id);
+
+            if (!internalMerchantId) {
+                this.clearEventInFlight(event.event_id);
+                logger.error('Webhook rejected - cannot resolve merchant', {
+                    squareMerchantId: event.merchant_id,
+                    eventType: event.type,
+                    eventId: event.event_id
+                });
+                return res.status(400).json({ error: 'Unknown merchant' });
+            }
+
             // ==================== LOG EVENT ====================
-            webhookEventId = await this.logEvent(event);
+            webhookEventId = await this.logEvent(event, internalMerchantId);
 
             logger.info('Square webhook received', {
                 eventType: event.type,
                 eventId: event.event_id,
-                merchantId: event.merchant_id
+                merchantId: internalMerchantId,
+                squareMerchantId: event.merchant_id
             });
-
-            // ==================== RESOLVE MERCHANT ====================
-            const internalMerchantId = await this.resolveMerchant(event.merchant_id);
-
-            // Store resolved merchant ID on the webhook event
-            await this.updateEventMerchantId(webhookEventId, internalMerchantId);
 
             // ==================== BUILD CONTEXT ====================
             const context = this.buildContext(event, internalMerchantId, webhookEventId, startTime);

@@ -114,7 +114,7 @@ describe('WebhookProcessor', () => {
     });
 
     describe('logEvent', () => {
-        it('should insert event and return id', async () => {
+        it('should insert event with merchant_id and return id', async () => {
             db.query.mockResolvedValue({ rows: [{ id: 456 }] });
 
             const event = {
@@ -124,16 +124,16 @@ describe('WebhookProcessor', () => {
                 data: { test: 'data' }
             };
 
-            const result = await webhookProcessor.logEvent(event);
+            const result = await webhookProcessor.logEvent(event, 42);
 
             expect(result).toBe(456);
             expect(db.query).toHaveBeenCalledWith(
                 expect.stringContaining('INSERT INTO webhook_events'),
-                ['evt-123', 'catalog.version.updated', 'merch-123', '{"test":"data"}']
+                ['evt-123', 'catalog.version.updated', 'merch-123', 42, '{"test":"data"}']
             );
         });
 
-        it('should return null when no id returned', async () => {
+        it('should return undefined when no id returned', async () => {
             db.query.mockResolvedValue({ rows: [] });
 
             const result = await webhookProcessor.logEvent({
@@ -141,7 +141,7 @@ describe('WebhookProcessor', () => {
                 type: 'test',
                 merchant_id: null,
                 data: {}
-            });
+            }, 1);
 
             expect(result).toBeUndefined();
         });
@@ -344,11 +344,11 @@ describe('WebhookProcessor', () => {
                 status: jest.fn().mockReturnThis()
             };
 
-            // Default mock responses
+            // Default mock responses (order: isDuplicateEvent → resolveMerchant → logEvent → updateEventResults)
             db.query
                 .mockResolvedValueOnce({ rows: [] }) // isDuplicateEvent
-                .mockResolvedValueOnce({ rows: [{ id: 1 }] }) // logEvent
                 .mockResolvedValueOnce({ rows: [{ id: 42 }] }) // resolveMerchant
+                .mockResolvedValueOnce({ rows: [{ id: 1 }] }) // logEvent
                 .mockResolvedValue(); // updateEventResults
 
             routeEvent.mockResolvedValue({ handled: true, result: { synced: true } });
@@ -450,16 +450,34 @@ describe('WebhookProcessor', () => {
 
         it('should mark webhook for retry on error', async () => {
             process.env.NODE_ENV = 'development';
-            db.query.mockReset(); // Clear mocks from beforeEach
+            db.query.mockReset();
             db.query
                 .mockResolvedValueOnce({ rows: [] }) // isDuplicateEvent
+                .mockResolvedValueOnce({ rows: [{ id: 42 }] }) // resolveMerchant
                 .mockResolvedValueOnce({ rows: [{ id: 123 }] }) // logEvent
-                .mockRejectedValueOnce(new Error('Processing failed')) // resolveMerchant throws
+                .mockRejectedValueOnce(new Error('Processing failed')) // routeEvent DB call throws
                 .mockResolvedValue(); // retry update
+
+            routeEvent.mockRejectedValueOnce(new Error('Processing failed'));
 
             await webhookProcessor.processWebhook(mockReq, mockRes);
 
             expect(webhookRetry.markForRetry).toHaveBeenCalledWith(123, 'Processing failed');
+        });
+
+        it('should reject with 400 when merchant cannot be resolved', async () => {
+            process.env.NODE_ENV = 'development';
+            db.query.mockReset();
+            db.query
+                .mockResolvedValueOnce({ rows: [] }) // isDuplicateEvent
+                .mockResolvedValueOnce({ rows: [] }); // resolveMerchant returns null
+
+            await webhookProcessor.processWebhook(mockReq, mockRes);
+
+            expect(mockRes.status).toHaveBeenCalledWith(400);
+            expect(mockRes.json).toHaveBeenCalledWith({ error: 'Unknown merchant' });
+            // Should NOT have called logEvent or routeEvent
+            expect(routeEvent).not.toHaveBeenCalled();
         });
     });
 });
