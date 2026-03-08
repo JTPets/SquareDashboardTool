@@ -95,7 +95,7 @@ async function updateSetting(key, value, merchantId) {
  * @returns {number|null} Days until expiry (negative if expired), or null if no date
  */
 function calculateDaysUntilExpiry(expirationDate, timezone = 'America/Toronto') {
-    if (!expirationDate) return null;
+    if (expirationDate == null) return null;
 
     // Expiration dates are calendar dates (e.g. "2026-03-15" meaning March 15).
     // Extract the YYYY-MM-DD string directly to avoid UTC-parse timezone shift.
@@ -103,14 +103,22 @@ function calculateDaysUntilExpiry(expirationDate, timezone = 'America/Toronto') 
         ? expirationDate.slice(0, 10)
         : new Date(expirationDate).toISOString().slice(0, 10);
 
-    // Get today's date in the merchant's timezone as YYYY-MM-DD
-    const nowStr = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
-
-    // Both are YYYY-MM-DD strings — parse as UTC for clean day diff
     const expiryMs = Date.parse(dateStr + 'T00:00:00Z');
-    const nowMs = Date.parse(nowStr + 'T00:00:00Z');
-
     if (isNaN(expiryMs)) return null;
+
+    // Get today's date in the merchant's timezone using Intl.DateTimeFormat
+    // (avoids toLocaleDateString locale format inconsistencies across environments)
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
+    const parts = fmt.formatToParts(new Date());
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    const d = parts.find(p => p.type === 'day').value;
+    const nowMs = Date.parse(`${y}-${m}-${d}T00:00:00Z`);
 
     const diffDays = Math.round((expiryMs - nowMs) / (1000 * 60 * 60 * 24));
 
