@@ -367,8 +367,8 @@ async function evaluateAllVariations(options = {}) {
                         await db.query(`
                             UPDATE variation_discount_status
                             SET days_until_expiry = $1, last_evaluated_at = NOW()
-                            WHERE variation_id = $2
-                        `, [daysUntilExpiry, row.variation_id]);
+                            WHERE variation_id = $2 AND merchant_id = $3
+                        `, [daysUntilExpiry, row.variation_id, merchantId]);
                     }
                 }
 
@@ -425,9 +425,9 @@ async function logAuditEvent(event) {
         event.action,
         event.oldTierId || null,
         event.newTierId || null,
-        event.oldPriceCents || null,
-        event.newPriceCents || null,
-        event.daysUntilExpiry || null,
+        event.oldPriceCents ?? null,
+        event.newPriceCents ?? null,
+        event.daysUntilExpiry ?? null,
         event.squareSyncStatus || null,
         event.squareErrorMessage || null,
         event.triggeredBy || 'SYSTEM'
@@ -821,8 +821,8 @@ async function applyDiscounts(options = {}) {
                             SET discounted_price_cents = $1,
                                 discount_applied_at = NOW(),
                                 updated_at = NOW()
-                            WHERE variation_id = $2
-                        `, [discountedPrice, row.variation_id]);
+                            WHERE variation_id = $2 AND merchant_id = $3
+                        `, [discountedPrice, row.variation_id, merchantId]);
 
                         results.applied.push({
                             variationId: row.variation_id,
@@ -888,8 +888,8 @@ async function applyDiscounts(options = {}) {
                     SET discounted_price_cents = NULL,
                         discount_applied_at = NULL,
                         updated_at = NOW()
-                    WHERE variation_id = $1
-                `, [row.variation_id]);
+                    WHERE variation_id = $1 AND merchant_id = $2
+                `, [row.variation_id, merchantId]);
 
                 results.removed.push({
                     variationId: row.variation_id,

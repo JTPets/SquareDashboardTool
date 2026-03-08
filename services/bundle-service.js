@@ -317,7 +317,7 @@ async function _batchInsertComponents(client, bundleId, components, catalogMap) 
             catalog ? catalog.item_name : null,
             catalog ? catalog.variation_name : null,
             catalog ? catalog.sku : null,
-            comp.individual_cost_cents || null
+            comp.individual_cost_cents ?? null
         );
         paramIdx += 8;
     }
@@ -359,7 +359,7 @@ async function createBundle(merchantId, data) {
         `, [
             merchantId, bundle_variation_id, bundle_item_id || null,
             bundle_item_name, bundle_variation_name || null, bundle_sku || null,
-            bundle_cost_cents, bundle_sell_price_cents || null,
+            bundle_cost_cents, bundle_sell_price_cents ?? null,
             vendor_id || null, vendor_code || null, notes || null
         ]);
 

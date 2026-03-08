@@ -868,7 +868,7 @@ async function syncVariation(obj, merchantId) {
     // Square stores inventory_alert settings per-location in location_overrides
     // Check ALL location_overrides and use any that has LOW_QUANTITY alert enabled
     let inventoryAlertType = data.inventory_alert_type || null;
-    let inventoryAlertThreshold = data.inventory_alert_threshold || null;
+    let inventoryAlertThreshold = data.inventory_alert_threshold ?? null;
 
     if (data.location_overrides && data.location_overrides.length > 0) {
         // Find any location with LOW_QUANTITY alert enabled (not just the first)
@@ -926,7 +926,7 @@ async function syncVariation(obj, merchantId) {
         data.name || 'Regular',
         data.sku || null,
         data.upc || null,
-        data.price_money?.amount || null,
+        data.price_money?.amount ?? null,
         data.price_money?.currency || 'CAD',
         data.pricing_type || 'FIXED_PRICING',
         data.track_inventory === true,  // Only true if explicitly enabled in Square
@@ -960,7 +960,7 @@ async function syncVariation(obj, merchantId) {
                 `, [
                     obj.id,
                     override.location_id,
-                    override.inventory_alert_threshold || null,
+                    override.inventory_alert_threshold ?? null,
                     null,  // stock_alert_max not available in Square API
                     merchantId
                 ]);
@@ -1007,7 +1007,7 @@ async function syncVariation(obj, merchantId) {
                     obj.id,
                     vendorInfo.vendor_id,
                     vendorInfo.vendor_code || null,
-                    vendorInfo.unit_cost_money?.amount || null,
+                    vendorInfo.unit_cost_money?.amount ?? null,
                     vendorInfo.unit_cost_money?.currency || 'CAD',
                     merchantId
                 ]);

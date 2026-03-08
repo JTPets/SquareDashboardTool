@@ -150,7 +150,7 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
-            squareLocationId, variationId, quantity, unitPriceCents, totalPriceCents || null,
+            squareLocationId, variationId, quantity, unitPriceCents, totalPriceCents ?? null,
             purchasedAt, windowStartDate.toISOString().split('T')[0],
             windowEndDate.toISOString().split('T')[0],
             false, idempotencyKey, receiptUrl || null, customerSource, paymentType

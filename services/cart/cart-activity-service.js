@@ -84,7 +84,7 @@ function extractCartData(order) {
     // Extract fulfillment type and shipping estimate
     const fulfillmentType = fulfillment?.type || null;
     const shippingCharge = deliveryDetails?.deliverAt ? null :
-        (shipmentDetails?.shippingCharge?.amount || null);
+        (shipmentDetails?.shippingCharge?.amount ?? null);
 
     return {
         squareOrderId: order.id,
