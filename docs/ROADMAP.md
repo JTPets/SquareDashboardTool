@@ -113,3 +113,9 @@ No automated test execution before deploy. Deployment is manual (`pm2 restart`).
 | Decide SaaS billing provider | Stripe vs Square for SqTools subscriptions (BACKLOG-50 dependency) |
 
 **Source**: MULTI-TENANT-AUDIT Subscription System Observations
+
+---
+
+## 9. VIP Customer Auto-Discounts (BACKLOG-55)
+
+Assign customers to named VIP groups (e.g., "Family", "Staff Alumni", "Investor") in Square customer profiles. Pricing rules auto-apply configured discount % at POS with no staff action required. Management UI to assign/remove VIP status and set discount % per group. Uses existing Square customer group + pricing rule infrastructure from loyalty system. No loyalty points on VIP-discounted items.
