@@ -258,6 +258,22 @@ describe('LA-13: Pagination guards in backfill/audit services', () => {
 describe('calculateDaysUntilExpiry timezone fix', () => {
     let calculateDaysUntilExpiry;
 
+    // Build YYYY-MM-DD for "now" in a given timezone using Intl.DateTimeFormat
+    // (avoids toLocaleDateString locale inconsistencies across environments)
+    function getTodayString(tz) {
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: tz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        });
+        const parts = fmt.formatToParts(new Date());
+        const y = parts.find(p => p.type === 'year').value;
+        const m = parts.find(p => p.type === 'month').value;
+        const d = parts.find(p => p.type === 'day').value;
+        return `${y}-${m}-${d}`;
+    }
+
     beforeEach(() => {
         jest.resetModules();
         jest.mock('../../utils/database');
@@ -281,21 +297,21 @@ describe('calculateDaysUntilExpiry timezone fix', () => {
 
     test('returns 0 for today in target timezone', () => {
         // Get today's date string in Toronto timezone, then pass it back
-        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+        const todayStr = getTodayString('America/Toronto');
         const result = calculateDaysUntilExpiry(todayStr, 'America/Toronto');
         expect(result).toBe(0);
     });
 
     test('returns positive for future date', () => {
         // Build a date string 10 days ahead in Toronto timezone
-        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+        const todayStr = getTodayString('America/Toronto');
         const todayMs = Date.parse(todayStr + 'T00:00:00Z');
         const futureStr = new Date(todayMs + 10 * 86400000).toISOString().slice(0, 10);
         expect(calculateDaysUntilExpiry(futureStr, 'America/Toronto')).toBe(10);
     });
 
     test('returns negative for past date', () => {
-        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+        const todayStr = getTodayString('America/Toronto');
         const todayMs = Date.parse(todayStr + 'T00:00:00Z');
         const pastStr = new Date(todayMs - 5 * 86400000).toISOString().slice(0, 10);
         expect(calculateDaysUntilExpiry(pastStr, 'America/Toronto')).toBe(-5);
