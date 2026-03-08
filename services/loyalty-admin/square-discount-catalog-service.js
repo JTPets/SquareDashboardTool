@@ -10,8 +10,72 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey, SQUARE_API_BASE, SQUARE_API_VERSION } = require('./shared-utils');
 const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
+
+// In-memory cache: merchantId -> currency code (persists for process lifetime)
+const merchantCurrencyCache = new Map();
+
+/**
+ * Fetch merchant's currency from Square Merchants API.
+ * Caches result in-memory per merchantId. Falls back to 'CAD' on failure.
+ *
+ * @param {number} merchantId - Internal merchant ID
+ * @param {string} accessToken - Square access token
+ * @returns {Promise<string>} ISO 4217 currency code
+ */
+async function getMerchantCurrency(merchantId, accessToken) {
+    if (merchantCurrencyCache.has(merchantId)) {
+        return merchantCurrencyCache.get(merchantId);
+    }
+
+    try {
+        // Fetch square_merchant_id from DB to call Square Merchants API
+        const result = await db.query(
+            'SELECT square_merchant_id FROM merchants WHERE id = $1',
+            [merchantId]
+        );
+        const squareMerchantId = result.rows[0]?.square_merchant_id;
+        if (!squareMerchantId) {
+            logger.warn('No square_merchant_id found, defaulting currency to CAD', { merchantId });
+            merchantCurrencyCache.set(merchantId, 'CAD');
+            return 'CAD';
+        }
+
+        const response = await fetchWithTimeout(
+            `${SQUARE_API_BASE}/merchants/${squareMerchantId}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                    'Square-Version': SQUARE_API_VERSION
+                }
+            },
+            10000
+        );
+
+        if (!response.ok) {
+            logger.warn('Failed to fetch merchant currency from Square, defaulting to CAD', {
+                merchantId, status: response.status
+            });
+            merchantCurrencyCache.set(merchantId, 'CAD');
+            return 'CAD';
+        }
+
+        const data = await response.json();
+        const currency = data.merchant?.currency || 'CAD';
+        merchantCurrencyCache.set(merchantId, currency);
+        logger.info('Cached merchant currency from Square', { merchantId, currency });
+        return currency;
+    } catch (error) {
+        logger.warn('Error fetching merchant currency, defaulting to CAD', {
+            merchantId, error: error.message
+        });
+        merchantCurrencyCache.set(merchantId, 'CAD');
+        return 'CAD';
+    }
+}
 
 /**
  * Create a Discount + Pricing Rule in Square for a reward
@@ -38,6 +102,8 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             return { success: false, error: 'No access token available' };
         }
 
+        const currency = await getMerchantCurrency(merchantId, accessToken);
+
         // Generate unique IDs for our catalog objects
         const discountId = `#loyalty-discount-${internalRewardId}`;
         const productSetId = `#loyalty-productset-${internalRewardId}`;
@@ -56,10 +122,9 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
                     discount_type: 'FIXED_PERCENTAGE',
                     percentage: '100',
                     // Safety cap: limits per-item discount if apply_products_id somehow fails
-                    // TODO: BACKLOG - currency hardcoded to CAD; for multi-tenant SaaS, pull from merchant config
                     maximum_amount_money: {
                         amount: maxDiscountAmountCents,
-                        currency: 'CAD'
+                        currency: currency
                     },
                     modify_tax_basis: 'MODIFY_TAX_BASIS'
                 }
@@ -232,6 +297,8 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
         }
 
         // Step 2: Upsert with updated maximum_amount_money
+        const currency = discountObj.discount_data?.maximum_amount_money?.currency
+            || await getMerchantCurrency(merchantId, accessToken);
         const updatedObject = {
             type: 'DISCOUNT',
             id: squareDiscountId,
@@ -240,7 +307,7 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
                 ...discountObj.discount_data,
                 maximum_amount_money: {
                     amount: newAmountCents,
-                    currency: discountObj.discount_data?.maximum_amount_money?.currency || 'CAD'
+                    currency: currency
                 }
             }
         };
@@ -302,5 +369,7 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
 module.exports = {
     createRewardDiscount,
     deleteRewardDiscountObjects,
-    updateRewardDiscountAmount
+    updateRewardDiscountAmount,
+    getMerchantCurrency,
+    _merchantCurrencyCache: merchantCurrencyCache
 };

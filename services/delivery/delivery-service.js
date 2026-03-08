@@ -1086,8 +1086,17 @@ async function getPodPhoto(merchantId, podId) {
     }
 
     const pod = result.rows[0];
-    pod.full_path = path.join(process.cwd(), POD_STORAGE_DIR, pod.photo_path);
+    const expectedPrefix = path.resolve(process.cwd(), POD_STORAGE_DIR);
+    const resolvedPath = path.resolve(process.cwd(), POD_STORAGE_DIR, pod.photo_path);
 
+    if (!resolvedPath.startsWith(expectedPrefix + path.sep) && resolvedPath !== expectedPrefix) {
+        logger.warn('Path traversal attempt detected in POD photo_path', {
+            merchantId, podId, photoPath: pod.photo_path
+        });
+        return null;
+    }
+
+    pod.full_path = resolvedPath;
     return pod;
 }
 
