@@ -68,6 +68,11 @@ jest.mock('../../jobs/trial-expiry-job', () => ({
     runScheduledTrialExpiryNotifications: jest.fn()
 }));
 
+jest.mock('../../jobs/loyalty-sync-retry-job', () => ({
+    runScheduledLoyaltySyncRetry: jest.fn(),
+    retryFailedLoyaltySyncOperations: jest.fn()
+}));
+
 const cron = require('node-cron');
 const {
     initializeCronJobs,
@@ -88,11 +93,12 @@ describe('CronScheduler', () => {
         it('should schedule all default cron jobs', () => {
             initializeCronJobs();
 
-            // Should schedule 12 jobs (without GMC which is optional)
+            // Should schedule 13 jobs (without GMC which is optional)
             // Jobs: cycle count, webhook retry, webhook cleanup, sync, backup,
             // expiry discount, loyalty catchup, loyalty audit, cart activity cleanup,
-            // seniors discount, committed inventory reconciliation, trial expiry
-            expect(cron.schedule).toHaveBeenCalledTimes(12);
+            // seniors discount, committed inventory reconciliation, trial expiry,
+            // loyalty sync retry
+            expect(cron.schedule).toHaveBeenCalledTimes(13);
         });
 
         it('should use environment variable schedules when provided', () => {
@@ -110,8 +116,8 @@ describe('CronScheduler', () => {
 
             initializeCronJobs();
 
-            // Should schedule 13 jobs including GMC
-            expect(cron.schedule).toHaveBeenCalledTimes(13);
+            // Should schedule 14 jobs including GMC
+            expect(cron.schedule).toHaveBeenCalledTimes(14);
             expect(cron.schedule).toHaveBeenCalledWith('0 4 * * *', expect.any(Function));
 
             delete process.env.GMC_SYNC_CRON_SCHEDULE;
