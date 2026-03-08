@@ -21,6 +21,10 @@ jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
     cleanupSquareCustomerGroupDiscount: jest.fn(),
 }));
 
+jest.mock('../../../services/loyalty-admin/square-sync-retry-service', () => ({
+    retryPendingSquareSyncs: jest.fn().mockResolvedValue({ retried: 0, succeeded: 0, failed: 0, errors: [] }),
+}));
+
 const { linkOfferToSquareTier, getRewardForSquareSync, syncRewardsToPOS, getPendingSyncCounts } = require('../../../services/loyalty-admin/square-sync-service');
 const db = require('../../../utils/database');
 const { createSquareCustomerGroupDiscount, cleanupSquareCustomerGroupDiscount } = require('../../../services/loyalty-admin/square-discount-service');

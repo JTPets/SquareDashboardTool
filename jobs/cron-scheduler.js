@@ -22,6 +22,7 @@ const { runScheduledCartActivityCleanup } = require('./cart-activity-cleanup-job
 const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors-day-job');
 const { runScheduledReconciliation } = require('./committed-inventory-reconciliation-job');
 const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
+const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -134,6 +135,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Trial expiry notification cron job scheduled', { schedule: trialExpirySchedule, timezone: 'America/Toronto' });
+
+    // 14. Loyalty Square sync retry (LA-4 fix)
+    // Runs every 15 minutes to retry failed Square discount creation
+    const loyaltySyncRetrySchedule = process.env.LOYALTY_SYNC_RETRY_CRON || '*/15 * * * *';
+    cronTasks.push(cron.schedule(loyaltySyncRetrySchedule, runScheduledLoyaltySyncRetry, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Loyalty sync retry cron job scheduled', { schedule: loyaltySyncRetrySchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

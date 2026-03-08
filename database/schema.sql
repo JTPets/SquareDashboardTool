@@ -1545,6 +1545,9 @@ CREATE TABLE IF NOT EXISTS loyalty_rewards (
     -- Square discount cap (cents) — tracks maximum_amount_money on the DISCOUNT object
     discount_amount_cents INTEGER DEFAULT NULL,
 
+    -- Square sync retry flag (LA-4 fix) — true when discount creation failed and needs retry
+    square_sync_pending BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1562,6 +1565,7 @@ CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_status ON loyalty_rewards(merchan
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_earned ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'earned';
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_in_progress ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'in_progress';
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_vendor_credit_status ON loyalty_rewards(merchant_id, vendor_credit_status) WHERE vendor_credit_status IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_sync_pending ON loyalty_rewards(merchant_id, status) WHERE square_sync_pending = TRUE AND status = 'earned';
 
 COMMENT ON TABLE loyalty_rewards IS 'Tracks reward progress and state: in_progress -> earned -> redeemed | revoked';
 COMMENT ON COLUMN loyalty_rewards.status IS 'State machine: in_progress (accumulating), earned (available), redeemed (used), revoked (invalidated)';
