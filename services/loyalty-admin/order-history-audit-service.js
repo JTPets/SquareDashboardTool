@@ -15,6 +15,7 @@ const { AuditActions } = require('./constants');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { logAuditEvent } = require('./audit-service');
 const { processLoyaltyOrder } = require('./order-intake');
+const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
 
 /**
  * Get customer order history for loyalty audit with qualifying item analysis
@@ -151,7 +152,12 @@ async function getCustomerOrderHistoryForAudit({
     // Fetch orders from Square
     const orders = [];
     let cursor = null;
+    let paginationIterations = 0;
     do {
+        if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+            logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/orders/search (order-history-audit)' });
+            break;
+        }
         const requestBody = {
             location_ids: locationIds,
             query: {

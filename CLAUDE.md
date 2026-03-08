@@ -90,6 +90,9 @@ jobs/            → Background jobs and cron tasks
 
 **Policy**: Files are refactored when modified, not proactively. Touch it = fix it.
 
+#### Refactor-on-Touch: Files Over 500 Lines
+Before modifying any file over 500 lines, produce a **module breakdown map** (filename, responsibility, line range, dependencies, extraction risk) and include it in the PR description or commit message. This ensures refactoring is planned, not ad-hoc. The map does not require immediate extraction — it documents the path for future work.
+
 ---
 
 ## Common Patterns

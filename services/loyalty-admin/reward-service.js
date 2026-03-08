@@ -371,9 +371,10 @@ async function matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId
 async function matchEarnedRewardByDiscountAmount({ order, squareCustomerId, merchantId }) {
     if (!squareCustomerId) return null;
 
-    // Get all earned rewards for this customer, with qualifying variations
+    // Get all earned rewards for this customer, with qualifying variations and discount IDs
     const earnedResult = await db.query(`
         SELECT r.id AS reward_id, r.offer_id, r.square_customer_id, o.offer_name,
+               r.square_discount_id, r.square_pricing_rule_id,
                ARRAY_AGG(qv.variation_id) AS qualifying_variation_ids
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id AND r.merchant_id = o.merchant_id
@@ -383,15 +384,28 @@ async function matchEarnedRewardByDiscountAmount({ order, squareCustomerId, merc
           AND r.square_customer_id = $2
           AND r.status = 'earned'
           AND o.is_active = TRUE
-        GROUP BY r.id, r.offer_id, r.square_customer_id, o.offer_name
+        GROUP BY r.id, r.offer_id, r.square_customer_id, o.offer_name,
+                 r.square_discount_id, r.square_pricing_rule_id
     `, [merchantId, squareCustomerId]);
 
     if (earnedResult.rows.length === 0) return null;
 
     const lineItems = order.line_items || [];
+    const orderDiscounts = order.discounts || [];
 
     for (const reward of earnedResult.rows) {
         const qualifyingSet = new Set(reward.qualifying_variation_ids);
+
+        // Guard: verify at least one order discount is from our loyalty reward's catalog objects.
+        // Without this, non-loyalty discounts (manual coupons, sales, employee discounts) on
+        // qualifying items could false-positive as a redemption.
+        const rewardDiscountIds = new Set(
+            [reward.square_discount_id, reward.square_pricing_rule_id].filter(Boolean)
+        );
+        const hasOurDiscount = rewardDiscountIds.size > 0 && orderDiscounts.some(d =>
+            d.catalog_object_id && rewardDiscountIds.has(d.catalog_object_id)
+        );
+        if (!hasOurDiscount) continue;
 
         // Sum total_discount_money on qualifying line items
         let totalDiscountCents = 0;

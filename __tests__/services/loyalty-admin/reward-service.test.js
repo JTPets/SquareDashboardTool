@@ -490,6 +490,8 @@ describe('matchEarnedRewardByDiscountAmount', () => {
                 offer_id: 5,
                 square_customer_id: 'cust_1',
                 offer_name: 'Buy 12',
+                square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
                 qualifying_variation_ids: ['var_1', 'var_2']
             }]
         });
@@ -501,6 +503,7 @@ describe('matchEarnedRewardByDiscountAmount', () => {
 
         const order = {
             id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_loyalty_1', applied_money: { amount: 3900 } }],
             line_items: [
                 {
                     catalog_object_id: 'var_1',
@@ -532,6 +535,8 @@ describe('matchEarnedRewardByDiscountAmount', () => {
                 offer_id: 5,
                 square_customer_id: 'cust_1',
                 offer_name: 'Buy 12',
+                square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
                 qualifying_variation_ids: ['var_1']
             }]
         });
@@ -542,6 +547,7 @@ describe('matchEarnedRewardByDiscountAmount', () => {
 
         const order = {
             id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_loyalty_1', applied_money: { amount: 3700 } }],
             line_items: [
                 {
                     catalog_object_id: 'var_1',
@@ -566,6 +572,8 @@ describe('matchEarnedRewardByDiscountAmount', () => {
                 offer_id: 5,
                 square_customer_id: 'cust_1',
                 offer_name: 'Buy 12',
+                square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
                 qualifying_variation_ids: ['var_1']
             }]
         });
@@ -576,6 +584,7 @@ describe('matchEarnedRewardByDiscountAmount', () => {
 
         const order = {
             id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_loyalty_1', applied_money: { amount: 3999 } }],
             line_items: [
                 { catalog_object_id: 'var_1', total_discount_money: { amount: 3999 } }
             ]
@@ -597,6 +606,8 @@ describe('matchEarnedRewardByDiscountAmount', () => {
                 offer_id: 5,
                 square_customer_id: 'cust_1',
                 offer_name: 'Buy 12',
+                square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
                 qualifying_variation_ids: ['var_1', 'var_2']
             }]
         });
@@ -607,6 +618,7 @@ describe('matchEarnedRewardByDiscountAmount', () => {
 
         const order = {
             id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_loyalty_1', applied_money: { amount: 4000 } }],
             line_items: [
                 { catalog_object_id: 'var_1', total_discount_money: { amount: 2000 } },
                 { catalog_object_id: 'var_2', total_discount_money: { amount: 2000 } }
