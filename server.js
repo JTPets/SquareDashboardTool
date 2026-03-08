@@ -4,6 +4,36 @@
  */
 
 require('dotenv').config();
+
+// C-3: Validate required environment variables before loading any modules
+(function validateEnvironment() {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Database: need either DATABASE_URL or all individual DB vars
+    const hasDbUrl = !!process.env.DATABASE_URL;
+    const dbVars = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+    const hasAllDbVars = dbVars.every(v => !!process.env[v]);
+    const missingDbVars = hasDbUrl ? [] : dbVars.filter(v => !process.env[v]);
+
+    const requiredVars = ['TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET', 'SQUARE_APP_ID', 'SQUARE_APP_SECRET'];
+    const missingRequired = requiredVars.filter(v => !process.env[v]);
+
+    const allMissing = [...missingRequired];
+    if (!hasDbUrl && !hasAllDbVars) {
+        allMissing.push(...missingDbVars.map(v => v + ' (or DATABASE_URL)'));
+    }
+
+    if (allMissing.length > 0) {
+        const message = `Missing required environment variables: ${allMissing.join(', ')}`;
+        if (isProduction) {
+            console.error(`[FATAL] ${message}`);
+            process.exit(1);
+        } else {
+            console.warn(`[WARNING] ${message}`);
+        }
+    }
+})();
+
 const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);

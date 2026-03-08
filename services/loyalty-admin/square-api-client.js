@@ -10,6 +10,7 @@
  */
 
 const { squareApiRequest, getSquareAccessToken, SquareApiError } = require('./shared-utils');
+const logger = require('../../utils/logger');
 
 /**
  * SquareApiClient — convenience wrapper around squareApiRequest.
@@ -181,27 +182,77 @@ class SquareApiClient {
     }
 
     /**
-     * POST /loyalty/events/search
+     * POST /loyalty/events/search (paginated)
+     * Fetches all pages of results using Square's cursor-based pagination.
+     * Safety guard: max 20 pages to prevent runaway loops.
+     *
      * @param {Object} query - Search query with filter criteria
-     * @returns {Promise<Array>} Array of loyalty events
+     * @returns {Promise<Array>} Array of all loyalty events across all pages
      */
     async searchLoyaltyEvents(query) {
-        const data = await this.request('POST', '/loyalty/events/search', query, {
-            context: 'searchLoyaltyEvents', timeout: 10000,
-        });
-        return data.events || [];
+        const MAX_PAGES = 20;
+        const allEvents = [];
+        let cursor = null;
+        let page = 0;
+
+        do {
+            const requestBody = cursor ? { ...query, cursor } : { ...query };
+            const data = await this.request('POST', '/loyalty/events/search', requestBody, {
+                context: 'searchLoyaltyEvents', timeout: 10000,
+            });
+            allEvents.push(...(data.events || []));
+            cursor = data.cursor || null;
+            page++;
+
+            if (page >= MAX_PAGES && cursor) {
+                logger.error('searchLoyaltyEvents hit max pagination limit', {
+                    merchantId: this.merchantId,
+                    pages: page,
+                    totalEvents: allEvents.length,
+                    maxPages: MAX_PAGES
+                });
+                break;
+            }
+        } while (cursor);
+
+        return allEvents;
     }
 
     /**
-     * POST /customers/search
+     * POST /customers/search (paginated)
+     * Fetches all pages of results using Square's cursor-based pagination.
+     * Safety guard: max 20 pages to prevent runaway loops.
+     *
      * @param {Object} query - Search query with filter criteria
-     * @returns {Promise<Array>} Array of customers
+     * @returns {Promise<Array>} Array of all customers across all pages
      */
     async searchCustomers(query) {
-        const data = await this.request('POST', '/customers/search', query, {
-            context: 'searchCustomers', timeout: 10000,
-        });
-        return data.customers || [];
+        const MAX_PAGES = 20;
+        const allCustomers = [];
+        let cursor = null;
+        let page = 0;
+
+        do {
+            const requestBody = cursor ? { ...query, cursor } : { ...query };
+            const data = await this.request('POST', '/customers/search', requestBody, {
+                context: 'searchCustomers', timeout: 10000,
+            });
+            allCustomers.push(...(data.customers || []));
+            cursor = data.cursor || null;
+            page++;
+
+            if (page >= MAX_PAGES && cursor) {
+                logger.error('searchCustomers hit max pagination limit', {
+                    merchantId: this.merchantId,
+                    pages: page,
+                    totalCustomers: allCustomers.length,
+                    maxPages: MAX_PAGES
+                });
+                break;
+            }
+        } while (cursor);
+
+        return allCustomers;
     }
 }
 

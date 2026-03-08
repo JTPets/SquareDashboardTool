@@ -1164,12 +1164,9 @@ describe('OrderHandler', () => {
             );
             expect(result.loyalty).toBeDefined();
             expect(result.loyalty.purchasesRecorded).toBe(1);
-            expect(result.loyalty.isRedemptionOrder).toBe(false);
         });
 
-        it('should run _checkOrderForRedemption pre-check before purchases (RISK-3 fix)', async () => {
-            const db = require('../../utils/database');
-            // Simulate a redemption discount on the order
+        it('should detect redemption via detectRewardRedemptionFromOrder after purchases (LA-20 fix)', async () => {
             mockSquareClient.orders.get.mockResolvedValueOnce({
                 order: {
                     id: 'order_redemption',
@@ -1181,14 +1178,6 @@ describe('OrderHandler', () => {
                     location_id: 'loc_1'
                 }
             });
-
-            // _checkOrderForRedemption queries DB for discount match
-            db.query.mockResolvedValueOnce({ rows: [{
-                id: 77,
-                offer_id: 5,
-                square_customer_id: 'cust_1',
-                offer_name: 'Buy 10 Get 1 Free'
-            }] });
 
             mockDetectRedemption.mockResolvedValueOnce({
                 detected: true,
@@ -1203,19 +1192,12 @@ describe('OrderHandler', () => {
 
             const result = await handler.handlePaymentUpdated(ctx);
 
-            // Pre-check should have queried DB for reward match
-            expect(db.query).toHaveBeenCalledWith(
-                expect.stringContaining('square_discount_id'),
-                [1, 'disc_loyalty']
-            );
-            // Redemption detection should still run after purchases
+            // Redemption detection should run after purchases (single call, not doubled)
             expect(mockDetectRedemption).toHaveBeenCalled();
             expect(result.loyaltyRedemption).toEqual({
                 rewardId: 77,
                 offerName: 'Buy 10 Get 1 Free'
             });
-            // Loyalty result should include isRedemptionOrder flag
-            expect(result.loyalty.isRedemptionOrder).toBe(true);
         });
 
         it('should run full redemption detection via payment path', async () => {

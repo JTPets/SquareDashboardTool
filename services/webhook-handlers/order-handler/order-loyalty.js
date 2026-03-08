@@ -231,18 +231,6 @@ async function processLoyalty(order, merchantId, result) {
             });
         }
 
-        // Check for redemption BEFORE processing purchases (for logging)
-        const redemptionCheck = await checkOrderForRedemption(order, merchantId);
-
-        if (redemptionCheck.isRedemptionOrder) {
-            logger.info('Processing redemption order - new purchases will start fresh window', {
-                orderId: order.id,
-                rewardBeingRedeemed: redemptionCheck.rewardId,
-                offerId: redemptionCheck.offerId,
-                merchantId
-            });
-        }
-
         // Consolidated intake: atomic write to both tables
         const intakeResult = await processLoyaltyOrder({
             order,
@@ -264,13 +252,11 @@ async function processLoyalty(order, merchantId, result) {
         if (intakeResult.purchaseEvents.length > 0) {
             result.loyalty = {
                 purchasesRecorded: intakeResult.purchaseEvents.length,
-                customerId: squareCustomerId,
-                isRedemptionOrder: redemptionCheck.isRedemptionOrder
+                customerId: squareCustomerId
             };
             logger.info('Loyalty purchases processed via webhook', {
                 orderId: order.id,
                 purchaseCount: intakeResult.purchaseEvents.length,
-                isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                 merchantId
             });
 
@@ -423,21 +409,6 @@ async function processPaymentForLoyalty(payment, merchantId, result, source) {
             customerSource = identification.customerSource;
         }
 
-        // Check for redemption BEFORE processing purchases (matching _processLoyalty pattern)
-        // Ensures "new purchases start fresh reward window" guarantee holds
-        // even when only payment.* webhook fires
-        const redemptionCheck = await checkOrderForRedemption(order, merchantId);
-
-        if (redemptionCheck.isRedemptionOrder) {
-            logger.info('Payment path: processing redemption order - new purchases will start fresh window', {
-                orderId: order.id,
-                rewardBeingRedeemed: redemptionCheck.rewardId,
-                offerId: redemptionCheck.offerId,
-                merchantId,
-                source
-            });
-        }
-
         // Consolidated intake: atomic write to both tables (includes dedup)
         const intakeResult = await processLoyaltyOrder({
             order,
@@ -461,14 +432,12 @@ async function processPaymentForLoyalty(payment, merchantId, result, source) {
             result.loyalty = {
                 purchasesRecorded: intakeResult.purchaseEvents.length,
                 customerId: squareCustomerId,
-                isRedemptionOrder: redemptionCheck.isRedemptionOrder,
                 source
             };
             logger.info(`Loyalty purchases recorded via ${source} webhook`, {
                 orderId: order.id,
                 customerId: squareCustomerId,
-                purchases: intakeResult.purchaseEvents.length,
-                isRedemptionOrder: redemptionCheck.isRedemptionOrder
+                purchases: intakeResult.purchaseEvents.length
             });
         }
 
