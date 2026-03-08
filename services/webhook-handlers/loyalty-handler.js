@@ -328,7 +328,7 @@ class LoyaltyHandler {
                 name: d.name,
                 type: d.type,
                 catalogObjectId: d.catalog_object_id || null,
-                amountCents: d.applied_money?.amount || d.amount_money?.amount || null
+                amountCents: d.applied_money?.amount ?? d.amount_money?.amount ?? null
             }));
             const hasCatalogDiscounts = discounts.some(d => d.catalog_object_id);
 

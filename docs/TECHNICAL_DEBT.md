@@ -172,21 +172,17 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Low — Square will reject pricing rules referencing non-existent objects, but errors won't surface until the pricing rule upsert.
 **Source**: Square API audit (2026-03-07)
 
-### BUG: `discount-service.js` missing `merchant_id` filter on 3 UPDATE queries
+### ~~BUG: `discount-service.js` missing `merchant_id` filter on 3 UPDATE queries~~ RESOLVED (2026-03-08)
 
 **File**: `services/expiry/discount-service.js:367-371,820-825,886-892`
 **Issue**: Three UPDATE statements on `variation_discount_status` filter only by `variation_id` without `AND merchant_id = $N`: (1) line 370 in `evaluateAllVariations` updating `days_until_expiry`, (2) line 824 in `applyDiscounts` setting `discounted_price_cents`, (3) line 891 removing discount. Violates the multi-tenant pattern — same class as LA-10.
-**Impact**: Low in practice (Square variation IDs are globally unique), but violates codebase security model. Would be a real bug if non-Square IDs were ever used.
-**Priority**: Medium — multi-tenant pattern violation.
-**Source**: Square API audit (2026-03-07)
+**Fix**: Added `AND merchant_id = $N` to all three UPDATE queries. 3 tests in `falsy-zero-bugs.test.js`.
 
-### BUG: `discount-service.js` `daysUntilExpiry || null` converts 0 to null
+### ~~BUG: `discount-service.js` `daysUntilExpiry || null` converts 0 to null~~ RESOLVED (2026-03-08)
 
 **File**: `services/expiry/discount-service.js:430`
 **Issue**: `event.daysUntilExpiry || null` — the `||` operator treats `0` as falsy. When an item expires today (`daysUntilExpiry = 0`), the value is stored as NULL in the `expiry_discount_audit_log`. This loses the distinction between "expires today" and "no expiry date set".
-**Impact**: Medium — audit log data loss for items expiring today. Downstream queries that filter on `days_until_expiry IS NOT NULL` will miss these entries. Fix: use `event.daysUntilExpiry ?? null` (nullish coalescing).
-**Priority**: Medium — data integrity bug.
-**Source**: Square API audit (2026-03-07)
+**Fix**: Changed `daysUntilExpiry || null`, `oldPriceCents || null`, and `newPriceCents || null` to use `??` (nullish coalescing). 3 tests in `falsy-zero-bugs.test.js`.
 
 ### PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure
 
@@ -211,19 +207,17 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Priority**: Medium — data integrity risk during delta sync.
 **Source**: Square API audit (2026-03-07)
 
-### `square-catalog-sync.js` `price_money.amount` of 0 becomes null
+### ~~`square-catalog-sync.js` `price_money.amount` of 0 becomes null~~ RESOLVED (2026-03-08)
 
 **File**: `services/square/square-catalog-sync.js:929`
-**Issue**: `data.price_money?.amount || null` — the `||` operator treats `0` as falsy. Free items (`amount = 0`) are stored with `price_cents = NULL` instead of `0`, misrepresenting them as having no price set. Fix: use `??` (nullish coalescing).
-**Impact**: Low — free items stored as NULL price. Same class of bug as the `daysUntilExpiry || null` issue.
-**Source**: Square API audit (2026-03-07)
+**Issue**: `data.price_money?.amount || null` — the `||` operator treats `0` as falsy. Free items (`amount = 0`) are stored with `price_cents = NULL` instead of `0`, misrepresenting them as having no price set.
+**Fix**: Changed to `??` (nullish coalescing). Also fixed `unit_cost_money?.amount` on the same pattern. Tests in `falsy-zero-bugs.test.js`.
 
-### `square-catalog-sync.js` `inventory_alert_threshold` of 0 becomes null
+### ~~`square-catalog-sync.js` `inventory_alert_threshold` of 0 becomes null~~ RESOLVED (2026-03-08)
 
 **File**: `services/square/square-catalog-sync.js:871,878,888-889,963`
 **Issue**: Same `||` vs `??` pattern. If `inventory_alert_threshold` is `0` (meaning "alert when at zero stock"), it gets stored as `null`. Multiple locations in the variation sync use this pattern.
-**Impact**: Low — threshold of 0 is uncommon but valid.
-**Source**: Square API audit (2026-03-07)
+**Fix**: Changed all `inventory_alert_threshold || null` to `?? null` (both variation-level and location override). Tests in `falsy-zero-bugs.test.js`.
 
 ### `discount-service.js` `timezone` parameter accepted but unused
 
