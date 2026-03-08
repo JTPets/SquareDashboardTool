@@ -237,8 +237,8 @@ describe('C-3: Startup environment variable validation', () => {
         process.env.NODE_ENV = 'production';
         process.env.DATABASE_URL = 'postgres://localhost/test';
         process.env.SESSION_SECRET = 'secret';
-        process.env.SQUARE_APP_ID = 'app-id';
-        process.env.SQUARE_APP_SECRET = 'app-secret';
+        process.env.SQUARE_APPLICATION_ID = 'app-id';
+        process.env.SQUARE_APPLICATION_SECRET = 'app-secret';
         delete process.env.TOKEN_ENCRYPTION_KEY;
 
         // The validation runs at module load time via require('dotenv') + IIFE
@@ -257,12 +257,12 @@ describe('C-3: Startup environment variable validation', () => {
         process.env.NODE_ENV = 'development';
         delete process.env.TOKEN_ENCRYPTION_KEY;
         delete process.env.SESSION_SECRET;
-        delete process.env.SQUARE_APP_ID;
-        delete process.env.SQUARE_APP_SECRET;
+        delete process.env.SQUARE_APPLICATION_ID;
+        delete process.env.SQUARE_APPLICATION_SECRET;
         process.env.DATABASE_URL = 'postgres://localhost/test';
 
         const isProduction = process.env.NODE_ENV === 'production';
-        const requiredVars = ['TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET', 'SQUARE_APP_ID', 'SQUARE_APP_SECRET'];
+        const requiredVars = ['TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET', 'SQUARE_APPLICATION_ID', 'SQUARE_APPLICATION_SECRET'];
         const missingRequired = requiredVars.filter(v => !process.env[v]);
 
         expect(isProduction).toBe(false);

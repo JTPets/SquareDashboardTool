@@ -15,7 +15,7 @@ require('dotenv').config();
     const hasAllDbVars = dbVars.every(v => !!process.env[v]);
     const missingDbVars = hasDbUrl ? [] : dbVars.filter(v => !process.env[v]);
 
-    const requiredVars = ['TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET', 'SQUARE_APP_ID', 'SQUARE_APP_SECRET'];
+    const requiredVars = ['TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET', 'SQUARE_APPLICATION_ID', 'SQUARE_APPLICATION_SECRET'];
     const missingRequired = requiredVars.filter(v => !process.env[v]);
 
     const allMissing = [...missingRequired];
