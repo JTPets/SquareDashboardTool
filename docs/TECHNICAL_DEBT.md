@@ -717,54 +717,15 @@ const key = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
 
 ---
 
-### MT-2: Email notifications are global, single-recipient (BLOCKS FRANCHISE)
+### MT-2: ~~Email notifications are global, single-recipient~~ (RESOLVED 2026-03-08)
 
-**Severity**: Blocks franchise
-**Files**: `utils/email-notifier.js:6-18`, `utils/email-notifier.js:37-38`
-
-**What it assumes**: A single `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_TO`, and `EMAIL_FROM` env var is used for all alert emails. All critical error notifications go to a single hardcoded recipient (the platform operator).
-
-**Current code**:
-```javascript
-// utils/email-notifier.js:12-18
-this.transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASSWORD }
-});
-
-// utils/email-notifier.js:37-38
-from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-to: process.env.EMAIL_TO,
-```
-
-**What breaks**: Franchise operators need to receive their own error/alert emails, not have everything go to the platform operator. No per-merchant notification routing exists.
-
-**What it should do**: Add `alert_email` column to `merchants` table. Email notifier should accept `merchantId` parameter and send to the merchant's configured alert email (falling back to platform-wide `EMAIL_TO` for system-level alerts).
+**Resolution**: Added `admin_email` column to `merchants` table (migration 066). Populated from `business_email` where available. `email-notifier.js` updated: `sendCritical` reads `context.merchantId`, `sendAlert` accepts optional `options.merchantId`. Both resolve merchant `admin_email` via `_resolveRecipient()`, falling back to platform `EMAIL_TO` env var when null. Backup/system-level emails remain platform-only. 8 tests in `email-notifier.test.js`.
 
 ---
 
-### MT-3: OpenRouteService API key falls back to global (BLOCKS FRANCHISE)
+### MT-3: ~~OpenRouteService API key falls back to global~~ (RESOLVED 2026-03-08)
 
-**Severity**: Blocks franchise
-**Files**: `services/delivery/delivery-service.js:22-26`, `services/delivery/delivery-service.js:797`, `services/delivery/delivery-service.js:900`
-
-**What it assumes**: A global `OPENROUTESERVICE_API_KEY` env var is used as fallback when a merchant hasn't configured their own key. Per-merchant API keys are optional.
-
-**Current code**:
-```javascript
-// delivery-service.js:26
-const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
-
-// delivery-service.js:797
-const apiKey = settings.openrouteservice_api_key || ORS_API_KEY;
-
-// delivery-service.js:900
-const key = apiKey || ORS_API_KEY;
-```
-
-**What breaks**: All merchants share the platform's geocoding quota. One merchant's excessive usage could exhaust the API quota for all merchants. No per-merchant rate limiting or billing is possible.
-
-**What it should do**: Require per-merchant API key with no global fallback. If a merchant hasn't configured their key, return an error prompting configuration. Alternatively, provide a metered platform key with per-merchant usage tracking.
+**Resolution**: Added `ors_api_key_encrypted` column to `delivery_settings` (migration 066). ORS keys are now stored encrypted with AES-256-GCM via existing `token-encryption` utils. `getSettings()` decrypts on read; `updateSettings()` encrypts before write. Encrypt-on-read migration transparently moves plaintext keys from `openrouteservice_api_key` to encrypted column. Global `OPENROUTESERVICE_API_KEY` env var retained as platform fallback for merchants without their own key. UI updated to note encryption. 6 tests in `delivery-ors-encryption.test.js`.
 
 ---
 

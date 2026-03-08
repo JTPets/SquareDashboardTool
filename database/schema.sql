@@ -103,6 +103,7 @@ CREATE TABLE merchants (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     last_sync_at TIMESTAMPTZ,
     custom_attributes_initialized_at TIMESTAMPTZ DEFAULT NULL,
+    admin_email TEXT,
     CONSTRAINT valid_subscription_status CHECK (
         subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended', 'platform_owner')
     )
@@ -1249,7 +1250,8 @@ CREATE TABLE IF NOT EXISTS delivery_settings (
     same_day_cutoff TIME DEFAULT '17:00',
     pod_retention_days INTEGER DEFAULT 180,
     auto_ingest_ready_orders BOOLEAN DEFAULT TRUE,
-    openrouteservice_api_key TEXT,  -- optional, uses default if null
+    openrouteservice_api_key TEXT,  -- deprecated: migrated to ors_api_key_encrypted on read
+    ors_api_key_encrypted TEXT,    -- AES-256-GCM encrypted ORS API key
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT delivery_settings_merchant_unique UNIQUE(merchant_id)
