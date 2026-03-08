@@ -1,7 +1,7 @@
 {
-  "name": "square-dashboard-addon",
+  "name": "sqtools",
   "version": "1.0.0",
-  "description": "Square Dashboard Addon Tool - Inventory management, reorder suggestions, and analytics for Square POS",
+  "description": "Multi-tenant Square POS management platform — loyalty, inventory, expiry discounts, vendor management, delivery, and more.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -20,7 +20,7 @@
     "reorder",
     "analytics"
   ],
-  "author": "Square Dashboard Addon Tool",
+  "author": "SqTools",
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^6.0.0",

@@ -53,7 +53,7 @@ function createTestApp(userRole = 'admin') {
         saveUninitialized: true,
     }));
     app.use((req, res, next) => {
-        req.session.user = { id: 1, email: 'john@jtpets.ca', role: userRole };
+        req.session.user = { id: 1, email: 'test@example.com', role: userRole };
         next();
     });
     const adminRoutes = require('../../routes/admin');
