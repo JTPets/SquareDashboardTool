@@ -18,6 +18,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
+const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
 const { processLoyaltyOrder } = require('./order-intake');
 const TTLCache = require('../../utils/ttl-cache');
 
@@ -176,8 +177,13 @@ async function runLoyaltyCatchup({ merchantId, customerIds = null, periodDays = 
         try {
             const orders = [];
             let cursor = null;
+            let paginationIterations = 0;
 
             do {
+                if (++paginationIterations > MAX_PAGINATION_ITERATIONS) {
+                    logger.warn('Pagination loop exceeded max iterations', { merchantId, iterations: paginationIterations, endpoint: '/v2/orders/search (backfill)' });
+                    break;
+                }
                 const requestBody = {
                     location_ids: locationIds,
                     query: {

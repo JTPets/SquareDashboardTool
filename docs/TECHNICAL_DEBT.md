@@ -219,19 +219,17 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: Same `||` vs `??` pattern. If `inventory_alert_threshold` is `0` (meaning "alert when at zero stock"), it gets stored as `null`. Multiple locations in the variation sync use this pattern.
 **Fix**: Changed all `inventory_alert_threshold || null` to `?? null` (both variation-level and location override). Tests in `falsy-zero-bugs.test.js`.
 
-### `discount-service.js` `timezone` parameter accepted but unused
+### ~~`discount-service.js` `timezone` parameter accepted but unused~~ (RESOLVED 2026-03-08)
 
 **File**: `services/expiry/discount-service.js:97-110`
-**Issue**: `calculateDaysUntilExpiry(expirationDate, timezone)` accepts a `timezone` parameter (default `'America/Toronto'`) but uses plain `new Date()` for both `expiry` and `now`, ignoring the timezone entirely. Day calculation uses server-local time regardless of the parameter.
-**Impact**: Low — all deployments currently use America/Toronto, and the server is in the same timezone. Would be a bug for merchants in other timezones.
-**Source**: Square API audit (2026-03-07)
+**Issue**: `calculateDaysUntilExpiry(expirationDate, timezone)` accepted a `timezone` parameter but used plain `new Date()`, ignoring it.
+**Fix**: Rewrote to use `toLocaleDateString('en-CA', { timeZone })` for both expiry and now dates, producing timezone-correct YYYY-MM-DD strings before diffing. Tests in `audit-fixes.test.js`.
 
-### `discount-service.js` inventory_counts subquery missing `merchant_id` filter
+### ~~`discount-service.js` inventory_counts subquery missing `merchant_id` filter~~ (RESOLVED 2026-03-08)
 
-**File**: `services/expiry/discount-service.js:1299-1306`
-**Issue**: The inventory_counts subquery in `getTierSummary` groups by `catalog_object_id` across all merchants without filtering by `merchant_id`. The outer query does filter `edt.merchant_id = $1`, but the inventory aggregation could include counts from other merchants if the same `catalog_object_id` appeared in multiple tenants.
-**Impact**: Low — Square catalog object IDs are globally unique across merchants. Same class as the `variation_vendors` JOIN issue.
-**Source**: Square API audit (2026-03-07)
+**File**: `services/expiry/discount-service.js:1301-1306`
+**Issue**: The inventory_counts subquery in `getDiscountStatusSummary` grouped across all merchants.
+**Fix**: Added `AND merchant_id = $1` to the subquery. Tests in `audit-fixes.test.js`.
 
 ### `discount-service.js` EXPIRED in `clearExpiryDiscountForReorder` array is dead code
 
@@ -294,7 +292,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | PERF-6 | `routes/analytics.js:147-278` | Reorder suggestions: 9-table JOIN with 3 correlated subqueries, no LIMIT clause. Unbounded result set |
 | PERF-7 | `routes/bundles.js:340-359` | N+1 bundle component inserts — 10-component bundle makes 10 sequential INSERTs |
 | P-3 | `middleware/merchant.js:210` | `SELECT *` on merchants table for every `getSquareClientForMerchant()` call — fetches unused encrypted tokens |
-| P-4 | `services/square/` (7 locations) | Square API pagination loops have no `MAX_ITERATIONS` guard |
+| ~~P-4~~ | ~~`services/square/` (7 locations)~~ | ~~Square API pagination loops have no `MAX_ITERATIONS` guard~~ **RESOLVED** — all loops now have `MAX_PAGINATION_ITERATIONS` guard |
 | P-5 | `services/gmc/merchant-service.js:57-70` | Google OAuth token listener duplicated on every `getAuthClient()` call — leaks listeners |
 | P-7 | `middleware/merchant.js:19-20` | `clientCache` (Map) has no maximum size or LRU eviction — grows unbounded with merchant count |
 | P-8 | `services/sync-queue.js:232-242` | Follow-up syncs block sequentially — could fire async |
@@ -438,21 +436,19 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Files**: `services/loyalty-admin/webhook-processing-service.js`
 **Fix**: Removed as part of LA-3 fix. The entire `order.refunds[]` iteration was replaced with `order.returns[]`. The `tender_id` loop and `refund.status` check are gone — returns are iterated directly.
 
-#### LA-7: Redemption detection Strategy 3 (discount amount) can false-positive on non-loyalty discounts
+#### ~~LA-7: Redemption detection Strategy 3 (discount amount) can false-positive on non-loyalty discounts~~ (RESOLVED 2026-03-08)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/reward-service.js:393-449`
-**Issue**: `matchEarnedRewardByDiscountAmount()` sums `total_discount_money` across ALL qualifying line items regardless of discount source. If a merchant runs a 30% off sale on a qualifying item and the sale discount happens to be >= 95% of the expected reward value, Strategy 3 will incorrectly mark the reward as redeemed. There is no check that the discount came from our loyalty system.
-**Impact**: Earned rewards could be auto-redeemed by non-loyalty discounts, consuming the customer's reward without them receiving the intended free item.
-**Fix**: Either: (a) cross-reference `applied_discounts[].discount_uid` against our known discount IDs before counting, or (b) only sum discounts that match our `catalog_object_id`.
+**Files**: `services/loyalty-admin/reward-service.js`
+**Issue**: `matchEarnedRewardByDiscountAmount()` summed `total_discount_money` across ALL qualifying line items regardless of discount source.
+**Fix**: Added guard that verifies at least one order-level discount's `catalog_object_id` matches the reward's `square_discount_id` or `square_pricing_rule_id` before proceeding with amount matching. Non-loyalty discounts are now skipped. Tests in `audit-fixes.test.js`.
 
-#### LA-8: Customer note update has TOCTOU race on `version` field
+#### ~~LA-8: Customer note update has TOCTOU race on `version` field~~ (RESOLVED 2026-03-08)
 
 **Severity**: P1 | **Effort**: S
-**Files**: `services/loyalty-admin/square-discount-service.js:396-528`
-**Issue**: `updateCustomerRewardNote()` does GET customer → read `version` → PUT with `version`. If any other process updates the customer between GET and PUT (e.g., a concurrent reward for another offer, customer profile update from Square), the PUT fails with a version mismatch (409). There is no retry logic.
-**Impact**: Customer note doesn't get the reward notification line. The reward is still valid in our system and POS, but the clerk won't see the note at checkout.
-**Fix**: Add retry-on-409 loop (max 3 attempts with fresh GET each time).
+**Files**: `services/loyalty-admin/square-discount-service.js`
+**Issue**: `updateCustomerRewardNote()` had no retry on 409 version conflict during GET-modify-PUT.
+**Fix**: Wrapped entire GET-modify-PUT cycle in retry loop (max 2 retries). On 409, logs warning and re-fetches fresh customer version before retrying. Tests in `audit-fixes.test.js`.
 
 #### ~~LA-9: Backfill-orchestration creates a hybrid camelCase/snake_case order object~~ RESOLVED (2026-03-07)
 
@@ -483,13 +479,12 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Files**: `__tests__/services/loyalty-admin/webhook-refund-processing.test.js`
 **Fix**: Added 13 tests using real Square `order.returns[].return_line_items[]` shape. Tests explicitly verify that `order.refunds[]` is NOT processed (regression test).
 
-#### LA-13: No pagination guard on Square API loops in backfill/catchup
+#### ~~LA-13: No pagination guard on Square API loops in backfill/catchup~~ (RESOLVED 2026-03-08)
 
 **Severity**: P2 | **Effort**: S
-**Files**: `services/loyalty-admin/backfill-service.js:180-223`, `services/loyalty-admin/backfill-orchestration-service.js:95-237`, `services/loyalty-admin/order-history-audit-service.js:154-197`
-**Issue**: All three files have `do { ... cursor = data.cursor; } while (cursor)` loops with no MAX_ITERATIONS guard. A Square API bug or circular cursor could cause an infinite loop, each iteration making an API call.
-**Impact**: Could exhaust Square API rate limits or cause process hang.
-**Fix**: Add `MAX_PAGES = 100` constant and break with a warning log if exceeded.
+**Files**: `services/loyalty-admin/backfill-service.js`, `services/loyalty-admin/order-history-audit-service.js`
+**Issue**: Pagination loops had no MAX_ITERATIONS guard. Circular cursors could infinite-loop.
+**Fix**: Added `MAX_PAGINATION_ITERATIONS` guard (from `config/constants.js`, value 500) to both files. Logs warning and breaks on exceeded. Tests in `audit-fixes.test.js`.
 
 #### LA-14: `processExpiredWindowEntries` commits per-row but rolls back ALL rows on error
 
@@ -629,13 +624,13 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | ~~LA-4~~ | ~~P0~~ | ~~M~~ | ~~Fire-and-forget Square discount creation — silent failure, no retry~~ **RESOLVED** (2026-03-08) |
 | ~~LA-5~~ | ~~P1~~ | ~~S~~ | ~~Refund idempotency key collides on same-quantity partial refunds~~ **RESOLVED** (2026-03-07) |
 | ~~LA-6~~ | ~~P1~~ | ~~S~~ | ~~Dead-code `tender_id` loop gates refund processing~~ **RESOLVED** (2026-03-07) |
-| LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |
-| LA-8 | P1 | S | Customer note update has no retry on version conflict (409) |
+| ~~LA-7~~ | ~~P1~~ | ~~S~~ | ~~Redemption Strategy 3 can false-positive on non-loyalty discounts~~ **RESOLVED** (2026-03-08) |
+| ~~LA-8~~ | ~~P1~~ | ~~S~~ | ~~Customer note update has no retry on version conflict (409)~~ **RESOLVED** (2026-03-08) |
 | ~~LA-9~~ | ~~P1~~ | ~~S~~ | ~~Backfill-orchestration builds hybrid camelCase/snake_case order~~ **RESOLVED** (2026-03-07) |
 | ~~LA-10~~ | ~~P1~~ | ~~S~~ | ~~`processExpiredEarnedRewards` unlocks events without merchant_id filter~~ **RESOLVED** (2026-03-07) |
 | ~~LA-11~~ | ~~P1~~ | ~~S~~ | ~~Refund uses fresh window dates instead of original purchase's window~~ **RESOLVED** (2026-03-07) |
 | ~~LA-12~~ | ~~P2~~ | ~~M~~ | ~~No tests use real Square `order.returns[]` shape~~ **RESOLVED** (2026-03-07) |
-| LA-13 | P2 | S | No pagination guard on Square API loops |
+| ~~LA-13~~ | ~~P2~~ | ~~S~~ | ~~No pagination guard on Square API loops~~ **RESOLVED** (2026-03-08) |
 | LA-14 | P2 | S | Expiration error handler misleadingly appears to roll back committed rows |
 | LA-15 | P2 | M | Duplicated line-item evaluation logic between two processing paths |
 | LA-16 | P2 | S | Manual entry sets $0 price — can't calculate discount cap |

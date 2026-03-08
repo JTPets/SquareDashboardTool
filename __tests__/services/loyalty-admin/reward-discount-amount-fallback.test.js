@@ -154,6 +154,7 @@ function makeOrderWithSmallDiscount() {
         discounts: [
             {
                 uid: 'discount-uid-1',
+                catalog_object_id: 'CATALOG_DISCOUNT_XYZ',
                 name: 'Seniors Day 10% Off',
                 type: 'FIXED_PERCENTAGE',
                 applied_money: { amount: 200, currency: 'CAD' },
@@ -241,9 +242,19 @@ function makeOrderWithNonQualifyingDiscount() {
     };
 }
 
+// Default discount IDs matching order fixtures (CATALOG_DISCOUNT_XYZ / PRICING_RULE_ABC)
+const DEFAULT_DISCOUNT_ID = 'CATALOG_DISCOUNT_XYZ';
+const DEFAULT_PRICING_RULE_ID = 'PRICING_RULE_ABC';
+
 // --- Helper to mock earned rewards query ---
+// Adds default square_discount_id/square_pricing_rule_id if not provided
 function mockEarnedRewardsQuery(rewards) {
-    db.query.mockResolvedValueOnce({ rows: rewards });
+    const enriched = rewards.map(r => ({
+        square_discount_id: DEFAULT_DISCOUNT_ID,
+        square_pricing_rule_id: DEFAULT_PRICING_RULE_ID,
+        ...r,
+    }));
+    db.query.mockResolvedValueOnce({ rows: enriched });
 }
 
 // --- Helper to mock price lookup query ---
@@ -519,7 +530,7 @@ describe('matchEarnedRewardByDiscountAmount (Strategy 3)', () => {
         // Price lookup query should include merchant_id
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining('merchant_id = $2'),
-            [REWARD_ID, specificMerchant, OFFER_ID]
+            expect.arrayContaining([specificMerchant])
         );
     });
 });

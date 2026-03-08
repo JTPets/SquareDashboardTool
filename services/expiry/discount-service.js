@@ -97,15 +97,22 @@ async function updateSetting(key, value, merchantId) {
 function calculateDaysUntilExpiry(expirationDate, timezone = 'America/Toronto') {
     if (!expirationDate) return null;
 
-    const expiry = new Date(expirationDate);
-    const now = new Date();
+    // Expiration dates are calendar dates (e.g. "2026-03-15" meaning March 15).
+    // Extract the YYYY-MM-DD string directly to avoid UTC-parse timezone shift.
+    const dateStr = typeof expirationDate === 'string'
+        ? expirationDate.slice(0, 10)
+        : new Date(expirationDate).toISOString().slice(0, 10);
 
-    // Set both to start of day for accurate day calculation
-    expiry.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
+    // Get today's date in the merchant's timezone as YYYY-MM-DD
+    const nowStr = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
 
-    const diffMs = expiry - now;
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    // Both are YYYY-MM-DD strings — parse as UTC for clean day diff
+    const expiryMs = Date.parse(dateStr + 'T00:00:00Z');
+    const nowMs = Date.parse(nowStr + 'T00:00:00Z');
+
+    if (isNaN(expiryMs)) return null;
+
+    const diffDays = Math.round((expiryMs - nowMs) / (1000 * 60 * 60 * 24));
 
     return diffDays;
 }
@@ -1301,7 +1308,7 @@ async function getDiscountStatusSummary(merchantId) {
         LEFT JOIN (
             SELECT catalog_object_id, SUM(quantity) as total_stock
             FROM inventory_counts
-            WHERE state = 'IN_STOCK'
+            WHERE state = 'IN_STOCK' AND merchant_id = $1
             GROUP BY catalog_object_id
         ) ic ON vds.variation_id = ic.catalog_object_id
         WHERE edt.is_active = TRUE AND edt.merchant_id = $1
