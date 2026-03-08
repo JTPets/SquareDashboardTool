@@ -352,6 +352,92 @@ describe('discount-service.js inventory_counts merchant_id filter', () => {
 });
 
 // ============================================================================
+// auth_audit_log: merchant_id included in INSERT
+// ============================================================================
+describe('logAuthEvent includes merchant_id in auth_audit_log INSERT', () => {
+    test('INSERT INTO auth_audit_log includes merchant_id column', () => {
+        const fs = require('fs');
+        const source = fs.readFileSync(
+            require.resolve('../../middleware/auth'),
+            'utf8'
+        );
+
+        // Verify the INSERT statement includes merchant_id
+        const insertMatch = source.match(/INSERT INTO auth_audit_log\s*\(([^)]+)\)/);
+        expect(insertMatch).not.toBeNull();
+        expect(insertMatch[1]).toContain('merchant_id');
+    });
+
+    test('logAuthEvent resolves merchant_id from user_merchants when not provided', async () => {
+        jest.resetModules();
+
+        const mockQuery = jest.fn()
+            // First call: user_merchants lookup
+            .mockResolvedValueOnce({ rows: [{ merchant_id: 42 }] })
+            // Second call: INSERT
+            .mockResolvedValueOnce({ rows: [] });
+
+        jest.mock('../../utils/database', () => ({ query: mockQuery }));
+        jest.mock('../../utils/logger', () => ({
+            info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+        }));
+
+        const { logAuthEvent } = require('../../middleware/auth');
+
+        await logAuthEvent({ query: mockQuery }, {
+            userId: 7,
+            email: 'test@example.com',
+            eventType: 'login_success',
+            ipAddress: '127.0.0.1',
+        });
+
+        // Should have looked up user_merchants
+        expect(mockQuery).toHaveBeenCalledWith(
+            expect.stringContaining('user_merchants'),
+            [7]
+        );
+
+        // INSERT should include merchant_id as 7th param = 42
+        const insertCall = mockQuery.mock.calls.find(c => c[0].includes('INSERT INTO auth_audit_log'));
+        expect(insertCall).toBeDefined();
+        expect(insertCall[1][6]).toBe(42);
+    });
+
+    test('logAuthEvent skips INSERT when no merchant_id resolvable', async () => {
+        jest.resetModules();
+
+        const mockQuery = jest.fn()
+            // user_merchants lookup returns nothing
+            .mockResolvedValueOnce({ rows: [] });
+
+        jest.mock('../../utils/database', () => ({ query: mockQuery }));
+        const mockLogger = {
+            info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+        };
+        jest.mock('../../utils/logger', () => mockLogger);
+
+        const { logAuthEvent } = require('../../middleware/auth');
+
+        await logAuthEvent({ query: mockQuery }, {
+            userId: 999,
+            email: 'ghost@example.com',
+            eventType: 'login_failed',
+            ipAddress: '127.0.0.1',
+        });
+
+        // Should NOT have attempted INSERT
+        const insertCall = mockQuery.mock.calls.find(c => c[0].includes('INSERT INTO auth_audit_log'));
+        expect(insertCall).toBeUndefined();
+
+        // Should have warned
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('no merchant_id'),
+            expect.any(Object)
+        );
+    });
+});
+
+// ============================================================================
 // CLAUDE.md: Refactor-on-touch policy
 // ============================================================================
 describe('CLAUDE.md refactor-on-touch policy for 500+ line files', () => {

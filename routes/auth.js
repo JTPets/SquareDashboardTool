@@ -210,6 +210,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
     if (user) {
         await logAuthEvent(db, {
             userId: user.id,
+            merchantId: req.session?.activeMerchantId,
             email: user.email,
             eventType: 'logout',
             ipAddress,
@@ -290,6 +291,7 @@ router.post('/change-password', requireAuth, validators.changePassword, asyncHan
 
     await logAuthEvent(db, {
         userId,
+        merchantId: req.session.activeMerchantId,
         email: req.session.user.email,
         eventType: 'password_change',
         ipAddress,
@@ -401,6 +403,7 @@ router.post('/users', requireAuth, requireAdmin, validators.createUser, asyncHan
 
     await logAuthEvent(db, {
         userId: newUser.id,
+        merchantId,
         email: newUser.email,
         eventType: 'user_created',
         ipAddress,
@@ -507,6 +510,7 @@ router.put('/users/:id', requireAuth, requireAdmin, validators.updateUser, async
 
     await logAuthEvent(db, {
         userId,
+        merchantId,
         email: existingUser.rows[0].email,
         eventType: is_active === false ? 'user_deactivated' : 'user_updated',
         ipAddress,
@@ -575,6 +579,7 @@ router.post('/users/:id/reset-password', requireAuth, requireAdmin, validators.r
 
     await logAuthEvent(db, {
         userId,
+        merchantId,
         email: existingUser.rows[0].email,
         eventType: 'password_change',
         ipAddress,
@@ -646,6 +651,7 @@ router.post('/users/:id/unlock', requireAuth, requireAdmin, validators.unlockUse
 
     await logAuthEvent(db, {
         userId,
+        merchantId,
         email: result.rows[0].email,
         eventType: 'account_unlocked',
         ipAddress,

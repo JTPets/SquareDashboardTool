@@ -96,12 +96,27 @@ function requireWriteAccess(req, res, next) {
  * @param {Object} db - Database connection
  * @param {Object} params - Event parameters
  */
-async function logAuthEvent(db, { userId, email, eventType, ipAddress, userAgent, details }) {
+async function logAuthEvent(db, { userId, merchantId, email, eventType, ipAddress, userAgent, details }) {
     try {
+        // Resolve merchant_id: use provided value, or look up from user_merchants
+        let resolvedMerchantId = merchantId || null;
+        if (!resolvedMerchantId && userId) {
+            const result = await db.query(
+                'SELECT merchant_id FROM user_merchants WHERE user_id = $1 ORDER BY is_primary DESC LIMIT 1',
+                [userId]
+            );
+            resolvedMerchantId = result.rows[0]?.merchant_id || null;
+        }
+
+        if (!resolvedMerchantId) {
+            logger.warn('Cannot log auth event: no merchant_id resolvable', { eventType, email });
+            return;
+        }
+
         await db.query(`
-            INSERT INTO auth_audit_log (user_id, email, event_type, ip_address, user_agent, details)
-            VALUES ($1, $2, $3, $4, $5, $6)
-        `, [userId, email, eventType, ipAddress, userAgent, details ? JSON.stringify(details) : null]);
+            INSERT INTO auth_audit_log (user_id, email, event_type, ip_address, user_agent, details, merchant_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [userId, email, eventType, ipAddress, userAgent, details ? JSON.stringify(details) : null, resolvedMerchantId]);
     } catch (error) {
         logger.error('Failed to log auth event', { error: error.message, eventType });
     }
