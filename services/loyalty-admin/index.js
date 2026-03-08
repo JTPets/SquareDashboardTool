@@ -33,7 +33,7 @@
  * - reward-progress-service.js: updateRewardProgress
  * - customer-summary-service.js: updateCustomerSummary
  * - reward-service.js: redeemReward, detectRewardRedemptionFromOrder
- * - webhook-processing-service.js: processOrderForLoyalty, processOrderRefundsForLoyalty
+ * - webhook-processing-service.js: processOrderRefundsForLoyalty
  *
  * Usage:
  *   const loyaltyAdmin = require('./services/loyalty-admin');
@@ -165,9 +165,8 @@ const {
     matchEarnedRewardByDiscountAmount
 } = require('./reward-service');
 
-// Webhook processing service (NEW - extracted from loyalty-service.js)
+// Webhook processing service (refunds only — order processing moved to order-intake.js)
 const {
-    processOrderForLoyalty,
     processOrderRefundsForLoyalty
 } = require('./webhook-processing-service');
 
@@ -283,8 +282,7 @@ module.exports = {
     processLoyaltyOrder,
     isOrderAlreadyProcessed,
 
-    // Webhook processing (legacy — prefer processLoyaltyOrder for new code)
-    processOrderForLoyalty,
+    // Webhook refund processing
     processOrderRefundsForLoyalty,
 
     // Backfill / Sync

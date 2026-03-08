@@ -263,7 +263,7 @@ describe('loyaltyLogger', () => {
   describe('perf logging', () => {
     test('logs performance metrics', () => {
       const testData = {
-        operation: 'processOrderForLoyalty',
+        operation: 'processLoyaltyOrder',
         duration: 250,
         lineItemCount: 5,
         merchantId: 'merchant-789'
@@ -275,7 +275,7 @@ describe('loyaltyLogger', () => {
         '[LOYALTY:PERF]',
         expect.objectContaining({
           category: 'LOYALTY:PERF',
-          operation: 'processOrderForLoyalty',
+          operation: 'processLoyaltyOrder',
           duration: 250
         })
       );

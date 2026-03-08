@@ -36,7 +36,7 @@ jest.mock('../../../services/loyalty-admin/audit-service', () => ({
 }));
 
 jest.mock('../../../services/loyalty-admin/webhook-processing-service', () => ({
-    processOrderForLoyalty: jest.fn(),
+    processOrderRefundsForLoyalty: jest.fn(),
 }));
 
 const { getCustomerOrderHistoryForAudit } = require('../../../services/loyalty-admin/backfill-service');
