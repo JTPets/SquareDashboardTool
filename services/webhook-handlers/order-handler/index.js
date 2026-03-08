@@ -511,7 +511,7 @@ class OrderHandler {
             const orderResponse = await squareClient.orders.get({ orderId: refund.order_id });
             const order = orderResponse.order;
 
-            if (order && order.refunds && order.refunds.length > 0) {
+            if (order && order.returns?.length > 0) {
                 const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, merchantId);
                 if (refundResult.processed) {
                     result.loyaltyRefunds = {
