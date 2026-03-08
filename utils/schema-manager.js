@@ -343,7 +343,7 @@ async function ensureSchema() {
                 ('product_url_pattern', '/product/{slug}/{variation_id}', 'URL pattern for products'),
                 ('default_condition', 'new', 'Default product condition'),
                 ('default_availability', 'in_stock', 'Default availability when stock > 0'),
-                ('currency', 'CAD', 'Default currency code'),
+                ('currency', 'CAD', 'Default currency code'), -- OSS: GMC feed default; merchants override via settings UI
                 ('feed_title', 'Product Feed', 'Feed title for GMC'),
                 ('adult_content', 'no', 'Default adult content flag'),
                 ('is_bundle', 'no', 'Default bundle flag')
@@ -479,7 +479,7 @@ async function ensureSchema() {
                 square_payment_id TEXT UNIQUE,
                 square_invoice_id TEXT,
                 amount_cents INTEGER NOT NULL,
-                currency TEXT DEFAULT 'CAD',
+                currency TEXT DEFAULT 'CAD', -- OSS: SaaS billing currency, not per-merchant inventory currency
                 status TEXT NOT NULL,
                 payment_type TEXT DEFAULT 'subscription',
                 billing_period_start TIMESTAMP,

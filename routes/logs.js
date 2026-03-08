@@ -23,7 +23,10 @@ const { requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/logs');
 
-// Get today's date in America/Toronto timezone (YYYY-MM-DD format)
+// Get today's date in server timezone (YYYY-MM-DD format)
+// OSS: System-level — must match logger.js process.env.TZ for correct log file lookup.
+// Not per-merchant; log files are stored using server timezone.
+// en-CA locale used here for YYYY-MM-DD date format (ISO-like), not merchant preference.
 function getTodayLocal() {
     const options = { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' };
     const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(new Date());

@@ -147,6 +147,7 @@ async function getRedemptionDetails(rewardId, merchantId) {
             AND r.merchant_id = lc.merchant_id
         LEFT JOIN loyalty_redemptions lr
             ON r.redemption_id = lr.id
+            AND lr.merchant_id = r.merchant_id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,
@@ -186,6 +187,7 @@ async function getRedemptionDetails(rewardId, merchantId) {
             ON pe.variation_id = v.id
         LEFT JOIN variation_vendors vv
             ON pe.variation_id = vv.variation_id
+            AND vv.merchant_id = pe.merchant_id
         WHERE pe.reward_id = $1 AND pe.merchant_id = $2
         ORDER BY pe.purchased_at ASC
     `, [rewardId, merchantId]);
@@ -247,18 +249,18 @@ async function getRedemptionDetails(rewardId, merchantId) {
         }
 
         // Order total
-        purchase.order_total_cents = fullOrder.totalMoney?.amount
-            ? parseInt(fullOrder.totalMoney.amount)
+        purchase.order_total_cents = fullOrder.totalMoney?.amount != null
+            ? Number(fullOrder.totalMoney.amount)
             : null;
 
         // Extract all line items from the order
         if (fullOrder.lineItems) {
             purchase.allLineItems = fullOrder.lineItems.map(item => {
-                const basePriceCents = item.basePriceMoney?.amount
-                    ? parseInt(item.basePriceMoney.amount)
+                const basePriceCents = item.basePriceMoney?.amount != null
+                    ? Number(item.basePriceMoney.amount)
                     : null;
-                const totalCents = item.totalMoney?.amount
-                    ? parseInt(item.totalMoney.amount)
+                const totalCents = item.totalMoney?.amount != null
+                    ? Number(item.totalMoney.amount)
                     : null;
 
                 return {
@@ -315,12 +317,15 @@ async function getRedemptionsForExport(merchantId, options = {}) {
             m.business_name,
             COALESCE(lr.redeemed_item_name, pe_info.item_name) as redeemed_item_name,
             COALESCE(lr.redeemed_variation_name, pe_info.variation_name) as redeemed_variation_name,
-            COALESCE(lr.redeemed_value_cents, pe_info.avg_price) as redeemed_value_cents
+            COALESCE(lr.redeemed_value_cents, pe_info.avg_price) as redeemed_value_cents,
+            lr.redemption_type,
+            lr.admin_notes
         FROM loyalty_rewards r
         JOIN loyalty_offers o ON r.offer_id = o.id
         JOIN merchants m ON r.merchant_id = m.id
         LEFT JOIN loyalty_redemptions lr
             ON r.redemption_id = lr.id
+            AND lr.merchant_id = r.merchant_id
         LEFT JOIN LATERAL (
             SELECT
                 lqv.item_name,
@@ -536,17 +541,19 @@ async function generateVendorReceipt(rewardId, merchantId) {
                             v.last_cost_cents as wholesale_cost_cents,
                             vv.unit_cost_money as vendor_unit_cost
                         FROM variations v
-                        LEFT JOIN variation_vendors vv ON v.id = vv.variation_id
-                        WHERE v.id = $1
-                    `, [freeItemVariationId]);
+                        LEFT JOIN variation_vendors vv
+                            ON v.id = vv.variation_id
+                            AND vv.merchant_id = $2
+                        WHERE v.id = $1 AND v.merchant_id = $2
+                    `, [freeItemVariationId, merchantId]);
                     redeemedVendorCode = vendorResult.rows[0]?.vendor_item_number || null;
                     redeemedWholesaleCostCents = vendorResult.rows[0]?.wholesale_cost_cents
                         || vendorResult.rows[0]?.vendor_unit_cost || null;
                 }
 
                 for (const item of redemptionOrder.lineItems) {
-                    const basePriceCents = item.basePriceMoney?.amount
-                        ? parseInt(item.basePriceMoney.amount)
+                    const basePriceCents = item.basePriceMoney?.amount != null
+                        ? Number(item.basePriceMoney.amount)
                         : null;
                     const itemQty = parseInt(item.quantity) || 1;
                     const isQualifyingVariation = !freeItemFound && qualifyingVariationIds.has(item.catalogObjectId);
@@ -602,8 +609,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 redemptionItems.sort((a, b) => (b.isFreeItem ? 1 : 0) - (a.isFreeItem ? 1 : 0));
 
                 const redemptionPaymentType = redemptionOrder.tenders?.[0]?.type || 'N/A';
-                const redemptionTotalCents = redemptionOrder.totalMoney?.amount
-                    ? parseInt(redemptionOrder.totalMoney.amount)
+                const redemptionTotalCents = redemptionOrder.totalMoney?.amount != null
+                    ? Number(redemptionOrder.totalMoney.amount)
                     : null;
 
                 redemptionOrderRows = `
@@ -631,11 +638,23 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 }).join('')}`;
             }
         } catch (error) {
-            logger.debug('Failed to fetch redemption order for receipt', {
+            logger.warn('Failed to fetch redemption order for receipt', {
                 orderId: data.square_order_id,
                 error: error.message
             });
-            // Continue without redemption order display
+            // Show error placeholder so franchisee knows data is missing
+            redemptionOrderRows = `
+                <tr class="redemption-separator">
+                    <td colspan="9" style="background: #f44336; color: white; text-align: center; font-weight: bold; padding: 8px;">
+                        REDEMPTION ORDER — Data Unavailable
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="9" style="text-align: center; color: #c62828; padding: 8px;">
+                        Order ${escapeHtml(data.square_order_id)} could not be retrieved from Square (${escapeHtml(error.message)}).
+                        This section is incomplete — please retry or verify manually.
+                    </td>
+                </tr>`;
         }
     }
 
@@ -1042,7 +1061,7 @@ async function generateRedemptionsCSV(merchantId, options = {}) {
         r.size_group,
         r.offer_name,
         r.square_customer_id,
-        r.redemption_type || 'STANDARD',
+        r.redemption_type || 'auto_detected',
         r.square_order_id || '',
         r.redeemed_item_name ? `${r.redeemed_item_name} - ${r.redeemed_variation_name || ''}` : '',
         r.redeemed_value_cents ? (r.redeemed_value_cents / 100).toFixed(2) : '',

@@ -1,6 +1,8 @@
 // Set timezone BEFORE requiring winston-daily-rotate-file
 // This ensures log files are named using America/Toronto timezone
 // Matches the timezone used in routes/logs.js for reading logs
+// OSS: System-level process timezone for log file rotation — not per-merchant.
+// All log files use a single server timezone regardless of merchant config.
 process.env.TZ = 'America/Toronto';
 
 const winston = require('winston');
