@@ -424,17 +424,11 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Files**: `services/loyalty-admin/webhook-processing-service.js`
 **Fix**: Rewrote `processOrderRefundsForLoyalty()` to iterate `order.returns[].return_line_items[]` (Square's actual shape). Removed `order.refunds[]` path entirely. Also removed dead-code `tender_id` loop (LA-6) and `refund.status` check (returns don't have status). Each `returnItem.uid` is passed as `returnLineItemUid` to `processRefund()` for unique idempotency (LA-5). 13 new tests in `webhook-refund-processing.test.js`.
 
-#### LA-4: Fire-and-forget `createSquareCustomerGroupDiscount()` can silently fail, leaving reward unsynced
+#### ~~LA-4: Fire-and-forget `createSquareCustomerGroupDiscount()` can silently fail, leaving reward unsynced~~ RESOLVED (2026-03-08)
 
 **Severity**: P0 | **Effort**: M
-**Files**: `services/loyalty-admin/reward-progress-service.js:257-285`
-**Issue**: When a reward is earned, `createSquareCustomerGroupDiscount()` is called as fire-and-forget (`.then().catch()`), OUTSIDE the database transaction. If it fails:
-1. The reward is marked 'earned' in the DB (committed)
-2. No Square discount/pricing rule is created
-3. The customer will NOT see the discount at POS
-4. The `.catch()` logs at ERROR but there is no retry mechanism, no flag set for manual sync
-**Impact**: Customer earns reward in our system but never sees it at POS. Silent failure — no admin notification.
-**Fix**: Either: (a) add a `square_sync_status` column to `loyalty_rewards` and set it to 'pending', with a cron job to retry; or (b) make the call inside the transaction and roll back if it fails.
+**Files**: `services/loyalty-admin/reward-progress-service.js`, `services/loyalty-admin/square-sync-retry-service.js`, `jobs/loyalty-sync-retry-job.js`
+**Fix**: Added `square_sync_pending` boolean column to `loyalty_rewards` (migration 064). When `createSquareCustomerGroupDiscount()` fails (returns `success: false` or throws), the reward is flagged `square_sync_pending = TRUE` and logged at ERROR. A new cron job (`loyalty-sync-retry-job.js`, every 15 min) finds all pending rewards and retries discount creation. On success, the flag is cleared. The existing `syncRewardsToPOS` endpoint also flushes pending syncs before its normal bulk sync. 12 tests in `square-sync-retry.test.js`.
 
 ### P1 — High (Incorrect Behavior / Edge Cases)
 
@@ -638,7 +632,7 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | ~~LA-1~~ | ~~P0~~ | ~~S~~ | ~~Backfill-orchestration bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
 | ~~LA-2~~ | ~~P0~~ | ~~S~~ | ~~`processOrderManually()` bypasses `processLoyaltyOrder()`~~ **RESOLVED** (2026-03-07) |
 | ~~LA-3~~ | ~~P0~~ | ~~M~~ | ~~Refund processing uses wrong Square order shape (`refunds` vs `returns`)~~ **RESOLVED** (2026-03-07) |
-| LA-4 | P0 | M | Fire-and-forget Square discount creation — silent failure, no retry |
+| ~~LA-4~~ | ~~P0~~ | ~~M~~ | ~~Fire-and-forget Square discount creation — silent failure, no retry~~ **RESOLVED** (2026-03-08) |
 | ~~LA-5~~ | ~~P1~~ | ~~S~~ | ~~Refund idempotency key collides on same-quantity partial refunds~~ **RESOLVED** (2026-03-07) |
 | ~~LA-6~~ | ~~P1~~ | ~~S~~ | ~~Dead-code `tender_id` loop gates refund processing~~ **RESOLVED** (2026-03-07) |
 | LA-7 | P1 | S | Redemption Strategy 3 can false-positive on non-loyalty discounts |

@@ -20,6 +20,7 @@ const {
     createSquareCustomerGroupDiscount,
     cleanupSquareCustomerGroupDiscount
 } = require('./square-discount-service');
+const { retryPendingSquareSyncs } = require('./square-sync-retry-service');
 
 /**
  * Link an offer to a Square Loyalty reward tier.
@@ -82,6 +83,15 @@ async function getRewardForSquareSync({ merchantId, rewardId }) {
 async function syncRewardsToPOS({ merchantId, force = false }) {
     if (!merchantId) {
         throw new Error('merchantId is required for syncRewardsToPOS - tenant isolation required');
+    }
+
+    // LA-4: Flush pending Square syncs first (rewards where initial discount creation failed)
+    const retryResult = await retryPendingSquareSyncs(merchantId);
+    if (retryResult.retried > 0) {
+        logger.info('Flushed pending Square syncs before bulk sync', {
+            merchantId,
+            ...retryResult
+        });
     }
 
     // Find earned rewards to sync

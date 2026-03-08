@@ -198,6 +198,9 @@ const { runBackfill } = require('./backfill-orchestration-service');
 // Redemption audit service
 const { auditMissedRedemptions } = require('./redemption-audit-service');
 
+// Square sync retry service (LA-4 fix)
+const { retryPendingSquareSyncs } = require('./square-sync-retry-service');
+
 // Order intake service (consolidated entry point for all order processing)
 const {
     processLoyaltyOrder,
@@ -341,5 +344,8 @@ module.exports = {
     createSquareReward,
 
     // Redemption audit
-    auditMissedRedemptions
+    auditMissedRedemptions,
+
+    // Square sync retry (LA-4)
+    retryPendingSquareSyncs
 };

@@ -8,6 +8,7 @@
  * Extracted from purchase-service.js as part of file-size compliance split.
  */
 
+const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
 // Direct sibling imports (not through index.js)
@@ -254,14 +255,15 @@ async function updateRewardProgress(client, data) {
             hasActiveRewards: true
         }).catch(err => logger.debug('Failed to update customer stats', { error: err.message }));
 
-        // Create Square Customer Group Discount ASYNCHRONOUSLY (fire and forget)
+        // Create Square Customer Group Discount ASYNCHRONOUSLY
+        // LA-4 fix: on failure, set square_sync_pending = true for retry
         const earnedRewardId = reward.id;
         createSquareCustomerGroupDiscount({
             merchantId,
             squareCustomerId,
             internalRewardId: earnedRewardId,
             offerId
-        }).then(squareResult => {
+        }).then(async (squareResult) => {
             if (squareResult.success) {
                 logger.info('Square discount created for earned reward', {
                     merchantId,
@@ -270,18 +272,20 @@ async function updateRewardProgress(client, data) {
                     discountId: squareResult.discountId
                 });
             } else {
-                logger.warn('Could not create Square discount - manual sync required', {
+                logger.error('Square discount creation failed — marking for retry', {
                     merchantId,
                     rewardId: earnedRewardId,
                     reason: squareResult.error
                 });
+                await markSyncPending(earnedRewardId, merchantId);
             }
-        }).catch(err => {
-            logger.error('Error creating Square discount - manual sync required', {
+        }).catch(async (err) => {
+            logger.error('Square discount creation threw — marking for retry', {
                 error: err.message,
                 merchantId,
                 rewardId: earnedRewardId
             });
+            await markSyncPending(earnedRewardId, merchantId);
         });
 
         // Re-count remaining unlocked purchases for multi-threshold check
@@ -338,6 +342,30 @@ async function updateRewardProgress(client, data) {
         currentQuantity,
         requiredQuantity: offer.required_quantity
     };
+}
+
+/**
+ * Mark a reward as needing Square sync retry (LA-4 fix)
+ *
+ * @param {string} rewardId - Reward UUID
+ * @param {number} merchantId - Merchant ID
+ */
+async function markSyncPending(rewardId, merchantId) {
+    try {
+        await db.query(
+            `UPDATE loyalty_rewards
+             SET square_sync_pending = TRUE, updated_at = NOW()
+             WHERE id = $1 AND merchant_id = $2`,
+            [rewardId, merchantId]
+        );
+        logger.info('Marked reward for Square sync retry', { rewardId, merchantId });
+    } catch (err) {
+        logger.error('Failed to mark reward for sync retry', {
+            error: err.message,
+            rewardId,
+            merchantId
+        });
+    }
 }
 
 module.exports = {

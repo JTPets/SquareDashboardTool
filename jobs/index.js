@@ -15,6 +15,7 @@ const loyaltyCatchupJob = require('./loyalty-catchup-job');
 const seniorsDayJob = require('./seniors-day-job');
 const committedInventoryJob = require('./committed-inventory-reconciliation-job');
 const trialExpiryJob = require('./trial-expiry-job');
+const loyaltySyncRetryJob = require('./loyalty-sync-retry-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -63,6 +64,10 @@ module.exports = {
     // Trial expiry notification job
     runTrialExpiryNotifications: trialExpiryJob.runTrialExpiryNotifications,
     runScheduledTrialExpiryNotifications: trialExpiryJob.runScheduledTrialExpiryNotifications,
+
+    // Loyalty sync retry job (LA-4)
+    runLoyaltySyncRetry: loyaltySyncRetryJob.runLoyaltySyncRetry,
+    runScheduledLoyaltySyncRetry: loyaltySyncRetryJob.runScheduledLoyaltySyncRetry,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,
