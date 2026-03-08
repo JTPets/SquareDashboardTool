@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const logger = require('./logger');
+const db = require('./database');
 
 class EmailNotifier {
   constructor() {
@@ -19,6 +20,32 @@ class EmailNotifier {
     }
   }
 
+  /**
+   * Resolve the email recipient for a merchant.
+   * Uses merchant's admin_email if available, falls back to platform EMAIL_TO.
+   * @param {number|null} merchantId - Optional merchant ID
+   * @returns {Promise<string>} Email address to send to
+   */
+  async _resolveRecipient(merchantId) {
+    if (merchantId) {
+      try {
+        const result = await db.query(
+          'SELECT admin_email FROM merchants WHERE id = $1',
+          [merchantId]
+        );
+        if (result.rows.length > 0 && result.rows[0].admin_email) {
+          return result.rows[0].admin_email;
+        }
+      } catch (err) {
+        logger.warn('Failed to resolve merchant admin_email, using platform default', {
+          merchantId,
+          error: err.message
+        });
+      }
+    }
+    return process.env.EMAIL_TO;
+  }
+
   async sendCritical(subject, error, context = {}) {
     if (!this.enabled) {
       logger.warn('Email notifications disabled, would have sent:', { subject, error: error.message });
@@ -33,9 +60,10 @@ class EmailNotifier {
     }
 
     try {
+      const recipient = await this._resolveRecipient(context.merchantId);
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-        to: process.env.EMAIL_TO,
+        to: recipient,
         subject: `[Square Dashboard Addon] CRITICAL: ${subject}`,
         html: `
           <h2 style="color: #dc2626;">🚨 Critical Error</h2>
@@ -60,7 +88,7 @@ class EmailNotifier {
 
       await this.transporter.sendMail(mailOptions);
       this.lastErrorEmail = now;
-      logger.info('Critical error email sent', { subject, to: process.env.EMAIL_TO });
+      logger.info('Critical error email sent', { subject, to: recipient });
 
     } catch (emailError) {
       logger.error('Failed to send error email', {
@@ -70,16 +98,17 @@ class EmailNotifier {
     }
   }
 
-  async sendAlert(subject, body) {
+  async sendAlert(subject, body, options = {}) {
     if (!this.enabled) {
       logger.warn('Email notifications disabled, would have sent alert:', { subject });
       return;
     }
 
     try {
+      const recipient = await this._resolveRecipient(options.merchantId);
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-        to: process.env.EMAIL_TO,
+        to: recipient,
         subject: `[Square Dashboard Addon] ALERT: ${subject}`,
         html: `
           <h2 style="color: #f59e0b;">⚠️ System Alert</h2>
@@ -102,7 +131,7 @@ class EmailNotifier {
       };
 
       await this.transporter.sendMail(mailOptions);
-      logger.info('Alert email sent', { subject, to: process.env.EMAIL_TO });
+      logger.info('Alert email sent', { subject, to: recipient });
 
     } catch (error) {
       logger.error('Failed to send alert email', {

@@ -27,6 +27,7 @@ jest.mock('../utils/email-notifier', () => ({
     sendCritical: jest.fn().mockResolvedValue(),
     sendAlert: jest.fn().mockResolvedValue(),
     sendInfo: jest.fn().mockResolvedValue(),
+    _resolveRecipient: jest.fn().mockResolvedValue('test@example.com'),
     enabled: false,
 }));
 
