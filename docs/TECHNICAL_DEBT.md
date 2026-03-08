@@ -2,8 +2,8 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-07
-**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07
+**Last Updated**: 2026-03-08
+**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07, MULTI-TENANT-GAPS-2026-03-08
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -650,6 +650,309 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 
 **Audit scope**: 36 source files in `services/loyalty-admin/`, 24 test files in `__tests__/services/loyalty-admin/`, 10 route modules in `routes/loyalty/`, 2 webhook handlers in `services/webhook-handlers/`.
 **Audit trigger**: Quantity-aggregation bug (multiple line items with same `catalog_object_id`) survived code review because tests used simplified order shapes.
+
+---
+
+## Multi-Tenant Gaps
+
+> **Audit date**: 2026-03-08
+> **Scope**: Full codebase audit for single-tenant assumptions that will break in multi-tenant / franchise deployment.
+> **Method**: Searched all `process.env.*` references (124 total), all cron jobs, all file I/O paths, all in-memory caches, and all external integration code.
+
+### Summary
+
+| Category | Findings | Blocks Franchise | Degrades | Cosmetic |
+|----------|----------|-----------------|----------|----------|
+| ENV credentials / config | 5 | 2 | 2 | 1 |
+| File storage / debug logs | 2 | 0 | 2 | 0 |
+| Email notifications | 1 | 1 | 0 | 0 |
+| Business logic defaults | 2 | 0 | 1 | 1 |
+| Cron / background jobs | 1 | 0 | 0 | 1 |
+| Health check | 1 | 0 | 1 | 0 |
+| **Total** | **12** | **3** | **6** | **3** |
+
+### What's Already Correct
+
+Before the findings, credit where it's due — the following are already properly multi-tenant:
+
+- **Square OAuth tokens**: Per-merchant in `merchants.square_access_token` / `square_refresh_token` (encrypted AES-256-GCM), accessed via `getSquareClientForMerchant(merchantId)`.
+- **Google OAuth tokens**: Per-merchant in `google_oauth_tokens` table with `merchant_id` FK, encrypted.
+- **GMC account linking**: Per-merchant in `gmc_settings` and `gmc_location_settings` tables.
+- **All database queries**: Consistently filter by `merchant_id` (verified across 24 route modules, ~257 routes).
+- **All cron jobs**: Iterate all active merchants with per-merchant error isolation. None hardcode a single merchant.
+- **All in-memory caches**: Keyed by `merchantId` or `orderId:merchantId` (verified: Square client cache, velocity dedup, loyalty dedup, sync queue, invoices scope cache).
+- **POD photo storage**: Already namespaced by `${merchantId}/${orderId}/${fileId}` (`delivery-service.js:1030`).
+- **Square OAuth app credentials** (`SQUARE_APPLICATION_ID`, `SQUARE_APPLICATION_SECRET`, `SQUARE_OAUTH_REDIRECT_URI`): Correctly global — these are the SaaS platform's own Square app credentials, not per-merchant.
+- **Google OAuth app credentials** (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`): Correctly global — single Google Cloud project for the platform. Per-merchant tokens are stored in DB.
+- **SaaS billing** (`SQUARE_ACCESS_TOKEN` in `utils/square-subscriptions.js`): Intentionally global — this is the platform's own Square account for subscription billing, separate from merchant accounts.
+
+---
+
+### MT-1: Webhook signature key is global (BLOCKS FRANCHISE)
+
+**Severity**: Blocks franchise
+**Files**: `services/webhook-processor.js:244`, `utils/square-webhooks.js:457-467`
+
+**What it assumes**: A single `SQUARE_WEBHOOK_SIGNATURE_KEY` env var is used to verify all incoming Square webhooks. Square assigns a unique signature key per webhook subscription (i.e., per merchant).
+
+**Current code**:
+```javascript
+// services/webhook-processor.js:244
+const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY?.trim();
+
+// utils/square-webhooks.js:460
+const key = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
+```
+
+**What breaks**: When merchant B onboards, their Square webhook subscription has a different signature key. Webhooks from merchant B will either fail signature validation (if using merchant A's key) or bypass verification entirely (if key is left unconfigured). Security risk: a single shared key means one merchant's key could be used to forge events for another.
+
+**What it should do**: Store `square_webhook_signature_key` per-merchant in the `merchants` table (encrypted). During webhook processing, resolve the merchant from the event payload's `merchant_id` field first, then fetch that merchant's signature key for HMAC verification.
+
+---
+
+### MT-2: Email notifications are global, single-recipient (BLOCKS FRANCHISE)
+
+**Severity**: Blocks franchise
+**Files**: `utils/email-notifier.js:6-18`, `utils/email-notifier.js:37-38`
+
+**What it assumes**: A single `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_TO`, and `EMAIL_FROM` env var is used for all alert emails. All critical error notifications go to a single hardcoded recipient (the platform operator).
+
+**Current code**:
+```javascript
+// utils/email-notifier.js:12-18
+this.transporter = nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE || 'gmail',
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASSWORD }
+});
+
+// utils/email-notifier.js:37-38
+from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+to: process.env.EMAIL_TO,
+```
+
+**What breaks**: Franchise operators need to receive their own error/alert emails, not have everything go to the platform operator. No per-merchant notification routing exists.
+
+**What it should do**: Add `alert_email` column to `merchants` table. Email notifier should accept `merchantId` parameter and send to the merchant's configured alert email (falling back to platform-wide `EMAIL_TO` for system-level alerts).
+
+---
+
+### MT-3: OpenRouteService API key falls back to global (BLOCKS FRANCHISE)
+
+**Severity**: Blocks franchise
+**Files**: `services/delivery/delivery-service.js:22-26`, `services/delivery/delivery-service.js:797`, `services/delivery/delivery-service.js:900`
+
+**What it assumes**: A global `OPENROUTESERVICE_API_KEY` env var is used as fallback when a merchant hasn't configured their own key. Per-merchant API keys are optional.
+
+**Current code**:
+```javascript
+// delivery-service.js:26
+const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
+
+// delivery-service.js:797
+const apiKey = settings.openrouteservice_api_key || ORS_API_KEY;
+
+// delivery-service.js:900
+const key = apiKey || ORS_API_KEY;
+```
+
+**What breaks**: All merchants share the platform's geocoding quota. One merchant's excessive usage could exhaust the API quota for all merchants. No per-merchant rate limiting or billing is possible.
+
+**What it should do**: Require per-merchant API key with no global fallback. If a merchant hasn't configured their key, return an error prompting configuration. Alternatively, provide a metered platform key with per-merchant usage tracking.
+
+---
+
+### MT-4: GMC debug files overwrite across merchants (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `services/gmc/merchant-service.js:344`, `services/gmc/merchant-service.js:572`, `services/gmc/merchant-service.js:774`, `services/gmc/merchant-service.js:1024`
+
+**What it assumes**: Debug log files are written to fixed paths (`output/gmc-product-sync-debug.log`, `output/gmc-local-inventory-debug.log`) with no merchant scoping.
+
+**Current code**:
+```javascript
+// merchant-service.js:344
+const debugFile = path.join(__dirname, '../../output/gmc-product-sync-debug.log');
+
+// merchant-service.js:774
+const debugFile = path.join(__dirname, '../../output/gmc-local-inventory-debug.log');
+```
+
+**What breaks**: When two merchants sync GMC products concurrently, one merchant's debug data overwrites the other's. Debug data contains product IDs and error details specific to each merchant.
+
+**What it should do**: Include `merchantId` in the filename: `gmc-product-sync-debug-${merchantId}.log`. Or better, use the structured logger instead of debug files.
+
+---
+
+### MT-5: GMC feed TSV file is not merchant-scoped (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `services/gmc/feed-service.js:291-310`
+
+**What it assumes**: `saveTsvFile()` defaults to a single filename `gmc-feed.tsv` in `output/feeds/`. Callers must explicitly pass a merchant-scoped filename.
+
+**Current code**:
+```javascript
+// feed-service.js:294
+async function saveTsvFile(content, filename = 'gmc-feed.tsv') {
+    const feedsDir = path.join(__dirname, '..', '..', 'output', 'feeds');
+    const filePath = path.join(feedsDir, filename);
+    await fs.writeFile(filePath, content, 'utf8');
+}
+```
+
+**What breaks**: If any caller uses the default filename, merchant B's feed overwrites merchant A's. Feed contents include product data, pricing, and inventory levels.
+
+**What it should do**: Require `merchantId` parameter and build the filename as `gmc-feed-${merchantId}.tsv`. Remove the default filename to prevent accidental cross-tenant overwrites.
+
+---
+
+### MT-6: Sync interval configuration is global, not per-merchant (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `server.js:972-980`, `routes/sync.js:150-156`, `routes/sync.js:516-525`
+
+**What it assumes**: Sync intervals (`SYNC_CATALOG_INTERVAL_HOURS`, `SYNC_INVENTORY_INTERVAL_HOURS`, etc.) are read from env vars and applied uniformly to all merchants.
+
+**Current code**:
+```javascript
+// server.js:972-980
+const intervals = {
+    catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
+    inventory: parseInt(process.env.SYNC_INVENTORY_INTERVAL_HOURS || '3'),
+    // ... 5 more interval types
+};
+```
+
+**What breaks**: Different merchants may need different sync frequencies based on their plan tier, catalog size, or Square API rate limits. A merchant with 50,000 SKUs syncing every 3 hours creates more load than one with 500 SKUs.
+
+**What it should do**: Store per-merchant sync interval overrides in `merchants.settings` JSONB (the column already exists). Fall back to env defaults when no override is set. This also enables tiered sync frequencies for different subscription plans.
+
+---
+
+### MT-7: `DAILY_COUNT_TARGET` cycle count target is global (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `routes/cycle-counts.js:41`, `services/inventory/cycle-count-service.js:32`
+
+**What it assumes**: A single `DAILY_COUNT_TARGET` env var (default: 30) sets the daily cycle count target for all merchants.
+
+**Current code**:
+```javascript
+// routes/cycle-counts.js:41
+const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+
+// cycle-count-service.js:32
+const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
+```
+
+**What breaks**: Merchants with vastly different catalog sizes need different targets. A store with 200 items wants to count 10/day; a warehouse with 10,000 wants 100/day.
+
+**What it should do**: Store per-merchant in `merchants.settings` JSONB. A default already exists in `services/merchant/settings-service.js:28` — the route and service should read from merchant settings instead of env directly.
+
+---
+
+### MT-8: Shared log files across all merchants (COSMETIC)
+
+**Severity**: Cosmetic
+**Files**: `utils/logger.js:11-41`
+
+**What it assumes**: All merchants write to the same log files (`output/logs/app-YYYY-MM-DD.log`, `output/logs/error-YYYY-MM-DD.log`).
+
+**Current state**: Logs are tagged with `merchantId` in `defaultMeta`, so filtering is possible. But all data goes to the same files.
+
+**What breaks**: Nothing functionally — log filtering works. However, at scale (50+ merchants), log volume becomes unmanageable in flat files. A merchant requesting their own audit trail must grep through shared logs.
+
+**What it should do**: Acceptable for current scale. For franchise: consider structured log shipping (e.g., to a log aggregation service) with per-merchant dashboards. Not a code change — an ops decision.
+
+---
+
+### MT-9: Health check picks arbitrary merchant for Square status (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `server.js:469-471`
+
+**What it assumes**: The detailed health check verifies Square connectivity by picking one arbitrary merchant (`LIMIT 1`).
+
+**Current code**:
+```javascript
+// server.js:469-471
+const merchantResult = await db.query(
+    'SELECT id FROM merchants WHERE square_access_token IS NOT NULL AND is_active = TRUE LIMIT 1'
+);
+```
+
+**What breaks**: If the first merchant's Square token is expired but others are fine, the health check reports "connected" or vice versa. Gives misleading platform-wide status.
+
+**What it should do**: Check connectivity for all active merchants (or a sample) and report per-merchant status. Return an aggregate health score (e.g., "4/5 merchants connected").
+
+---
+
+### MT-10: Setup script defaults to merchant ID 1 (COSMETIC)
+
+**Severity**: Cosmetic
+**Files**: `scripts/setup-seniors-discount.js:19, 27`
+
+**What it assumes**: Default merchant ID is 1 (JTPets). Comment explicitly references JTPets.
+
+**Current code**:
+```javascript
+// setup-seniors-discount.js:27
+const merchantId = parseInt(process.argv[2] || '1', 10);
+```
+
+**What breaks**: Nothing in production (script is admin-only, requires explicit merchant ID for other merchants). But hardcoded defaults to merchant 1 are a code smell for multi-tenant.
+
+**What it should do**: Make `merchantId` a required argument with no default. Print usage and exit if not provided.
+
+---
+
+### MT-11: `TOKEN_ENCRYPTION_KEY` is a single global key (COSMETIC)
+
+**Severity**: Cosmetic (acceptable for current scale, note for franchise)
+**Files**: `utils/token-encryption.js:28`
+
+**What it assumes**: A single AES-256-GCM key encrypts all merchants' Square and Google OAuth tokens.
+
+**Current code**:
+```javascript
+// token-encryption.js:28
+const key = process.env.TOKEN_ENCRYPTION_KEY;
+```
+
+**What breaks**: If the key is compromised, all merchants' tokens are exposed. Single key = single point of failure for all tenant credentials.
+
+**What it should do**: Acceptable for <50 merchants. For franchise scale: consider per-merchant key derivation using `PBKDF2(master_key, merchant_id)` so compromise of one derived key doesn't expose others. Or use a key management service (KMS).
+
+---
+
+### MT-12: Subscription status never auto-transitions (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `server.js:892-921` (inline cron)
+
+**What it assumes**: The subscription check cron logs warnings about expiring trials but never actually updates `merchants.subscription_status` from `'trial'` to `'expired'`. The `loadMerchantContext` middleware handles this dynamically by checking `trial_ends_at`, but the column stays stale.
+
+**What breaks**: Admin reporting queries on `merchants.subscription_status` will show inaccurate data. A franchise admin dashboard showing "5 active trials" when 3 have actually expired is misleading.
+
+**What it should do**: Add `UPDATE merchants SET subscription_status = 'expired' WHERE subscription_status = 'trial' AND trial_ends_at < NOW()` to the cron job. Already noted in CLAUDE.md as a known TODO.
+
+---
+
+### Not a Gap: Items Verified as Correct
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Square OAuth flow | Correct | Platform app credentials global; per-merchant tokens in DB |
+| Google OAuth flow | Correct | Platform credentials global; per-merchant tokens in `google_oauth_tokens` |
+| GMC account linking | Correct | Per-merchant in `gmc_settings` with `merchant_id` FK |
+| SaaS subscription billing | Correct | Intentionally uses platform's own Square account |
+| All cron jobs | Correct | All iterate `getAllActiveMerchants()` with per-merchant error isolation |
+| All in-memory caches | Correct | All keyed by `merchantId` or `orderId:merchantId` |
+| POD photo storage | Correct | Path includes `${merchantId}/${orderId}/` |
+| Database queries | Correct | All filter by `merchant_id` |
+| Webhook URL (`SQUARE_WEBHOOK_URL`) | Correct | Single endpoint for all merchants is the correct Square pattern |
+| Square environment (`SQUARE_ENVIRONMENT`) | Correct | All merchants use same environment (production); sandbox is dev-only |
+| `SUPER_ADMIN_EMAILS` | Correct | Platform-level admin list, not per-merchant |
 
 ---
 
