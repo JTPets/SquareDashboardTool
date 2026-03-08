@@ -665,11 +665,12 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 |----------|----------|-----------------|----------|----------|
 | ENV credentials / config | 5 | 2 | 2 | 1 |
 | File storage / debug logs | 2 | 0 | 2 | 0 |
+| In-memory state | 1 | 0 | 1 | 0 |
 | Email notifications | 1 | 1 | 0 | 0 |
 | Business logic defaults | 2 | 0 | 1 | 1 |
 | Cron / background jobs | 1 | 0 | 0 | 1 |
 | Health check | 1 | 0 | 1 | 0 |
-| **Total** | **12** | **3** | **6** | **3** |
+| **Total** | **13** | **3** | **7** | **3** |
 
 ### What's Already Correct
 
@@ -935,6 +936,36 @@ const key = process.env.TOKEN_ENCRYPTION_KEY;
 **What breaks**: Admin reporting queries on `merchants.subscription_status` will show inaccurate data. A franchise admin dashboard showing "5 active trials" when 3 have actually expired is misleading.
 
 **What it should do**: Add `UPDATE merchants SET subscription_status = 'expired' WHERE subscription_status = 'trial' AND trial_ends_at < NOW()` to the cron job. Already noted in CLAUDE.md as a known TODO.
+
+---
+
+### MT-13: GMC module-level debug state shared across merchants (DEGRADES)
+
+**Severity**: Degrades
+**Files**: `services/gmc/merchant-service.js:328-332`, `services/gmc/merchant-service.js:741-745`
+
+**What it assumes**: Module-level objects `upsertProductState` and `localInventoryState` hold debug counters and logging flags shared across all merchants.
+
+**Current code**:
+```javascript
+// merchant-service.js:328-332
+const upsertProductState = {
+    _logged: false,
+    _debugCount: { ONLINE: 0, LOCAL: 0 },
+    _successCount: { ONLINE: 0, LOCAL: 0 }
+};
+
+// merchant-service.js:741-745
+const localInventoryState = {
+    _loggedSuccess: false,
+    _errorCount: 0,
+    _debugCount: 0
+};
+```
+
+**What breaks**: When two merchants sync GMC products concurrently, they share these counters and flags. Merchant A sets `_logged = true`, so merchant B's first-product debug logging is skipped. Error counts and success counts from both merchants are mixed together, producing misleading debug output. The `syncProductCatalog()` function resets counters per call (line ~566), but concurrent calls still interleave.
+
+**What it should do**: Move state objects to local variables inside `syncProductCatalog()` and `syncAllLocationsInventory()`, passed as parameters to `upsertProduct()` and `updateLocalInventory()`. Or use a Map keyed by merchantId if cross-call tracking is needed.
 
 ---
 
