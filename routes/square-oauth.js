@@ -320,11 +320,11 @@ router.get('/callback', asyncHandler(async (req, res) => {
         // Log the successful connection
         await logAuthEvent(db, {
             userId: stateRecord.user_id,
+            merchantId: newMerchantId,
             eventType: 'merchant_connected',
             ipAddress: getClientIp(req),
             userAgent: req.headers['user-agent'],
             details: {
-                merchantId: newMerchantId,
                 squareMerchantId: merchantId,
                 businessName: businessName
             }

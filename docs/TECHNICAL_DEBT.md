@@ -184,6 +184,12 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: `event.daysUntilExpiry || null` — the `||` operator treats `0` as falsy. When an item expires today (`daysUntilExpiry = 0`), the value is stored as NULL in the `expiry_discount_audit_log`. This loses the distinction between "expires today" and "no expiry date set".
 **Fix**: Changed `daysUntilExpiry || null`, `oldPriceCents || null`, and `newPriceCents || null` to use `??` (nullish coalescing). 3 tests in `falsy-zero-bugs.test.js`.
 
+### ~~BUG: `logAuthEvent` inserts auth_audit_log without merchant_id~~ RESOLVED (2026-03-08)
+
+**File**: `middleware/auth.js:99-108`, `routes/auth.js` (14 call sites), `routes/square-oauth.js` (2 call sites)
+**Issue**: `logAuthEvent()` INSERT omitted `merchant_id`, producing NULL rows. Migration 065 added NOT NULL constraint on `auth_audit_log.merchant_id`, so all future inserts would throw.
+**Fix**: Added `merchantId` to `logAuthEvent` params and SQL. When not provided, auto-resolves from `user_merchants` using `userId`. Skips INSERT (with logger warning) when no merchant resolvable (e.g., login_failed for non-existent user). Updated all 16 call sites in `routes/auth.js` and `routes/square-oauth.js` to pass `merchantId` where available. 3 tests in `audit-fixes.test.js`.
+
 ### PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure
 
 **File**: `services/reports/loyalty-reports.js:633-639`
