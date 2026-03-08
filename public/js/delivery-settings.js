@@ -3,6 +3,13 @@
  * Extracted for CSP compliance (P0-4 Phase 2)
  */
 
+function escapeHtml(text) {
+  if (!text && text !== 0) return '';
+  var div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
 let currentSettings = {};
 
 async function loadSettings() {
@@ -47,7 +54,7 @@ function updateGeocodeStatus(field, lat, lng) {
   }
 
   if (lat && lng) {
-    statusEl.innerHTML = `<span class="geocode-status success">Geocoded (${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)})</span>`;
+    statusEl.innerHTML = `<span class="geocode-status success">Geocoded (${escapeHtml(parseFloat(lat).toFixed(4))}, ${escapeHtml(parseFloat(lng).toFixed(4))})</span>`;
   } else {
     statusEl.innerHTML = `<span class="geocode-status pending">Will be geocoded on save</span>`;
   }
@@ -105,7 +112,7 @@ async function saveSettings(e) {
 
 function showMessage(text, type) {
   const messageEl = document.getElementById('message');
-  messageEl.innerHTML = `<div class="alert ${type}">${text}</div>`;
+  messageEl.innerHTML = `<div class="alert ${escapeHtml(type)}">${escapeHtml(text)}</div>`;
   setTimeout(() => { messageEl.innerHTML = ''; }, 5000);
 }
 

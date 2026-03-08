@@ -263,7 +263,11 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | S-8 | `server.js:459-472` | Health endpoint exposes heap memory, node version, uptime, webhook failures to unauthenticated users |
 | S-9 | Project-wide | No CSRF token middleware — relies on SameSite + CORS only |
 | S-11 | `routes/square-oauth.js:242-244` | Session fixation window on OAuth callback — session not regenerated after merchant binding |
-| SEC-8/9 | `utils/database.js` | `batchUpsert`/`MerchantDB.update` interpolate column names — not user-controlled, but violates parameterization rule |
+| SEC-8 | `utils/database.js` | `batchUpsert` interpolates column names — not user-controlled, but violates parameterization rule |
+| ~~SEC-9~~ | ~~`utils/merchant-db.js`~~ | ~~`MerchantDB.update` SQL injection~~ **RESOLVED** (2026-03-08) — file deleted (confirmed dead code) |
+| ~~S-12~~ | ~~`services/delivery/delivery-service.js`~~ | ~~POD serve path has no path normalization — path traversal possible~~ **RESOLVED** (2026-03-08) |
+| ~~SEC-12~~ | ~~`public/js/logs.js`~~ | ~~innerHTML assignments without escaping — XSS via log data~~ **RESOLVED** (2026-03-08) |
+| ~~SEC-13~~ | ~~`public/js/delivery-settings.js`~~ | ~~innerHTML assignments without escaping — XSS via user input~~ **RESOLVED** (2026-03-08) |
 | SEC-14 | `services/gmc/feed-service.js` | `resolveImageUrls` missing `merchant_id` filter on image lookup |
 
 ---
@@ -309,6 +313,8 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | File | Description |
 |----|------|-------------|
+| ~~DC-SUB~~ | ~~`middleware/subscription-check.js`~~ | ~~504-line System B subscription middleware — confirmed dead after 2026-03-01 removal~~ **DELETED** (2026-03-08) |
+| ~~DC-MDB~~ | ~~`utils/merchant-db.js`~~ | ~~567-line MerchantDB class — never imported, contains SEC-9 SQL injection~~ **DELETED** (2026-03-08) |
 | DEAD-6-12 | `server.js` | 7 dead imports + dead `podUpload` config + ~75 lines of "EXTRACTED" comments — ~100 lines removable |
 | DC-1 | `utils/*.js` (9 files) | Backward-compatibility re-export stubs. 3 single-consumer stubs (`loyalty-reports.js`, `vendor-catalog.js`, `google-sheets.js`) could be eliminated by updating their one caller |
 | O-1 | `services/square/square-pricing.js` | `updateVariationPrice` exported but never imported or called anywhere — dead export |
@@ -570,11 +576,11 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Backfill re-processes non-qualifying orders on every run, wasting API calls (fetching order from Square) and DB queries.
 **Fix**: Backfill's `isOrderAlreadyProcessedForLoyalty` should also check `loyalty_processed_orders`.
 
-#### LA-23: Currency hardcoded to CAD in loyalty discount creation
+#### ~~LA-23: Currency hardcoded to CAD in loyalty discount creation~~ RESOLVED (2026-03-08)
 
 **Severity**: P2 | **Effort**: S
-**Files**: `services/loyalty-admin/square-discount-catalog-service.js` (already noted in TECHNICAL_DEBT.md)
-**Note**: Already logged above. Including here for completeness of the loyalty audit.
+**Files**: `services/loyalty-admin/square-discount-catalog-service.js`
+**Fix**: Added `getMerchantCurrency()` that fetches the merchant's currency from Square's Merchants API (`GET /v2/merchants/{id}`) with in-memory caching per merchantId. Both `createRewardDiscount` and `updateRewardDiscountAmount` now use the fetched currency instead of hardcoded 'CAD'. Falls back to 'CAD' with logger.warn on API failure.
 
 #### LA-24: `updateCustomerSummary` called after reward revocation in `processRefund` but NOT in `processExpiredEarnedRewards`
 
@@ -646,7 +652,7 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 | LA-20 | P2 | S | Redemption detection runs twice per order webhook |
 | LA-21 | P2 | M | Multi-threshold rollover with split-row edge cases untested |
 | LA-22 | P2 | S | Two idempotency check functions check different tables |
-| LA-23 | P2 | S | Currency hardcoded to CAD (duplicate of existing finding) |
+| ~~LA-23~~ | ~~P2~~ | ~~S~~ | ~~Currency hardcoded to CAD~~ **RESOLVED** (2026-03-08) |
 | LA-24 | P2 | S | Missing `updateCustomerSummary` call after expiration revocation |
 | ~~LA-25~~ | ~~P1~~ | ~~S~~ | ~~Vendor lookup in `offer-admin-service.js` lacks merchant_id filter~~ **RESOLVED** (2026-03-07) |
 | LA-26 | P2 | S | `SquareApiClient` search methods silently truncate to first page |
@@ -695,25 +701,9 @@ Before the findings, credit where it's due — the following are already properl
 
 ---
 
-### MT-1: Webhook signature key is global (BLOCKS FRANCHISE)
+### ~~MT-1: Webhook signature key is global~~ FALSE POSITIVE — by design (2026-03-08)
 
-**Severity**: Blocks franchise
-**Files**: `services/webhook-processor.js:244`, `utils/square-webhooks.js:457-467`
-
-**What it assumes**: A single `SQUARE_WEBHOOK_SIGNATURE_KEY` env var is used to verify all incoming Square webhooks. Square assigns a unique signature key per webhook subscription (i.e., per merchant).
-
-**Current code**:
-```javascript
-// services/webhook-processor.js:244
-const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY?.trim();
-
-// utils/square-webhooks.js:460
-const key = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
-```
-
-**What breaks**: When merchant B onboards, their Square webhook subscription has a different signature key. Webhooks from merchant B will either fail signature validation (if using merchant A's key) or bypass verification entirely (if key is left unconfigured). Security risk: a single shared key means one merchant's key could be used to forge events for another.
-
-**What it should do**: Store `square_webhook_signature_key` per-merchant in the `merchants` table (encrypted). During webhook processing, resolve the merchant from the event payload's `merchant_id` field first, then fetch that merchant's signature key for HMAC verification.
+**Resolution**: SqTools uses a single Square developer app; all merchants OAuth into the same app. Square signs all webhooks with the app-level signature key, not per-merchant keys. Per-merchant keys would only apply if each merchant ran their own Square developer app, which is not the SqTools model. A single `SQUARE_WEBHOOK_SIGNATURE_KEY` is correct.
 
 ---
 

@@ -266,7 +266,6 @@ SquareDashboardTool/
 │   ├── auth.js               # Authentication middleware
 │   ├── merchant.js           # Multi-tenant context
 │   ├── security.js           # Headers, CORS, rate limiting
-│   ├── subscription-check.js # Subscription validation
 │   └── validators/           # 24 input validation modules
 ├── services/
 │   ├── loyalty/              # Loyalty event processing (8 modules)

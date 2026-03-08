@@ -3,6 +3,8 @@
  * Extracted for CSP compliance (P0-4 Phase 2)
  */
 
+// escapeHtml is loaded globally from public/js/utils/escape.js
+
 let allLogs = [];
 let refreshInterval;
 let countdownInterval;
@@ -33,8 +35,12 @@ async function loadLogs() {
     allLogs = data.logs || [];
     filterLogs();
   } catch (error) {
-    document.getElementById('logs-content').innerHTML =
-      '<div class="error-message">Failed to load logs: ' + error.message + '</div>';
+    const errDiv = document.getElementById('logs-content');
+    errDiv.textContent = '';
+    const errMsg = document.createElement('div');
+    errMsg.className = 'error-message';
+    errMsg.textContent = 'Failed to load logs: ' + error.message;
+    errDiv.appendChild(errMsg);
   }
 }
 
@@ -65,10 +71,10 @@ function filterLogs() {
       <tbody>
         ${filteredLogs.map(log => `
           <tr>
-            <td class="log-timestamp">${log.timestamp || '--'}</td>
-            <td><span class="log-level ${log.level}">${log.level}</span></td>
+            <td class="log-timestamp">${escapeHtml(log.timestamp || '--')}</td>
+            <td><span class="log-level ${escapeHtml(log.level || '')}">${escapeHtml(log.level || '')}</span></td>
             <td class="log-message">${escapeHtml(log.message || '')}</td>
-            <td>${log.service || 'square-dashboard-addon'}</td>
+            <td>${escapeHtml(log.service || 'square-dashboard-addon')}</td>
           </tr>
         `).join('')}
       </tbody>
