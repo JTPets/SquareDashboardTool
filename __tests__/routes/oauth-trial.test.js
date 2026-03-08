@@ -89,11 +89,11 @@ function createTestApp() {
 
     // Inject test session user
     app.use((req, res, next) => {
-        req.session.user = { id: 1, email: 'john@jtpets.ca', role: 'admin' };
+        req.session.user = { id: 1, email: 'test@example.com', role: 'admin' };
         req.session.activeMerchantId = null;
         // Mock session.regenerate
         req.session.regenerate = (cb) => {
-            req.session.user = { id: 1, email: 'john@jtpets.ca', role: 'admin' };
+            req.session.user = { id: 1, email: 'test@example.com', role: 'admin' };
             cb(null);
         };
         next();

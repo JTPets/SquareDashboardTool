@@ -16,7 +16,7 @@
  * Usage:
  *   node scripts/setup-seniors-discount.js [merchantId]
  *
- * If merchantId is not provided, defaults to merchant ID 1 (JTPets).
+ * If merchantId is not provided, defaults to merchant ID 1.
  */
 
 const { SeniorsService } = require('../services/seniors');
