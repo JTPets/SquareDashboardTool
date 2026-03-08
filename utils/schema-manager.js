@@ -369,7 +369,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS gmc_location_settings (
                 id SERIAL PRIMARY KEY,
-                merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
                 location_id TEXT NOT NULL,
                 google_store_code TEXT,
                 enabled BOOLEAN DEFAULT TRUE,
@@ -385,7 +385,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS google_oauth_tokens (
                 id SERIAL PRIMARY KEY,
-                merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
                 access_token TEXT,
                 refresh_token TEXT,
                 token_type TEXT,
@@ -835,7 +835,7 @@ async function ensureSchema() {
                 square_event_id TEXT UNIQUE,
                 event_type TEXT NOT NULL,
                 square_merchant_id TEXT,
-                merchant_id INTEGER REFERENCES merchants(id),
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 event_data JSONB,
                 status TEXT NOT NULL DEFAULT 'received',
                 processed_at TIMESTAMPTZ,
@@ -990,14 +990,14 @@ async function ensureSchema() {
         }
     }
 
-    // Add merchant_id to auth_audit_log (no foreign key - for flexibility)
+    // Add merchant_id to auth_audit_log with FK to merchants
     try {
         const auditMerchantCheck = await query(`
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'auth_audit_log' AND column_name = 'merchant_id'
         `);
         if (auditMerchantCheck.rows.length === 0) {
-            await query('ALTER TABLE auth_audit_log ADD COLUMN IF NOT EXISTS merchant_id INTEGER');
+            await query('ALTER TABLE auth_audit_log ADD COLUMN IF NOT EXISTS merchant_id INTEGER NOT NULL REFERENCES merchants(id)');
             logger.info('Added merchant_id column to auth_audit_log');
             appliedCount++;
         }
@@ -1767,7 +1767,7 @@ async function ensureSchema() {
             await query(`
                 CREATE TABLE gmc_sync_logs (
                     id SERIAL PRIMARY KEY,
-                    merchant_id INTEGER REFERENCES merchants(id) ON DELETE CASCADE,
+                    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
                     sync_type TEXT NOT NULL,
                     status TEXT NOT NULL,
                     total_items INTEGER DEFAULT 0,
