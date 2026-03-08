@@ -430,7 +430,7 @@ describe('OrderHandler', () => {
             });
         });
 
-        it('should process refunds when order has refund data', async () => {
+        it('should process returns when order has return data', async () => {
             const ctx = makeContext({
                 data: {
                     order_created: {
@@ -439,7 +439,7 @@ describe('OrderHandler', () => {
                         customer_id: 'cust_1',
                         line_items: [{ catalog_object_id: 'var_1', quantity: '2', total_money: { amount: 2000 } }],
                         location_id: 'loc_1',
-                        refunds: [{ id: 'refund_1', status: 'COMPLETED' }]
+                        returns: [{ uid: 'ret_1', return_line_items: [{ uid: 'rli_1', source_line_item_uid: 'li_1', quantity: '1' }] }]
                     }
                 },
                 entityId: 'order_refund'
@@ -958,11 +958,11 @@ describe('OrderHandler', () => {
     // ========================================================================
 
     describe('handleRefundCreatedOrUpdated', () => {
-        it('should process completed refund with order refunds', async () => {
+        it('should process completed refund when order has returns', async () => {
             mockSquareClient.orders.get.mockResolvedValueOnce({
                 order: {
                     id: 'order_1',
-                    refunds: [{ id: 'refund_1', status: 'COMPLETED' }]
+                    returns: [{ uid: 'ret_1', return_line_items: [{ uid: 'rli_1' }] }]
                 }
             });
 
@@ -981,6 +981,26 @@ describe('OrderHandler', () => {
 
             expect(mockSquareClient.orders.get).toHaveBeenCalledWith({ orderId: 'order_1' });
             expect(result.loyaltyRefunds).toEqual({ refundsProcessed: 1 });
+        });
+
+        it('should NOT trigger loyalty return processing when order has refunds but no returns', async () => {
+            mockSquareClient.orders.get.mockResolvedValueOnce({
+                order: {
+                    id: 'order_1',
+                    refunds: [{ id: 'refund_1', status: 'COMPLETED' }]
+                }
+            });
+
+            const ctx = {
+                data: { id: 'refund_1', order_id: 'order_1', status: 'COMPLETED' },
+                merchantId: 1,
+                event: { type: 'refund.created' }
+            };
+
+            const result = await handler.handleRefundCreatedOrUpdated(ctx);
+
+            expect(mockSquareClient.orders.get).toHaveBeenCalledWith({ orderId: 'order_1' });
+            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
         });
 
         it('should skip non-COMPLETED refunds', async () => {
@@ -1489,6 +1509,78 @@ describe('OrderHandler', () => {
             expect(result.isRedemptionOrder).toBe(false);
             // No DB queries needed — no catalog discounts to check
             expect(db.query).not.toHaveBeenCalled();
+        });
+    });
+
+    // ========================================================================
+    // BUG FIX: order.returns vs order.refunds guard
+    // ========================================================================
+
+    describe('order.returns vs order.refunds guard fix', () => {
+        it('should trigger loyalty return processing when order has returns but no refunds', async () => {
+            mockProcessRefundsForLoyalty.mockResolvedValueOnce({
+                processed: true,
+                refundsProcessed: [{ id: 1 }]
+            });
+
+            const ctx = makeContext({
+                data: {
+                    order_created: {
+                        id: 'order_return_only',
+                        state: 'COMPLETED',
+                        customer_id: 'cust_1',
+                        line_items: [{
+                            catalog_object_id: 'var_1',
+                            quantity: '2',
+                            total_money: { amount: 2000 },
+                            base_price_money: { amount: 1000 }
+                        }],
+                        tenders: [{ customer_id: 'cust_1' }],
+                        location_id: 'loc_1',
+                        closed_at: new Date().toISOString(),
+                        returns: [{ uid: 'ret_1', return_line_items: [{ uid: 'rli_1', source_line_item_uid: 'li_1', quantity: '1' }] }]
+                        // No refunds property — exchange/store credit scenario
+                    }
+                },
+                entityId: 'order_return_only'
+            });
+
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockProcessRefundsForLoyalty).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 'order_return_only' }),
+                1
+            );
+            expect(result.loyaltyRefunds).toEqual({ refundsProcessed: 1 });
+        });
+
+        it('should NOT trigger loyalty return processing when order has refunds but no returns', async () => {
+            const ctx = makeContext({
+                data: {
+                    order_created: {
+                        id: 'order_refund_only',
+                        state: 'COMPLETED',
+                        customer_id: 'cust_1',
+                        line_items: [{
+                            catalog_object_id: 'var_1',
+                            quantity: '2',
+                            total_money: { amount: 2000 },
+                            base_price_money: { amount: 1000 }
+                        }],
+                        tenders: [{ customer_id: 'cust_1' }],
+                        location_id: 'loc_1',
+                        closed_at: new Date().toISOString(),
+                        refunds: [{ id: 'refund_1', status: 'COMPLETED', amount_money: { amount: 1000 } }]
+                        // Has refunds (monetary) but no returns (item returns)
+                    }
+                },
+                entityId: 'order_refund_only'
+            });
+
+            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+
+            expect(mockProcessRefundsForLoyalty).not.toHaveBeenCalled();
+            expect(result.loyaltyRefunds).toBeUndefined();
         });
     });
 });

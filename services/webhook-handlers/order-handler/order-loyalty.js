@@ -300,8 +300,8 @@ async function processLoyalty(order, merchantId, result) {
             });
         }
 
-        // Process refunds if present
-        if (order.refunds && order.refunds.length > 0) {
+        // Process returns (item returns) for loyalty adjustment
+        if (order.returns?.length > 0) {
             const refundResult = await loyaltyService.processOrderRefundsForLoyalty(order, merchantId);
             if (refundResult.processed) {
                 result.loyaltyRefunds = {

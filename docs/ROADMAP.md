@@ -113,3 +113,21 @@ No automated test execution before deploy. Deployment is manual (`pm2 restart`).
 | Decide SaaS billing provider | Stripe vs Square for SqTools subscriptions (BACKLOG-50 dependency) |
 
 **Source**: MULTI-TENANT-AUDIT Subscription System Observations
+
+---
+
+## 9. VIP Customer Auto-Discounts (BACKLOG-55)
+
+Assign customers to named VIP groups (e.g., "Family", "Staff Alumni", "Investor") in Square customer profiles. Pricing rules auto-apply configured discount % at POS with no staff action required. Management UI to assign/remove VIP status and set discount % per group. Uses existing Square customer group + pricing rule infrastructure from loyalty system. No loyalty points on VIP-discounted items.
+
+---
+
+## 10. Employee KPI Coaching Dashboard (BACKLOG-53)
+
+Do not recreate Square's native labor reports. Instead pull `employee_id` from orders + labor webhook data to surface: loyalty enrollments per employee, qualifying item upsell rate, avg basket size, punctuality from timecards. Coaching view, not payroll. Franchise-relevant for store managers.
+
+---
+
+## 11. Employee Auto-Discounts (BACKLOG-54)
+
+Use `employee_id` already present on Square orders to auto-apply staff discount. Create discount via Square catalog API, apply via pricing rule scoped to employee group. No loyalty points on staff purchases. Needs staff list management UI.

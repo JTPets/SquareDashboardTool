@@ -116,13 +116,12 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Fix**: Removed the inline `<script>` block entirely. CSV download and print buttons now use event listeners attached programmatically from the opener window after `document.write()` completes. The CSV is generated via Blob URL + temporary `<a>` element click. No new files needed — fix is self-contained in `vendor-catalog.js`.
 **Source**: Observed during S-4 audit (2026-03-04), fixed 2026-03-04
 
-### BUG: `order.refunds` guard prevents loyalty return processing
+### ~~BUG: `order.refunds` guard prevents loyalty return processing~~ RESOLVED
 
 **Files**: `services/webhook-handlers/order-handler/index.js:514`, `services/webhook-handlers/order-handler/order-loyalty.js:304`
 **Issue**: Both files guard `processOrderRefundsForLoyalty()` with `if (order.refunds && order.refunds.length > 0)`. However, `processOrderRefundsForLoyalty()` (in `services/loyalty-admin/webhook-processing-service.js:348`) processes `order.returns` (line-item returns), NOT `order.refunds` (payment refunds). These are different Square API concepts: `order.refunds` = monetary refunds on tenders, `order.returns` = line items returned to inventory. When a customer returns items without a monetary refund (exchange, store credit), the guard fails and loyalty point adjustments never happen.
-**Impact**: Loyalty points are not decremented for item returns that don't include a payment refund. Severity depends on how often exchanges/store-credit returns occur. The downstream function is correctly implemented — only the guard condition is wrong.
-**Priority**: High — confirmed class of bug (wrong Square API property name).
-**Source**: Square API audit (2026-03-07)
+**Fix**: Changed both guards to check `order.returns?.length > 0` instead of `order.refunds`. Added tests: order with returns but no refunds triggers loyalty processing; order with refunds but no returns does not. Downstream `processOrderRefundsForLoyalty()` already correctly uses `order.returns` (LA-3 fix).
+**Source**: Square API audit (2026-03-07), resolved 2026-03-08
 
 ### ~~RISK: `vendor_information` field name may be wrong in catalog sync~~ FALSE POSITIVE
 
