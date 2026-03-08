@@ -3,6 +3,7 @@
  *
  * Validates tenant isolation (merchant_id) on all UPDATE/DELETE queries
  * in processExpiredEarnedRewards (LA-10 fix).
+ * Validates updateCustomerSummary is called after revocation (LA-24 fix).
  */
 
 const db = require('../../../utils/database');
@@ -19,14 +20,26 @@ jest.mock('../../../services/loyalty-admin/reward-progress-service', () => ({
     updateRewardProgress: jest.fn().mockResolvedValue(),
 }));
 
+jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
+    updateCustomerSummary: jest.fn().mockResolvedValue(),
+}));
+
 const { processExpiredEarnedRewards, processExpiredWindowEntries } = require('../../../services/loyalty-admin/expiration-service');
+const { updateCustomerSummary } = require('../../../services/loyalty-admin/customer-summary-service');
+const { logAuditEvent } = require('../../../services/loyalty-admin/audit-service');
 
 const MERCHANT_ID = 42;
-const OTHER_MERCHANT_ID = 99;
 
 describe('processExpiredEarnedRewards', () => {
+    let mockClient;
+
     beforeEach(() => {
         jest.clearAllMocks();
+        mockClient = {
+            query: jest.fn().mockResolvedValue({ rows: [] }),
+            release: jest.fn()
+        };
+        db.pool = { connect: jest.fn().mockResolvedValue(mockClient) };
     });
 
     test('throws if merchantId is missing', async () => {
@@ -65,18 +78,16 @@ describe('processExpiredEarnedRewards', () => {
             square_group_id: null
         };
 
-        // First call: SELECT expired rewards
         db.query.mockResolvedValueOnce({ rows: [expiredReward] });
-        // Second call: UPDATE loyalty_rewards
-        db.query.mockResolvedValueOnce({ rows: [] });
-        // Third call: UPDATE loyalty_purchase_events (unlock)
-        db.query.mockResolvedValueOnce({ rows: [] });
 
         await processExpiredEarnedRewards(MERCHANT_ID);
 
-        // The UPDATE loyalty_rewards call (second query)
-        const [revokeSql, revokeParams] = db.query.mock.calls[1];
-        expect(revokeSql).toContain('UPDATE loyalty_rewards');
+        // Find the UPDATE loyalty_rewards call on the transaction client
+        const revokeCalls = mockClient.query.mock.calls.filter(
+            ([sql]) => typeof sql === 'string' && sql.includes('UPDATE loyalty_rewards')
+        );
+        expect(revokeCalls).toHaveLength(1);
+        const [revokeSql, revokeParams] = revokeCalls[0];
         expect(revokeSql).toContain('AND merchant_id = $2');
         expect(revokeParams).toEqual([expiredReward.id, MERCHANT_ID]);
     });
@@ -92,43 +103,107 @@ describe('processExpiredEarnedRewards', () => {
             square_group_id: null
         };
 
-        // First call: SELECT expired rewards
         db.query.mockResolvedValueOnce({ rows: [expiredReward] });
-        // Second call: UPDATE loyalty_rewards
-        db.query.mockResolvedValueOnce({ rows: [] });
-        // Third call: UPDATE loyalty_purchase_events (unlock)
-        db.query.mockResolvedValueOnce({ rows: [] });
 
         await processExpiredEarnedRewards(MERCHANT_ID);
 
-        // The UPDATE loyalty_purchase_events call (third query)
-        const [unlockSql, unlockParams] = db.query.mock.calls[2];
-        expect(unlockSql).toContain('UPDATE loyalty_purchase_events');
+        const unlockCalls = mockClient.query.mock.calls.filter(
+            ([sql]) => typeof sql === 'string' && sql.includes('UPDATE loyalty_purchase_events')
+        );
+        expect(unlockCalls).toHaveLength(1);
+        const [unlockSql, unlockParams] = unlockCalls[0];
         expect(unlockSql).toContain('AND merchant_id = $2');
         expect(unlockParams).toEqual([expiredReward.id, MERCHANT_ID]);
     });
 
-    test('processes multiple expired rewards with correct merchant_id', async () => {
+    test('LA-24: calls updateCustomerSummary after reward revocation', async () => {
+        const expiredReward = {
+            id: 10,
+            offer_id: 'offer-uuid-5',
+            offer_name: 'Test Offer',
+            square_customer_id: 'CUST_1',
+            earned_at: '2025-01-01',
+            square_discount_id: null,
+            square_group_id: null
+        };
+
+        db.query.mockResolvedValueOnce({ rows: [expiredReward] });
+
+        await processExpiredEarnedRewards(MERCHANT_ID);
+
+        expect(updateCustomerSummary).toHaveBeenCalledTimes(1);
+        expect(updateCustomerSummary).toHaveBeenCalledWith(
+            mockClient,
+            MERCHANT_ID,
+            'CUST_1',
+            'offer-uuid-5'
+        );
+    });
+
+    test('LA-24: calls updateCustomerSummary for each expired reward', async () => {
         const rewards = [
-            { id: 10, offer_id: 5, offer_name: 'Offer A', square_customer_id: 'CUST_1', earned_at: '2025-01-01', square_discount_id: null, square_group_id: null },
-            { id: 20, offer_id: 6, offer_name: 'Offer B', square_customer_id: 'CUST_2', earned_at: '2025-02-01', square_discount_id: null, square_group_id: null }
+            { id: 10, offer_id: 'offer-5', offer_name: 'Offer A', square_customer_id: 'CUST_1', earned_at: '2025-01-01', square_discount_id: null, square_group_id: null },
+            { id: 20, offer_id: 'offer-6', offer_name: 'Offer B', square_customer_id: 'CUST_2', earned_at: '2025-02-01', square_discount_id: null, square_group_id: null }
         ];
 
         db.query.mockResolvedValueOnce({ rows: rewards });
-        // For each reward: UPDATE rewards + UPDATE purchase_events = 2 queries
-        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await processExpiredEarnedRewards(MERCHANT_ID);
+
+        expect(result.processedCount).toBe(2);
+        expect(result.revokedRewards).toHaveLength(2);
+        expect(updateCustomerSummary).toHaveBeenCalledTimes(2);
+        expect(updateCustomerSummary).toHaveBeenCalledWith(mockClient, MERCHANT_ID, 'CUST_1', 'offer-5');
+        expect(updateCustomerSummary).toHaveBeenCalledWith(mockClient, MERCHANT_ID, 'CUST_2', 'offer-6');
+    });
+
+    test('LA-24: audit event uses transaction client', async () => {
+        const expiredReward = {
+            id: 10,
+            offer_id: 'offer-5',
+            offer_name: 'Test Offer',
+            square_customer_id: 'CUST_1',
+            earned_at: '2025-01-01',
+            square_discount_id: null,
+            square_group_id: null
+        };
+
+        db.query.mockResolvedValueOnce({ rows: [expiredReward] });
+
+        await processExpiredEarnedRewards(MERCHANT_ID);
+
+        expect(logAuditEvent).toHaveBeenCalledTimes(1);
+        // Second argument should be the transaction client
+        expect(logAuditEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                merchantId: MERCHANT_ID,
+                action: expect.any(String),
+                rewardId: 10,
+                squareCustomerId: 'CUST_1'
+            }),
+            mockClient
+        );
+    });
+
+    test('processes multiple expired rewards with correct merchant_id', async () => {
+        const rewards = [
+            { id: 10, offer_id: 'offer-5', offer_name: 'Offer A', square_customer_id: 'CUST_1', earned_at: '2025-01-01', square_discount_id: null, square_group_id: null },
+            { id: 20, offer_id: 'offer-6', offer_name: 'Offer B', square_customer_id: 'CUST_2', earned_at: '2025-02-01', square_discount_id: null, square_group_id: null }
+        ];
+
+        db.query.mockResolvedValueOnce({ rows: rewards });
 
         const result = await processExpiredEarnedRewards(MERCHANT_ID);
 
         expect(result.processedCount).toBe(2);
         expect(result.revokedRewards).toHaveLength(2);
 
-        // Verify all UPDATE queries include merchant_id
-        for (let i = 1; i < db.query.mock.calls.length; i++) {
-            const [sql, params] = db.query.mock.calls[i];
-            if (sql.includes('UPDATE')) {
-                expect(params).toContain(MERCHANT_ID);
-            }
+        // Verify all UPDATE queries on the client include merchant_id
+        const updateCalls = mockClient.query.mock.calls.filter(
+            ([sql]) => typeof sql === 'string' && sql.includes('UPDATE')
+        );
+        for (const [, params] of updateCalls) {
+            expect(params).toContain(MERCHANT_ID);
         }
     });
 });

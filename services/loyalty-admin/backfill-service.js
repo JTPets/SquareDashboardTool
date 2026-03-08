@@ -35,8 +35,13 @@ const { getCustomerOrderHistoryForAudit, addOrdersToLoyaltyTracking } = require(
 const catchupRecentlyRan = new TTLCache(120000);
 
 /**
- * Check if an order has already been processed for loyalty
- * Uses the idempotency constraint on loyalty_purchase_events
+ * Check if an order has already been processed for loyalty.
+ * Checks both loyalty_processed_orders AND loyalty_purchase_events
+ * to match the idempotency check in order-intake.js (LA-22 fix).
+ *
+ * Previously only checked loyalty_purchase_events, causing backfill
+ * to re-process non-qualifying orders (which exist in
+ * loyalty_processed_orders but not in loyalty_purchase_events).
  *
  * @param {string} squareOrderId - Square order ID
  * @param {number} merchantId - Internal merchant ID
@@ -44,8 +49,14 @@ const catchupRecentlyRan = new TTLCache(120000);
  */
 async function isOrderAlreadyProcessedForLoyalty(squareOrderId, merchantId) {
     const result = await db.query(`
-        SELECT 1 FROM loyalty_purchase_events
-        WHERE merchant_id = $1 AND square_order_id = $2
+        SELECT 1 FROM (
+            SELECT 1 FROM loyalty_processed_orders
+            WHERE merchant_id = $1 AND square_order_id = $2
+            UNION ALL
+            SELECT 1 FROM loyalty_purchase_events
+            WHERE merchant_id = $1 AND square_order_id = $2
+            LIMIT 1
+        ) AS found
         LIMIT 1
     `, [merchantId, squareOrderId]);
     return result.rows.length > 0;
