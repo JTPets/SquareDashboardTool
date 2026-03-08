@@ -241,13 +241,11 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 
 | Document | Contents |
 |----------|----------|
-| [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | P0/P1/P2/P3 status, roadmap to A++ |
-| [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) | Vulnerability history, fixes, security best practices |
+| [docs/TECHNICAL_DEBT.md](./docs/TECHNICAL_DEBT.md) | Known issues, observations, deferred work |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
-| [docs/CODE_AUDIT_REPORT.md](./docs/CODE_AUDIT_REPORT.md) | Security audit findings and fix status |
-| [docs/DEDUP-AUDIT.md](./docs/DEDUP-AUDIT.md) | Codebase deduplication audit (2026-02-17) — 18 findings, 10 fixed |
-| [REMEDIATION-PLAN.md](./REMEDIATION-PLAN.md) | Master remediation plan — all packages, backlog items, observation logs |
-| [docs/archive/](./docs/archive/) | Completed work: EVENT_DELEGATION, API_OPTIMIZATION_PLAN, API_CACHING_STRATEGY |
+| [docs/PRIORITIES.md](./docs/PRIORITIES.md) | Active HIGH/MEDIUM/LOW priority work items |
+| [docs/ROADMAP.md](./docs/ROADMAP.md) | Future initiatives and planned features |
+| [docs/archive/](./docs/archive/) | Reference material: EVENT_DELEGATION, API_CACHING_STRATEGY, sales velocity refactor plan |
 
 ---
 
@@ -418,7 +416,7 @@ Both `reorder.js` and `expiry-discounts.js` now load tier config from `/api/expi
 
 #### Subscription System Observations (2026-03-01)
 
-Documented during subscription enforcement implementation. See `docs/MULTI-TENANT-AUDIT.md` for full audit.
+Documented during subscription enforcement implementation (2026-03-01).
 
 | Finding | Status | Notes |
 |---------|--------|-------|

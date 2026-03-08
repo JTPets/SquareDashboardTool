@@ -316,7 +316,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ~~DC-SUB~~ | ~~`middleware/subscription-check.js`~~ | ~~504-line System B subscription middleware — confirmed dead after 2026-03-01 removal~~ **DELETED** (2026-03-08) |
 | ~~DC-MDB~~ | ~~`utils/merchant-db.js`~~ | ~~567-line MerchantDB class — never imported, contains SEC-9 SQL injection~~ **DELETED** (2026-03-08) |
 | DEAD-6-12 | `server.js` | 7 dead imports + dead `podUpload` config + ~75 lines of "EXTRACTED" comments — ~100 lines removable |
-| DC-1 | `utils/*.js` (9 files) | Backward-compatibility re-export stubs. 3 single-consumer stubs (`loyalty-reports.js`, `vendor-catalog.js`, `google-sheets.js`) could be eliminated by updating their one caller |
+| ~~DC-1~~ | ~~`utils/*.js` (9 files)~~ | ~~Backward-compatibility re-export stubs~~ **INVESTIGATED 2026-03-08**: No re-export stubs found — all 23 utils/ files contain substantive implementations. Closing as false positive. |
 | O-1 | `services/square/square-pricing.js` | `updateVariationPrice` exported but never imported or called anywhere — dead export |
 
 ---
@@ -506,13 +506,11 @@ Deep audit of the entire loyalty system (`services/loyalty-admin/`, `services/we
 **Impact**: Partial processing is silently committed. Not a bug per se (each row's COMMIT is correct), but the error handler is misleading — it appears to roll back everything but actually only rolls back the current row.
 **Fix**: Either use `db.transaction()` helper per row, or change the catch block to only log (the individual COMMITs already handle success).
 
-#### LA-15: `webhook-processing-service.js` duplicates line-item evaluation logic from `order-intake.js`
+#### ~~LA-15: `webhook-processing-service.js` duplicates line-item evaluation logic from `order-intake.js`~~ — **RESOLVED 2026-03-08**
 
 **Severity**: P2 | **Effort**: M
-**Files**: `services/loyalty-admin/webhook-processing-service.js:118-317`, `services/loyalty-admin/order-intake.js:99-414`
-**Issue**: `processOrderForLoyalty()` in `webhook-processing-service.js` contains ~200 lines of line-item evaluation, discount detection, and free-item skipping logic that is duplicated (with slight differences) in `order-intake.js`. The two implementations can drift — for example, `order-intake.js` aggregates by variationId (the fix), but `webhook-processing-service.js` does not.
-**Impact**: Bug fixes applied to one path don't automatically apply to the other. The quantity bug (LA-1/LA-2) is an example of this drift.
-**Fix**: After LA-1 and LA-2 are fixed (all callers use `processLoyaltyOrder`), `processOrderForLoyalty` in `webhook-processing-service.js` becomes dead code. Remove it and update exports.
+**Files**: `services/loyalty-admin/webhook-processing-service.js`
+**Fix**: Removed `processOrderForLoyalty()` (~300 lines) from `webhook-processing-service.js`. All callers now use `processLoyaltyOrder()` from `order-intake.js`. Removed export from `index.js`. File now only contains `processOrderRefundsForLoyalty()` (refund path not yet migrated to order-intake.js).
 
 #### LA-16: Manual entry bypasses line-item aggregation — double-counting possible
 
