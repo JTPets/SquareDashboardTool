@@ -18,6 +18,11 @@ const { updateCustomerStats } = require('./customer-cache-service');
 const { createSquareCustomerGroupDiscount } = require('./square-discount-service');
 const { updateCustomerSummary } = require('./customer-summary-service');
 
+// Lazy-required in resolveConflictViaSquare to avoid pulling 'square' SDK
+// at module load time (breaks tests that don't mock middleware/merchant).
+// const { getSquareClientForMerchant } = require('../../middleware/merchant');
+// const { queryQualifyingVariations } = require('./loyalty-queries');
+
 // TODO: Refactoring suggestions — do not implement in this PR.
 // This function mixes locking, calculation, transition, and new-reward-creation.
 // Suggested extractions:
@@ -45,6 +50,148 @@ const { updateCustomerSummary } = require('./customer-summary-service');
 //    Outputs: void
 //    Owns: UPDATE to earned, audit event, customer stats, Square discount creation
 //    Risk: Low — all side-effect code already isolated in called services
+
+/**
+ * Resolve an in_progress reward conflict by verifying quantity via Square API.
+ *
+ * Called when ON CONFLICT fires (two concurrent webhooks both INSERT the same
+ * in_progress reward). Fetches the triggering order from Square, counts
+ * qualifying line items as ground truth, re-derives the total from the DB,
+ * and UPDATEs the reward to the verified quantity.
+ *
+ * LOGIC CHANGE: Conflict resolution now verifies quantities via Square API
+ * instead of blindly using GREATEST(existing, incoming).
+ * Before: GREATEST was used as the final quantity — could be wrong if either
+ * concurrent transaction calculated from a stale snapshot.
+ * After: Square order is fetched as ground truth, DB is re-queried for the
+ * authoritative total, and the reward is updated to the verified quantity.
+ * Falls back to GREATEST only if the Square API call fails.
+ *
+ * @param {Object} client - Database transaction client
+ * @param {Object} reward - The reward row returned from INSERT ON CONFLICT
+ * @param {Object} params - { merchantId, offerId, squareCustomerId, existingQuantity, incomingQuantity }
+ * @returns {Promise<number>} The verified quantity set on the reward
+ */
+async function resolveConflictViaSquare(client, reward, params) {
+    const { merchantId, offerId, squareCustomerId, existingQuantity, incomingQuantity } = params;
+
+    // Lazy require to avoid pulling 'square' SDK at module load time
+    const { getSquareClientForMerchant } = require('../../middleware/merchant');
+    const { queryQualifyingVariations } = require('./loyalty-queries');
+
+    // Get the most recent order ID from this customer's unlocked purchase events
+    const recentOrderResult = await client.query(`
+        SELECT square_order_id FROM loyalty_purchase_events
+        WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3
+          AND window_end_date >= CURRENT_DATE AND reward_id IS NULL
+        ORDER BY purchased_at DESC, id DESC
+        LIMIT 1
+    `, [merchantId, offerId, squareCustomerId]);
+
+    const orderId = recentOrderResult.rows[0]?.square_order_id;
+
+    logger.warn('Concurrent in_progress reward conflict detected', {
+        event: 'in_progress_conflict',
+        customerId: squareCustomerId,
+        offerId,
+        merchantId,
+        existingQuantity,
+        incomingQuantity,
+        orderId: orderId || null
+    });
+
+    if (!orderId) {
+        // No order to verify — fall back to GREATEST (already applied by SQL)
+        logger.error('Conflict resolution cannot verify — no order ID found', {
+            event: 'in_progress_conflict_fallback',
+            reason: 'no_order_id',
+            merchantId,
+            offerId,
+            customerId: squareCustomerId
+        });
+        return reward.current_quantity;
+    }
+
+    try {
+        // Fetch the order from Square as ground truth
+        const squareClient = await getSquareClientForMerchant(merchantId);
+        const orderResponse = await squareClient.orders.get({ orderId });
+        const order = orderResponse.order;
+
+        if (!order || !order.lineItems) {
+            logger.error('Conflict resolution cannot verify — order has no line items', {
+                event: 'in_progress_conflict_fallback',
+                reason: 'empty_order',
+                merchantId,
+                offerId,
+                orderId
+            });
+            return reward.current_quantity;
+        }
+
+        // Get qualifying variation IDs for this offer
+        const qualifyingVars = await queryQualifyingVariations(offerId, merchantId);
+        const qualifyingIds = new Set(qualifyingVars.map(v => v.variation_id));
+
+        // Count qualifying items in the Square order
+        let squareQualifyingQty = 0;
+        for (const lineItem of order.lineItems) {
+            if (qualifyingIds.has(lineItem.catalogObjectId)) {
+                squareQualifyingQty += parseInt(lineItem.quantity) || 0;
+            }
+        }
+
+        // Re-derive total from DB (authoritative after both purchase events are inserted)
+        const verifiedResult = await client.query(`
+            SELECT COALESCE(SUM(quantity), 0) as total_quantity
+            FROM loyalty_purchase_events lpe
+            WHERE lpe.merchant_id = $1
+              AND lpe.offer_id = $2
+              AND lpe.square_customer_id = $3
+              AND lpe.window_end_date >= CURRENT_DATE
+              AND lpe.reward_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM loyalty_purchase_events child
+                  WHERE child.original_event_id = lpe.id
+              )
+        `, [merchantId, offerId, squareCustomerId]);
+
+        const verifiedQuantity = parseInt(verifiedResult.rows[0].total_quantity) || 0;
+
+        // UPDATE the reward to the verified quantity
+        await client.query(`
+            UPDATE loyalty_rewards
+            SET current_quantity = $1, updated_at = NOW()
+            WHERE id = $2 AND merchant_id = $3
+        `, [verifiedQuantity, reward.id, merchantId]);
+
+        reward.current_quantity = verifiedQuantity;
+
+        logger.info('Conflict resolved via Square verification', {
+            event: 'in_progress_conflict_resolved',
+            customerId: squareCustomerId,
+            offerId,
+            merchantId,
+            verifiedQuantity,
+            orderId,
+            squareQualifyingQty
+        });
+
+        return verifiedQuantity;
+    } catch (err) {
+        // Square API failure — fall back to GREATEST (already applied by SQL)
+        logger.error('Conflict resolution Square API failed — using GREATEST fallback', {
+            event: 'in_progress_conflict_fallback',
+            reason: err.message,
+            merchantId,
+            offerId,
+            customerId: squareCustomerId,
+            orderId,
+            fallbackQuantity: reward.current_quantity
+        });
+        return reward.current_quantity;
+    }
+}
 
 /**
  * Update reward progress for a customer+offer after a purchase or refund
@@ -119,8 +266,8 @@ async function updateRewardProgress(client, data) {
         // LOGIC CHANGE: Added ON CONFLICT ... DO UPDATE to initial in_progress INSERT.
         // Before: plain INSERT threw on unique violation when two concurrent
         // webhooks both found no existing in_progress reward.
-        // After: conflict is absorbed — the existing row is updated with the
-        // higher quantity, and the transaction completes successfully.
+        // After: conflict is absorbed — GREATEST is applied as an interim value,
+        // then resolveConflictViaSquare verifies via Square API and corrects.
         const newRewardResult = await client.query(`
             INSERT INTO loyalty_rewards (
                 merchant_id, offer_id, square_customer_id, status,
@@ -141,15 +288,23 @@ async function updateRewardProgress(client, data) {
 
         reward = newRewardResult.rows[0];
 
-        if (reward.conflict_occurred) {
-            logger.warn('Concurrent in_progress reward conflict resolved', {
-                event: 'in_progress_conflict',
-                customerId: squareCustomerId,
-                offerId,
+        // LOGIC CHANGE: On conflict, verify quantity via Square API instead of
+        // blindly trusting GREATEST. Before: GREATEST was the final value.
+        // After: Square order is fetched as ground truth, DB re-queried for
+        // authoritative total, reward updated to verified quantity. Falls back
+        // to GREATEST only on Square API failure.
+        if (reward && reward.conflict_occurred) {
+            // existingQuantity: if GREATEST > incoming, existing was higher; otherwise unknown
+            const greatestQty = parseInt(reward.current_quantity) || 0;
+            const existingQty = greatestQty !== currentQuantity ? greatestQty : currentQuantity;
+            const verifiedQty = await resolveConflictViaSquare(client, reward, {
                 merchantId,
-                rewardId: reward.id,
-                resolvedQuantity: reward.current_quantity
+                offerId,
+                squareCustomerId,
+                existingQuantity: existingQty,
+                incomingQuantity: currentQuantity
             });
+            currentQuantity = verifiedQty;
         }
     } else if (reward) {
         // Update existing reward (B5 fix: added AND merchant_id)
@@ -387,8 +542,8 @@ async function updateRewardProgress(client, data) {
             // LOGIC CHANGE: Added ON CONFLICT ... DO UPDATE to in_progress INSERT.
             // Before: plain INSERT threw on unique violation, rolling back the entire
             // transaction and permanently losing that order's purchase data.
-            // After: conflict is absorbed — the existing in_progress row is updated
-            // with the higher quantity, and the transaction completes successfully.
+            // After: conflict is absorbed — GREATEST is applied as an interim value,
+            // then resolveConflictViaSquare verifies via Square API and corrects.
             const nextRewardResult = await client.query(`
                 INSERT INTO loyalty_rewards (
                     merchant_id, offer_id, square_customer_id, status,
@@ -414,16 +569,19 @@ async function updateRewardProgress(client, data) {
 
             reward = nextRewardResult.rows[0];
 
-            // Log conflict at WARN level for observability
-            if (reward.conflict_occurred) {
-                logger.warn('Concurrent in_progress reward conflict resolved', {
-                    event: 'in_progress_conflict',
-                    customerId: squareCustomerId,
-                    offerId,
+            // LOGIC CHANGE: On conflict, verify quantity via Square API (same as
+            // initial INSERT path). See resolveConflictViaSquare JSDoc for details.
+            if (reward && reward.conflict_occurred) {
+                const greatestQty = parseInt(reward.current_quantity) || 0;
+                const existingQty = greatestQty !== currentQuantity ? greatestQty : currentQuantity;
+                const verifiedQty = await resolveConflictViaSquare(client, reward, {
                     merchantId,
-                    rewardId: reward.id,
-                    resolvedQuantity: reward.current_quantity
+                    offerId,
+                    squareCustomerId,
+                    existingQuantity: existingQty,
+                    incomingQuantity: currentQuantity
                 });
+                currentQuantity = verifiedQty;
             }
         } else {
             // Update existing in_progress reward quantity or exit loop
