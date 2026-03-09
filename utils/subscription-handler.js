@@ -287,7 +287,7 @@ async function recordPayment({
     squarePaymentId,
     squareInvoiceId,
     amountCents,
-    currency = 'CAD',
+    currency = 'CAD', // OSS: SaaS billing currency, not per-merchant inventory currency
     status,
     paymentType = 'subscription',
     billingPeriodStart,

@@ -56,8 +56,9 @@ router.get('/seniors/status', requireAuth, requireMerchant, asyncHandler(async (
         try {
             const service = new SeniorsService(merchantId);
             await service.initialize();
+            const merchantTimezone = req.merchantContext.timezone || 'America/New_York';
             const todayParts = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/Toronto',
+                timeZone: merchantTimezone,
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',

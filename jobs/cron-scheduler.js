@@ -4,6 +4,10 @@
  * Central initialization for all scheduled cron jobs.
  * Manages cron task lifecycle including registration and graceful shutdown.
  *
+ * OSS: All cron schedules use a single server timezone (America/Toronto) for
+ * job execution timing. Per-merchant timezone handling is done inside each
+ * job's handler function, not in the cron schedule itself.
+ *
  * @module jobs/cron-scheduler
  */
 

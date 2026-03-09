@@ -163,6 +163,7 @@ async function createSquarePlan(plan, accessToken) {
                                 type: 'STATIC',
                                 price_money: {
                                     amount: plan.price_cents,
+                                    // OSS: SaaS billing currency — platform subscription pricing
                                     currency: 'CAD'
                                 }
                             }

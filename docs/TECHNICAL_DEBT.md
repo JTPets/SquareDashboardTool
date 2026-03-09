@@ -81,12 +81,29 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: Noise in error logs; may trigger false alarms if error log monitoring is added.
 **Source**: Observed during vendor sync testing
 
-### Currency hardcoded to CAD in loyalty discount catalog objects
+### ~~Currency hardcoded to CAD in loyalty discount catalog objects~~ RESOLVED (2026-03-08)
 
 **File**: `services/loyalty-admin/square-discount-catalog-service.js` (line ~68)
 **Issue**: `createRewardDiscount` hardcodes `currency: 'CAD'` in the `maximum_amount_money` field of the DISCOUNT catalog object. For multi-tenant SaaS with merchants outside Canada, this must be pulled from merchant config (e.g., `merchants.currency` or Square location settings).
-**Impact**: None currently — all merchants are Canadian. Will break for non-CAD merchants.
+**Fix**: Already resolved via LA-23. `getMerchantCurrency()` fetches from Square API with caching.
 **Source**: Observed during square-discount-service.js split (2026-03-06)
+
+### OSS locale sweep — hardcoded timezone/locale/currency (2026-03-08)
+
+**Scope**: Codebase-wide audit of hardcoded `'America/Toronto'`, `'en-CA'`, and `'CAD'` strings.
+**Changes made**:
+- Added `locale TEXT DEFAULT 'en-CA'` column to `merchants` table (migration 068)
+- Updated `merchants.timezone` default from `'America/New_York'` to `'America/Toronto'` (migration 068)
+- Updated `merchants.currency` default from `'USD'` to `'CAD'` (migration 068)
+- Added `getMerchantLocaleConfig(merchantId)` helper in `services/merchant/settings-service.js`
+- Updated `middleware/merchant.js` to expose `locale` in `req.merchantContext`
+- `services/catalog/variation-service.js`: hardcoded `'CAD'` replaced with `getMerchantLocaleConfig(merchantId).currency`
+- `routes/seniors.js`: hardcoded `'America/Toronto'` replaced with `req.merchantContext.timezone`
+- System-level files annotated with comments explaining why they are not per-merchant: `utils/logger.js`, `routes/logs.js`, `jobs/cron-scheduler.js`, `routes/subscriptions.js`, `utils/subscription-handler.js`, `utils/square-subscriptions.js`, `utils/schema-manager.js`
+
+**Remaining (frontend — future work)**:
+- `public/js/vendor-dashboard.js`, `public/js/expiry.js`, `public/js/dashboard.js`, `public/js/cycle-count-history.js`, `public/js/cycle-count.js`, `public/js/deleted-items.js`, `public/js/vendor-catalog.js`, `public/js/gmc-feed.js`: hardcoded `'en-CA'` and `'CAD'` in `toLocaleString()` calls. These frontend files do not have access to merchant context. Fixing requires passing locale/currency via page-level merchant config API or global JS variable. Low priority — display-only impact.
+- `public/subscribe.html`, `public/gmc-feed.html`: HTML text with `'CAD'`. GMC feed already reads from settings table. Subscribe page is SaaS billing (intentionally CAD).
 
 ### `hashResetToken` duplicated in `auth.js` and `subscriptions.js`
 
@@ -144,18 +161,18 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Impact**: None — functionally correct, just confusing.
 **Source**: Square API audit (2026-03-07)
 
-### `loyalty-reports.js` vendor JOIN missing `merchant_id` filter
+### ~~`loyalty-reports.js` vendor JOIN missing `merchant_id` filter~~ RESOLVED (2026-03-08)
 
 **File**: `services/reports/loyalty-reports.js:188,539`
 **Issue**: `LEFT JOIN variation_vendors vv ON pe.variation_id = vv.variation_id` and `LEFT JOIN variation_vendors vv ON v.id = vv.variation_id` — both JOINs omit `AND vv.merchant_id = $N`. Violates the multi-tenant pattern. No data leakage in practice (Square variation IDs are globally unique), but inconsistent with the codebase's security model.
-**Impact**: Low — theoretical multi-tenant violation only.
+**Fix**: Added `AND vv.merchant_id = pe.merchant_id` and `AND vv.merchant_id = $2` to both JOINs. Also added `AND lr.merchant_id = r.merchant_id` to both `loyalty_redemptions` JOINs. 3 tests.
 **Source**: Square API audit (2026-03-07)
 
-### `loyalty-reports.js` uses `parseInt()` on SDK BigInt money amounts
+### ~~`loyalty-reports.js` uses `parseInt()` on SDK BigInt money amounts~~ RESOLVED (2026-03-08)
 
 **File**: `services/reports/loyalty-reports.js:251,258,261,549,606`
 **Issue**: Fetches orders via `squareClient.orders.get()` (SDK), which returns `Money.amount` as BigInt in SDK v43+. Uses `parseInt(amount)` which works via implicit BigInt→String→Number conversion, but is not the standard pattern. Should use `Number()` for clarity and safety.
-**Impact**: Low — works correctly but fragile. Would break if BigInt string representation changes.
+**Fix**: Replaced all `parseInt()` on `.amount` fields with `Number()`. Also changed truthiness checks from `? parseInt(x)` to `!= null ? Number(x)` to correctly handle zero amounts (BigInt `0n` is falsy). 3 tests covering BigInt, regular number, and zero-amount cases.
 **Source**: Square API audit (2026-03-07)
 
 ### `discount-service.js` `updateDiscountAppliesTo` is effectively a no-op
@@ -190,19 +207,18 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: `logAuthEvent()` INSERT omitted `merchant_id`, producing NULL rows. Migration 065 added NOT NULL constraint on `auth_audit_log.merchant_id`, so all future inserts would throw.
 **Fix**: Added `merchantId` to `logAuthEvent` params and SQL. When not provided, auto-resolves from `user_merchants` using `userId`. Skips INSERT (with logger warning) when no merchant resolvable (e.g., login_failed for non-existent user). Updated all 16 call sites in `routes/auth.js` and `routes/square-oauth.js` to pass `merchantId` where available. 3 tests in `audit-fixes.test.js`.
 
-### PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure
+### ~~PROBABLE BUG: `loyalty-reports.js` silently omits redemption order section on fetch failure~~ RESOLVED (2026-03-08)
 
 **File**: `services/reports/loyalty-reports.js:633-639`
 **Issue**: When the Square API call to fetch the redemption order fails, the catch block logs at `debug` level and continues. The vendor receipt is generated without the "REDEMPTION ORDER" section — the entire record of what free item was given is missing. The receipt appears complete to the user/vendor but is silently missing the most important part.
-**Impact**: Medium — vendor receives a receipt that looks complete but omits the free item details. No indication of failure. A vendor reviewing costs would not know data is missing.
-**Priority**: Medium — should show error placeholder or warning when redemption order fetch fails.
+**Fix**: Replaced silent omission with a visible error placeholder in the HTML. Shows red "Data Unavailable" banner with order ID and error message. Log level upgraded from `debug` to `warn`. 3 tests.
 **Source**: Square API audit (2026-03-07)
 
-### `loyalty-reports.js` CSV export references unselected columns
+### ~~`loyalty-reports.js` CSV export references unselected columns~~ RESOLVED (2026-03-08)
 
 **File**: `services/reports/loyalty-reports.js:1045,1053`
 **Issue**: `generateRedemptionsCSV` accesses `r.redemption_type` (line 1045, defaults to `'STANDARD'`) and `r.admin_notes` (line 1053, defaults to `''`), but the SQL query `getRedemptionsForExport` (lines 300-363) does not SELECT either column. Both are always undefined, producing hardcoded defaults in every CSV row.
-**Impact**: Low — CSV always shows "STANDARD" for type and empty for notes regardless of actual data. Data silently missing from exports.
+**Fix**: Added `lr.redemption_type` and `lr.admin_notes` to the SELECT in `getRedemptionsForExport`. Also added `AND lr.merchant_id = r.merchant_id` to the `loyalty_redemptions` JOIN. Changed fallback default from `'STANDARD'` to `'auto_detected'` (matching actual schema CHECK constraint values). 2 tests.
 **Source**: Square API audit (2026-03-07)
 
 ### RISK: Delta sync does not mark child variations as deleted

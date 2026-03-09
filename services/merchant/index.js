@@ -19,6 +19,7 @@ const {
     updateMerchantSettings,
     getMerchantSetting,
     getDefaultSettings,
+    getMerchantLocaleConfig,
     DEFAULT_MERCHANT_SETTINGS,
     ALLOWED_SETTING_FIELDS
 } = require('./settings-service');
@@ -29,6 +30,7 @@ module.exports = {
     updateMerchantSettings,
     getMerchantSetting,
     getDefaultSettings,
+    getMerchantLocaleConfig,
 
     // Constants
     DEFAULT_MERCHANT_SETTINGS,

@@ -308,6 +308,8 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
                     idempotency_key: generateIdempotencyKey(`payment-${subscriber.id}`),
                     amount_money: {
                         amount: finalPriceCents,
+                        // OSS: SaaS billing currency — this is the platform's subscription fee,
+                        // not a per-merchant inventory currency. Hardcoded intentionally.
                         currency: 'CAD'
                     },
                     customer_id: squareCustomerId,
@@ -323,7 +325,8 @@ router.post('/subscriptions/create', validators.createSubscription, asyncHandler
                     subscriberId: subscriber.id,
                     squarePaymentId: paymentResult.id,
                     amountCents: finalPriceCents,
-                    currency: 'CAD',
+                    currency: 'CAD', // OSS: SaaS billing currency, not per-merchant
+
                     status: paymentResult.status === 'COMPLETED' ? 'completed' : 'pending',
                     paymentType: 'subscription',
                     receiptUrl: paymentResult.receipt_url

@@ -95,8 +95,9 @@ CREATE TABLE merchants (
     subscription_plan_id INTEGER,
     trial_ends_at TIMESTAMPTZ,
     subscription_ends_at TIMESTAMPTZ,
-    timezone TEXT DEFAULT 'America/New_York',
-    currency TEXT DEFAULT 'USD',
+    timezone TEXT DEFAULT 'America/Toronto',
+    currency TEXT DEFAULT 'CAD',
+    locale TEXT DEFAULT 'en-CA',
     settings JSONB DEFAULT '{}',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1078,7 +1079,7 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
 
     -- Payment details
     amount_cents INTEGER NOT NULL,
-    currency TEXT DEFAULT 'CAD',
+    currency TEXT DEFAULT 'CAD', -- SaaS billing currency, not per-merchant
     status TEXT NOT NULL, -- completed, failed, refunded, pending
 
     -- Payment type

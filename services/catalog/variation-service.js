@@ -15,6 +15,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const squareApi = require('../square');
+const { getMerchantLocaleConfig } = require('../merchant');
 const { batchResolveImageUrls } = require('../../utils/image-utils');
 
 // Allowed fields for extended updates
@@ -462,11 +463,12 @@ async function updateCost(variationId, merchantId, costCents, vendorId = null) {
     // If we have a vendor, update Square and local DB
     if (targetVendorId) {
         try {
+            const localeConfig = await getMerchantLocaleConfig(merchantId);
             await squareApi.updateVariationCost(
                 variationId,
                 targetVendorId,
                 Math.round(costCents),
-                'CAD',
+                localeConfig.currency,
                 { merchantId }
             );
 

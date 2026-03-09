@@ -207,7 +207,7 @@ async function batchUpdateVariationPrices(priceUpdates, merchantId) {
  * @param {string} variationId - The Square catalog object ID for the variation
  * @param {string} vendorId - The vendor ID for this cost
  * @param {number} newCostCents - The new cost in cents
- * @param {string} currency - The currency (default CAD)
+ * @param {string} currency - The currency (callers should pass merchant currency)
  * @param {Object} options - Additional options
  * @param {number} options.merchantId - The merchant ID for multi-tenant support
  * @returns {Promise<Object>} Result with old/new cost info

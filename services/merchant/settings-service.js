@@ -201,11 +201,32 @@ function getDefaultSettings() {
     return { ...DEFAULT_MERCHANT_SETTINGS };
 }
 
+/**
+ * Get merchant locale configuration (timezone, currency, locale) from merchants table.
+ * For use in services/jobs that don't have req.merchantContext.
+ *
+ * @param {number} merchantId - Merchant ID
+ * @returns {Promise<{timezone: string, currency: string, locale: string}>}
+ */
+async function getMerchantLocaleConfig(merchantId) {
+    const result = await db.query(
+        'SELECT timezone, currency, locale FROM merchants WHERE id = $1',
+        [merchantId]
+    );
+    const row = result.rows[0];
+    return {
+        timezone: row?.timezone || 'America/Toronto',
+        currency: row?.currency || 'CAD',
+        locale: row?.locale || 'en-CA'
+    };
+}
+
 module.exports = {
     getMerchantSettings,
     updateMerchantSettings,
     getMerchantSetting,
     getDefaultSettings,
+    getMerchantLocaleConfig,
     DEFAULT_MERCHANT_SETTINGS,
     ALLOWED_SETTING_FIELDS
 };
