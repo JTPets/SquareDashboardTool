@@ -3,6 +3,7 @@
  *
  * Covers the two race condition fixes:
  * CRIT-1: ON CONFLICT handling for concurrent in_progress reward creation
+ *         with Square API verification on conflict
  * CRIT-2: FOR UPDATE SKIP LOCKED on purchase event reads
  */
 
@@ -33,6 +34,14 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { debug: jest.fn(), audit: jest.fn(), error: jest.fn() }
 }));
 
+const mockSquareOrdersGet = jest.fn();
+const mockGetSquareClientForMerchant = jest.fn().mockResolvedValue({
+    orders: { get: mockSquareOrdersGet }
+});
+jest.mock('../../../middleware/merchant', () => ({
+    getSquareClientForMerchant: mockGetSquareClientForMerchant
+}));
+
 const mockLogAuditEvent = jest.fn().mockResolvedValue();
 jest.mock('../../../services/loyalty-admin/audit-service', () => ({
     logAuditEvent: mockLogAuditEvent
@@ -53,6 +62,11 @@ jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
     updateCustomerSummary: mockUpdateCustomerSummary
 }));
 
+const mockQueryQualifyingVariations = jest.fn();
+jest.mock('../../../services/loyalty-admin/loyalty-queries', () => ({
+    queryQualifyingVariations: mockQueryQualifyingVariations
+}));
+
 const { updateRewardProgress } = require('../../../services/loyalty-admin/reward-progress-service');
 
 // ============================================================================
@@ -64,6 +78,8 @@ const OFFER_ID = 'offer-uuid-1';
 const CUSTOMER_ID = 'sq-cust-1';
 const REWARD_ID = 'reward-uuid-1';
 const REWARD_ID_2 = 'reward-uuid-2';
+const ORDER_ID = 'sq-order-1';
+const VARIATION_ID = 'var-1';
 
 const baseOffer = {
     id: OFFER_ID,
@@ -83,8 +99,66 @@ function makeData(overrides = {}) {
 }
 
 // Note: logAuditEvent, updateCustomerStats, createSquareCustomerGroupDiscount,
-// and updateCustomerSummary are all module-mocked and do NOT go through
-// client.query. Only actual SQL queries need mock responses on client.query.
+// updateCustomerSummary, getSquareClientForMerchant, and queryQualifyingVariations
+// are all module-mocked and do NOT go through client.query.
+// Only actual SQL queries need mock responses on client.query.
+
+/**
+ * Helper: set up the mock responses for resolveConflictViaSquare when it
+ * is called on a conflict. This adds the 3 client.query calls that the
+ * helper makes (recent order lookup, DB re-derive total, UPDATE reward).
+ *
+ * Also sets up the Square API mock and qualifying variations mock.
+ *
+ * @param {jest.Mock} clientQuery - The client.query mock to append responses to
+ * @param {Object} opts - { orderId, squareLineItems, qualifyingVarIds, verifiedTotal }
+ */
+function setupSquareVerificationMocks(clientQuery, opts = {}) {
+    const {
+        orderId = ORDER_ID,
+        squareLineItems = [{ catalogObjectId: VARIATION_ID, quantity: '5' }],
+        qualifyingVarIds = [{ variation_id: VARIATION_ID }],
+        verifiedTotal = 5
+    } = opts;
+
+    // 1) Recent order ID lookup
+    clientQuery.mockResolvedValueOnce({
+        rows: orderId ? [{ square_order_id: orderId }] : []
+    });
+
+    if (!orderId) return; // No further calls if no order ID
+
+    // Square API: fetch order
+    mockSquareOrdersGet.mockResolvedValueOnce({
+        order: { lineItems: squareLineItems }
+    });
+
+    // Qualifying variations query (module mock, not client.query)
+    mockQueryQualifyingVariations.mockResolvedValueOnce(qualifyingVarIds);
+
+    // 2) Re-derive total from DB
+    clientQuery.mockResolvedValueOnce({
+        rows: [{ total_quantity: String(verifiedTotal) }]
+    });
+
+    // 3) UPDATE reward to verified quantity
+    clientQuery.mockResolvedValueOnce({ rows: [] });
+}
+
+/**
+ * Helper: set up Square API to throw an error for conflict fallback tests.
+ */
+function setupSquareVerificationFailure(clientQuery, opts = {}) {
+    const { orderId = ORDER_ID, errorMessage = 'Square API unavailable' } = opts;
+
+    // 1) Recent order ID lookup
+    clientQuery.mockResolvedValueOnce({
+        rows: [{ square_order_id: orderId }]
+    });
+
+    // Square API: throw
+    mockGetSquareClientForMerchant.mockRejectedValueOnce(new Error(errorMessage));
+}
 
 // ============================================================================
 // TESTS
@@ -93,11 +167,14 @@ function makeData(overrides = {}) {
 describe('reward-progress-service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        // Re-establish default mock for getSquareClientForMerchant
+        mockGetSquareClientForMerchant.mockResolvedValue({
+            orders: { get: mockSquareOrdersGet }
+        });
     });
 
     describe('CRIT-2: FOR UPDATE SKIP LOCKED on purchase event queries', () => {
         test('quantity calculation query includes FOR UPDATE SKIP LOCKED', async () => {
-            // Queries: 1) quantity, 2) reward SELECT FOR UPDATE
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] })
                 .mockResolvedValueOnce({ rows: [] });
@@ -109,16 +186,6 @@ describe('reward-progress-service', () => {
         });
 
         test('crossing row fetch query includes FOR UPDATE SKIP LOCKED', async () => {
-            // Queries:
-            // 1) quantity calc -> 11
-            // 2) reward SELECT FOR UPDATE -> existing in_progress
-            // 3) UPDATE reward quantity
-            // 4) CTE lock rows (9 locked, need 1 more from crossing)
-            // 5) crossing row fetch (FOR UPDATE SKIP LOCKED)
-            // 6) INSERT locked child
-            // 7) INSERT excess child
-            // 8) UPDATE reward to earned
-            // 9) re-count remaining
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '11' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID }] })
@@ -127,7 +194,7 @@ describe('reward-progress-service', () => {
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-2', quantity: 3, square_order_id: 'ord-1', variation_id: 'var-1',
                     unit_price_cents: 100, total_price_cents: 300, purchased_at: '2026-01-01',
                     idempotency_key: 'key1', window_start_date: '2026-01-01', window_end_date: '2026-07-01',
-                    square_location_id: 'loc-1', receipt_url: null, customer_source: 'order', payment_type: 'CARD' }] }) // crossing row
+                    square_location_id: 'loc-1', receipt_url: null, customer_source: 'order', payment_type: 'CARD' }] })
                 .mockResolvedValueOnce({ rows: [] }) // INSERT locked child
                 .mockResolvedValueOnce({ rows: [] }) // INSERT excess child
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
@@ -135,7 +202,6 @@ describe('reward-progress-service', () => {
 
             await updateRewardProgress(mockClient, makeData());
 
-            // Find the crossing row fetch query
             const crossingCall = mockClient.query.mock.calls.find(call =>
                 call[0].includes('LIMIT 1') && call[0].includes('FOR UPDATE SKIP LOCKED')
             );
@@ -149,17 +215,14 @@ describe('reward-progress-service', () => {
 
             await updateRewardProgress(mockClient, makeData());
 
-            // Second query is the reward SELECT FOR UPDATE
             const rewardQuery = mockClient.query.mock.calls[1][0];
             expect(rewardQuery).toContain('FOR UPDATE');
-            // Should NOT have SKIP LOCKED on the reward row (we want to wait for it)
             expect(rewardQuery).not.toContain('SKIP LOCKED');
         });
     });
 
     describe('CRIT-1: ON CONFLICT on in_progress reward INSERT', () => {
         test('initial in_progress INSERT includes ON CONFLICT clause', async () => {
-            // Queries: 1) quantity=5, 2) no existing reward, 3) window dates, 4) INSERT ON CONFLICT
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
@@ -178,26 +241,16 @@ describe('reward-progress-service', () => {
         });
 
         test('multi-threshold in_progress INSERT includes ON CONFLICT clause', async () => {
-            // 10 units toward 10 required:
-            // Queries:
-            // 1) quantity=10, 2) existing reward, 3) UPDATE quantity
-            // 4) CTE lock (10 locked), 5) UPDATE to earned
-            // 6) re-count=5, break (5 < 10)
-            // This doesn't trigger multi-threshold. Need 20+ units.
             mockClient.query
-                .mockResolvedValueOnce({ rows: [{ total_quantity: '20' }] }) // quantity
+                .mockResolvedValueOnce({ rows: [{ total_quantity: '20' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 15,
-                    merchant_id: MERCHANT_ID }] }) // existing reward
+                    merchant_id: MERCHANT_ID }] })
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
-                // earn loop iteration 1
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] }) // CTE lock
-                // neededFromCrossing = 10 - 10 = 0, skip crossing
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] }) // re-count = 10 >= 10
-                // new in_progress INSERT (ON CONFLICT)
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID_2, status: 'in_progress', current_quantity: 10,
-                    conflict_occurred: false }] })
-                // earn loop iteration 2 (10 >= 10, in_progress)
+                    conflict_occurred: false }] }) // INSERT (no conflict)
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-3', quantity: 10, cumulative_qty: 10 }] }) // CTE lock
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] }); // re-count = 0, break
@@ -210,7 +263,7 @@ describe('reward-progress-service', () => {
             expect(insertCalls.length).toBeGreaterThanOrEqual(1);
         });
 
-        test('conflict on initial INSERT logs WARN with structured fields', async () => {
+        test('conflict on initial INSERT triggers Square verification and logs WARN', async () => {
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
@@ -220,37 +273,62 @@ describe('reward-progress-service', () => {
                     conflict_occurred: true
                 }] });
 
+            // resolveConflictViaSquare queries + Square API
+            setupSquareVerificationMocks(mockClient.query, { verifiedTotal: 5 });
+
             await updateRewardProgress(mockClient, makeData());
 
+            // WARN logged with both quantities
+            // existingQuantity = reward.current_quantity (GREATEST result = 5),
+            // incomingQuantity = currentQuantity (5). Same value means we can't
+            // distinguish which was higher, but both are logged.
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'Concurrent in_progress reward conflict resolved',
+                'Concurrent in_progress reward conflict detected',
                 expect.objectContaining({
                     event: 'in_progress_conflict',
                     customerId: CUSTOMER_ID,
                     offerId: OFFER_ID,
                     merchantId: MERCHANT_ID,
-                    rewardId: REWARD_ID
+                    existingQuantity: 5,
+                    incomingQuantity: 5,
+                    orderId: ORDER_ID
+                })
+            );
+
+            // Resolution logged
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'Conflict resolved via Square verification',
+                expect.objectContaining({
+                    event: 'in_progress_conflict_resolved',
+                    customerId: CUSTOMER_ID,
+                    offerId: OFFER_ID,
+                    merchantId: MERCHANT_ID,
+                    verifiedQuantity: 5,
+                    orderId: ORDER_ID
                 })
             );
         });
 
-        test('conflict on multi-threshold INSERT logs WARN with structured fields', async () => {
-            // Earn a reward, then re-count >= required triggers ON CONFLICT INSERT
+        test('conflict on multi-threshold INSERT triggers Square verification', async () => {
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '15' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 10,
                     merchant_id: MERCHANT_ID }] })
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
-                // earn loop
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] }) // CTE lock
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '12' }] }) // re-count 12 >= 10
-                // INSERT ON CONFLICT — conflict!
                 .mockResolvedValueOnce({ rows: [{
                     id: REWARD_ID_2, status: 'in_progress', current_quantity: 12,
                     conflict_occurred: true
-                }] })
-                // Next earn loop iteration (12 >= 10, in_progress)
+                }] });
+
+            // resolveConflictViaSquare for multi-threshold path
+            setupSquareVerificationMocks(mockClient.query, { verifiedTotal: 12 });
+
+            // After verification, currentQuantity=12 >= 10, so earn loop continues
+            // earn loop iteration 2
+            mockClient.query
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-5', quantity: 10, cumulative_qty: 10 }] }) // CTE lock
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '2' }] }); // re-count 2 < 10, break
@@ -258,12 +336,11 @@ describe('reward-progress-service', () => {
             await updateRewardProgress(mockClient, makeData());
 
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'Concurrent in_progress reward conflict resolved',
+                'Concurrent in_progress reward conflict detected',
                 expect.objectContaining({
                     event: 'in_progress_conflict',
-                    customerId: CUSTOMER_ID,
-                    offerId: OFFER_ID,
-                    merchantId: MERCHANT_ID
+                    existingQuantity: 12,
+                    incomingQuantity: 12
                 })
             );
         });
@@ -281,6 +358,144 @@ describe('reward-progress-service', () => {
             await updateRewardProgress(mockClient, makeData());
 
             expect(mockLogger.warn).not.toHaveBeenCalled();
+            expect(mockSquareOrdersGet).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Square API verification on conflict', () => {
+        test('successful Square verification sets correct quantity', async () => {
+            // Conflict occurs — GREATEST gives 7, but Square verification says 6 is correct
+            mockClient.query
+                .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
+                .mockResolvedValueOnce({ rows: [{
+                    id: REWARD_ID, status: 'in_progress', current_quantity: 7,
+                    conflict_occurred: true
+                }] });
+
+            // Square says order has 3 qualifying items, DB re-derive gives 6
+            setupSquareVerificationMocks(mockClient.query, {
+                squareLineItems: [
+                    { catalogObjectId: VARIATION_ID, quantity: '3' }
+                ],
+                qualifyingVarIds: [{ variation_id: VARIATION_ID }],
+                verifiedTotal: 6
+            });
+
+            const result = await updateRewardProgress(mockClient, makeData());
+
+            // Quantity should be the verified 6, not the GREATEST 7
+            expect(result.currentQuantity).toBe(6);
+
+            // Square API was called
+            expect(mockSquareOrdersGet).toHaveBeenCalledWith({ orderId: ORDER_ID });
+
+            // Qualifying variations were fetched
+            expect(mockQueryQualifyingVariations).toHaveBeenCalledWith(OFFER_ID, MERCHANT_ID);
+
+            // UPDATE was called with verified quantity
+            const updateCall = mockClient.query.mock.calls.find(call =>
+                call[0].includes('UPDATE loyalty_rewards') &&
+                call[0].includes('current_quantity = $1') &&
+                call[1] && call[1][0] === 6
+            );
+            expect(updateCall).toBeDefined();
+        });
+
+        test('Square API failure falls back to GREATEST and logs ERROR', async () => {
+            mockClient.query
+                .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
+                .mockResolvedValueOnce({ rows: [{
+                    id: REWARD_ID, status: 'in_progress', current_quantity: 7,
+                    conflict_occurred: true
+                }] });
+
+            // Square API fails
+            setupSquareVerificationFailure(mockClient.query, {
+                errorMessage: 'UNAUTHORIZED'
+            });
+
+            const result = await updateRewardProgress(mockClient, makeData());
+
+            // Falls back to GREATEST value (7)
+            expect(result.currentQuantity).toBe(7);
+
+            // ERROR logged (not WARN) with fallback event
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                'Conflict resolution Square API failed — using GREATEST fallback',
+                expect.objectContaining({
+                    event: 'in_progress_conflict_fallback',
+                    reason: 'UNAUTHORIZED',
+                    merchantId: MERCHANT_ID,
+                    fallbackQuantity: 7
+                })
+            );
+        });
+
+        test('no order ID found falls back to GREATEST and logs ERROR', async () => {
+            mockClient.query
+                .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
+                .mockResolvedValueOnce({ rows: [{
+                    id: REWARD_ID, status: 'in_progress', current_quantity: 5,
+                    conflict_occurred: true
+                }] });
+
+            // No order ID found
+            setupSquareVerificationMocks(mockClient.query, { orderId: null });
+
+            const result = await updateRewardProgress(mockClient, makeData());
+
+            // Falls back to GREATEST value (5)
+            expect(result.currentQuantity).toBe(5);
+
+            // ERROR logged with no_order_id reason
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                'Conflict resolution cannot verify — no order ID found',
+                expect.objectContaining({
+                    event: 'in_progress_conflict_fallback',
+                    reason: 'no_order_id'
+                })
+            );
+
+            // Square API was NOT called
+            expect(mockSquareOrdersGet).not.toHaveBeenCalled();
+        });
+
+        test('verification counts only qualifying variations from Square order', async () => {
+            mockClient.query
+                .mockResolvedValueOnce({ rows: [{ total_quantity: '8' }] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
+                .mockResolvedValueOnce({ rows: [{
+                    id: REWARD_ID, status: 'in_progress', current_quantity: 8,
+                    conflict_occurred: true
+                }] });
+
+            // Square order has qualifying AND non-qualifying items
+            setupSquareVerificationMocks(mockClient.query, {
+                squareLineItems: [
+                    { catalogObjectId: VARIATION_ID, quantity: '3' },        // qualifying
+                    { catalogObjectId: 'non-qualifying-var', quantity: '5' } // not qualifying
+                ],
+                qualifyingVarIds: [{ variation_id: VARIATION_ID }],
+                verifiedTotal: 8
+            });
+
+            const result = await updateRewardProgress(mockClient, makeData());
+
+            // Resolution log should show squareQualifyingQty = 3 (only the qualifying var)
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'Conflict resolved via Square verification',
+                expect.objectContaining({
+                    squareQualifyingQty: 3,
+                    verifiedQuantity: 8
+                })
+            );
         });
     });
 
@@ -297,7 +512,7 @@ describe('reward-progress-service', () => {
                     conflict_occurred: false
                 }] });
 
-            // Call 2 (loses the race — conflict absorbed)
+            // Call 2 (loses the race — conflict absorbed, Square verification runs)
             const client2 = { query: jest.fn() };
             client2.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
@@ -307,6 +522,8 @@ describe('reward-progress-service', () => {
                     id: REWARD_ID, status: 'in_progress', current_quantity: 5,
                     conflict_occurred: true
                 }] });
+            // resolveConflictViaSquare for client2
+            setupSquareVerificationMocks(client2.query, { verifiedTotal: 5 });
 
             const data = makeData();
 
@@ -315,22 +532,17 @@ describe('reward-progress-service', () => {
                 updateRewardProgress(client2, data)
             ]);
 
-            // Both should succeed (no thrown exceptions)
             expect(result1.status).toBe('in_progress');
             expect(result2.status).toBe('in_progress');
-
-            // Both reference the same reward ID
             expect(result1.rewardId).toBe(REWARD_ID);
             expect(result2.rewardId).toBe(REWARD_ID);
 
-            // Call 2's conflict should be logged at WARN
+            // Call 2's conflict logged
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                'Concurrent in_progress reward conflict resolved',
+                'Concurrent in_progress reward conflict detected',
                 expect.objectContaining({
                     event: 'in_progress_conflict',
-                    customerId: CUSTOMER_ID,
-                    offerId: OFFER_ID,
-                    merchantId: MERCHANT_ID
+                    customerId: CUSTOMER_ID
                 })
             );
         });
@@ -345,6 +557,8 @@ describe('reward-progress-service', () => {
                     id: REWARD_ID, status: 'in_progress', current_quantity: 7,
                     conflict_occurred: true
                 }] });
+            // resolveConflictViaSquare verifies 7 is correct
+            setupSquareVerificationMocks(client.query, { verifiedTotal: 7 });
 
             const result = await updateRewardProgress(client, makeData());
 
@@ -352,12 +566,6 @@ describe('reward-progress-service', () => {
             expect(result.rewardId).toBe(REWARD_ID);
             expect(result.currentQuantity).toBe(7);
             expect(result.status).toBe('in_progress');
-
-            // The INSERT query included ON CONFLICT
-            const insertCall = client.query.mock.calls.find(call =>
-                call[0].includes('INSERT INTO loyalty_rewards') && call[0].includes('ON CONFLICT')
-            );
-            expect(insertCall).toBeDefined();
         });
 
         test('CRIT-2: FOR UPDATE SKIP LOCKED prevents double-earn on concurrent webhooks', async () => {
@@ -368,7 +576,6 @@ describe('reward-progress-service', () => {
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress',
                     current_quantity: 8, merchant_id: MERCHANT_ID }] })
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
-                // earn loop
                 .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] }) // CTE lock
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE to earned
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] }); // re-count = 0, break
@@ -379,8 +586,7 @@ describe('reward-progress-service', () => {
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '3' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress',
                     current_quantity: 8, merchant_id: MERCHANT_ID }] })
-                .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
-                ; // 3 < 10, while loop doesn't execute
+                .mockResolvedValueOnce({ rows: [] }); // UPDATE quantity
 
             const data = makeData();
 
@@ -414,8 +620,7 @@ describe('reward-progress-service', () => {
                     id: REWARD_ID, status: 'in_progress', current_quantity: 5,
                     merchant_id: MERCHANT_ID
                 }] })
-                .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
-                ; // 7 < 10, while loop doesn't execute
+                .mockResolvedValueOnce({ rows: [] }); // UPDATE quantity
 
             const result = await updateRewardProgress(mockClient, makeData());
 
