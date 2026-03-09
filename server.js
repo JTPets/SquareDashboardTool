@@ -95,6 +95,7 @@ const cartActivityRoutes = require('./routes/cart-activity');
 const labelsRoutes = require('./routes/labels');
 const seniorsRoutes = require('./routes/seniors');
 const adminRoutes = require('./routes/admin');
+const catalogLocationHealthRoutes = require('./routes/catalog-location-health');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -366,6 +367,8 @@ logger.info('Subscription enforcement middleware enabled (System A — merchant-
 // ==================== ADMIN ROUTES ====================
 // Platform administration endpoints (merchant management, settings)
 app.use('/api/admin', adminRoutes);
+// Catalog location health debug tool (admin only, merchant 3 only)
+app.use('/api/admin/catalog-location-health', catalogLocationHealthRoutes);
 
 // ==================== DRIVER API ROUTES ====================
 // Token-based public endpoints for contract drivers + authenticated merchant endpoints
