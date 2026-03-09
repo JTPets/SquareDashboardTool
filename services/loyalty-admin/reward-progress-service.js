@@ -18,6 +18,34 @@ const { updateCustomerStats } = require('./customer-cache-service');
 const { createSquareCustomerGroupDiscount } = require('./square-discount-service');
 const { updateCustomerSummary } = require('./customer-summary-service');
 
+// TODO: Refactoring suggestions — do not implement in this PR.
+// This function mixes locking, calculation, transition, and new-reward-creation.
+// Suggested extractions:
+//
+// 1. calculateUnlockedQuantity(client, merchantId, offerId, squareCustomerId)
+//    Inputs: client, merchantId, offerId, squareCustomerId
+//    Outputs: { totalQuantity: number }
+//    Owns: The FOR UPDATE SKIP LOCKED query that counts unlocked purchase events
+//    Risk: Low — pure query, no side effects
+//
+// 2. getOrCreateInProgressReward(client, merchantId, offerId, squareCustomerId, currentQuantity, offer)
+//    Inputs: client, merchantId, offerId, squareCustomerId, currentQuantity, offer
+//    Outputs: { reward: Object, isNew: boolean, conflictOccurred: boolean }
+//    Owns: SELECT FOR UPDATE of existing reward + INSERT ON CONFLICT for new reward
+//    Risk: Medium — contains the ON CONFLICT logic, needs careful testing
+//
+// 3. lockAndSplitPurchases(client, rewardId, merchantId, offerId, squareCustomerId, requiredQuantity)
+//    Inputs: client, rewardId, merchantId, offerId, squareCustomerId, requiredQuantity
+//    Outputs: { lockedRows: Array, totalLockedQty: number }
+//    Owns: The CTE lock query + crossing row split logic (lines 155-266)
+//    Risk: High — core split-row algorithm, thorough integration tests needed
+//
+// 4. transitionToEarned(client, reward, merchantId, offerId, squareCustomerId, offer)
+//    Inputs: client, reward, merchantId, offerId, squareCustomerId, offer
+//    Outputs: void
+//    Owns: UPDATE to earned, audit event, customer stats, Square discount creation
+//    Risk: Low — all side-effect code already isolated in called services
+
 /**
  * Update reward progress for a customer+offer after a purchase or refund
  * Implements the rolling window logic and state machine
@@ -33,6 +61,16 @@ async function updateRewardProgress(client, data) {
     // and are still within their window.
     // Exclude rows that have been superseded by split records (rows whose
     // original_event_id children exist) to prevent double-counting.
+    // CRIT-2: FOR UPDATE prevents concurrent transactions from reading the same
+    // snapshot and both calculating >= required_quantity on the same purchase rows.
+    // SKIP LOCKED avoids deadlocks: if another transaction already holds a lock,
+    // this transaction skips those rows rather than blocking. This means a
+    // concurrent call sees a lower quantity and won't prematurely trigger an earn.
+    // LOGIC CHANGE: Added FOR UPDATE SKIP LOCKED to quantity calculation query.
+    // Before: unlocked read allowed two concurrent transactions to both see the
+    // same total and both attempt to earn the reward / lock the same purchase rows.
+    // After: rows locked by one transaction are skipped by the other, preventing
+    // double-earn races.
     const quantityResult = await client.query(`
         SELECT COALESCE(SUM(quantity), 0) as total_quantity
         FROM loyalty_purchase_events lpe
@@ -45,6 +83,7 @@ async function updateRewardProgress(client, data) {
               SELECT 1 FROM loyalty_purchase_events child
               WHERE child.original_event_id = lpe.id
           )
+        FOR UPDATE SKIP LOCKED
     `, [merchantId, offerId, squareCustomerId]);
 
     let currentQuantity = parseInt(quantityResult.rows[0].total_quantity) || 0;
@@ -63,6 +102,10 @@ async function updateRewardProgress(client, data) {
 
     if (!reward && currentQuantity > 0) {
         // Create new in_progress reward
+        // CRIT-1: Same ON CONFLICT pattern as the multi-threshold INSERT below.
+        // Two concurrent webhooks can both see no existing in_progress reward
+        // (the FOR UPDATE above returns nothing if no row exists) and both attempt
+        // this INSERT. ON CONFLICT absorbs the second INSERT safely.
         const windowResult = await client.query(`
             SELECT MIN(window_start_date) as start_date, MAX(window_end_date) as end_date
             FROM loyalty_purchase_events
@@ -73,6 +116,11 @@ async function updateRewardProgress(client, data) {
         const windowRow = windowResult.rows[0] || {};
         const { start_date, end_date } = windowRow;
 
+        // LOGIC CHANGE: Added ON CONFLICT ... DO UPDATE to initial in_progress INSERT.
+        // Before: plain INSERT threw on unique violation when two concurrent
+        // webhooks both found no existing in_progress reward.
+        // After: conflict is absorbed — the existing row is updated with the
+        // higher quantity, and the transaction completes successfully.
         const newRewardResult = await client.query(`
             INSERT INTO loyalty_rewards (
                 merchant_id, offer_id, square_customer_id, status,
@@ -80,7 +128,11 @@ async function updateRewardProgress(client, data) {
                 window_start_date, window_end_date
             )
             VALUES ($1, $2, $3, 'in_progress', $4, $5, $6, $7)
-            RETURNING *
+            ON CONFLICT (merchant_id, offer_id, square_customer_id) WHERE status = 'in_progress'
+            DO UPDATE SET
+                current_quantity = GREATEST(loyalty_rewards.current_quantity, EXCLUDED.current_quantity),
+                updated_at = NOW()
+            RETURNING *, (xmax <> 0) AS conflict_occurred
         `, [
             merchantId, offerId, squareCustomerId,
             currentQuantity, offer.required_quantity,
@@ -88,6 +140,17 @@ async function updateRewardProgress(client, data) {
         ]);
 
         reward = newRewardResult.rows[0];
+
+        if (reward.conflict_occurred) {
+            logger.warn('Concurrent in_progress reward conflict resolved', {
+                event: 'in_progress_conflict',
+                customerId: squareCustomerId,
+                offerId,
+                merchantId,
+                rewardId: reward.id,
+                resolvedQuantity: reward.current_quantity
+            });
+        }
     } else if (reward) {
         // Update existing reward (B5 fix: added AND merchant_id)
         const oldQuantity = reward.current_quantity;
@@ -147,6 +210,14 @@ async function updateRewardProgress(client, data) {
 
         // Step 2: Split the crossing row if we still need more units
         if (neededFromCrossing > 0) {
+            // CRIT-2: FOR UPDATE SKIP LOCKED prevents concurrent transactions from
+            // selecting and splitting the same crossing row. If another transaction
+            // already holds this row, SKIP LOCKED returns no rows, preventing double-split.
+            // LOGIC CHANGE: Added FOR UPDATE SKIP LOCKED to crossing row fetch.
+            // Before: two concurrent transactions could both select and split the same
+            // crossing row, creating duplicate split children.
+            // After: only one transaction can lock and split the crossing row; the other
+            // skips it and sees no crossing row to split.
             const crossingResult = await client.query(`
                 SELECT id, quantity, square_order_id, variation_id, unit_price_cents, total_price_cents,
                        purchased_at, idempotency_key, window_start_date, window_end_date,
@@ -164,6 +235,7 @@ async function updateRewardProgress(client, data) {
                   )
                 ORDER BY purchased_at ASC, id ASC
                 LIMIT 1
+                FOR UPDATE SKIP LOCKED
             `, [merchantId, offerId, squareCustomerId]);
 
             if (crossingResult.rows.length > 0) {
@@ -307,6 +379,16 @@ async function updateRewardProgress(client, data) {
 
         if (currentQuantity >= offer.required_quantity) {
             // More rewards to earn — create a new in_progress reward for next cycle
+            // CRIT-1: ON CONFLICT handles the race where two concurrent webhooks
+            // both earn the same reward and both attempt to INSERT a new in_progress row.
+            // The partial unique index loyalty_rewards_one_in_progress_idx ensures only
+            // one in_progress row per (merchant_id, offer_id, square_customer_id).
+            // On conflict, we update current_quantity to the highest seen value.
+            // LOGIC CHANGE: Added ON CONFLICT ... DO UPDATE to in_progress INSERT.
+            // Before: plain INSERT threw on unique violation, rolling back the entire
+            // transaction and permanently losing that order's purchase data.
+            // After: conflict is absorbed — the existing in_progress row is updated
+            // with the higher quantity, and the transaction completes successfully.
             const nextRewardResult = await client.query(`
                 INSERT INTO loyalty_rewards (
                     merchant_id, offer_id, square_customer_id, status,
@@ -323,10 +405,26 @@ async function updateRewardProgress(client, data) {
                        AND lpe.window_end_date >= CURRENT_DATE AND lpe.reward_id IS NULL
                        AND NOT EXISTS (SELECT 1 FROM loyalty_purchase_events child WHERE child.original_event_id = lpe.id))
                 )
-                RETURNING *
+                ON CONFLICT (merchant_id, offer_id, square_customer_id) WHERE status = 'in_progress'
+                DO UPDATE SET
+                    current_quantity = GREATEST(loyalty_rewards.current_quantity, EXCLUDED.current_quantity),
+                    updated_at = NOW()
+                RETURNING *, (xmax <> 0) AS conflict_occurred
             `, [merchantId, offerId, squareCustomerId, currentQuantity, offer.required_quantity]);
 
             reward = nextRewardResult.rows[0];
+
+            // Log conflict at WARN level for observability
+            if (reward.conflict_occurred) {
+                logger.warn('Concurrent in_progress reward conflict resolved', {
+                    event: 'in_progress_conflict',
+                    customerId: squareCustomerId,
+                    offerId,
+                    merchantId,
+                    rewardId: reward.id,
+                    resolvedQuantity: reward.current_quantity
+                });
+            }
         } else {
             // Update existing in_progress reward quantity or exit loop
             break;
