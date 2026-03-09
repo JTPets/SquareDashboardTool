@@ -267,6 +267,8 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | Description |
 |----|-------------|
 | EXPIRY-REORDER-AUDIT | When a clearance/expiry-discounted item receives a new purchase order or restock event, it should be flagged for re-audit. Current system applies discounts based on expiry tier but has no trigger to re-evaluate when new inventory arrives for a discounted item. Risk: items stay on clearance pricing after being actively restocked. Trigger should be: new PO created OR inventory count increases for a variation currently in an expiry discount tier. |
+| BACKLOG-57 | **Expiry discount daily re-apply noise** — `discount-service.js` logs `DISCOUNT_APPLIED` every day for every discounted item even when tier and price haven't changed. Add idempotency check: skip Square API call and audit log entry if `current_tier_id` is unchanged and `discount_applied_at` is within last 24 hours. Reduces unnecessary Square API calls and audit log noise. |
+| BACKLOG-58 | **Inventory increase should trigger expiry re-verification** — Original intent: if inventory increases on an item already in AUTO25/AUTO50 tier, `reviewed_at` should be cleared so the owner re-verifies the sticker count matches new stock. Investigation on 2026-03-09 confirmed this logic was NOT implemented — inventory changes (webhooks, PO receives, manual adjustments) do not call `saveExpirations()` and do not touch `reviewed_at`. When implementing: trigger `reviewed_at` clear ONLY when inventory increases (not decreases), ONLY if item is in AUTO25/AUTO50 tier, and ONLY after the tier-change guard and Square-push-success guard introduced in the 2026-03-09 fixes are satisfied. See also: EXPIRY-REORDER-AUDIT (related). |
 
 ---
 
