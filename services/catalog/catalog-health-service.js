@@ -152,7 +152,7 @@ function checkLocationMismatches(items) {
 
             const itemFuture = item.present_at_all_future_locations;
             const varFuture = variation.present_at_all_future_locations;
-            if (itemFuture !== undefined && varFuture !== undefined && itemFuture !== varFuture) {
+            if ((itemFuture === true) !== (varFuture === true)) {
                 mismatches.push('present_at_all_future_locations');
             }
 
