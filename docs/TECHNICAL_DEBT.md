@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-08
+**Last Updated**: 2026-03-09
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07, MULTI-TENANT-GAPS-2026-03-08
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
@@ -944,6 +944,36 @@ const localInventoryState = {
 | Webhook URL (`SQUARE_WEBHOOK_URL`) | Correct | Single endpoint for all merchants is the correct Square pattern |
 | Square environment (`SQUARE_ENVIRONMENT`) | Correct | All merchants use same environment (production); sandbox is dev-only |
 | `SUPER_ADMIN_EMAILS` | Correct | Platform-level admin list, not per-merchant |
+
+---
+
+## Resolved Items
+
+### ~~Catalog Location Health Tracker~~ RESOLVED (2026-03-09)
+
+**Original scope**: Debug-only location mismatch tracking for merchant 3. Only checked `present_at_all_locations` / `present_at_all_future_locations` flag mismatches between ITEM and ITEM_VARIATION.
+
+**Expanded to**: Full **Catalog Health Monitor** with 8 check types:
+1. `location_mismatch` — variation/item location flag mismatch (original)
+2. `orphaned_variation` — variation with no parent ITEM
+3. `deleted_parent` — variation whose parent ITEM is deleted
+4. `category_orphan` — ITEM referencing missing/deleted CATEGORY
+5. `image_orphan` — ITEM/VARIATION referencing missing/deleted IMAGE
+6. `modifier_orphan` — ITEM referencing missing/deleted MODIFIER_LIST
+7. `pricing_rule_orphan` — PRICING_RULE referencing deleted objects
+8. `missing_tax` (severity=warn) — ITEM with no tax_ids
+
+**Migration**: 070 adds `check_type`, `object_type`, `parent_id`, `severity` columns to `catalog_location_health` table.
+
+**Files**:
+- `services/catalog/catalog-health-service.js` (replaces `location-health-service.js`)
+- `routes/catalog-health.js` (replaces `catalog-location-health.js`)
+- `jobs/catalog-health-job.js` (replaces `catalog-location-health-job.js`)
+- `middleware/validators/catalog-health.js`
+- `public/catalog-audit.html` + `public/js/catalog-audit.js` (health section + lazy loading)
+- `__tests__/services/catalog-health-service.test.js`
+
+**Still debug-only**: merchant 3 hard guard remains. Not multi-tenant.
 
 ---
 
