@@ -105,20 +105,21 @@ function makeData(overrides = {}) {
 
 /**
  * Helper: set up the mock responses for resolveConflictViaSquare when it
- * is called on a conflict. This adds the 3 client.query calls that the
- * helper makes (recent order lookup, DB re-derive total, UPDATE reward).
+ * is called on a conflict. This adds the 2 client.query calls that the
+ * helper makes (recent order lookup, UPDATE reward).
  *
  * Also sets up the Square API mock and qualifying variations mock.
+ * The verified quantity comes directly from squareLineItems (Square API),
+ * NOT from a DB re-derive query.
  *
  * @param {jest.Mock} clientQuery - The client.query mock to append responses to
- * @param {Object} opts - { orderId, squareLineItems, qualifyingVarIds, verifiedTotal }
+ * @param {Object} opts - { orderId, squareLineItems, qualifyingVarIds }
  */
 function setupSquareVerificationMocks(clientQuery, opts = {}) {
     const {
         orderId = ORDER_ID,
         squareLineItems = [{ catalogObjectId: VARIATION_ID, quantity: '5' }],
-        qualifyingVarIds = [{ variation_id: VARIATION_ID }],
-        verifiedTotal = 5
+        qualifyingVarIds = [{ variation_id: VARIATION_ID }]
     } = opts;
 
     // 1) Recent order ID lookup
@@ -136,12 +137,7 @@ function setupSquareVerificationMocks(clientQuery, opts = {}) {
     // Qualifying variations query (module mock, not client.query)
     mockQueryQualifyingVariations.mockResolvedValueOnce(qualifyingVarIds);
 
-    // 2) Re-derive total from DB
-    clientQuery.mockResolvedValueOnce({
-        rows: [{ total_quantity: String(verifiedTotal) }]
-    });
-
-    // 3) UPDATE reward to verified quantity
+    // 2) UPDATE reward to verified quantity (quantity comes from Square line items)
     clientQuery.mockResolvedValueOnce({ rows: [] });
 }
 
@@ -274,7 +270,7 @@ describe('reward-progress-service', () => {
                 }] });
 
             // resolveConflictViaSquare queries + Square API
-            setupSquareVerificationMocks(mockClient.query, { verifiedTotal: 5 });
+            setupSquareVerificationMocks(mockClient.query);
 
             await updateRewardProgress(mockClient, makeData());
 
@@ -324,7 +320,9 @@ describe('reward-progress-service', () => {
                 }] });
 
             // resolveConflictViaSquare for multi-threshold path
-            setupSquareVerificationMocks(mockClient.query, { verifiedTotal: 12 });
+            setupSquareVerificationMocks(mockClient.query, {
+                squareLineItems: [{ catalogObjectId: VARIATION_ID, quantity: '12' }]
+            });
 
             // After verification, currentQuantity=12 >= 10, so earn loop continues
             // earn loop iteration 2
@@ -364,7 +362,7 @@ describe('reward-progress-service', () => {
 
     describe('Square API verification on conflict', () => {
         test('successful Square verification sets correct quantity', async () => {
-            // Conflict occurs — GREATEST gives 7, but Square verification says 6 is correct
+            // Conflict occurs — GREATEST gives 7, but Square says 3 qualifying items
             mockClient.query
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
                 .mockResolvedValueOnce({ rows: [] })
@@ -374,19 +372,18 @@ describe('reward-progress-service', () => {
                     conflict_occurred: true
                 }] });
 
-            // Square says order has 3 qualifying items, DB re-derive gives 6
+            // Square order has 3 qualifying items — this becomes the verified quantity
             setupSquareVerificationMocks(mockClient.query, {
                 squareLineItems: [
                     { catalogObjectId: VARIATION_ID, quantity: '3' }
                 ],
-                qualifyingVarIds: [{ variation_id: VARIATION_ID }],
-                verifiedTotal: 6
+                qualifyingVarIds: [{ variation_id: VARIATION_ID }]
             });
 
             const result = await updateRewardProgress(mockClient, makeData());
 
-            // Quantity should be the verified 6, not the GREATEST 7
-            expect(result.currentQuantity).toBe(6);
+            // Quantity should be 3 (from Square), not the GREATEST 7
+            expect(result.currentQuantity).toBe(3);
 
             // Square API was called
             expect(mockSquareOrdersGet).toHaveBeenCalledWith({ orderId: ORDER_ID });
@@ -394,11 +391,11 @@ describe('reward-progress-service', () => {
             // Qualifying variations were fetched
             expect(mockQueryQualifyingVariations).toHaveBeenCalledWith(OFFER_ID, MERCHANT_ID);
 
-            // UPDATE was called with verified quantity
+            // UPDATE was called with verified quantity from Square
             const updateCall = mockClient.query.mock.calls.find(call =>
                 call[0].includes('UPDATE loyalty_rewards') &&
                 call[0].includes('current_quantity = $1') &&
-                call[1] && call[1][0] === 6
+                call[1] && call[1][0] === 3
             );
             expect(updateCall).toBeDefined();
         });
@@ -482,18 +479,17 @@ describe('reward-progress-service', () => {
                     { catalogObjectId: VARIATION_ID, quantity: '3' },        // qualifying
                     { catalogObjectId: 'non-qualifying-var', quantity: '5' } // not qualifying
                 ],
-                qualifyingVarIds: [{ variation_id: VARIATION_ID }],
-                verifiedTotal: 8
+                qualifyingVarIds: [{ variation_id: VARIATION_ID }]
             });
 
             const result = await updateRewardProgress(mockClient, makeData());
 
-            // Resolution log should show squareQualifyingQty = 3 (only the qualifying var)
+            // verifiedQuantity = 3 (only qualifying items counted from Square)
+            expect(result.currentQuantity).toBe(3);
             expect(mockLogger.info).toHaveBeenCalledWith(
                 'Conflict resolved via Square verification',
                 expect.objectContaining({
-                    squareQualifyingQty: 3,
-                    verifiedQuantity: 8
+                    verifiedQuantity: 3
                 })
             );
         });
@@ -523,7 +519,7 @@ describe('reward-progress-service', () => {
                     conflict_occurred: true
                 }] });
             // resolveConflictViaSquare for client2
-            setupSquareVerificationMocks(client2.query, { verifiedTotal: 5 });
+            setupSquareVerificationMocks(client2.query);
 
             const data = makeData();
 
@@ -558,7 +554,9 @@ describe('reward-progress-service', () => {
                     conflict_occurred: true
                 }] });
             // resolveConflictViaSquare verifies 7 is correct
-            setupSquareVerificationMocks(client.query, { verifiedTotal: 7 });
+            setupSquareVerificationMocks(client.query, {
+                squareLineItems: [{ catalogObjectId: VARIATION_ID, quantity: '7' }]
+            });
 
             const result = await updateRewardProgress(client, makeData());
 
