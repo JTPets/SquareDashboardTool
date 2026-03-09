@@ -452,6 +452,9 @@ async function saveExpirations(merchantId, changes) {
 
         // Check if new date puts item into a discount tier (AUTO25/AUTO50)
         // If so, clear reviewed_at so it appears in expiry-audit for sticker confirmation
+        // Note: reviewed_at clear is deferred until after successful Square push
+        let shouldClearReviewedAt = false;
+        let clearReviewedAtContext = null;
         if (expiration_date && does_not_expire !== true) {
             const daysUntilExpiry = expiryDiscount.calculateDaysUntilExpiry(expiration_date);
             const tiers = await expiryDiscount.getActiveTiers(merchantId);
@@ -469,19 +472,11 @@ async function saveExpirations(merchantId, changes) {
             if (newTier && (newTier.tier_code === 'AUTO25' || newTier.tier_code === 'AUTO50')) {
                 // Only clear reviewed_at if the tier actually changed (or item is new to tracking).
                 // Re-saving the same date on an already-stickered item should not reset verification.
+                // Deferred: only executed after successful Square push to avoid clearing
+                // reviewed_at when Square rejects the update (e.g. 400 location mismatch).
                 if (existingTierCode !== newTier.tier_code) {
-                    await db.query(`
-                        UPDATE variation_expiration
-                        SET reviewed_at = NULL, reviewed_by = NULL
-                        WHERE variation_id = $1 AND merchant_id = $2
-                    `, [variation_id, merchantId]);
-                    logger.info('Cleared reviewed_at for discount tier change', {
-                        variation_id,
-                        daysUntilExpiry,
-                        previousTier: existingTierCode,
-                        newTier: newTier.tier_code,
-                        merchantId
-                    });
+                    shouldClearReviewedAt = true;
+                    clearReviewedAtContext = { daysUntilExpiry, previousTier: existingTierCode, newTier: newTier.tier_code };
                 }
             }
 
@@ -571,6 +566,22 @@ async function saveExpirations(merchantId, changes) {
             await squareApi.updateCustomAttributeValues(variation_id, customAttributeValues, { merchantId });
             squarePushResults.success++;
             logger.info('Pushed expiry to Square', { variation_id, expiration_date, does_not_expire, merchantId });
+
+            // Clear reviewed_at only after successful Square push.
+            // If Square rejected the update, the sticker state hasn't changed
+            // so we should not force a re-verification.
+            if (shouldClearReviewedAt) {
+                await db.query(`
+                    UPDATE variation_expiration
+                    SET reviewed_at = NULL, reviewed_by = NULL
+                    WHERE variation_id = $1 AND merchant_id = $2
+                `, [variation_id, merchantId]);
+                logger.info('Cleared reviewed_at for discount tier change', {
+                    variation_id,
+                    ...clearReviewedAtContext,
+                    merchantId
+                });
+            }
         } catch (squareError) {
             squarePushResults.failed++;
             squarePushResults.errors.push({ variation_id, error: squareError.message });
