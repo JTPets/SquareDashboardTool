@@ -63,9 +63,11 @@ const { updateCustomerSummary } = require('./customer-summary-service');
  * instead of blindly using GREATEST(existing, incoming).
  * Before: GREATEST was used as the final quantity — could be wrong if either
  * concurrent transaction calculated from a stale snapshot.
- * After: Square order is fetched as ground truth, DB is re-queried for the
- * authoritative total, and the reward is updated to the verified quantity.
- * Falls back to GREATEST only if the Square API call fails.
+ * After: Square order is fetched as ground truth, qualifying line items are
+ * counted directly from the order, and the reward is updated to that quantity.
+ * Square API is transaction-independent — unlike a DB re-derive which runs
+ * under READ COMMITTED and cannot see the concurrent transaction's uncommitted
+ * rows. Falls back to GREATEST only if the Square API call fails.
  *
  * @param {Object} client - Database transaction client
  * @param {Object} reward - The reward row returned from INSERT ON CONFLICT
@@ -134,29 +136,16 @@ async function resolveConflictViaSquare(client, reward, params) {
         const qualifyingIds = new Set(qualifyingVars.map(v => v.variation_id));
 
         // Count qualifying items in the Square order
-        let squareQualifyingQty = 0;
+        // LOGIC CHANGE: verifiedQuantity now uses squareQualifyingQty (Square API) instead of
+        // DB re-derive. The DB re-derive ran inside an open transaction under READ COMMITTED —
+        // it could not see uncommitted rows from the concurrent transaction, producing partial
+        // state. Square API is transaction-independent and is the correct ground truth.
+        let verifiedQuantity = 0;
         for (const lineItem of order.lineItems) {
             if (qualifyingIds.has(lineItem.catalogObjectId)) {
-                squareQualifyingQty += parseInt(lineItem.quantity) || 0;
+                verifiedQuantity += parseInt(lineItem.quantity) || 0;
             }
         }
-
-        // Re-derive total from DB (authoritative after both purchase events are inserted)
-        const verifiedResult = await client.query(`
-            SELECT COALESCE(SUM(quantity), 0) as total_quantity
-            FROM loyalty_purchase_events lpe
-            WHERE lpe.merchant_id = $1
-              AND lpe.offer_id = $2
-              AND lpe.square_customer_id = $3
-              AND lpe.window_end_date >= CURRENT_DATE
-              AND lpe.reward_id IS NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM loyalty_purchase_events child
-                  WHERE child.original_event_id = lpe.id
-              )
-        `, [merchantId, offerId, squareCustomerId]);
-
-        const verifiedQuantity = parseInt(verifiedResult.rows[0].total_quantity) || 0;
 
         // UPDATE the reward to the verified quantity
         await client.query(`
@@ -173,8 +162,7 @@ async function resolveConflictViaSquare(client, reward, params) {
             offerId,
             merchantId,
             verifiedQuantity,
-            orderId,
-            squareQualifyingQty
+            orderId
         });
 
         return verifiedQuantity;
