@@ -457,28 +457,33 @@ async function saveExpirations(merchantId, changes) {
             const tiers = await expiryDiscount.getActiveTiers(merchantId);
             const newTier = expiryDiscount.determineTier(daysUntilExpiry, tiers);
 
-            if (newTier && (newTier.tier_code === 'AUTO25' || newTier.tier_code === 'AUTO50')) {
-                // Clear reviewed_at so item shows up in audit for sticker confirmation
-                await db.query(`
-                    UPDATE variation_expiration
-                    SET reviewed_at = NULL, reviewed_by = NULL
-                    WHERE variation_id = $1 AND merchant_id = $2
-                `, [variation_id, merchantId]);
-                logger.info('Cleared reviewed_at for discount tier item', {
-                    variation_id,
-                    daysUntilExpiry,
-                    tier: newTier.tier_code,
-                    merchantId
-                });
-            }
-
-            // Check for tier override: if item had a non-OK tier, mark as manually overridden
+            // Fetch existing tier early — used by both reviewed_at guard and override logic below
             const existingStatus = await db.query(`
                 SELECT vds.current_tier_id, edt.tier_code
                 FROM variation_discount_status vds
                 LEFT JOIN expiry_discount_tiers edt ON vds.current_tier_id = edt.id
                 WHERE vds.variation_id = $1 AND vds.merchant_id = $2
             `, [variation_id, merchantId]);
+            const existingTierCode = existingStatus.rows[0]?.tier_code || null;
+
+            if (newTier && (newTier.tier_code === 'AUTO25' || newTier.tier_code === 'AUTO50')) {
+                // Only clear reviewed_at if the tier actually changed (or item is new to tracking).
+                // Re-saving the same date on an already-stickered item should not reset verification.
+                if (existingTierCode !== newTier.tier_code) {
+                    await db.query(`
+                        UPDATE variation_expiration
+                        SET reviewed_at = NULL, reviewed_by = NULL
+                        WHERE variation_id = $1 AND merchant_id = $2
+                    `, [variation_id, merchantId]);
+                    logger.info('Cleared reviewed_at for discount tier change', {
+                        variation_id,
+                        daysUntilExpiry,
+                        previousTier: existingTierCode,
+                        newTier: newTier.tier_code,
+                        merchantId
+                    });
+                }
+            }
 
             if (existingStatus.rows.length > 0) {
                 const existing = existingStatus.rows[0];
