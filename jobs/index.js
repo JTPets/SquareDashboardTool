@@ -16,7 +16,7 @@ const seniorsDayJob = require('./seniors-day-job');
 const committedInventoryJob = require('./committed-inventory-reconciliation-job');
 const trialExpiryJob = require('./trial-expiry-job');
 const loyaltySyncRetryJob = require('./loyalty-sync-retry-job');
-const catalogLocationHealthJob = require('./catalog-location-health-job');
+const catalogHealthJob = require('./catalog-health-job');
 const cronScheduler = require('./cron-scheduler');
 
 module.exports = {
@@ -70,8 +70,8 @@ module.exports = {
     runLoyaltySyncRetry: loyaltySyncRetryJob.runLoyaltySyncRetry,
     runScheduledLoyaltySyncRetry: loyaltySyncRetryJob.runScheduledLoyaltySyncRetry,
 
-    // Catalog location health job
-    runScheduledLocationHealthCheck: catalogLocationHealthJob.runScheduledLocationHealthCheck,
+    // Catalog health job
+    runScheduledHealthCheck: catalogHealthJob.runScheduledHealthCheck,
 
     // Cron scheduler
     initializeCronJobs: cronScheduler.initializeCronJobs,

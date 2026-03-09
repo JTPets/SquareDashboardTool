@@ -182,7 +182,7 @@ window.addEventListener('beforeunload', () => {
 
 async function checkAdminAccess() {
   try {
-    const response = await fetch('/api/admin/catalog-location-health');
+    const response = await fetch('/api/admin/catalog-health');
     if (response.ok) {
       const tabBtn = document.getElementById('tab-btn-location-health');
       if (tabBtn) tabBtn.style.display = '';
@@ -217,14 +217,14 @@ function switchTab(element) {
 
 async function refreshLocationHealth() {
   try {
-    const response = await fetch('/api/admin/catalog-location-health');
+    const response = await fetch('/api/admin/catalog-health');
     if (!response.ok) {
       document.getElementById('open-mismatches-content').innerHTML =
         '<div class="error-message">Failed to load health data</div>';
       return;
     }
     const data = await response.json();
-    renderOpenMismatches(data.openMismatches || []);
+    renderOpenMismatches(data.openIssues || data.openMismatches || []);
     renderHealthHistory(data.history || []);
   } catch (error) {
     document.getElementById('open-mismatches-content').innerHTML =
@@ -284,15 +284,18 @@ async function runHealthCheck(element) {
   btn.textContent = 'Running...';
 
   try {
-    var response = await fetch('/api/admin/catalog-location-health/check', { method: 'POST' });
+    var response = await fetch('/api/admin/catalog-health/check', { method: 'POST' });
     var data = await response.json();
 
     if (response.ok) {
       var resultDiv = document.getElementById('health-check-result');
       resultDiv.style.display = '';
-      resultDiv.textContent = 'Checked: ' + (data.checked || 0) +
-        ' | New mismatches: ' + (data.newMismatches || 0) +
-        ' | Resolved: ' + (data.resolved || 0) +
+      var checkedCount = data.checked ? (data.checked.items || 0) + (data.checked.variations || 0) : (data.checked || 0);
+      var newCount = data.newIssues ? data.newIssues.length : (data.newMismatches || 0);
+      var resolvedCount = data.resolved ? data.resolved.length : (data.resolved || 0);
+      resultDiv.textContent = 'Checked: ' + checkedCount +
+        ' | New issues: ' + newCount +
+        ' | Resolved: ' + resolvedCount +
         ' | Existing open: ' + (data.existingOpen || 0);
       await refreshLocationHealth();
     } else {

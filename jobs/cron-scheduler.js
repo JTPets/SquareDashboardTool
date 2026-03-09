@@ -27,7 +27,7 @@ const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors
 const { runScheduledReconciliation } = require('./committed-inventory-reconciliation-job');
 const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
 const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
-const { runScheduledLocationHealthCheck } = require('./catalog-location-health-job');
+const { runScheduledHealthCheck } = require('./catalog-health-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -149,13 +149,13 @@ function initializeCronJobs() {
     }));
     logger.info('Loyalty sync retry cron job scheduled', { schedule: loyaltySyncRetrySchedule, timezone: 'America/Toronto' });
 
-    // 15. Catalog location health check (debug — merchant 3 only)
-    // Runs daily at 2:00 AM to detect location mismatches in Square catalog
-    const locationHealthSchedule = process.env.CATALOG_LOCATION_HEALTH_CRON || '0 2 * * *';
-    cronTasks.push(cron.schedule(locationHealthSchedule, runScheduledLocationHealthCheck, {
+    // 15. Catalog health check (debug — merchant 3 only)
+    // Runs daily at 2:00 AM — full catalog health monitor (8 check types)
+    const catalogHealthSchedule = process.env.CATALOG_HEALTH_CRON || '0 2 * * *';
+    cronTasks.push(cron.schedule(catalogHealthSchedule, runScheduledHealthCheck, {
         timezone: 'America/Toronto'
     }));
-    logger.info('Catalog location health cron job scheduled', { schedule: locationHealthSchedule, timezone: 'America/Toronto' });
+    logger.info('Catalog health cron job scheduled', { schedule: catalogHealthSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }
