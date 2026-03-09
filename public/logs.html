@@ -281,6 +281,75 @@
       cursor: pointer;
     }
 
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    .tab-btn {
+      padding: 12px 24px;
+      border: none;
+      background: none;
+      font-size: 14px;
+      font-weight: 600;
+      color: #6b7280;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover {
+      color: #1f2937;
+    }
+
+    .tab-btn.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .status-badge.mismatch {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .status-badge.valid {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .health-summary {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .health-summary strong {
+      color: #1f2937;
+    }
+
     @media (max-width: 768px) {
       .stats-bar {
         grid-template-columns: repeat(2, 1fr);
@@ -333,43 +402,73 @@
   </div>
 
   <div class="container">
-    <div class="actions">
-      <button class="btn btn-primary" data-action="refreshLogs">🔄 Refresh Now</button>
-      <a href="/api/logs/download" class="btn btn-secondary" download>⬇️ Download Logs</a>
-      <button class="btn btn-success" data-action="testEmail">✉️ Test Email</button>
-      <div class="auto-refresh">Auto-refresh: <span id="countdown">30</span>s</div>
-    </div>
-
     <div id="message-container"></div>
 
-    <div class="card">
-      <h2>Recent Logs (Last 100)</h2>
+    <div class="tabs">
+      <button class="tab-btn active" data-action="switchTab" data-tab="logs">System Logs</button>
+      <button class="tab-btn" data-action="switchTab" data-tab="location-health" id="tab-btn-location-health" style="display:none;">Location Health</button>
+    </div>
 
-      <div class="filters">
-        <label for="level-filter">Filter by Level:</label>
-        <select id="level-filter" data-change="filterLogs">
-          <option value="all">All Levels</option>
-          <option value="error">Errors Only</option>
-          <option value="warn">Warnings Only</option>
-          <option value="info">Info Only</option>
-          <option value="debug">Debug Only</option>
-        </select>
-
-        <label for="limit-select">Show:</label>
-        <select id="limit-select" data-change="refreshLogs">
-          <option value="50">Last 50</option>
-          <option value="100" selected>Last 100</option>
-          <option value="250">Last 250</option>
-          <option value="500">Last 500</option>
-          <option value="1000">Last 1,000</option>
-          <option value="2500">Last 2,500</option>
-          <option value="5000">Last 5,000</option>
-          <option value="0">All Logs</option>
-        </select>
+    <div id="tab-logs" class="tab-content active">
+      <div class="actions">
+        <button class="btn btn-primary" data-action="refreshLogs">🔄 Refresh Now</button>
+        <a href="/api/logs/download" class="btn btn-secondary" download>⬇️ Download Logs</a>
+        <button class="btn btn-success" data-action="testEmail">✉️ Test Email</button>
+        <div class="auto-refresh">Auto-refresh: <span id="countdown">30</span>s</div>
       </div>
 
-      <div id="logs-content">
-        <div class="loading">Loading logs...</div>
+      <div class="card">
+        <h2>Recent Logs (Last 100)</h2>
+
+        <div class="filters">
+          <label for="level-filter">Filter by Level:</label>
+          <select id="level-filter" data-change="filterLogs">
+            <option value="all">All Levels</option>
+            <option value="error">Errors Only</option>
+            <option value="warn">Warnings Only</option>
+            <option value="info">Info Only</option>
+            <option value="debug">Debug Only</option>
+          </select>
+
+          <label for="limit-select">Show:</label>
+          <select id="limit-select" data-change="refreshLogs">
+            <option value="50">Last 50</option>
+            <option value="100" selected>Last 100</option>
+            <option value="250">Last 250</option>
+            <option value="500">Last 500</option>
+            <option value="1000">Last 1,000</option>
+            <option value="2500">Last 2,500</option>
+            <option value="5000">Last 5,000</option>
+            <option value="0">All Logs</option>
+          </select>
+        </div>
+
+        <div id="logs-content">
+          <div class="loading">Loading logs...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-location-health" class="tab-content">
+      <div class="actions">
+        <button class="btn btn-primary" data-action="runHealthCheck" id="btn-run-health-check">Run Check Now</button>
+        <button class="btn btn-secondary" data-action="refreshLocationHealth">Refresh</button>
+      </div>
+
+      <div id="health-check-result" class="health-summary" style="display:none;"></div>
+
+      <div class="card">
+        <h2>Open Mismatches</h2>
+        <div id="open-mismatches-content">
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>History</h2>
+        <div id="health-history-content">
+          <div class="loading">Loading...</div>
+        </div>
       </div>
     </div>
   </div>

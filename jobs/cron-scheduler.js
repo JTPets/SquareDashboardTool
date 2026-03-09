@@ -27,6 +27,7 @@ const { runScheduledSeniorsDiscount, verifyStateOnStartup } = require('./seniors
 const { runScheduledReconciliation } = require('./committed-inventory-reconciliation-job');
 const { runScheduledTrialExpiryNotifications } = require('./trial-expiry-job');
 const { runScheduledLoyaltySyncRetry } = require('./loyalty-sync-retry-job');
+const { runScheduledLocationHealthCheck } = require('./catalog-location-health-job');
 const syncQueue = require('../services/sync-queue');
 
 // Store cron task references for graceful shutdown
@@ -147,6 +148,14 @@ function initializeCronJobs() {
         timezone: 'America/Toronto'
     }));
     logger.info('Loyalty sync retry cron job scheduled', { schedule: loyaltySyncRetrySchedule, timezone: 'America/Toronto' });
+
+    // 15. Catalog location health check (debug — merchant 3 only)
+    // Runs daily at 2:00 AM to detect location mismatches in Square catalog
+    const locationHealthSchedule = process.env.CATALOG_LOCATION_HEALTH_CRON || '0 2 * * *';
+    cronTasks.push(cron.schedule(locationHealthSchedule, runScheduledLocationHealthCheck, {
+        timezone: 'America/Toronto'
+    }));
+    logger.info('Catalog location health cron job scheduled', { schedule: locationHealthSchedule, timezone: 'America/Toronto' });
 
     return cronTasks;
 }

@@ -170,6 +170,7 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('DOMContentLoaded', () => {
   refreshLogs();
   startPolling();
+  checkAdminAccess();
 });
 
 // Cleanup intervals when page unloads
@@ -177,7 +178,138 @@ window.addEventListener('beforeunload', () => {
   stopPolling();
 });
 
+// ==================== Location Health Tab ====================
+
+async function checkAdminAccess() {
+  try {
+    const response = await fetch('/api/admin/catalog-location-health');
+    if (response.ok) {
+      const tabBtn = document.getElementById('tab-btn-location-health');
+      if (tabBtn) tabBtn.style.display = '';
+    }
+  } catch (e) {
+    // Not admin — tab stays hidden
+  }
+}
+
+function switchTab(element) {
+  const tabName = element.getAttribute('data-tab');
+  if (!tabName) return;
+
+  // Update tab buttons
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  element.classList.add('active');
+
+  // Update tab content
+  document.querySelectorAll('.tab-content').forEach(function(content) {
+    content.classList.remove('active');
+  });
+  var tabEl = document.getElementById('tab-' + tabName);
+  if (tabEl) tabEl.classList.add('active');
+
+  // Load location health data on first switch
+  if (tabName === 'location-health') {
+    refreshLocationHealth();
+  }
+}
+
+async function refreshLocationHealth() {
+  try {
+    const response = await fetch('/api/admin/catalog-location-health');
+    if (!response.ok) {
+      document.getElementById('open-mismatches-content').innerHTML =
+        '<div class="error-message">Failed to load health data</div>';
+      return;
+    }
+    const data = await response.json();
+    renderOpenMismatches(data.openMismatches || []);
+    renderHealthHistory(data.history || []);
+  } catch (error) {
+    document.getElementById('open-mismatches-content').innerHTML =
+      '<div class="error-message">Failed to load: ' + escapeHtml(error.message) + '</div>';
+  }
+}
+
+function renderOpenMismatches(mismatches) {
+  var container = document.getElementById('open-mismatches-content');
+  if (mismatches.length === 0) {
+    container.innerHTML = '<div class="loading">No open mismatches found.</div>';
+    return;
+  }
+
+  container.innerHTML = '<table class="logs-table"><thead><tr>' +
+    '<th>Variation ID</th><th>Item ID</th><th>Mismatch Type</th><th>Detected At</th>' +
+    '</tr></thead><tbody>' +
+    mismatches.map(function(row) {
+      return '<tr>' +
+        '<td class="log-message">' + escapeHtml(row.variation_id) + '</td>' +
+        '<td class="log-message">' + escapeHtml(row.item_id) + '</td>' +
+        '<td>' + escapeHtml(row.mismatch_type || '') + '</td>' +
+        '<td class="log-timestamp">' + escapeHtml(row.detected_at || '') + '</td>' +
+        '</tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+function renderHealthHistory(history) {
+  var container = document.getElementById('health-history-content');
+  if (history.length === 0) {
+    container.innerHTML = '<div class="loading">No history found.</div>';
+    return;
+  }
+
+  container.innerHTML = '<table class="logs-table"><thead><tr>' +
+    '<th>Status</th><th>Variation ID</th><th>Item ID</th><th>Mismatch Type</th>' +
+    '<th>Detected At</th><th>Resolved At</th>' +
+    '</tr></thead><tbody>' +
+    history.map(function(row) {
+      var badgeClass = row.status === 'mismatch' ? 'mismatch' : 'valid';
+      return '<tr>' +
+        '<td><span class="status-badge ' + badgeClass + '">' + escapeHtml(row.status) + '</span></td>' +
+        '<td class="log-message">' + escapeHtml(row.variation_id) + '</td>' +
+        '<td class="log-message">' + escapeHtml(row.item_id) + '</td>' +
+        '<td>' + escapeHtml(row.mismatch_type || '') + '</td>' +
+        '<td class="log-timestamp">' + escapeHtml(row.detected_at || '') + '</td>' +
+        '<td class="log-timestamp">' + escapeHtml(row.resolved_at || '--') + '</td>' +
+        '</tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+async function runHealthCheck(element) {
+  var btn = element;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+
+  try {
+    var response = await fetch('/api/admin/catalog-location-health/check', { method: 'POST' });
+    var data = await response.json();
+
+    if (response.ok) {
+      var resultDiv = document.getElementById('health-check-result');
+      resultDiv.style.display = '';
+      resultDiv.textContent = 'Checked: ' + (data.checked || 0) +
+        ' | New mismatches: ' + (data.newMismatches || 0) +
+        ' | Resolved: ' + (data.resolved || 0) +
+        ' | Existing open: ' + (data.existingOpen || 0);
+      await refreshLocationHealth();
+    } else {
+      showMessage('error', data.error || 'Health check failed');
+    }
+  } catch (error) {
+    showMessage('error', 'Health check failed: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Check Now';
+  }
+}
+
 // Expose functions to global scope for event delegation
 window.refreshLogs = refreshLogs;
 window.filterLogs = filterLogs;
 window.testEmail = testEmail;
+window.switchTab = switchTab;
+window.refreshLocationHealth = refreshLocationHealth;
+window.runHealthCheck = runHealthCheck;

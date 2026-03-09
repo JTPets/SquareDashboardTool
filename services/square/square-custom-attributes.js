@@ -25,6 +25,7 @@ const logger = require('../../utils/logger');
 const { getMerchantToken, makeSquareRequest, sleep, generateIdempotencyKey } = require('./square-client');
 
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
+const { enableItemAtAllLocations } = require('./square-diagnostics');
 
 /**
  * List all custom attribute definitions from Square Catalog
@@ -289,6 +290,7 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
 
         // For batch upsert, we need to fetch all objects first to get their versions
         const objectIds = batch.map(u => u.catalogObjectId);
+        let updateObjects = [];
 
         try {
             // Batch retrieve objects
@@ -307,7 +309,7 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
             }
 
             // Build batch update objects
-            const updateObjects = [];
+            updateObjects = [];
 
             for (const update of batch) {
                 const currentObject = objectMap.get(update.catalogObjectId);
@@ -351,10 +353,136 @@ async function batchUpdateCustomAttributeValues(updates, options = {}) {
             results.updated += upsertData.objects?.length || 0;
 
         } catch (error) {
+            // Detect location mismatch: 400 INVALID_VALUE with field=item_id
+            const squareErrors = error.squareErrors || [];
+            const hasStructuredMismatch = squareErrors.some(e =>
+                e.code === 'INVALID_VALUE' && e.field === 'item_id'
+            );
+            const hasMessageMismatch = error.message &&
+                error.message.includes('is enabled at unit') &&
+                error.message.includes('of type ITEM is not');
+            const isLocationMismatch = hasStructuredMismatch || hasMessageMismatch;
+
+            if (isLocationMismatch) {
+                // Extract item IDs from the batch objects that have parent items
+                const healedItemIds = new Set();
+                for (const obj of updateObjects || []) {
+                    const parentItemId = obj.type === 'ITEM_VARIATION'
+                        ? obj.item_variation_data?.item_id
+                        : null;
+                    if (parentItemId && !healedItemIds.has(parentItemId)) {
+                        try {
+                            await enableItemAtAllLocations(parentItemId, merchantId);
+                            healedItemIds.add(parentItemId);
+                            logger.info('Auto-healed location mismatch for custom attribute push', {
+                                parentItemId, merchantId
+                            });
+                        } catch (healError) {
+                            logger.warn('Failed to auto-heal location mismatch', {
+                                parentItemId, merchantId, error: healError.message
+                            });
+                        }
+                    }
+                }
+
+                // Also try to extract item_id from error message/details
+                if (healedItemIds.size === 0) {
+                    const detailMatch = error.message?.match(/object ([A-Z0-9]+) of type ITEM is not/);
+                    if (detailMatch) {
+                        try {
+                            await enableItemAtAllLocations(detailMatch[1], merchantId);
+                            healedItemIds.add(detailMatch[1]);
+                            logger.info('Auto-healed location mismatch from error detail', {
+                                parentItemId: detailMatch[1], merchantId
+                            });
+                        } catch (healError) {
+                            logger.warn('Failed to auto-heal location mismatch from error detail', {
+                                parentItemId: detailMatch[1], merchantId, error: healError.message
+                            });
+                        }
+                    }
+                }
+
+                // Retry the batch once after healing
+                if (healedItemIds.size > 0) {
+                    try {
+                        // Re-fetch objects to get updated versions after healing
+                        const retryRetrieve = await makeSquareRequest('/v2/catalog/batch-retrieve', {
+                            method: 'POST',
+                            body: JSON.stringify({ object_ids: objectIds, include_related_objects: false }),
+                            accessToken
+                        });
+                        const retryMap = new Map();
+                        for (const obj of (retryRetrieve.objects || [])) {
+                            retryMap.set(obj.id, obj);
+                        }
+
+                        const retryObjects = [];
+                        for (const update of batch) {
+                            const currentObject = retryMap.get(update.catalogObjectId);
+                            if (!currentObject) continue;
+                            const retryObj = {
+                                type: currentObject.type,
+                                id: update.catalogObjectId,
+                                version: currentObject.version,
+                                custom_attribute_values: update.customAttributeValues
+                            };
+                            if (currentObject.type === 'ITEM' && currentObject.item_data) {
+                                retryObj.item_data = currentObject.item_data;
+                            } else if (currentObject.type === 'ITEM_VARIATION' && currentObject.item_variation_data) {
+                                retryObj.item_variation_data = currentObject.item_variation_data;
+                            }
+                            retryObjects.push(retryObj);
+                        }
+
+                        if (retryObjects.length > 0) {
+                            const retryKey = generateIdempotencyKey('custom-attr-batch-retry');
+                            const retryData = await makeSquareRequest('/v2/catalog/batch-upsert', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    idempotency_key: retryKey,
+                                    batches: [{ objects: retryObjects }]
+                                }),
+                                accessToken
+                            });
+                            results.updated += retryData.objects?.length || 0;
+                            logger.info('Auto-healed batch retry succeeded', {
+                                merchantId, healed: healedItemIds.size, updated: retryData.objects?.length || 0
+                            });
+                            // Record health if merchant 3
+                            if (merchantId === 3) {
+                                try {
+                                    const { checkAndRecordHealth } = require('../catalog/location-health-service');
+                                    await checkAndRecordHealth(merchantId);
+                                } catch (healthErr) {
+                                    logger.warn('Health check after heal failed', { error: healthErr.message });
+                                }
+                            }
+                            continue; // Skip to next batch — retry succeeded
+                        }
+                    } catch (retryError) {
+                        logger.warn('Auto-heal retry failed, recording original error', {
+                            merchantId, error: retryError.message
+                        });
+                    }
+                }
+
+                // Record health even if retry failed (merchant 3 only)
+                if (merchantId === 3) {
+                    try {
+                        const { checkAndRecordHealth } = require('../catalog/location-health-service');
+                        await checkAndRecordHealth(merchantId);
+                    } catch (healthErr) {
+                        logger.warn('Health check after failed heal failed', { error: healthErr.message });
+                    }
+                }
+            }
+
             logger.error('Batch custom attribute update failed', {
                 batchStart: i,
                 merchantId,
-                error: error.message
+                error: error.message,
+                isLocationMismatch
             });
             results.failed += batch.length;
             results.errors.push({ batch: Math.floor(i / batchSize), error: error.message });
