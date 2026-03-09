@@ -21,6 +21,66 @@ const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identif
 const { normalizeSquareOrder } = require('./order-normalize');
 
 /**
+ * Known permanent error messages that should NOT be retried.
+ * Business logic failures where retrying won't change the outcome.
+ */
+const KNOWN_PERMANENT_ERRORS = [
+    'customer not found',
+    'offer inactive',
+    'offer not found',
+    'already processed',
+    'order already processed',
+    'invalid order state',
+    'no qualifying items',
+    'order with id is required',
+    'merchantId is required',
+    'tenant isolation required'
+];
+
+/**
+ * Determine if an error is transient (retryable) or permanent.
+ *
+ * Transient errors: DB connection failures, deadlocks, timeouts, network errors.
+ * Square will retry the webhook if we re-throw.
+ *
+ * @param {Error} error
+ * @returns {boolean} true if the error is transient and should be retried
+ */
+// LOGIC CHANGE: New function — classifies errors to decide retry vs swallow
+function isTransientError(error) {
+    // PostgreSQL error codes indicating transient failures
+    const pgCode = error.code;
+    if (pgCode) {
+        // 40001 = serialization_failure, 40P01 = deadlock_detected
+        if (pgCode === '40001' || pgCode === '40P01') return true;
+        // 57P03 = cannot_connect_now
+        if (pgCode === '57P03') return true;
+        // 08* = connection_exception class
+        if (typeof pgCode === 'string' && pgCode.startsWith('08')) return true;
+    }
+
+    // Network/connection error messages
+    const msg = (error.message || '').toLowerCase();
+    if (msg.includes('connection') || msg.includes('timeout') ||
+        msg.includes('econnrefused') || msg.includes('etimedout')) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Check if an error message matches a known permanent business logic error.
+ *
+ * @param {Error} error
+ * @returns {boolean} true if the error is a known, expected permanent failure
+ */
+function isKnownPermanentError(error) {
+    const msg = (error.message || '').toLowerCase();
+    return KNOWN_PERMANENT_ERRORS.some(pattern => msg.includes(pattern));
+}
+
+/**
  * Cache of order processing results for dedup between order.* and payment.* webhooks.
  * Keyed by `${orderId}:${merchantId}`. Stores { customerId, pointsAwarded, redemptionChecked }.
  * 120s TTL ensures self-healing if something goes wrong.
@@ -308,11 +368,39 @@ async function processLoyalty(order, merchantId, result) {
             redemptionChecked: true
         });
     } catch (loyaltyError) {
-        logger.error('Failed to process order for loyalty', {
-            error: loyaltyError.message,
-            orderId: order.id,
-            merchantId
-        });
+        // LOGIC CHANGE: Classify errors — re-throw transient so Square retries
+        if (isTransientError(loyaltyError)) {
+            logger.error('Loyalty transient error — Square will retry webhook', {
+                event: 'loyalty_transient_error',
+                orderId: order.id,
+                merchantId,
+                error: loyaltyError.message,
+                code: loyaltyError.code,
+                willRetry: true
+            });
+            throw loyaltyError;
+        }
+
+        // Permanent error — swallow (retrying won't help)
+        if (isKnownPermanentError(loyaltyError)) {
+            logger.warn('Loyalty permanent error — not retryable', {
+                event: 'loyalty_permanent_error',
+                orderId: order.id,
+                merchantId,
+                error: loyaltyError.message,
+                willRetry: false
+            });
+        } else {
+            // Unexpected permanent error — needs human review
+            logger.error('Loyalty unexpected error — needs review', {
+                event: 'loyalty_unexpected_error',
+                orderId: order.id,
+                merchantId,
+                error: loyaltyError.message,
+                stack: loyaltyError.stack,
+                willRetry: false
+            });
+        }
         result.loyaltyError = loyaltyError.message;
     }
 }
@@ -454,17 +542,55 @@ async function processPaymentForLoyalty(payment, merchantId, result, source) {
             });
         }
     } catch (paymentErr) {
-        logger.error('Error processing payment for loyalty', {
-            error: paymentErr.message,
-            paymentId: payment.id
-        });
+        // LOGIC CHANGE: Classify errors — re-throw transient so Square retries
+        if (isTransientError(paymentErr)) {
+            logger.error('Payment loyalty transient error — Square will retry webhook', {
+                event: 'loyalty_transient_error',
+                orderId: payment.order_id,
+                merchantId,
+                error: paymentErr.message,
+                code: paymentErr.code,
+                willRetry: true
+            });
+            throw paymentErr;
+        }
+
+        if (isKnownPermanentError(paymentErr)) {
+            logger.warn('Payment loyalty permanent error — not retryable', {
+                event: 'loyalty_permanent_error',
+                orderId: payment.order_id,
+                merchantId,
+                error: paymentErr.message,
+                willRetry: false
+            });
+        } else {
+            logger.error('Payment loyalty unexpected error — needs review', {
+                event: 'loyalty_unexpected_error',
+                orderId: payment.order_id,
+                merchantId,
+                error: paymentErr.message,
+                stack: paymentErr.stack,
+                willRetry: false
+            });
+        }
     }
 }
+
+// TODO: Suggested extraction — handleLoyaltyError(error, orderId, merchantId, result)
+//   Inputs: Error object, orderId (string), merchantId (number), result (object)
+//   Outputs: void (mutates result.loyaltyError or re-throws)
+//   Lines: processLoyalty catch block + processPaymentForLoyalty catch block
+//   Risk: Low — pure error classification logic, no side effects beyond logging
+//   Both catch blocks share identical classify-log-rethrow/swallow logic.
 
 module.exports = {
     orderProcessingCache,
     identifyCustomerForOrder,
     checkOrderForRedemption,
     processLoyalty,
-    processPaymentForLoyalty
+    processPaymentForLoyalty,
+    // Exported for testing only
+    _isTransientError: isTransientError,
+    _isKnownPermanentError: isKnownPermanentError,
+    _KNOWN_PERMANENT_ERRORS: KNOWN_PERMANENT_ERRORS
 };
