@@ -20,6 +20,7 @@ const logger = require('../../utils/logger');
 const { RewardStatus, AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { getOfferForVariation } = require('./variation-admin-service');
+const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
 const { updateRewardProgress } = require('./reward-progress-service');
 const { updateCustomerSummary } = require('./customer-summary-service');
 
@@ -273,7 +274,24 @@ async function processRefund(refundData) {
         offerId: offer.id
     });
 
+    // TODO: Extract function — recordRefundEvent
+    // Inputs: client, { merchantId, offer, squareCustomerId, squareOrderId, squareLocationId,
+    //         variationId, refundQuantity, unitPriceCents, refundedAt, originalEventId, idempotencyKey }
+    // Outputs: refundEvent row
+    // Owns: original purchase window lookup (LA-11), refund INSERT, audit log
+    // Lines: ~280–340 (current)
+    // Risk: low (pure DB writes, no external calls)
+
+    // TODO: Extract function — checkAndRevokeEarnedReward
+    // Inputs: client, { merchantId, offer, squareCustomerId }
+    // Outputs: { revoked: boolean, reward: row | null }
+    // Owns: earned reward lookup, locked quantity check, revocation UPDATE, unlock, audit log, customer summary
+    // Lines: ~342–408 (current)
+    // Risk: medium (reward state machine transition — needs careful test coverage)
+
     const client = await db.pool.connect();
+    // Track revoked reward for post-transaction Square cleanup
+    let revokedReward = null;
     try {
         await client.query('BEGIN');
 
@@ -362,7 +380,10 @@ async function processRefund(refundData) {
 
             const remainingQuantity = parseInt(lockedQuantity.rows[0].total) || 0;
 
-            // If refund causes reward to be invalid, revoke it (B7 fix: added AND merchant_id)
+            // LOGIC CHANGE (HIGH-6): If refund causes reward to be invalid, revoke it
+            // AND clean up the Square discount so the customer cannot use it at POS.
+            // Previously only revoked in DB without removing the Square discount object.
+            // (B7 fix: added AND merchant_id)
             if (remainingQuantity < offer.required_quantity) {
                 await client.query(`
                     UPDATE loyalty_rewards
@@ -395,16 +416,11 @@ async function processRefund(refundData) {
                     }
                 }, client);  // Pass transaction client to avoid deadlock
 
-                logger.warn('Earned reward revoked due to refund', {
-                    merchantId,
-                    rewardId: reward.id,
-                    squareCustomerId,
-                    remainingQuantity,
-                    requiredQuantity: offer.required_quantity
-                });
-
                 // Update customer summary after revocation to keep it in sync
                 await updateCustomerSummary(client, merchantId, squareCustomerId, offer.id);
+
+                // Save for post-transaction Square cleanup
+                revokedReward = reward;
             }
         }
 
@@ -417,6 +433,46 @@ async function processRefund(refundData) {
         });
 
         await client.query('COMMIT');
+
+        // LOGIC CHANGE (HIGH-6): Clean up Square discount objects OUTSIDE the transaction
+        // (external API call — matches expiration-service.js and reward-service.js pattern).
+        // Without this, the customer retains an active discount in Square POS and can
+        // redeem a free item even though their reward was revoked in our DB.
+        if (revokedReward) {
+            logger.info('Reward revoked via refund', {
+                event: 'reward_revoked_via_refund',
+                customerId: squareCustomerId,
+                offerId: offer.id,
+                merchantId,
+                rewardId: revokedReward.id
+            });
+
+            try {
+                await cleanupSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId,
+                    internalRewardId: revokedReward.id
+                });
+
+                logger.info('Revocation cleanup complete', {
+                    event: 'revocation_cleanup_complete',
+                    customerId: squareCustomerId,
+                    offerId: offer.id,
+                    merchantId,
+                    rewardId: revokedReward.id
+                });
+            } catch (cleanupError) {
+                // Do NOT throw — cleanup failure should not roll back the revocation
+                logger.error('Revocation cleanup failed', {
+                    event: 'revocation_cleanup_failed',
+                    customerId: squareCustomerId,
+                    offerId: offer.id,
+                    merchantId,
+                    rewardId: revokedReward.id,
+                    error: cleanupError.message
+                });
+            }
+        }
 
         return {
             processed: true,

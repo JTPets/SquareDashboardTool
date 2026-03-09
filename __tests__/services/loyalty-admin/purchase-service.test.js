@@ -54,8 +54,10 @@ jest.mock('../../../services/loyalty-admin/customer-cache-service', () => ({
 }));
 
 const mockCreateDiscount = jest.fn().mockResolvedValue({ success: true, groupId: 'g1', discountId: 'd1' });
+const mockCleanupDiscount = jest.fn().mockResolvedValue({ success: true });
 jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
-    createSquareCustomerGroupDiscount: mockCreateDiscount
+    createSquareCustomerGroupDiscount: mockCreateDiscount,
+    cleanupSquareCustomerGroupDiscount: mockCleanupDiscount
 }));
 
 const db = require('../../../utils/database');
@@ -906,6 +908,252 @@ describe('processRefund', () => {
         // Window dates should come from original purchase, NOT from refund date
         expect(capturedWindowStart).toBe('2026-01-15');
         expect(capturedWindowEnd).toBe('2027-01-15');
+    });
+
+    // ========================================================================
+    // HIGH-6: Square discount cleanup after reward revocation
+    // ========================================================================
+
+    it('HIGH-6: should call cleanupSquareCustomerGroupDiscount after reward revocation', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -3 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 50, offer_id: OFFER.id, square_customer_id: 'cust_1', status: 'earned' }] };
+            }
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 10 }] }; // 10 < 12 required
+            }
+            if (sql.includes("SET status = 'revoked'")) return { rows: [] };
+            if (sql.includes('SET reward_id = NULL') && sql.includes('WHERE reward_id')) return { rows: [] };
+            if (sql.includes('total_quantity') && !sql.includes('reward_id')) return { rows: [{ total_quantity: 10 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return { rows: [{ id: 201, status: 'in_progress', current_quantity: 10, required_quantity: 12 }] };
+            }
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: '2026-01-01', end_date: '2026-12-31' }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 3,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+        expect(result.rewardAffected).toBe(true);
+
+        // Cleanup must be called with correct params after transaction commits
+        expect(mockCleanupDiscount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            internalRewardId: 50
+        });
+    });
+
+    it('HIGH-6: revocation should NOT be rolled back if cleanup fails', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+        mockCleanupDiscount.mockRejectedValueOnce(new Error('Square API timeout'));
+
+        let revokeCalled = false;
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -3 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 50, offer_id: OFFER.id, square_customer_id: 'cust_1', status: 'earned' }] };
+            }
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 10 }] };
+            }
+            if (sql.includes("SET status = 'revoked'")) { revokeCalled = true; return { rows: [] }; }
+            if (sql.includes('SET reward_id = NULL') && sql.includes('WHERE reward_id')) return { rows: [] };
+            if (sql.includes('total_quantity') && !sql.includes('reward_id')) return { rows: [{ total_quantity: 10 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return { rows: [{ id: 201, status: 'in_progress', current_quantity: 10, required_quantity: 12 }] };
+            }
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: '2026-01-01', end_date: '2026-12-31' }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                return { rows: [] };
+            return { rows: [] };
+        });
+
+        // Should NOT throw even though cleanup fails
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 3,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+        expect(revokeCalled).toBe(true);
+
+        // Transaction was committed (not rolled back)
+        const queries = mockClient.query.mock.calls.map(c => typeof c[0] === 'string' ? c[0] : '');
+        expect(queries).toContain('COMMIT');
+        expect(queries.filter(q => q === 'ROLLBACK')).toHaveLength(0);
+    });
+
+    it('HIGH-6: should log ERROR with structured fields on cleanup failure', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+        mockCleanupDiscount.mockRejectedValueOnce(new Error('Square API timeout'));
+
+        const logger = require('../../../utils/logger');
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -3 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 50, offer_id: OFFER.id, square_customer_id: 'cust_1', status: 'earned' }] };
+            }
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 10 }] };
+            }
+            if (sql.includes("SET status = 'revoked'")) return { rows: [] };
+            if (sql.includes('SET reward_id = NULL') && sql.includes('WHERE reward_id')) return { rows: [] };
+            if (sql.includes('total_quantity') && !sql.includes('reward_id')) return { rows: [{ total_quantity: 10 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return { rows: [{ id: 201, status: 'in_progress', current_quantity: 10, required_quantity: 12 }] };
+            }
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: '2026-01-01', end_date: '2026-12-31' }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                return { rows: [] };
+            return { rows: [] };
+        });
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 3,
+            refundedAt: new Date()
+        });
+
+        expect(logger.error).toHaveBeenCalledWith(
+            'Revocation cleanup failed',
+            expect.objectContaining({
+                event: 'revocation_cleanup_failed',
+                customerId: 'cust_1',
+                offerId: OFFER.id,
+                merchantId: 1,
+                rewardId: 50,
+                error: 'Square API timeout'
+            })
+        );
+    });
+
+    it('HIGH-6: should log INFO on successful revocation and cleanup', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] }));
+        mockCleanupDiscount.mockResolvedValueOnce({ success: true });
+
+        const logger = require('../../../utils/logger');
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -3 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 50, offer_id: OFFER.id, square_customer_id: 'cust_1', status: 'earned' }] };
+            }
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 10 }] };
+            }
+            if (sql.includes("SET status = 'revoked'")) return { rows: [] };
+            if (sql.includes('SET reward_id = NULL') && sql.includes('WHERE reward_id')) return { rows: [] };
+            if (sql.includes('total_quantity') && !sql.includes('reward_id')) return { rows: [{ total_quantity: 10 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return { rows: [{ id: 201, status: 'in_progress', current_quantity: 10, required_quantity: 12 }] };
+            }
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: '2026-01-01', end_date: '2026-12-31' }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                return { rows: [] };
+            return { rows: [] };
+        });
+
+        await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 3,
+            refundedAt: new Date()
+        });
+
+        expect(logger.info).toHaveBeenCalledWith(
+            'Reward revoked via refund',
+            expect.objectContaining({
+                event: 'reward_revoked_via_refund',
+                customerId: 'cust_1',
+                offerId: OFFER.id,
+                merchantId: 1,
+                rewardId: 50
+            })
+        );
+
+        expect(logger.info).toHaveBeenCalledWith(
+            'Revocation cleanup complete',
+            expect.objectContaining({
+                event: 'revocation_cleanup_complete',
+                customerId: 'cust_1',
+                offerId: OFFER.id,
+                merchantId: 1,
+                rewardId: 50
+            })
+        );
     });
 
     it('LA-11: should fall back to refund date when no original purchase found', async () => {
