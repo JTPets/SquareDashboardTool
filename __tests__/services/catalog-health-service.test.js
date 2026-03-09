@@ -154,6 +154,58 @@ describe('CHECK 1: location_mismatch', () => {
         );
     });
 
+    test('detects mismatch when item has present_at_all_future_locations but variation omits it', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            present_at_all_future_locations: true,
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true
+                    // present_at_all_future_locations omitted — Square omits when false
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ check_type: 'location_mismatch' })
+            ])
+        );
+    });
+
+    test('detects mismatch when variation has present_at_all_future_locations but item omits it', async () => {
+        const item = buildItem('ITEM_1', {
+            present_at_all_locations: true,
+            // present_at_all_future_locations omitted
+            item_data: {
+                variations: [{
+                    id: 'VAR_1',
+                    present_at_all_locations: true,
+                    present_at_all_future_locations: true
+                }],
+                categories: [], image_ids: [], modifier_list_info: [], tax_ids: ['TAX_1']
+            }
+        });
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] });
+        db.query.mockResolvedValue({ rows: [] });
+
+        const result = await runFullHealthCheck(3);
+        expect(result.newIssues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ check_type: 'location_mismatch' })
+            ])
+        );
+    });
+
     test('no mismatch when flags match', async () => {
         const item = buildItem('ITEM_1', {
             present_at_all_locations: true,
