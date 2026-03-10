@@ -6,7 +6,7 @@
  * - Atomic writes (both tables in one transaction)
  * - Source tagging
  * - Free item detection and skipping
- * - Error handling (line-item failures don't abort the order)
+ * - MED-7: Partial failures roll back entire transaction (atomicity)
  */
 
 // Mock dependencies before imports
@@ -44,6 +44,7 @@ jest.mock('../../../services/loyalty-admin/purchase-service', () => ({
 }));
 
 const db = require('../../../utils/database');
+const logger = require('../../../utils/logger');
 const { processLoyaltyOrder, isOrderAlreadyProcessed } = require('../../../services/loyalty-admin/order-intake');
 const { processQualifyingPurchase } = require('../../../services/loyalty-admin/purchase-service');
 
@@ -252,7 +253,120 @@ describe('processLoyaltyOrder', () => {
         expect(processQualifyingPurchase).not.toHaveBeenCalled();
     });
 
-    test('continues processing when one line item fails', async () => {
+    // MED-7: Partial failures now roll back the entire transaction
+    test('MED-7: rolls back entire transaction when one line item fails', async () => {
+        const orderWithTwoItems = {
+            ...baseOrder,
+            line_items: [
+                {
+                    uid: 'li-1',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 500 },
+                    gross_sales_money: { amount: 500 },
+                    total_money: { amount: 500 },
+                },
+                {
+                    uid: 'li-2',
+                    catalog_object_id: 'VAR_002',
+                    quantity: '1',
+                    base_price_money: { amount: 300 },
+                    gross_sales_money: { amount: 300 },
+                    total_money: { amount: 300 },
+                },
+            ],
+        };
+
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        mockClient.query
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ id: 99 }] }) // INSERT
+            .mockResolvedValueOnce({}) // ROLLBACK
+            .mockResolvedValueOnce({}); // (safety)
+
+        // First item fails, second would succeed but transaction rolls back
+        processQualifyingPurchase
+            .mockRejectedValueOnce(new Error('DB constraint violation'))
+            .mockResolvedValueOnce({
+                processed: true,
+                purchaseEvent: { id: 1002 },
+                reward: { status: 'in_progress' },
+            });
+
+        // MED-7: Should throw since partial failure causes rollback
+        await expect(processLoyaltyOrder({
+            order: orderWithTwoItems,
+            merchantId: 1,
+            squareCustomerId: 'CUST_456',
+        })).rejects.toThrow('Order intake failed for 1 variation(s)');
+
+        // Transaction should ROLLBACK, not COMMIT
+        expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    test('MED-7: logs structured error on partial failure', async () => {
+        const orderWithTwoItems = {
+            ...baseOrder,
+            line_items: [
+                {
+                    uid: 'li-1',
+                    catalog_object_id: 'VAR_001',
+                    quantity: '1',
+                    base_price_money: { amount: 500 },
+                    gross_sales_money: { amount: 500 },
+                    total_money: { amount: 500 },
+                },
+                {
+                    uid: 'li-2',
+                    catalog_object_id: 'VAR_002',
+                    quantity: '1',
+                    base_price_money: { amount: 300 },
+                    gross_sales_money: { amount: 300 },
+                    total_money: { amount: 300 },
+                },
+            ],
+        };
+
+        db.query
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        mockClient.query
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [{ id: 99 }] }) // INSERT
+            .mockResolvedValueOnce({}) // ROLLBACK
+            .mockResolvedValueOnce({}); // outer ROLLBACK
+
+        processQualifyingPurchase
+            .mockResolvedValueOnce({
+                processed: true,
+                purchaseEvent: { id: 1001 },
+                reward: { status: 'in_progress' },
+            })
+            .mockRejectedValueOnce(new Error('Unique violation'));
+
+        await expect(processLoyaltyOrder({
+            order: orderWithTwoItems,
+            merchantId: 1,
+            squareCustomerId: 'CUST_456',
+        })).rejects.toThrow();
+
+        expect(logger.error).toHaveBeenCalledWith(
+            'Order intake partial failure — transaction rolled back',
+            expect.objectContaining({
+                event: 'order_intake_partial_failure',
+                orderId: 'ORDER_123',
+                merchantId: 1,
+                failedVariations: ['VAR_002'],
+                errors: ['Unique violation']
+            })
+        );
+    });
+
+    test('MED-7: commits successfully when all variations succeed', async () => {
         const orderWithTwoItems = {
             ...baseOrder,
             line_items: [
@@ -285,9 +399,12 @@ describe('processLoyaltyOrder', () => {
             .mockResolvedValueOnce({}) // UPDATE
             .mockResolvedValueOnce({}); // COMMIT
 
-        // First item fails, second succeeds
         processQualifyingPurchase
-            .mockRejectedValueOnce(new Error('DB constraint violation'))
+            .mockResolvedValueOnce({
+                processed: true,
+                purchaseEvent: { id: 1001 },
+                reward: { status: 'in_progress' },
+            })
             .mockResolvedValueOnce({
                 processed: true,
                 purchaseEvent: { id: 1002 },
@@ -300,10 +417,7 @@ describe('processLoyaltyOrder', () => {
             squareCustomerId: 'CUST_456',
         });
 
-        // Should have one successful purchase event despite the first item failing
-        expect(result.purchaseEvents).toHaveLength(1);
-        expect(result.purchaseEvents[0].id).toBe(1002);
-        // Transaction should still commit
+        expect(result.purchaseEvents).toHaveLength(2);
         expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
     });
 

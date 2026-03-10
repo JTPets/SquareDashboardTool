@@ -161,6 +161,13 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
             }
         }
 
+        // LOGIC CHANGE (MED-7): Collect errors per-variation but do NOT
+        // silently commit. After the loop, if any variation failed, ROLLBACK
+        // the entire transaction to ensure atomicity — all succeed or none do.
+        // Previously, partial failures committed successfully, permanently
+        // losing the failed variation's purchase with no retry path.
+        const variationErrors = [];
+
         // --- Process one call per variation with aggregated totals ---
         for (const [variationId, agg] of aggregatedByVariation) {
             try {
@@ -186,15 +193,21 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
                     }
                 }
             } catch (err) {
-                // Log but don't fail the whole order — other items may still qualify
-                logger.error('Error processing line item in order intake', {
-                    error: err.message,
-                    orderId,
-                    variationId,
-                    merchantId,
-                    source
-                });
+                variationErrors.push({ variationId, error: err.message });
             }
+        }
+
+        // If any variation failed, rollback the entire transaction
+        if (variationErrors.length > 0) {
+            await client.query('ROLLBACK');
+            logger.error('Order intake partial failure — transaction rolled back', {
+                event: 'order_intake_partial_failure',
+                orderId,
+                merchantId,
+                failedVariations: variationErrors.map(e => e.variationId),
+                errors: variationErrors.map(e => e.error)
+            });
+            throw new Error(`Order intake failed for ${variationErrors.length} variation(s): ${variationErrors.map(e => e.variationId).join(', ')}`);
         }
 
         // --- Finalize loyalty_processed_orders with actual result ---

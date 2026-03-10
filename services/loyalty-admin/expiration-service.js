@@ -40,49 +40,61 @@ async function processExpiredWindowEntries(merchantId) {
     `, [merchantId]);
 
     let processedCount = 0;
+    // LOGIC CHANGE (MED-2): Process each customer/offer independently.
+    // Previously, one bad record threw and exited the entire function.
+    // Now errors are caught per-iteration, logged, and processing continues.
+    const errors = [];
 
     const client = await db.pool.connect();
     try {
         for (const row of expiredResult.rows) {
-            await client.query('BEGIN');
+            try {
+                await client.query('BEGIN');
 
-            // Get the offer
-            const offerResult = await client.query(`
-                SELECT * FROM loyalty_offers WHERE id = $1
-            `, [row.offer_id]);
+                // Get the offer
+                const offerResult = await client.query(`
+                    SELECT * FROM loyalty_offers WHERE id = $1
+                `, [row.offer_id]);
 
-            if (offerResult.rows[0]) {
-                await updateRewardProgress(client, {
-                    merchantId,
-                    offerId: row.offer_id,
+                if (offerResult.rows[0]) {
+                    await updateRewardProgress(client, {
+                        merchantId,
+                        offerId: row.offer_id,
+                        squareCustomerId: row.square_customer_id,
+                        offer: offerResult.rows[0]
+                    });
+
+                    await logAuditEvent({
+                        merchantId,
+                        action: AuditActions.WINDOW_EXPIRED,
+                        offerId: row.offer_id,
+                        squareCustomerId: row.square_customer_id,
+                        triggeredBy: 'SYSTEM'
+                    }, client);  // Pass transaction client to avoid deadlock
+
+                    processedCount++;
+                }
+
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                logger.error('Error processing expired entry', {
+                    event: 'expiration_processing_error',
                     squareCustomerId: row.square_customer_id,
-                    offer: offerResult.rows[0]
+                    offerId: row.offer_id,
+                    merchantId,
+                    error: error.message
                 });
-
-                await logAuditEvent({
-                    merchantId,
-                    action: AuditActions.WINDOW_EXPIRED,
-                    offerId: row.offer_id,
-                    squareCustomerId: row.square_customer_id,
-                    triggeredBy: 'SYSTEM'
-                }, client);  // Pass transaction client to avoid deadlock
-
-                processedCount++;
+                errors.push({ squareCustomerId: row.square_customer_id, offerId: row.offer_id, error: error.message });
             }
-
-            await client.query('COMMIT');
         }
-    } catch (error) {
-        await client.query('ROLLBACK');
-        logger.error('Error processing expired entries', { error: error.message, stack: error.stack });
-        throw error;
     } finally {
         client.release();
     }
 
-    logger.info('Expired window processing complete', { merchantId, processedCount });
+    logger.info('Expired window processing complete', { merchantId, processedCount, errorCount: errors.length });
 
-    return { processedCount };
+    return { processedCount, errors };
 }
 
 /**
