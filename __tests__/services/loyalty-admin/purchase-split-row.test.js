@@ -421,8 +421,10 @@ describe('updateRewardProgress — split-row rollover', () => {
         );
         expect(earnedCalls).toHaveLength(2);
 
-        // Should have called createSquareCustomerGroupDiscount twice
-        expect(createSquareCustomerGroupDiscount).toHaveBeenCalledTimes(2);
+        // MED-1: updateRewardProgress no longer calls createSquareCustomerGroupDiscount
+        // directly — it returns earnedRewardIds for purchase-service to handle post-commit
+        expect(createSquareCustomerGroupDiscount).not.toHaveBeenCalled();
+        expect(result.earnedRewardIds).toHaveLength(2);
     });
 
     test('below threshold — no reward earned, progress updated', async () => {
@@ -528,12 +530,8 @@ describe('updateRewardProgress — split-row rollover', () => {
             mockClient
         );
 
-        // Square discount created
-        expect(createSquareCustomerGroupDiscount).toHaveBeenCalledWith({
-            merchantId: 1,
-            squareCustomerId: 'CUST_ABC',
-            internalRewardId: 'reward-1',
-            offerId: 10,
-        });
+        // MED-1: updateRewardProgress no longer calls createSquareCustomerGroupDiscount
+        // directly — it returns earnedRewardIds for purchase-service to handle post-commit
+        expect(createSquareCustomerGroupDiscount).not.toHaveBeenCalled();
     });
 });

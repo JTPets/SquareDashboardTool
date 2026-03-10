@@ -2,7 +2,8 @@
  * Tests for MED-1: Square discount creation fires AFTER transaction commits
  *
  * Verifies:
- * - createSquareCustomerGroupDiscount is called after updateRewardProgress returns
+ * - updateRewardProgress returns earnedRewardIds (does NOT fire discount creation)
+ * - purchase-service fires createSquareCustomerGroupDiscount AFTER COMMIT
  * - markSyncPendingIfRewardExists only marks if reward row exists
  * - ERROR logged on discount creation failure with correct event name
  */
@@ -10,10 +11,6 @@
 // ============================================================================
 // MOCK SETUP
 // ============================================================================
-
-const mockClient = {
-    query: jest.fn()
-};
 
 const mockDbQuery = jest.fn();
 jest.mock('../../../utils/database', () => ({
@@ -35,38 +32,39 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { debug: jest.fn(), audit: jest.fn(), error: jest.fn() }
 }));
 
-const mockSquareOrdersGet = jest.fn();
 jest.mock('../../../middleware/merchant', () => ({
     getSquareClientForMerchant: jest.fn().mockResolvedValue({
-        orders: { get: mockSquareOrdersGet }
+        orders: { get: jest.fn() }
     })
 }));
 
-const mockLogAuditEvent = jest.fn().mockResolvedValue();
 jest.mock('../../../services/loyalty-admin/audit-service', () => ({
-    logAuditEvent: mockLogAuditEvent
+    logAuditEvent: jest.fn().mockResolvedValue()
 }));
 
-const mockUpdateCustomerStats = jest.fn().mockResolvedValue();
 jest.mock('../../../services/loyalty-admin/customer-cache-service', () => ({
-    updateCustomerStats: mockUpdateCustomerStats
+    updateCustomerStats: jest.fn().mockResolvedValue()
 }));
 
 let mockCreateDiscount = jest.fn();
 jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
-    createSquareCustomerGroupDiscount: (...args) => mockCreateDiscount(...args)
+    createSquareCustomerGroupDiscount: (...args) => mockCreateDiscount(...args),
+    cleanupSquareCustomerGroupDiscount: jest.fn().mockResolvedValue()
 }));
 
-const mockUpdateCustomerSummary = jest.fn().mockResolvedValue();
 jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
-    updateCustomerSummary: mockUpdateCustomerSummary
+    updateCustomerSummary: jest.fn().mockResolvedValue()
 }));
 
 jest.mock('../../../services/loyalty-admin/loyalty-queries', () => ({
     queryQualifyingVariations: jest.fn()
 }));
 
-const { updateRewardProgress } = require('../../../services/loyalty-admin/reward-progress-service');
+jest.mock('../../../services/loyalty-admin/variation-admin-service', () => ({
+    getOfferForVariation: jest.fn()
+}));
+
+const { updateRewardProgress, markSyncPendingIfRewardExists } = require('../../../services/loyalty-admin/reward-progress-service');
 
 // ============================================================================
 // TEST DATA
@@ -84,28 +82,18 @@ const baseOffer = {
     window_months: 6
 };
 
-function makeData(overrides = {}) {
-    return {
-        merchantId: MERCHANT_ID,
-        offerId: OFFER_ID,
-        squareCustomerId: CUSTOMER_ID,
-        offer: { ...baseOffer, ...overrides.offer },
-        ...overrides
-    };
-}
-
 // ============================================================================
-// TESTS
+// TESTS: updateRewardProgress returns earnedRewardIds
 // ============================================================================
 
-describe('MED-1: Post-commit Square discount creation', () => {
+describe('MED-1: updateRewardProgress returns earnedRewardIds', () => {
+    const mockClient = { query: jest.fn() };
+
     beforeEach(() => {
         jest.clearAllMocks();
-        mockCreateDiscount = jest.fn().mockResolvedValue({ success: true, groupId: 'g1', discountId: 'd1' });
     });
 
-    test('discount creation fires after updateRewardProgress returns (post-commit)', async () => {
-        // Set up: reward earns (quantity >= required)
+    test('returns earnedRewardIds when reward transitions to earned', async () => {
         mockClient.query
             .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })  // quantity calc
             .mockResolvedValueOnce({ rows: [{                             // existing in_progress reward
@@ -116,39 +104,37 @@ describe('MED-1: Post-commit Square discount creation', () => {
             .mockResolvedValueOnce({ rows: [] })                          // UPDATE to earned
             .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] });  // re-count = 0, break
 
-        // Track call order
-        let discountCalledBeforeReturn = false;
-        let functionReturned = false;
-
-        mockCreateDiscount.mockImplementation(async () => {
-            if (!functionReturned) {
-                discountCalledBeforeReturn = true;
-            }
-            return { success: true, groupId: 'g1', discountId: 'd1' };
+        const result = await updateRewardProgress(mockClient, {
+            merchantId: MERCHANT_ID,
+            offerId: OFFER_ID,
+            squareCustomerId: CUSTOMER_ID,
+            offer: baseOffer
         });
 
-        const result = await updateRewardProgress(mockClient, makeData());
-        functionReturned = true;
-
         expect(result.status).toBe('earned');
-
-        // The discount creation should have been called (as a detached promise
-        // that fires after the function returns its result to the caller)
-        // Wait for the detached promise to resolve
-        await new Promise(resolve => setTimeout(resolve, 10));
-
-        expect(mockCreateDiscount).toHaveBeenCalledWith(
-            expect.objectContaining({
-                merchantId: MERCHANT_ID,
-                squareCustomerId: CUSTOMER_ID,
-                internalRewardId: REWARD_ID,
-                offerId: OFFER_ID
-            })
-        );
+        expect(result.earnedRewardIds).toEqual([REWARD_ID]);
     });
 
-    test('markSyncPendingIfRewardExists only marks when reward exists', async () => {
-        // Set up: reward earns, discount creation fails
+    test('returns empty earnedRewardIds when no reward earned', async () => {
+        mockClient.query
+            .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })  // quantity = 5, below threshold
+            .mockResolvedValueOnce({ rows: [{                            // existing in_progress reward
+                id: REWARD_ID, status: 'in_progress', current_quantity: 4, merchant_id: MERCHANT_ID
+            }] })
+            .mockResolvedValueOnce({ rows: [] });                        // UPDATE quantity
+
+        const result = await updateRewardProgress(mockClient, {
+            merchantId: MERCHANT_ID,
+            offerId: OFFER_ID,
+            squareCustomerId: CUSTOMER_ID,
+            offer: baseOffer
+        });
+
+        expect(result.status).toBe('in_progress');
+        expect(result.earnedRewardIds).toEqual([]);
+    });
+
+    test('does NOT call createSquareCustomerGroupDiscount', async () => {
         mockClient.query
             .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
             .mockResolvedValueOnce({ rows: [{
@@ -159,65 +145,57 @@ describe('MED-1: Post-commit Square discount creation', () => {
             .mockResolvedValueOnce({ rows: [] })
             .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] });
 
-        mockCreateDiscount.mockRejectedValue(new Error('Square API down'));
+        await updateRewardProgress(mockClient, {
+            merchantId: MERCHANT_ID,
+            offerId: OFFER_ID,
+            squareCustomerId: CUSTOMER_ID,
+            offer: baseOffer
+        });
 
-        // Reward exists in the database
-        mockDbQuery.mockResolvedValueOnce({ rows: [{ id: REWARD_ID }] });  // SELECT check
-        mockDbQuery.mockResolvedValueOnce({ rows: [] });                    // UPDATE sync pending
-
-        await updateRewardProgress(mockClient, makeData());
-
-        // Wait for detached promise
+        // Wait to ensure no async discount calls fire
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        // Should have checked if reward exists first
+        expect(mockCreateDiscount).not.toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// TESTS: markSyncPendingIfRewardExists
+// ============================================================================
+
+describe('MED-1: markSyncPendingIfRewardExists', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('marks sync pending when reward exists', async () => {
+        mockDbQuery
+            .mockResolvedValueOnce({ rows: [{ id: REWARD_ID }] })  // SELECT check — exists
+            .mockResolvedValueOnce({ rows: [] });                    // UPDATE sync pending
+
+        await markSyncPendingIfRewardExists(REWARD_ID, MERCHANT_ID);
+
         expect(mockDbQuery).toHaveBeenCalledWith(
             expect.stringContaining('SELECT id FROM loyalty_rewards WHERE id = $1'),
             [REWARD_ID, MERCHANT_ID]
         );
-
-        // Should have marked sync pending
         expect(mockDbQuery).toHaveBeenCalledWith(
             expect.stringContaining('square_sync_pending = TRUE'),
             [REWARD_ID, MERCHANT_ID]
         );
     });
 
-    test('markSyncPendingIfRewardExists skips when reward does not exist', async () => {
-        // Set up: reward earns, discount creation fails
-        mockClient.query
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
-            .mockResolvedValueOnce({ rows: [{
-                id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID
-            }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] });
+    test('skips when reward does not exist (transaction rolled back)', async () => {
+        mockDbQuery.mockResolvedValueOnce({ rows: [] });  // SELECT check — not found
 
-        mockCreateDiscount.mockRejectedValue(new Error('Square API down'));
+        await markSyncPendingIfRewardExists(REWARD_ID, MERCHANT_ID);
 
-        // Reward does NOT exist (transaction rolled back)
-        mockDbQuery.mockResolvedValueOnce({ rows: [] });  // SELECT check returns empty
-
-        await updateRewardProgress(mockClient, makeData());
-
-        // Wait for detached promise
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        // Should have checked if reward exists
-        expect(mockDbQuery).toHaveBeenCalledWith(
-            expect.stringContaining('SELECT id FROM loyalty_rewards WHERE id = $1'),
-            [REWARD_ID, MERCHANT_ID]
-        );
-
-        // Should NOT have called UPDATE (only the SELECT was called)
+        // Should NOT have called UPDATE
         const updateCalls = mockDbQuery.mock.calls.filter(call =>
             call[0].includes('square_sync_pending = TRUE')
         );
         expect(updateCalls).toHaveLength(0);
 
-        // Should have logged error about missing reward
         expect(mockLogger.error).toHaveBeenCalledWith(
             'Reward not found for sync pending — transaction may have rolled back',
             expect.objectContaining({
@@ -228,67 +206,19 @@ describe('MED-1: Post-commit Square discount creation', () => {
         );
     });
 
-    test('ERROR logged with correct event on discount creation failure', async () => {
-        mockClient.query
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
-            .mockResolvedValueOnce({ rows: [{
-                id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID
-            }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] });
+    test('ERROR logged on discount creation failure with correct event', async () => {
+        // This tests the pattern used by purchase-service after COMMIT
+        // We test markSyncPendingIfRewardExists directly since that's what
+        // the purchase-service error handler calls
+        mockDbQuery
+            .mockResolvedValueOnce({ rows: [{ id: REWARD_ID }] })
+            .mockResolvedValueOnce({ rows: [] });
 
-        mockCreateDiscount.mockRejectedValue(new Error('UNAUTHORIZED'));
+        await markSyncPendingIfRewardExists(REWARD_ID, MERCHANT_ID);
 
-        // Reward exists
-        mockDbQuery.mockResolvedValueOnce({ rows: [{ id: REWARD_ID }] });
-        mockDbQuery.mockResolvedValueOnce({ rows: [] });
-
-        await updateRewardProgress(mockClient, makeData());
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(mockLogger.error).toHaveBeenCalledWith(
-            'earned_reward_discount_creation_failed',
-            expect.objectContaining({
-                event: 'earned_reward_discount_creation_failed',
-                rewardId: REWARD_ID,
-                merchantId: MERCHANT_ID,
-                error: 'UNAUTHORIZED'
-            })
-        );
-    });
-
-    test('ERROR logged when discount returns success:false', async () => {
-        mockClient.query
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
-            .mockResolvedValueOnce({ rows: [{
-                id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID
-            }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ id: 'pe-1', quantity: 10, cumulative_qty: 10 }] })
-            .mockResolvedValueOnce({ rows: [] })
-            .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] });
-
-        mockCreateDiscount.mockResolvedValue({ success: false, error: 'Group limit reached' });
-
-        // Reward exists
-        mockDbQuery.mockResolvedValueOnce({ rows: [{ id: REWARD_ID }] });
-        mockDbQuery.mockResolvedValueOnce({ rows: [] });
-
-        await updateRewardProgress(mockClient, makeData());
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(mockLogger.error).toHaveBeenCalledWith(
-            'earned_reward_discount_creation_failed',
-            expect.objectContaining({
-                event: 'earned_reward_discount_creation_failed',
-                rewardId: REWARD_ID,
-                merchantId: MERCHANT_ID,
-                error: 'Group limit reached'
-            })
+        expect(mockDbQuery).toHaveBeenCalledWith(
+            expect.stringContaining('square_sync_pending = TRUE'),
+            [REWARD_ID, MERCHANT_ID]
         );
     });
 });

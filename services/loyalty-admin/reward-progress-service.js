@@ -15,7 +15,6 @@ const logger = require('../../utils/logger');
 const { RewardStatus, AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { updateCustomerStats } = require('./customer-cache-service');
-const { createSquareCustomerGroupDiscount } = require('./square-discount-service');
 const { updateCustomerSummary } = require('./customer-summary-service');
 
 // Lazy-required in resolveConflictViaSquare to avoid pulling 'square' SDK
@@ -560,49 +559,17 @@ async function updateRewardProgress(client, data) {
     // Update customer summary
     await updateCustomerSummary(client, merchantId, squareCustomerId, offerId);
 
-    // LOGIC CHANGE (MED-1): Fire Square discount creation AFTER the transaction
-    // commits. The caller (purchase-service) commits the transaction before this
-    // code runs, so the reward rows are guaranteed to exist in the database.
-    // Previously this fired inside the transaction as a detached promise.
-    for (const earnedRewardId of earnedRewardIds) {
-        createSquareCustomerGroupDiscount({
-            merchantId,
-            squareCustomerId,
-            internalRewardId: earnedRewardId,
-            offerId
-        }).then(async (squareResult) => {
-            if (squareResult.success) {
-                logger.info('Square discount created for earned reward', {
-                    merchantId,
-                    rewardId: earnedRewardId,
-                    groupId: squareResult.groupId,
-                    discountId: squareResult.discountId
-                });
-            } else {
-                logger.error('earned_reward_discount_creation_failed', {
-                    event: 'earned_reward_discount_creation_failed',
-                    rewardId: earnedRewardId,
-                    merchantId,
-                    error: squareResult.error
-                });
-                await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
-            }
-        }).catch(async (err) => {
-            logger.error('earned_reward_discount_creation_failed', {
-                event: 'earned_reward_discount_creation_failed',
-                rewardId: earnedRewardId,
-                merchantId,
-                error: err.message
-            });
-            await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
-        });
-    }
-
+    // LOGIC CHANGE (MED-1): Return earnedRewardIds so the caller
+    // (purchase-service.js) can fire Square discount creation AFTER the
+    // transaction commits. This function runs inside the transaction —
+    // discount creation must not fire here because the reward rows are
+    // not yet committed and could be rolled back.
     return {
         rewardId: reward?.id,
         status: reward?.status || 'no_progress',
         currentQuantity,
-        requiredQuantity: offer.required_quantity
+        requiredQuantity: offer.required_quantity,
+        earnedRewardIds
     };
 }
 
@@ -647,5 +614,6 @@ async function markSyncPendingIfRewardExists(rewardId, merchantId) {
 }
 
 module.exports = {
-    updateRewardProgress
+    updateRewardProgress,
+    markSyncPendingIfRewardExists
 };

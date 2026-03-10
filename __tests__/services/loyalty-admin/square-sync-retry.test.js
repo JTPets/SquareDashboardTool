@@ -229,10 +229,10 @@ describe('loyalty-sync-retry-job', () => {
 });
 
 // ============================================================================
-// TEST SUITE: reward-progress-service.js — markSyncPending integration
+// TEST SUITE: reward-progress-service.js — earnedRewardIds return
 // ============================================================================
 
-describe('reward-progress-service: discount failure marks sync pending', () => {
+describe('reward-progress-service: returns earnedRewardIds for post-commit handling', () => {
     const { updateRewardProgress } = require('../../../services/loyalty-admin/reward-progress-service');
 
     const mockClient = { query: jest.fn() };
@@ -256,7 +256,6 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
 
     /**
      * Helper: set up mockClient to simulate earning a reward.
-     * Returns the reward ID used.
      */
     function setupEarnReward(rewardId) {
         mockClient.query
@@ -271,77 +270,46 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
                 rows: [{ id: 'lock-1', quantity: 3, cumulative_qty: 3 }]
             })
             .mockResolvedValueOnce({ rows: [] })                         // transition to earned
-            .mockResolvedValueOnce({ rows: [{ total_quantity: 0 }] })    // recount
-            .mockResolvedValueOnce({ rows: [] });                        // updateCustomerSummary
+            .mockResolvedValueOnce({ rows: [{ total_quantity: 0 }] });   // recount
     }
 
-    it('should mark sync pending when createSquareCustomerGroupDiscount returns failure', async () => {
-        setupEarnReward('reward-fail');
+    // LOGIC CHANGE (MED-1): updateRewardProgress no longer fires discount
+    // creation — it returns earnedRewardIds for the caller (purchase-service)
+    // to handle post-commit.
 
-        mockCreateDiscount.mockResolvedValueOnce({
-            success: false,
-            error: 'Square API timeout'
-        });
+    it('should return earnedRewardIds when reward transitions to earned', async () => {
+        setupEarnReward('reward-earned');
 
-        // MED-1: markSyncPendingIfRewardExists now does SELECT first, then UPDATE
-        db.query.mockResolvedValueOnce({ rows: [{ id: 'reward-fail' }] }); // SELECT check
-        db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE sync pending
+        const result = await updateRewardProgress(mockClient, baseData);
 
-        await updateRewardProgress(mockClient, baseData);
-        // Wait for async .then() chain to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        expect(db.query).toHaveBeenCalledWith(
-            expect.stringContaining('square_sync_pending = TRUE'),
-            ['reward-fail', 1]
-        );
-
-        expect(logger.error).toHaveBeenCalledWith(
-            'earned_reward_discount_creation_failed',
-            expect.objectContaining({
-                merchantId: 1,
-                rewardId: 'reward-fail'
-            })
-        );
+        expect(result.earnedRewardIds).toEqual(['reward-earned']);
+        expect(result.status).toBe('earned');
     });
 
-    it('should mark sync pending when createSquareCustomerGroupDiscount throws', async () => {
-        setupEarnReward('reward-throw');
+    it('should return empty earnedRewardIds when no reward earned', async () => {
+        mockClient.query
+            .mockResolvedValueOnce({ rows: [{ total_quantity: 2 }] })    // below threshold
+            .mockResolvedValueOnce({ rows: [{
+                id: 'reward-ip',
+                current_quantity: 1,
+                status: 'in_progress'
+            }] })
+            .mockResolvedValueOnce({ rows: [] });                        // update quantity
 
-        mockCreateDiscount.mockRejectedValueOnce(new Error('Network error'));
+        const result = await updateRewardProgress(mockClient, baseData);
 
-        // MED-1: markSyncPendingIfRewardExists now does SELECT first, then UPDATE
-        db.query.mockResolvedValueOnce({ rows: [{ id: 'reward-throw' }] }); // SELECT check
-        db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE sync pending
-
-        await updateRewardProgress(mockClient, baseData);
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        expect(db.query).toHaveBeenCalledWith(
-            expect.stringContaining('square_sync_pending = TRUE'),
-            ['reward-throw', 1]
-        );
-
-        expect(logger.error).toHaveBeenCalledWith(
-            'earned_reward_discount_creation_failed',
-            expect.objectContaining({
-                error: 'Network error',
-                rewardId: 'reward-throw'
-            })
-        );
+        expect(result.earnedRewardIds).toEqual([]);
+        expect(result.status).toBe('in_progress');
     });
 
-    it('should NOT mark sync pending when discount creation succeeds', async () => {
+    it('should NOT call createSquareCustomerGroupDiscount directly', async () => {
         setupEarnReward('reward-ok');
 
-        mockCreateDiscount.mockResolvedValueOnce({
-            success: true,
-            groupId: 'grp-1',
-            discountId: 'disc-1'
-        });
-
         await updateRewardProgress(mockClient, baseData);
         await new Promise(resolve => setTimeout(resolve, 100));
+
+        // discount creation should NOT be called from updateRewardProgress
+        expect(mockCreateDiscount).not.toHaveBeenCalled();
 
         // db.query should NOT have been called with sync_pending
         const syncPendingCalls = db.query.mock.calls.filter(
