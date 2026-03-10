@@ -3,6 +3,26 @@
 
 -- Drop existing tables (in reverse order of dependencies)
 
+-- Catalog health tables
+DROP TABLE IF EXISTS catalog_location_health CASCADE;
+
+-- Label templates
+DROP TABLE IF EXISTS label_templates CASCADE;
+
+-- Cart activity
+DROP TABLE IF EXISTS cart_activity CASCADE;
+
+-- Seniors discount tables
+DROP TABLE IF EXISTS seniors_discount_audit_log CASCADE;
+DROP TABLE IF EXISTS seniors_group_members CASCADE;
+DROP TABLE IF EXISTS seniors_discount_config CASCADE;
+
+-- Loyalty audit (discrepancy tracking)
+DROP TABLE IF EXISTS loyalty_audit_log CASCADE;
+
+-- Loyalty processed orders
+DROP TABLE IF EXISTS loyalty_processed_orders CASCADE;
+
 -- Delivery module tables (drop first due to FK dependencies)
 DROP TABLE IF EXISTS delivery_route_tokens CASCADE;
 DROP TABLE IF EXISTS delivery_audit_log CASCADE;
@@ -20,11 +40,14 @@ DROP TABLE IF EXISTS loyalty_purchase_events CASCADE;
 DROP TABLE IF EXISTS loyalty_qualifying_variations CASCADE;
 DROP TABLE IF EXISTS loyalty_offers CASCADE;
 DROP TABLE IF EXISTS loyalty_settings CASCADE;
+DROP TABLE IF EXISTS loyalty_customers CASCADE;
 
 -- Subscription tables
 DROP TABLE IF EXISTS subscription_events CASCADE;
 DROP TABLE IF EXISTS subscription_payments CASCADE;
+DROP TABLE IF EXISTS promo_code_uses CASCADE;
 DROP TABLE IF EXISTS subscribers CASCADE;
+DROP TABLE IF EXISTS promo_codes CASCADE;
 DROP TABLE IF EXISTS subscription_plans CASCADE;
 
 -- Core tables
@@ -50,9 +73,12 @@ DROP TABLE IF EXISTS user_merchants CASCADE;
 DROP TABLE IF EXISTS merchant_invitations CASCADE;
 DROP TABLE IF EXISTS oauth_states CASCADE;
 DROP TABLE IF EXISTS merchants CASCADE;
+DROP TABLE IF EXISTS merchant_settings CASCADE;
+DROP TABLE IF EXISTS webhook_events CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS auth_audit_log CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS oauth_states CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 -- Create tables
@@ -114,6 +140,22 @@ CREATE INDEX idx_merchants_square_id ON merchants(square_merchant_id);
 CREATE INDEX idx_merchants_subscription ON merchants(subscription_status, is_active);
 CREATE INDEX idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE;
 
+-- 0c. OAuth states for CSRF protection (Square and Google OAuth flows)
+CREATE TABLE oauth_states (
+    id SERIAL PRIMARY KEY,
+    state TEXT UNIQUE NOT NULL,
+    user_id INTEGER REFERENCES users(id),
+    merchant_id INTEGER REFERENCES merchants(id),
+    redirect_uri TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_oauth_states_state ON oauth_states(state);
+CREATE INDEX idx_oauth_states_expires ON oauth_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_merchant ON oauth_states(merchant_id) WHERE merchant_id IS NOT NULL;
+
 -- ==================== CORE APPLICATION TABLES ====================
 
 -- 1. Sync history tracking for smart sync optimization
@@ -161,6 +203,11 @@ CREATE TABLE vendors (
     minimum_order_amount DECIMAL(10,2),
     payment_terms TEXT,
     notes TEXT,
+    schedule_type VARCHAR(10) DEFAULT 'anytime' CHECK (schedule_type IN ('fixed', 'anytime')),
+    order_day VARCHAR(10),
+    receive_day VARCHAR(10),
+    payment_method VARCHAR(20),
+    order_method VARCHAR(50),
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -898,6 +945,10 @@ CREATE TABLE IF NOT EXISTS variation_discount_status (
     discount_applied_at TIMESTAMPTZ,           -- When discount was applied in Square
     last_evaluated_at TIMESTAMPTZ DEFAULT NOW(),
     needs_pull BOOLEAN DEFAULT FALSE,          -- Flag for expired items needing removal
+    needs_manual_review BOOLEAN DEFAULT FALSE,
+    manually_overridden BOOLEAN DEFAULT FALSE,
+    manual_override_at TIMESTAMPTZ,
+    manual_override_note TEXT,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -939,6 +990,8 @@ CREATE TABLE IF NOT EXISTS expiry_discount_settings (
 -- Create indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_variation_discount_status_tier ON variation_discount_status(current_tier_id);
 CREATE INDEX IF NOT EXISTS idx_variation_discount_status_needs_pull ON variation_discount_status(needs_pull) WHERE needs_pull = TRUE;
+CREATE INDEX IF NOT EXISTS idx_variation_discount_manual_review ON variation_discount_status(needs_manual_review) WHERE needs_manual_review = TRUE;
+CREATE INDEX IF NOT EXISTS idx_variation_discount_overridden ON variation_discount_status(manually_overridden) WHERE manually_overridden = TRUE;
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_variation ON expiry_discount_audit_log(variation_id);
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_audit_created ON expiry_discount_audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_expiry_discount_tiers_active ON expiry_discount_tiers(is_active, priority DESC);
@@ -1031,6 +1084,30 @@ ON CONFLICT (key) DO NOTHING;
 -- Adds tables for managing customer subscriptions via Square Subscriptions API
 -- Originally from 004_subscriptions.sql
 
+-- Promo/Discount Codes for Subscriptions (from 006_promo_codes.sql)
+CREATE TABLE IF NOT EXISTS promo_codes (
+    id SERIAL PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    description TEXT,
+    discount_type TEXT NOT NULL DEFAULT 'percent',
+    discount_value INTEGER NOT NULL,
+    max_uses INTEGER,
+    times_used INTEGER DEFAULT 0,
+    min_purchase_cents INTEGER DEFAULT 0,
+    valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    valid_until TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    applies_to_plans TEXT[],
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code);
+CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes(is_active);
+
+COMMENT ON TABLE promo_codes IS 'Promotional discount codes for subscriptions';
+
 -- Subscribers table - tracks each subscriber/tenant
 CREATE TABLE IF NOT EXISTS subscribers (
     id SERIAL PRIMARY KEY,
@@ -1061,6 +1138,10 @@ CREATE TABLE IF NOT EXISTS subscribers (
 
     -- Intro pricing flag
     is_intro_pricing BOOLEAN DEFAULT TRUE,
+
+    -- Promo code tracking
+    promo_code_id INTEGER REFERENCES promo_codes(id),
+    discount_applied_cents INTEGER DEFAULT 0,
 
     -- Link to merchant (bridges System B billing to System A enforcement)
     merchant_id INTEGER NOT NULL REFERENCES merchants(id),
@@ -1142,6 +1223,21 @@ CREATE INDEX IF NOT EXISTS idx_subscription_payments_status ON subscription_paym
 CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_events_type ON subscription_events(event_type);
 
+-- Promo code usage tracking
+CREATE TABLE IF NOT EXISTS promo_code_uses (
+    id SERIAL PRIMARY KEY,
+    promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+    subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+    discount_applied_cents INTEGER NOT NULL,
+    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(promo_code_id, subscriber_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code ON promo_code_uses(promo_code_id);
+CREATE INDEX IF NOT EXISTS idx_promo_code_uses_subscriber ON promo_code_uses(subscriber_id);
+
+COMMENT ON TABLE promo_code_uses IS 'Tracks which subscribers used which promo codes';
+
 -- Comments for subscriptions
 COMMENT ON TABLE subscribers IS 'Tracks all subscribers to Square Dashboard Addon Tool with their subscription status';
 COMMENT ON TABLE subscription_payments IS 'Payment history for all subscription transactions';
@@ -1166,13 +1262,16 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
     square_order_id VARCHAR(255),  -- null for manual orders
+    square_customer_id VARCHAR(255),
     customer_name VARCHAR(255) NOT NULL,
     address TEXT NOT NULL,
     address_lat DECIMAL(10, 8),  -- geocoded latitude
     address_lng DECIMAL(11, 8),  -- geocoded longitude
     geocoded_at TIMESTAMPTZ,     -- null = needs geocoding
     phone VARCHAR(50),
+    customer_note TEXT,
     notes TEXT,
+    square_order_data JSONB,
     status VARCHAR(50) DEFAULT 'pending' CHECK (
         status IN ('pending', 'active', 'skipped', 'delivered', 'completed')
     ),
@@ -1208,6 +1307,11 @@ CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_geocoding
 CREATE INDEX IF NOT EXISTS idx_delivery_orders_needs_refresh
     ON delivery_orders(merchant_id, needs_customer_refresh)
     WHERE needs_customer_refresh = TRUE;
+
+-- Index for customer lookups
+CREATE INDEX IF NOT EXISTS idx_delivery_orders_customer
+    ON delivery_orders(merchant_id, square_customer_id)
+    WHERE square_customer_id IS NOT NULL;
 
 COMMENT ON TABLE delivery_orders IS 'Delivery order queue with status tracking and route assignment';
 COMMENT ON COLUMN delivery_orders.status IS 'pending=ready for route, active=on current route, skipped=driver skipped, delivered=POD captured, completed=synced to Square';
@@ -1389,6 +1493,20 @@ CREATE TABLE IF NOT EXISTS loyalty_offers (
     -- Time window (rolling from first qualifying purchase)
     window_months INTEGER NOT NULL DEFAULT 12 CHECK (window_months > 0),  -- e.g., 12 or 18 months
 
+    -- Reward type and value
+    reward_type VARCHAR(50) NOT NULL DEFAULT 'free_item'
+        CHECK (reward_type IN ('free_item', 'percent_off', 'fixed_amount')),
+    reward_value INTEGER NOT NULL DEFAULT 1,
+    reward_description TEXT,
+
+    -- Square integration
+    square_reward_tier_id TEXT,
+
+    -- Vendor tracking
+    vendor_id TEXT REFERENCES vendors(id) ON DELETE SET NULL,
+    vendor_name TEXT,
+    vendor_email TEXT,
+
     -- Status
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
@@ -1405,6 +1523,7 @@ CREATE TABLE IF NOT EXISTS loyalty_offers (
 CREATE INDEX IF NOT EXISTS idx_loyalty_offers_merchant ON loyalty_offers(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_offers_brand ON loyalty_offers(merchant_id, brand_name);
 CREATE INDEX IF NOT EXISTS idx_loyalty_offers_active ON loyalty_offers(merchant_id, is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_loyalty_offers_vendor ON loyalty_offers(vendor_id) WHERE vendor_id IS NOT NULL;
 
 COMMENT ON TABLE loyalty_offers IS 'Frequent buyer program offers: one per brand + size group';
 COMMENT ON COLUMN loyalty_offers.required_quantity IS 'Number of units customer must purchase to earn reward (e.g., 12)';
@@ -1438,6 +1557,9 @@ CREATE TABLE IF NOT EXISTS loyalty_qualifying_variations (
 CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_merchant ON loyalty_qualifying_variations(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_offer ON loyalty_qualifying_variations(offer_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_qual_vars_variation ON loyalty_qualifying_variations(merchant_id, variation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_qual_vars_unique_per_merchant
+    ON loyalty_qualifying_variations(merchant_id, variation_id)
+    WHERE is_active = TRUE;
 
 COMMENT ON TABLE loyalty_qualifying_variations IS 'Maps Square variation IDs to loyalty offers - ONLY these variations qualify';
 COMMENT ON COLUMN loyalty_qualifying_variations.variation_id IS 'Square variation ID that qualifies for this offer';
@@ -1459,6 +1581,7 @@ CREATE TABLE IF NOT EXISTS loyalty_purchase_events (
     variation_id TEXT NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity != 0),  -- Can be negative for refunds
     unit_price_cents INTEGER,  -- Price at time of purchase (for audit)
+    total_price_cents INTEGER,  -- Total price for line item in cents
 
     -- Purchase timestamp (from Square order)
     purchased_at TIMESTAMPTZ NOT NULL,
@@ -1470,12 +1593,20 @@ CREATE TABLE IF NOT EXISTS loyalty_purchase_events (
     -- Linking to reward if this event contributed to an earned reward
     reward_id UUID,  -- Set when this purchase is locked into an earned reward
 
+    -- Customer identification source
+    customer_source VARCHAR(20) DEFAULT 'order',
+    receipt_url TEXT,
+    payment_type TEXT,
+
     -- Refund tracking
     is_refund BOOLEAN NOT NULL DEFAULT FALSE,
     original_event_id UUID REFERENCES loyalty_purchase_events(id),  -- For refund linking
 
     -- Idempotency
     idempotency_key TEXT NOT NULL,
+
+    -- Trace correlation
+    trace_id UUID,
 
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1492,6 +1623,14 @@ CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_customer_offer ON loyalty
 CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_order ON loyalty_purchase_events(merchant_id, square_order_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_window ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, window_end_date);
 CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_unlocked ON loyalty_purchase_events(merchant_id, offer_id, square_customer_id, reward_id) WHERE reward_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_active_unlocked
+    ON loyalty_purchase_events (merchant_id, offer_id, square_customer_id, window_end_date)
+    WHERE reward_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_lpe_reward_progress
+    ON loyalty_purchase_events (merchant_id, offer_id, square_customer_id, window_end_date)
+    WHERE reward_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_purchase_events_trace_id
+    ON loyalty_purchase_events(trace_id) WHERE trace_id IS NOT NULL;
 
 COMMENT ON TABLE loyalty_purchase_events IS 'Records all qualifying purchases and refunds for loyalty tracking';
 COMMENT ON COLUMN loyalty_purchase_events.quantity IS 'Positive for purchases, negative for refunds';
@@ -1545,19 +1684,26 @@ CREATE TABLE IF NOT EXISTS loyalty_rewards (
     vendor_credit_resolved_at TIMESTAMPTZ,
     vendor_credit_notes TEXT,
 
+    -- Square integration (Customer Group Discount approach)
+    square_reward_id TEXT,
+    square_group_id TEXT,
+    square_discount_id TEXT,
+    square_product_set_id TEXT,
+    square_pricing_rule_id TEXT,
+    square_pos_synced_at TIMESTAMPTZ,
+
     -- Square discount cap (cents) — tracks maximum_amount_money on the DISCOUNT object
     discount_amount_cents INTEGER DEFAULT NULL,
 
     -- Square sync retry flag (LA-4 fix) — true when discount creation failed and needs retry
     square_sync_pending BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- Trace correlation
+    trace_id UUID,
+
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Only one in_progress reward per customer+offer at a time
-    CONSTRAINT loyalty_rewards_one_in_progress UNIQUE(merchant_id, offer_id, square_customer_id)
-        DEFERRABLE INITIALLY DEFERRED
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_merchant ON loyalty_rewards(merchant_id);
@@ -1569,6 +1715,16 @@ CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_earned ON loyalty_rewards(merchan
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_in_progress ON loyalty_rewards(merchant_id, square_customer_id, status) WHERE status = 'in_progress';
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_vendor_credit_status ON loyalty_rewards(merchant_id, vendor_credit_status) WHERE vendor_credit_status IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_sync_pending ON loyalty_rewards(merchant_id, status) WHERE square_sync_pending = TRUE AND status = 'earned';
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square ON loyalty_rewards(square_reward_id) WHERE square_reward_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square_discount ON loyalty_rewards(square_discount_id) WHERE square_discount_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_square_group ON loyalty_rewards(square_group_id) WHERE square_group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_rewards_trace_id ON loyalty_rewards(trace_id) WHERE trace_id IS NOT NULL;
+
+-- Only one in_progress reward per customer+offer at a time (partial unique index)
+-- Replaces the old UNIQUE constraint that blocked multiple historical rewards
+CREATE UNIQUE INDEX IF NOT EXISTS loyalty_rewards_one_in_progress_idx
+    ON loyalty_rewards (merchant_id, offer_id, square_customer_id)
+    WHERE status = 'in_progress';
 
 COMMENT ON TABLE loyalty_rewards IS 'Tracks reward progress and state: in_progress -> earned -> redeemed | revoked';
 COMMENT ON COLUMN loyalty_rewards.status IS 'State machine: in_progress (accumulating), earned (available), redeemed (used), revoked (invalidated)';
@@ -1657,6 +1813,9 @@ CREATE TABLE IF NOT EXISTS loyalty_audit_logs (
     -- Additional details (JSON for flexibility)
     details JSONB,
 
+    -- Trace correlation
+    trace_id UUID,
+
     -- Metadata
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -1667,6 +1826,7 @@ CREATE INDEX IF NOT EXISTS idx_loyalty_audit_offer ON loyalty_audit_logs(offer_i
 CREATE INDEX IF NOT EXISTS idx_loyalty_audit_reward ON loyalty_audit_logs(reward_id);
 CREATE INDEX IF NOT EXISTS idx_loyalty_audit_action ON loyalty_audit_logs(merchant_id, action);
 CREATE INDEX IF NOT EXISTS idx_loyalty_audit_created ON loyalty_audit_logs(merchant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_loyalty_audit_logs_trace_id ON loyalty_audit_logs(trace_id) WHERE trace_id IS NOT NULL;
 
 COMMENT ON TABLE loyalty_audit_logs IS 'Complete audit trail for all loyalty program actions';
 
@@ -1883,6 +2043,289 @@ COMMENT ON TABLE bundle_definitions IS 'Parent bundle items - Square has no API 
 COMMENT ON TABLE bundle_components IS 'Child items within a bundle, with quantity per bundle';
 
 -- ========================================
+-- MIGRATION: Loyalty Customers Cache (014)
+-- ========================================
+CREATE TABLE IF NOT EXISTS loyalty_customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_customer_id TEXT NOT NULL,
+    given_name TEXT,
+    family_name TEXT,
+    display_name TEXT,
+    phone_number TEXT,
+    email_address TEXT,
+    company_name TEXT,
+    birthday DATE,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_order_at TIMESTAMP,
+    total_orders INTEGER DEFAULT 0,
+    total_rewards_earned INTEGER DEFAULT 0,
+    has_active_rewards BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uq_loyalty_customers_merchant_square UNIQUE (merchant_id, square_customer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_merchant ON loyalty_customers(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_square_id ON loyalty_customers(square_customer_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_phone ON loyalty_customers(merchant_id, phone_number) WHERE phone_number IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_email ON loyalty_customers(merchant_id, email_address) WHERE email_address IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_name ON loyalty_customers(merchant_id, display_name) WHERE display_name IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_loyalty_customers_birthday ON loyalty_customers(merchant_id, birthday) WHERE birthday IS NOT NULL;
+
+COMMENT ON TABLE loyalty_customers IS 'Cache of Square customer details for loyalty program lookups - reduces API calls';
+
+-- ========================================
+-- MIGRATION: Loyalty Processed Orders (031)
+-- ========================================
+CREATE TABLE IF NOT EXISTS loyalty_processed_orders (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_order_id TEXT NOT NULL,
+    square_customer_id TEXT,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    result_type TEXT NOT NULL DEFAULT 'non_qualifying',
+    qualifying_items INTEGER DEFAULT 0,
+    total_line_items INTEGER DEFAULT 0,
+    trace_id TEXT,
+    source TEXT DEFAULT 'WEBHOOK',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT loyalty_processed_orders_unique UNIQUE(merchant_id, square_order_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_loyalty_processed_orders_lookup
+    ON loyalty_processed_orders(merchant_id, square_order_id);
+CREATE INDEX IF NOT EXISTS idx_loyalty_processed_orders_result
+    ON loyalty_processed_orders(merchant_id, result_type, processed_at);
+
+COMMENT ON TABLE loyalty_processed_orders IS 'Tracks all orders processed by loyalty system, including those with no qualifying items';
+
+-- ========================================
+-- MIGRATION: Loyalty Audit Log - Discrepancy Tracking (033)
+-- ========================================
+CREATE TABLE IF NOT EXISTS loyalty_audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_customer_id TEXT,
+    order_id TEXT,
+    reward_id TEXT,
+    issue_type VARCHAR(50) NOT NULL CHECK (issue_type IN (
+        'MISSING_REDEMPTION',
+        'PHANTOM_REWARD',
+        'DOUBLE_REDEMPTION'
+    )),
+    details JSONB,
+    resolved BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_loyalty_audit_log_merchant_resolved
+    ON loyalty_audit_log(merchant_id, resolved, created_at DESC);
+CREATE INDEX idx_loyalty_audit_log_order
+    ON loyalty_audit_log(merchant_id, order_id) WHERE order_id IS NOT NULL;
+CREATE INDEX idx_loyalty_audit_log_customer
+    ON loyalty_audit_log(merchant_id, square_customer_id) WHERE square_customer_id IS NOT NULL;
+
+-- ========================================
+-- MIGRATION: Seniors Day Discount Feature (032, 047, 048)
+-- ========================================
+
+CREATE TABLE IF NOT EXISTS seniors_discount_config (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    square_group_id TEXT,
+    square_discount_id TEXT,
+    square_product_set_id TEXT,
+    square_pricing_rule_id TEXT,
+    discount_percent INTEGER NOT NULL DEFAULT 10,
+    min_age INTEGER NOT NULL DEFAULT 60,
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    day_of_month INTEGER NOT NULL DEFAULT 1,
+    last_verified_state TEXT,
+    last_verified_at TIMESTAMPTZ,
+    last_enabled_at TIMESTAMPTZ,
+    last_disabled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT seniors_discount_config_merchant_unique UNIQUE(merchant_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_config_merchant ON seniors_discount_config(merchant_id);
+
+COMMENT ON TABLE seniors_discount_config IS 'Seniors Day discount configuration per merchant - stores Square object IDs and settings';
+
+CREATE TABLE IF NOT EXISTS seniors_group_members (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    square_customer_id TEXT NOT NULL,
+    birthday DATE NOT NULL,
+    age_at_last_check INTEGER NOT NULL,
+    added_to_group_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    removed_from_group_at TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT seniors_group_members_unique UNIQUE(merchant_id, square_customer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_members_merchant_active
+    ON seniors_group_members(merchant_id, is_active) WHERE is_active = TRUE;
+
+COMMENT ON TABLE seniors_group_members IS 'Tracks customers in the Seniors (60+) customer group';
+
+CREATE TABLE IF NOT EXISTS seniors_discount_audit_log (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    action TEXT NOT NULL,
+    square_customer_id TEXT,
+    details JSONB,
+    triggered_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_seniors_audit_merchant_date
+    ON seniors_discount_audit_log(merchant_id, created_at DESC);
+
+COMMENT ON TABLE seniors_discount_audit_log IS 'Audit trail for seniors discount actions';
+
+-- ========================================
+-- MIGRATION: Cart Activity (037)
+-- ========================================
+CREATE TABLE IF NOT EXISTS cart_activity (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    square_order_id VARCHAR(255) NOT NULL,
+    square_customer_id VARCHAR(255),
+    customer_id_hash VARCHAR(64),
+    phone_last4 VARCHAR(4),
+    cart_total_cents INTEGER,
+    item_count INTEGER,
+    items_json JSONB,
+    source_name VARCHAR(100),
+    location_id VARCHAR(255),
+    fulfillment_type VARCHAR(50),
+    shipping_estimate_cents INTEGER,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (
+        status IN ('pending', 'converted', 'abandoned', 'canceled')
+    ),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    converted_at TIMESTAMPTZ,
+    CONSTRAINT cart_activity_unique_order UNIQUE (merchant_id, square_order_id)
+);
+
+CREATE INDEX idx_cart_activity_merchant_status ON cart_activity(merchant_id, status);
+CREATE INDEX idx_cart_activity_merchant_created ON cart_activity(merchant_id, created_at DESC);
+CREATE INDEX idx_cart_activity_pending_old ON cart_activity(merchant_id, created_at) WHERE status = 'pending';
+
+COMMENT ON TABLE cart_activity IS 'Shopping cart activity tracking for DRAFT orders from Square Online';
+
+-- ========================================
+-- MIGRATION: Label Templates (046)
+-- ========================================
+CREATE TABLE IF NOT EXISTS label_templates (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(255),
+    label_width_mm INTEGER NOT NULL,
+    label_height_mm INTEGER NOT NULL,
+    dpi INTEGER NOT NULL DEFAULT 203,
+    template_zpl TEXT NOT NULL,
+    fields JSONB NOT NULL DEFAULT '[]',
+    is_default BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_label_templates_merchant_id ON label_templates(merchant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_label_templates_merchant_default ON label_templates(merchant_id) WHERE is_default = true;
+
+-- ========================================
+-- MIGRATION: Webhook Events (from schema-manager.js)
+-- ========================================
+CREATE TABLE IF NOT EXISTS webhook_events (
+    id SERIAL PRIMARY KEY,
+    square_event_id TEXT UNIQUE,
+    event_type TEXT NOT NULL,
+    square_merchant_id TEXT,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    event_data JSONB,
+    status TEXT NOT NULL DEFAULT 'received',
+    processed_at TIMESTAMPTZ,
+    error_message TEXT,
+    sync_results JSONB,
+    received_at TIMESTAMPTZ DEFAULT NOW(),
+    processing_time_ms INTEGER,
+    CONSTRAINT valid_webhook_status CHECK (status IN ('received', 'processing', 'completed', 'failed', 'skipped'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_status ON webhook_events(status);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_received ON webhook_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_square_id ON webhook_events(square_event_id);
+
+-- ========================================
+-- MIGRATION: Merchant Settings (from schema-manager.js + 039)
+-- ========================================
+CREATE TABLE IF NOT EXISTS merchant_settings (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    reorder_safety_days INTEGER DEFAULT 7,
+    default_supply_days INTEGER DEFAULT 45,
+    reorder_priority_urgent_days INTEGER DEFAULT 0,
+    reorder_priority_high_days INTEGER DEFAULT 7,
+    reorder_priority_medium_days INTEGER DEFAULT 14,
+    reorder_priority_low_days INTEGER DEFAULT 30,
+    daily_count_target INTEGER DEFAULT 30,
+    cycle_count_email_enabled BOOLEAN DEFAULT TRUE,
+    cycle_count_report_email BOOLEAN DEFAULT TRUE,
+    additional_cycle_count_email TEXT,
+    notification_email TEXT,
+    low_stock_alerts_enabled BOOLEAN DEFAULT TRUE,
+    claude_api_key_encrypted TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_merchant_settings_merchant ON merchant_settings(merchant_id);
+
+-- ========================================
+-- MIGRATION: Catalog Location Health (069, 070)
+-- ========================================
+CREATE TABLE IF NOT EXISTS catalog_location_health (
+    id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    variation_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('valid', 'mismatch')),
+    mismatch_type TEXT,
+    check_type TEXT NOT NULL DEFAULT 'location_mismatch'
+        CHECK (check_type IN (
+            'location_mismatch',
+            'orphaned_variation',
+            'deleted_parent',
+            'category_orphan',
+            'image_orphan',
+            'modifier_orphan',
+            'pricing_rule_orphan',
+            'missing_tax'
+        )),
+    object_type TEXT,
+    parent_id TEXT,
+    severity TEXT NOT NULL DEFAULT 'error' CHECK (severity IN ('error', 'warn')),
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_location_health_merchant_variation_status
+    ON catalog_location_health (merchant_id, variation_id, status);
+CREATE INDEX IF NOT EXISTS idx_catalog_health_merchant_check_status
+    ON catalog_location_health (merchant_id, check_type, status);
+
+COMMENT ON TABLE catalog_location_health IS 'Permanent audit trail of Square catalog health issues (location mismatches, orphans, etc.)';
+
+-- ========================================
 -- FINAL: Schema creation complete
 -- ========================================
 DO $$
@@ -1892,10 +2335,13 @@ BEGIN
     RAISE NOTICE 'Square Dashboard Addon Tool - Schema Complete';
     RAISE NOTICE '============================================';
     RAISE NOTICE 'Core tables: 13';
-    RAISE NOTICE 'Subscription tables: 4';
+    RAISE NOTICE 'Subscription tables: 6 (incl. promo_codes)';
     RAISE NOTICE 'Delivery tables: 6';
-    RAISE NOTICE 'Loyalty tables: 8';
+    RAISE NOTICE 'Loyalty tables: 11 (incl. customers cache, processed orders, audit log)';
+    RAISE NOTICE 'Seniors tables: 3';
     RAISE NOTICE 'Bundle tables: 2';
-    RAISE NOTICE 'Total tables: 33+';
+    RAISE NOTICE 'Platform tables: 5 (webhook_events, oauth_states, merchant_settings, cart_activity, label_templates)';
+    RAISE NOTICE 'Catalog health: 1';
+    RAISE NOTICE 'Total tables: 47+';
     RAISE NOTICE '============================================';
 END $$;
