@@ -48,6 +48,10 @@ const KNOWN_PERMANENT_ERRORS = [
  */
 // LOGIC CHANGE: New function — classifies errors to decide retry vs swallow
 function isTransientError(error) {
+    // LOGIC CHANGE (MED-7 follow-up): Errors explicitly marked retryable by
+    // upstream callers (e.g., order-intake partial failure) should trigger retry.
+    if (error.retryable === true) return true;
+
     // PostgreSQL error codes indicating transient failures
     const pgCode = error.code;
     if (pgCode) {

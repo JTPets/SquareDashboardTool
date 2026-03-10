@@ -297,11 +297,21 @@ describe('processLoyaltyOrder', () => {
             });
 
         // MED-7: Should throw since partial failure causes rollback
-        await expect(processLoyaltyOrder({
-            order: orderWithTwoItems,
-            merchantId: 1,
-            squareCustomerId: 'CUST_456',
-        })).rejects.toThrow('Order intake failed for 1 variation(s)');
+        let thrownError;
+        try {
+            await processLoyaltyOrder({
+                order: orderWithTwoItems,
+                merchantId: 1,
+                squareCustomerId: 'CUST_456',
+            });
+        } catch (e) {
+            thrownError = e;
+        }
+
+        expect(thrownError).toBeDefined();
+        expect(thrownError.message).toMatch(/Order intake failed for 1 variation\(s\)/);
+        // MED-7 follow-up: error must be marked retryable for webhook retry
+        expect(thrownError.retryable).toBe(true);
 
         // Transaction should ROLLBACK, not COMMIT
         expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');

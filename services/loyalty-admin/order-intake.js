@@ -207,7 +207,13 @@ async function processLoyaltyOrder({ order, merchantId, squareCustomerId, source
                 failedVariations: variationErrors.map(e => e.variationId),
                 errors: variationErrors.map(e => e.error)
             });
-            throw new Error(`Order intake failed for ${variationErrors.length} variation(s): ${variationErrors.map(e => e.variationId).join(', ')}`);
+            // LOGIC CHANGE (MED-7 follow-up): Mark as retryable so the webhook
+            // error classifier in order-loyalty.js re-throws instead of swallowing.
+            // Partial intake failures may be transient (e.g., DB deadlock on one
+            // variation) and should trigger a Square webhook retry.
+            const intakeError = new Error(`Order intake failed for ${variationErrors.length} variation(s): ${variationErrors.map(e => e.variationId).join(', ')}`);
+            intakeError.retryable = true;
+            throw intakeError;
         }
 
         // --- Finalize loyalty_processed_orders with actual result ---
