@@ -1341,15 +1341,16 @@ describe('OrderHandler', () => {
         const db = require('../../utils/database');
 
         it('should check all discounts and match the correct one (3rd of 3)', async () => {
-            // 3 discounts: first two are non-loyalty, third matches a reward
+            // MED-3: Batch query — all catalog_object_ids sent in one ANY($2) query
+            // DB returns the match (disc_loyalty_1 maps to reward 99)
             db.query
-                .mockResolvedValueOnce({ rows: [] })  // discount 1: no match
-                .mockResolvedValueOnce({ rows: [] })  // discount 2: no match
-                .mockResolvedValueOnce({ rows: [{     // discount 3: match!
+                .mockResolvedValueOnce({ rows: [{
                     id: 99,
                     offer_id: 5,
                     square_customer_id: 'cust_abc',
-                    offer_name: 'Buy 12 Get 1 Free'
+                    offer_name: 'Buy 12 Get 1 Free',
+                    square_discount_id: 'disc_loyalty_1',
+                    square_pricing_rule_id: null
                 }] });
 
             const order = {
@@ -1366,15 +1367,19 @@ describe('OrderHandler', () => {
             expect(result.isRedemptionOrder).toBe(true);
             expect(result.rewardId).toBe(99);
             expect(result.discountCatalogId).toBe('disc_loyalty_1');
-            expect(db.query).toHaveBeenCalledTimes(3);
+            // MED-3: Single batched query instead of 3 individual ones
+            expect(db.query).toHaveBeenCalledTimes(1);
         });
 
-        it('should stop checking after first matching discount (short-circuit)', async () => {
+        it('should match with single batched query when multiple discounts present', async () => {
+            // MED-3: Batch query sends all IDs at once — single query, single result
             db.query.mockResolvedValueOnce({ rows: [{
                 id: 10,
                 offer_id: 2,
                 square_customer_id: 'cust_1',
-                offer_name: 'First Match'
+                offer_name: 'First Match',
+                square_discount_id: 'disc_match',
+                square_pricing_rule_id: null
             }] });
 
             const order = {
@@ -1389,12 +1394,18 @@ describe('OrderHandler', () => {
 
             expect(result.isRedemptionOrder).toBe(true);
             expect(result.rewardId).toBe(10);
-            // Should have queried only once (short-circuited after first match)
+            // MED-3: Single batched query with both IDs
             expect(db.query).toHaveBeenCalledTimes(1);
+            expect(db.query).toHaveBeenCalledWith(
+                expect.stringContaining('ANY($2)'),
+                [1, ['disc_match', 'disc_other']]
+            );
         });
 
         it('should skip discounts without catalog_object_id (manual discounts)', async () => {
             db.query.mockResolvedValueOnce({ rows: [] });
+            mockMatchFreeItem.mockResolvedValueOnce(null);
+            mockMatchDiscountAmount.mockResolvedValueOnce(null);
 
             const order = {
                 id: 'order_mixed',
@@ -1409,17 +1420,16 @@ describe('OrderHandler', () => {
             await handler._checkOrderForRedemption(order, 1);
 
             expect(db.query).toHaveBeenCalledTimes(1);
+            // MED-3: Batched query passes array of IDs
             expect(db.query).toHaveBeenCalledWith(
                 expect.stringContaining('square_discount_id'),
-                [1, 'disc_real']
+                [1, ['disc_real']]
             );
         });
 
         it('should fall back to free item match when no discount catalog IDs match', async () => {
-            // All discounts have catalog IDs but none match rewards
-            db.query
-                .mockResolvedValueOnce({ rows: [] })
-                .mockResolvedValueOnce({ rows: [] });
+            // MED-3: Single batched query returns no matches
+            db.query.mockResolvedValueOnce({ rows: [] });
 
             mockMatchFreeItem.mockResolvedValueOnce({
                 reward_id: 55,
