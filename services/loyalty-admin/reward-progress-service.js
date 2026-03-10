@@ -605,8 +605,14 @@ async function markSyncPendingIfRewardExists(rewardId, merchantId) {
         );
         logger.info('Marked reward for Square sync retry', { rewardId, merchantId });
     } catch (err) {
+        // LOGIC CHANGE (LOW-7): Log at error level with full details.
+        // Before: catch block swallowed silently with no logging.
+        // After: logs error with rewardId and stack for debugging.
+        // Do NOT re-throw — the sync retry job will catch unsynced rewards.
         logger.error('Failed to mark reward for sync retry', {
+            event: 'sync_pending_mark_failed',
             error: err.message,
+            stack: err.stack,
             rewardId,
             merchantId
         });

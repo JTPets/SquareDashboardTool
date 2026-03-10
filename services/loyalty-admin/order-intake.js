@@ -306,10 +306,14 @@ async function buildDiscountMap(order, merchantId) {
     // Fetch our loyalty discount IDs
     let ourLoyaltyDiscountIds = new Set();
     try {
+        // LOGIC CHANGE (LOW-3): Added AND status = 'earned' filter.
+        // Before: fetched discount IDs from ALL reward statuses, causing
+        // non-earned reward discounts to incorrectly skip qualifying items.
         const loyaltyDiscountsResult = await db.query(`
             SELECT square_discount_id, square_pricing_rule_id
             FROM loyalty_rewards
             WHERE merchant_id = $1
+              AND status = 'earned'
               AND (square_discount_id IS NOT NULL OR square_pricing_rule_id IS NOT NULL)
         `, [merchantId]);
 

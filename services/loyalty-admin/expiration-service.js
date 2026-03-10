@@ -136,83 +136,89 @@ async function processExpiredEarnedRewards(merchantId) {
         cleanedDiscounts: []
     };
 
-    for (const reward of expiredRewardsResult.rows) {
-        logger.info('Found expired earned reward', {
-            rewardId: reward.id,
-            offerName: reward.offer_name,
-            earnedAt: reward.earned_at
-        });
-
-        const client = await db.pool.connect();
-        try {
-            await client.query('BEGIN');
-
-            // Revoke the reward (B8 fix: added AND merchant_id for tenant isolation)
-            await client.query(`
-                UPDATE loyalty_rewards
-                SET status = 'revoked',
-                    revocation_reason = 'Expired - all locked purchases outside window',
-                    updated_at = NOW()
-                WHERE id = $1 AND merchant_id = $2
-            `, [reward.id, merchantId]);
-
-            // Unlock the purchase events (LA-10 fix: added merchant_id filter)
-            await client.query(`
-                UPDATE loyalty_purchase_events
-                SET reward_id = NULL, updated_at = NOW()
-                WHERE reward_id = $1 AND merchant_id = $2
-            `, [reward.id, merchantId]);
-
-            // LA-24 fix: refresh customer summary after expiration revocation
-            await updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id);
-
-            // Log audit event
-            await logAuditEvent({
-                merchantId,
-                action: AuditActions.REWARD_REVOKED,
-                offerId: reward.offer_id,
+    // LOGIC CHANGE (LOW-2): Reuse a single DB connection for the entire loop.
+    // Before: each iteration called db.pool.connect(), leaking connections
+    // under load. After: one connection is acquired before the loop and
+    // released in the finally block.
+    const client = await db.pool.connect();
+    try {
+        for (const reward of expiredRewardsResult.rows) {
+            logger.info('Found expired earned reward', {
                 rewardId: reward.id,
-                squareCustomerId: reward.square_customer_id,
-                triggeredBy: 'EXPIRATION_CLEANUP',
-                details: {
-                    reason: 'All locked purchases expired',
-                    earnedAt: reward.earned_at
-                }
-            }, client);
-
-            await client.query('COMMIT');
-        } catch (error) {
-            await client.query('ROLLBACK');
-            logger.error('Error processing expired reward', {
-                rewardId: reward.id,
-                error: error.message,
-                stack: error.stack
-            });
-            throw error;
-        } finally {
-            client.release();
-        }
-
-        results.revokedRewards.push({
-            rewardId: reward.id,
-            offerName: reward.offer_name,
-            squareCustomerId: reward.square_customer_id
-        });
-
-        // Cleanup Square discount objects (outside transaction - external API call)
-        if (reward.square_discount_id || reward.square_group_id) {
-            const cleanupResult = await cleanupSquareCustomerGroupDiscount({
-                merchantId,
-                squareCustomerId: reward.square_customer_id,
-                internalRewardId: reward.id
+                offerName: reward.offer_name,
+                earnedAt: reward.earned_at
             });
 
-            if (cleanupResult.success) {
-                results.cleanedDiscounts.push({ rewardId: reward.id });
+            try {
+                await client.query('BEGIN');
+
+                // Revoke the reward (B8 fix: added AND merchant_id for tenant isolation)
+                await client.query(`
+                    UPDATE loyalty_rewards
+                    SET status = 'revoked',
+                        revocation_reason = 'Expired - all locked purchases outside window',
+                        updated_at = NOW()
+                    WHERE id = $1 AND merchant_id = $2
+                `, [reward.id, merchantId]);
+
+                // Unlock the purchase events (LA-10 fix: added merchant_id filter)
+                await client.query(`
+                    UPDATE loyalty_purchase_events
+                    SET reward_id = NULL, updated_at = NOW()
+                    WHERE reward_id = $1 AND merchant_id = $2
+                `, [reward.id, merchantId]);
+
+                // LA-24 fix: refresh customer summary after expiration revocation
+                await updateCustomerSummary(client, merchantId, reward.square_customer_id, reward.offer_id);
+
+                // Log audit event
+                await logAuditEvent({
+                    merchantId,
+                    action: AuditActions.REWARD_REVOKED,
+                    offerId: reward.offer_id,
+                    rewardId: reward.id,
+                    squareCustomerId: reward.square_customer_id,
+                    triggeredBy: 'EXPIRATION_CLEANUP',
+                    details: {
+                        reason: 'All locked purchases expired',
+                        earnedAt: reward.earned_at
+                    }
+                }, client);
+
+                await client.query('COMMIT');
+            } catch (error) {
+                await client.query('ROLLBACK');
+                logger.error('Error processing expired reward', {
+                    rewardId: reward.id,
+                    error: error.message,
+                    stack: error.stack
+                });
+                throw error;
             }
-        }
 
-        results.processedCount++;
+            results.revokedRewards.push({
+                rewardId: reward.id,
+                offerName: reward.offer_name,
+                squareCustomerId: reward.square_customer_id
+            });
+
+            // Cleanup Square discount objects (outside transaction - external API call)
+            if (reward.square_discount_id || reward.square_group_id) {
+                const cleanupResult = await cleanupSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId: reward.square_customer_id,
+                    internalRewardId: reward.id
+                });
+
+                if (cleanupResult.success) {
+                    results.cleanedDiscounts.push({ rewardId: reward.id });
+                }
+            }
+
+            results.processedCount++;
+        }
+    } finally {
+        client.release();
     }
 
     logger.info('Expired earned rewards processing complete', {
