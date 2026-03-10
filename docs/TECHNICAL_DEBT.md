@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-09
+**Last Updated**: 2026-03-10
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07, MULTI-TENANT-GAPS-2026-03-08
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
@@ -259,6 +259,19 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: The check `!status.is_auto_apply || !['AUTO50', 'AUTO25', 'EXPIRED'].includes(status.tier_code)` includes `'EXPIRED'` in the array, but the EXPIRED tier has `is_auto_apply = false` by design. The `!status.is_auto_apply` guard short-circuits before the array check is reached, making `'EXPIRED'` unreachable in the array.
 **Impact**: None — dead code only. Could mislead maintainers into thinking EXPIRED is auto-applied.
 **Source**: Square API audit (2026-03-07)
+
+### BUG FIXED: variation_vendors DELETE ran unconditionally in syncVariation() (RESOLVED 2026-03-10)
+
+**File**: `services/square/square-catalog-sync.js`
+**Issue**: `DELETE FROM variation_vendors` ran unconditionally before checking if `vendor_information` was present in the Square API response. Full sync fetches `types=ITEM` (not `ITEM_VARIATION`), so nested variations may not include `vendor_information`. Every full sync was destroying vendor links that could not be recreated, silently. Variations appeared with no vendor in SqTools despite having vendor data in Square.
+**Fix**: DELETE now only runs when `vendor_information` is a non-empty array with at least one valid `vendor_id`. When absent/null/empty, existing rows are preserved and a `logger.warn` fires with event tag `vendor_information_absent_skipping_vendor_sync`. DELETE + INSERT wrapped in `db.transaction()` for atomicity.
+
+---
+
+### GMC v1beta API deprecated — product sync broken
+
+**File**: `services/gmc/merchant-service.js`
+**Issue**: Google Merchant API v1beta was discontinued Feb 28 2026. All product upserts failing with 409 ABORTED. Google Shopping feed broken for live store. Backup GMC in place so not customer-facing yet. Fix: migrate to v1 API. See BACKLOG-61. Priority: P0 before next GMC sync attempt.
 
 ---
 

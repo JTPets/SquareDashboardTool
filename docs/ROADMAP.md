@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-04
+**Last Updated**: 2026-03-10
 
 Items here are planned but not yet started. They represent significant future initiatives beyond the active priority list.
 
@@ -136,13 +136,9 @@ Use `employee_id` already present on Square orders to auto-apply staff discount.
 
 ## Loyalty Data Integrity - Known Issues
 
-### BACKLOG-59: Multi-Reward Redemption Detection Bug
+### ~~BACKLOG-59: Multi-Reward Redemption Detection Bug~~ RESOLVED (2026-03-10)
 
-`detectRewardRedemptionFromOrder()` early-returns after the first redemption detection. If a customer redeems 2 rewards in the same order, only the first is recorded.
-
-**Fix**: Loop detection until no more earned rewards are found on the order.
-
-**Confirmed incident**: 2026-03-10 — customer redeemed 2 free items, only 1 was recorded.
+`detectRewardRedemptionFromOrder()` now loops all matched earned rewards instead of early-returning after the first. Multi-reward redemption confirmed incident resolved 2026-03-10.
 
 ### BACKLOG-60: Orphaned Earned Rewards Cleanup (Pre-CRIT-1/CRIT-2)
 
@@ -156,3 +152,7 @@ WHERE merchant_id = 3 AND status = 'earned'
 GROUP BY square_customer_id
 HAVING COUNT(*) > 1;
 ```
+
+### BACKLOG-63: Caption Auto-Generation for Square Online Store Product Images
+
+Medium priority. Use Claude API to generate descriptive captions for all catalog images (under 140 chars). Push via `POST /v2/catalog/batch-upsert` updating `image_data.caption`. Square has no `alt_text` field — `caption` is displayed in Online Store and is the closest SEO/accessibility equivalent. One-time bulk run + hook into catalog sync for new items. Requires: Claude API integration already exists (SEO content generation). Low effort — reuse existing pattern.
