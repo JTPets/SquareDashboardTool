@@ -222,13 +222,16 @@ async function processMerchantCatchup(merchant, hoursBack) {
                 // Check for reward redemption regardless of purchase processing result.
                 try {
                     const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+                    // LOGIC CHANGE (BACKLOG-59): Iterate redemptions array instead of singular rewardId
                     if (redemptionResult.detected) {
-                        logger.info('Loyalty catchup detected reward redemption', {
-                            orderId: order.id,
-                            rewardId: redemptionResult.rewardId,
-                            offerName: redemptionResult.offerName,
-                            merchantId
-                        });
+                        for (const r of redemptionResult.redemptions) { // LOGIC CHANGE: Log each redemption individually
+                            logger.info('Loyalty catchup detected reward redemption', {
+                                orderId: order.id,
+                                rewardId: r.rewardId,
+                                offerName: r.offerName,
+                                merchantId
+                            });
+                        }
                     }
                 } catch (redemptionError) {
                     logger.error('Loyalty catchup redemption detection failed', {

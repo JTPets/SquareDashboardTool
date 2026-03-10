@@ -277,59 +277,62 @@ async function auditMissedRedemptions({ merchantId, days = 7, dryRun = true }) {
                 continue;
             }
 
-            // If audit is not in dry-run, redeem the reward
-            let redeemed = false;
-            if (!dryRun) {
-                try {
-                    await redeemReward({
-                        merchantId,
-                        rewardId: detection.rewardId,
-                        squareOrderId: order.id,
-                        squareCustomerId: detection.squareCustomerId,
-                        redemptionType: RedemptionTypes.AUTO_DETECTED,
-                        redeemedValueCents: detection.discountDetails?.totalDiscountCents
-                            || Number(detection.discountDetails?.appliedMoney?.amount || 0),
-                        squareLocationId: order.location_id,
-                        adminNotes: `Audit remediation (Strategy: ${detection.detectionMethod})`,
-                        redeemedAt: order.created_at
-                    });
-                    redeemed = true;
-                } catch (err) {
-                    logger.error('Audit: failed to redeem reward', {
-                        rewardId: detection.rewardId, orderId, error: err.message
-                    });
+            // LOGIC CHANGE (BACKLOG-59): Iterate detection.redemptions array instead of singular
+            for (const det of detection.redemptions) {
+                // If audit is not in dry-run, redeem the reward
+                let redeemed = false;
+                if (!dryRun) {
+                    try {
+                        await redeemReward({
+                            merchantId,
+                            rewardId: det.rewardId, // LOGIC CHANGE: from detection.rewardId
+                            squareOrderId: order.id,
+                            squareCustomerId: det.squareCustomerId, // LOGIC CHANGE: from detection.squareCustomerId
+                            redemptionType: RedemptionTypes.AUTO_DETECTED,
+                            redeemedValueCents: det.discountDetails?.totalDiscountCents // LOGIC CHANGE: from detection.discountDetails
+                                || Number(det.discountDetails?.appliedMoney?.amount || 0),
+                            squareLocationId: order.location_id,
+                            adminNotes: `Audit remediation (Strategy: ${det.detectionMethod})`, // LOGIC CHANGE: from detection.detectionMethod
+                            redeemedAt: order.created_at
+                        });
+                        redeemed = true;
+                    } catch (err) {
+                        logger.error('Audit: failed to redeem reward', {
+                            rewardId: det.rewardId, orderId, error: err.message // LOGIC CHANGE: from detection.rewardId
+                        });
+                    }
                 }
+
+                // Look up customer name for reporting
+                let customerName = null;
+                try {
+                    const custResult = await db.query(
+                        `SELECT display_name FROM loyalty_customers
+                         WHERE merchant_id = $1 AND square_customer_id = $2`,
+                        [merchantId, det.squareCustomerId] // LOGIC CHANGE: from detection.squareCustomerId
+                    );
+                    customerName = custResult.rows[0]?.display_name || null;
+                } catch (_) { /* non-critical */ }
+
+                const matchRecord = {
+                    rewardId: det.rewardId, // LOGIC CHANGE: from detection.rewardId
+                    orderId: order.id,
+                    orderDate: order.created_at,
+                    customerName,
+                    offerName: det.offerName, // LOGIC CHANGE: from detection.offerName
+                    strategy: det.detectionMethod, // LOGIC CHANGE: from detection.detectionMethod
+                    discountDetails: det.discountDetails, // LOGIC CHANGE: from detection.discountDetails
+                    redeemed
+                };
+
+                matches.push(matchRecord);
+
+                logger.info('Audit: missed redemption found', {
+                    ...matchRecord,
+                    merchantId,
+                    dryRun
+                });
             }
-
-            // Look up customer name for reporting
-            let customerName = null;
-            try {
-                const custResult = await db.query(
-                    `SELECT display_name FROM loyalty_customers
-                     WHERE merchant_id = $1 AND square_customer_id = $2`,
-                    [merchantId, detection.squareCustomerId]
-                );
-                customerName = custResult.rows[0]?.display_name || null;
-            } catch (_) { /* non-critical */ }
-
-            const matchRecord = {
-                rewardId: detection.rewardId,
-                orderId: order.id,
-                orderDate: order.created_at,
-                customerName,
-                offerName: detection.offerName,
-                strategy: detection.detectionMethod,
-                discountDetails: detection.discountDetails,
-                redeemed
-            };
-
-            matches.push(matchRecord);
-
-            logger.info('Audit: missed redemption found', {
-                ...matchRecord,
-                merchantId,
-                dryRun
-            });
         } catch (err) {
             logger.error('Audit: unexpected error processing order', {
                 orderId, merchantId, error: err.message, stack: err.stack

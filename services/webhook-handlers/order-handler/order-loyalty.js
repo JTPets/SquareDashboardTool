@@ -187,17 +187,20 @@ async function processLoyalty(order, merchantId, result) {
         // This uses the existing detectRewardRedemptionFromOrder which also
         // handles cleanup of Square discount objects
         const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+        // LOGIC CHANGE (BACKLOG-59): Iterate redemptions array instead of singular rewardId
         if (redemptionResult.detected) {
-            result.loyaltyRedemption = {
-                rewardId: redemptionResult.rewardId,
-                offerName: redemptionResult.offerName
-            };
-            logger.info('Loyalty reward redemption finalized', {
-                orderId: order.id,
-                rewardId: redemptionResult.rewardId,
-                offerName: redemptionResult.offerName,
-                merchantId
-            });
+            result.loyaltyRedemptions = redemptionResult.redemptions.map(r => ({ // LOGIC CHANGE: plural key, array
+                rewardId: r.rewardId,
+                offerName: r.offerName
+            }));
+            for (const r of redemptionResult.redemptions) { // LOGIC CHANGE: Log each redemption individually
+                logger.info('Loyalty reward redemption finalized', {
+                    orderId: order.id,
+                    rewardId: r.rewardId,
+                    offerName: r.offerName,
+                    merchantId
+                });
+            }
         }
 
         // Process returns (item returns) for loyalty adjustment
@@ -385,15 +388,18 @@ async function processPaymentForLoyalty(payment, merchantId, result, source) {
 
         // Finalize reward redemption AFTER purchases are recorded
         const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
+        // LOGIC CHANGE (BACKLOG-59): Iterate redemptions array instead of singular rewardId
         if (redemptionResult.detected) {
-            result.loyaltyRedemption = {
-                rewardId: redemptionResult.rewardId,
-                offerName: redemptionResult.offerName
-            };
-            logger.info('Reward redemption detected via payment webhook', {
-                orderId: order.id,
-                rewardId: redemptionResult.rewardId
-            });
+            result.loyaltyRedemptions = redemptionResult.redemptions.map(r => ({ // LOGIC CHANGE: plural key, array
+                rewardId: r.rewardId,
+                offerName: r.offerName
+            }));
+            for (const r of redemptionResult.redemptions) { // LOGIC CHANGE: Log each redemption individually
+                logger.info('Reward redemption detected via payment webhook', {
+                    orderId: order.id,
+                    rewardId: r.rewardId
+                });
+            }
         }
     } catch (paymentErr) {
         // LOGIC CHANGE: Classify errors — re-throw transient so Square retries

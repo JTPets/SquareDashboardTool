@@ -687,8 +687,10 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1);
 
         expect(result.detected).toBe(true);
-        expect(result.rewardId).toBe(42);
-        expect(result.detectionMethod).toBe('catalog_object_id');
+        // LOGIC CHANGE (BACKLOG-59): Check redemptions array instead of singular rewardId
+        expect(result.redemptions).toHaveLength(1);
+        expect(result.redemptions[0].rewardId).toBe(42);
+        expect(result.redemptions[0].detectionMethod).toBe('catalog_object_id');
     });
 
     it('should return detected: false when no discounts match', async () => {
@@ -711,6 +713,7 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
     });
 
     it('should skip discounts without catalog_object_id', async () => {
@@ -731,6 +734,7 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
         // Strategy 1 query should not have been called
         // (first db.query call is Strategy 3's earned rewards query)
     });
@@ -758,7 +762,9 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1, { dryRun: true });
 
         expect(result.detected).toBe(true);
-        expect(result.rewardId).toBe(42);
+        // LOGIC CHANGE (BACKLOG-59): Check redemptions array
+        expect(result.redemptions).toHaveLength(1);
+        expect(result.redemptions[0].rewardId).toBe(42);
         // In dryRun, redeemReward should NOT be called
         expect(db.pool.connect).not.toHaveBeenCalled();
     });
@@ -775,6 +781,7 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
     });
 
     it('should catch errors and return detected: false', async () => {
@@ -790,6 +797,7 @@ describe('detectRewardRedemptionFromOrder', () => {
         const result = await detectRewardRedemptionFromOrder(order, 1);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
         expect(result.error).toBe('DB connection lost');
     });
 
@@ -810,5 +818,6 @@ describe('detectRewardRedemptionFromOrder', () => {
         });
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
     });
 });
