@@ -283,8 +283,9 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
             error: 'Square API timeout'
         });
 
-        // markSyncPending db.query
-        db.query.mockResolvedValueOnce({ rows: [] });
+        // MED-1: markSyncPendingIfRewardExists now does SELECT first, then UPDATE
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'reward-fail' }] }); // SELECT check
+        db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE sync pending
 
         await updateRewardProgress(mockClient, baseData);
         // Wait for async .then() chain to complete
@@ -296,7 +297,7 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
         );
 
         expect(logger.error).toHaveBeenCalledWith(
-            'Square discount creation failed — marking for retry',
+            'earned_reward_discount_creation_failed',
             expect.objectContaining({
                 merchantId: 1,
                 rewardId: 'reward-fail'
@@ -309,7 +310,9 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
 
         mockCreateDiscount.mockRejectedValueOnce(new Error('Network error'));
 
-        db.query.mockResolvedValueOnce({ rows: [] });
+        // MED-1: markSyncPendingIfRewardExists now does SELECT first, then UPDATE
+        db.query.mockResolvedValueOnce({ rows: [{ id: 'reward-throw' }] }); // SELECT check
+        db.query.mockResolvedValueOnce({ rows: [] }); // UPDATE sync pending
 
         await updateRewardProgress(mockClient, baseData);
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -320,7 +323,7 @@ describe('reward-progress-service: discount failure marks sync pending', () => {
         );
 
         expect(logger.error).toHaveBeenCalledWith(
-            'Square discount creation threw — marking for retry',
+            'earned_reward_discount_creation_failed',
             expect.objectContaining({
                 error: 'Network error',
                 rewardId: 'reward-throw'

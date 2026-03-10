@@ -1923,6 +1923,35 @@ CREATE TRIGGER loyalty_rewards_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_loyalty_updated_at();
 
+-- LOGIC CHANGE (MED-5): Enforce loyalty_rewards status state machine at DB level.
+-- Valid transitions: in_progress->earned, earned->redeemed, earned->revoked.
+-- Terminal states: redeemed, revoked (cannot transition out).
+-- Non-status updates are always allowed.
+CREATE OR REPLACE FUNCTION enforce_loyalty_reward_status_transition()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status = NEW.status THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.status = 'in_progress' AND NEW.status = 'earned' THEN
+        RETURN NEW;
+    ELSIF OLD.status = 'earned' AND NEW.status = 'redeemed' THEN
+        RETURN NEW;
+    ELSIF OLD.status = 'earned' AND NEW.status = 'revoked' THEN
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Invalid loyalty_rewards status transition from % to %', OLD.status, NEW.status;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS enforce_loyalty_reward_status ON loyalty_rewards;
+CREATE TRIGGER enforce_loyalty_reward_status
+    BEFORE UPDATE ON loyalty_rewards
+    FOR EACH ROW
+    EXECUTE FUNCTION enforce_loyalty_reward_status_transition();
+
 DROP TRIGGER IF EXISTS loyalty_customer_summary_updated_at ON loyalty_customer_summary;
 CREATE TRIGGER loyalty_customer_summary_updated_at
     BEFORE UPDATE ON loyalty_customer_summary
