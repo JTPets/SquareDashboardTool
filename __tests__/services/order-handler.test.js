@@ -1237,6 +1237,8 @@ describe('OrderHandler', () => {
         });
 
         it('should handle payment loyalty error gracefully', async () => {
+            // LOGIC CHANGE: 'SDK timeout' is now classified as transient — re-thrown
+            // so Square retries the webhook
             mockSquareClient.orders.get.mockRejectedValueOnce(new Error('SDK timeout'));
 
             const ctx = {
@@ -1244,13 +1246,15 @@ describe('OrderHandler', () => {
                 merchantId: 1
             };
 
-            const result = await handler.handlePaymentUpdated(ctx);
+            await expect(handler.handlePaymentUpdated(ctx)).rejects.toThrow('SDK timeout');
 
-            // Should not crash — error caught in _processPaymentForLoyalty
-            expect(result.handled).toBe(true);
             expect(logger.error).toHaveBeenCalledWith(
-                'Error processing payment for loyalty',
-                expect.objectContaining({ paymentId: 'pay_1' })
+                expect.stringContaining('transient'),
+                expect.objectContaining({
+                    event: 'loyalty_transient_error',
+                    orderId: 'order_1',
+                    willRetry: true
+                })
             );
         });
     });
@@ -1261,31 +1265,34 @@ describe('OrderHandler', () => {
 
     describe('identifyCustomerForOrder error handling (RISK-4)', () => {
         it('should log at error level when customer identification throws', async () => {
+            // LOGIC CHANGE: 'DB connection refused' is transient — now re-thrown
             mockCustomerService.identifyCustomerFromOrder.mockRejectedValueOnce(
                 new Error('DB connection refused')
             );
 
             const ctx = makeContext();
-            const result = await handler.handleOrderCreatedOrUpdated(ctx);
+            await expect(handler.handleOrderCreatedOrUpdated(ctx)).rejects.toThrow('DB connection refused');
 
-            // Error propagates to _processLoyalty catch block, logged at error level
+            // Error propagates to _processLoyalty catch block, classified as transient
             expect(logger.error).toHaveBeenCalledWith(
-                'Failed to process order for loyalty',
+                expect.stringContaining('transient'),
                 expect.objectContaining({
+                    event: 'loyalty_transient_error',
                     error: 'DB connection refused',
-                    orderId: 'order_1'
+                    orderId: 'order_1',
+                    willRetry: true
                 })
             );
-            expect(result.loyaltyError).toBe('DB connection refused');
         });
 
         it('should still process velocity and delivery when customer identification fails', async () => {
+            // LOGIC CHANGE: 'DB timeout' is transient — now re-thrown after velocity runs
             mockCustomerService.identifyCustomerFromOrder.mockRejectedValueOnce(
                 new Error('DB timeout')
             );
 
             const ctx = makeContext();
-            await handler.handleOrderCreatedOrUpdated(ctx);
+            await expect(handler.handleOrderCreatedOrUpdated(ctx)).rejects.toThrow('DB timeout');
 
             // Velocity should still have been updated (runs before loyalty)
             expect(squareApi.updateSalesVelocityFromOrder).toHaveBeenCalled();
@@ -1305,6 +1312,8 @@ describe('OrderHandler', () => {
         });
 
         it('should log at error level when LoyaltyCustomerService.initialize throws', async () => {
+            // LOGIC CHANGE: 'Failed to load merchant config' is unexpected permanent —
+            // swallowed but logged at ERROR with loyalty_unexpected_error event
             mockCustomerService.initialize.mockRejectedValueOnce(
                 new Error('Failed to load merchant config')
             );
@@ -1313,9 +1322,11 @@ describe('OrderHandler', () => {
             const result = await handler.handleOrderCreatedOrUpdated(ctx);
 
             expect(logger.error).toHaveBeenCalledWith(
-                'Failed to process order for loyalty',
+                expect.stringContaining('unexpected'),
                 expect.objectContaining({
-                    error: 'Failed to load merchant config'
+                    event: 'loyalty_unexpected_error',
+                    error: 'Failed to load merchant config',
+                    willRetry: false
                 })
             );
             expect(result.loyaltyError).toBe('Failed to load merchant config');
