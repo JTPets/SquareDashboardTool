@@ -140,6 +140,10 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
         }
 
         // Record the purchase event
+        // LOGIC CHANGE (CRIT-3): Added ON CONFLICT DO NOTHING to handle concurrent
+        // inserts with the same idempotency_key. The SELECT-then-INSERT pattern has a
+        // race window where two concurrent transactions both pass the SELECT check
+        // before either commits, causing a unique constraint violation on the second INSERT.
         const eventResult = await client.query(`
             INSERT INTO loyalty_purchase_events (
                 merchant_id, offer_id, square_customer_id, square_order_id,
@@ -148,6 +152,7 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
                 is_refund, idempotency_key, receipt_url, customer_source, payment_type
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
@@ -157,10 +162,34 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
             false, idempotencyKey, receiptUrl || null, customerSource, paymentType
         ]);
 
-        const purchaseEvent = eventResult.rows[0];
-        if (!purchaseEvent) {
-            throw new Error('Failed to insert purchase event - no row returned');
+        // LOGIC CHANGE (CRIT-3): If ON CONFLICT suppressed the insert, the event
+        // already exists from a concurrent transaction. Fetch and return it.
+        if (eventResult.rows.length === 0) {
+            logger.info('Concurrent duplicate detected via ON CONFLICT', {
+                event: 'purchase_event_duplicate',
+                idempotencyKey,
+                merchantId,
+                orderId: squareOrderId
+            });
+
+            const existingRow = await client.query(`
+                SELECT * FROM loyalty_purchase_events
+                WHERE merchant_id = $1 AND idempotency_key = $2
+            `, [merchantId, idempotencyKey]);
+
+            if (managesOwnTransaction) {
+                await client.query('COMMIT');
+            }
+
+            return {
+                processed: false,
+                reason: 'already_processed',
+                purchaseEvent: existingRow.rows[0] || null,
+                alreadyProcessed: true
+            };
         }
+
+        const purchaseEvent = eventResult.rows[0];
 
         await logAuditEvent({
             merchantId,
@@ -337,6 +366,9 @@ async function processRefund(refundData, transactionClient = null) {
         }
 
         // Record the refund event (total_price_cents is negative to match refund direction)
+        // LOGIC CHANGE (CRIT-3): Added ON CONFLICT DO NOTHING — same race condition fix
+        // as processQualifyingPurchase. Concurrent refund webhooks can both pass the
+        // SELECT idempotency check before either commits.
         const refundTotalPriceCents = unitPriceCents ? refundQuantity * unitPriceCents : null;
         const eventResult = await client.query(`
             INSERT INTO loyalty_purchase_events (
@@ -346,6 +378,7 @@ async function processRefund(refundData, transactionClient = null) {
                 is_refund, original_event_id, idempotency_key
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, TRUE, $13, $14)
+            ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
             RETURNING *
         `, [
             merchantId, offer.id, squareCustomerId, squareOrderId,
@@ -353,6 +386,33 @@ async function processRefund(refundData, transactionClient = null) {
             refundedAt || new Date(), windowStartDate,
             windowEndDate, originalEventId, idempotencyKey
         ]);
+
+        // LOGIC CHANGE (CRIT-3): If ON CONFLICT suppressed the insert, the refund event
+        // already exists from a concurrent transaction. Fetch and return it.
+        if (eventResult.rows.length === 0) {
+            logger.info('Concurrent duplicate detected via ON CONFLICT', {
+                event: 'purchase_event_duplicate',
+                idempotencyKey,
+                merchantId,
+                orderId: squareOrderId
+            });
+
+            const existingRow = await client.query(`
+                SELECT * FROM loyalty_purchase_events
+                WHERE merchant_id = $1 AND idempotency_key = $2
+            `, [merchantId, idempotencyKey]);
+
+            if (managesOwnTransaction) {
+                await client.query('COMMIT');
+            }
+
+            return {
+                processed: false,
+                reason: 'already_processed',
+                refundEvent: existingRow.rows[0] || null,
+                alreadyProcessed: true
+            };
+        }
 
         const refundEvent = eventResult.rows[0];
 
