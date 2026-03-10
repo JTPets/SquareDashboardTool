@@ -4,6 +4,7 @@
  * Validates tenant isolation (merchant_id) on all UPDATE/DELETE queries
  * in processExpiredEarnedRewards (LA-10 fix).
  * Validates updateCustomerSummary is called after revocation (LA-24 fix).
+ * Validates MED-2: per-iteration error handling in processExpiredWindowEntries.
  */
 
 const db = require('../../../utils/database');
@@ -27,6 +28,7 @@ jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
 const { processExpiredEarnedRewards, processExpiredWindowEntries } = require('../../../services/loyalty-admin/expiration-service');
 const { updateCustomerSummary } = require('../../../services/loyalty-admin/customer-summary-service');
 const { logAuditEvent } = require('../../../services/loyalty-admin/audit-service');
+const { updateRewardProgress } = require('../../../services/loyalty-admin/reward-progress-service');
 
 const MERCHANT_ID = 42;
 
@@ -232,5 +234,137 @@ describe('processExpiredWindowEntries', () => {
         const [sql, params] = db.query.mock.calls[0];
         expect(sql).toContain('merchant_id = $1');
         expect(params).toEqual([MERCHANT_ID]);
+    });
+
+    // MED-2 tests: per-iteration error handling
+
+    test('MED-2: continues processing after one record fails', async () => {
+        const rows = [
+            { offer_id: 1, square_customer_id: 'CUST_A' },
+            { offer_id: 2, square_customer_id: 'CUST_B' },
+            { offer_id: 3, square_customer_id: 'CUST_C' }
+        ];
+        db.query.mockResolvedValueOnce({ rows });
+
+        // First record: BEGIN, then offer query succeeds
+        // Second record: will throw
+        // Third record: succeeds
+        let callCount = 0;
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            // Offer query
+            if (typeof sql === 'string' && sql.includes('SELECT * FROM loyalty_offers')) {
+                callCount++;
+                if (callCount === 2) {
+                    throw new Error('DB connection lost');
+                }
+                return { rows: [{ id: callCount, required_quantity: 12 }] };
+            }
+            return { rows: [] };
+        });
+
+        const result = await processExpiredWindowEntries(MERCHANT_ID);
+
+        // Should have processed 2 out of 3 (first and third)
+        expect(result.processedCount).toBe(2);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0].squareCustomerId).toBe('CUST_B');
+        expect(result.errors[0].offerId).toBe(2);
+        expect(result.errors[0].error).toBe('DB connection lost');
+    });
+
+    test('MED-2: does not throw when individual record fails', async () => {
+        const rows = [
+            { offer_id: 1, square_customer_id: 'CUST_A' }
+        ];
+        db.query.mockResolvedValueOnce({ rows });
+
+        // Simulate updateRewardProgress throwing
+        updateRewardProgress.mockRejectedValueOnce(new Error('reward progress failed'));
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (typeof sql === 'string' && sql.includes('SELECT * FROM loyalty_offers')) {
+                return { rows: [{ id: 1 }] };
+            }
+            return { rows: [] };
+        });
+
+        // Should NOT throw
+        const result = await processExpiredWindowEntries(MERCHANT_ID);
+
+        expect(result.processedCount).toBe(0);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0].error).toBe('reward progress failed');
+    });
+
+    test('MED-2: logs error with structured fields for failed records', async () => {
+        const logger = require('../../../utils/logger');
+        const rows = [
+            { offer_id: 7, square_customer_id: 'CUST_X' }
+        ];
+        db.query.mockResolvedValueOnce({ rows });
+
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'ROLLBACK') return {};
+            if (typeof sql === 'string' && sql.includes('SELECT * FROM loyalty_offers')) {
+                throw new Error('table not found');
+            }
+            return { rows: [] };
+        });
+
+        await processExpiredWindowEntries(MERCHANT_ID);
+
+        expect(logger.error).toHaveBeenCalledWith(
+            'Error processing expired entry',
+            expect.objectContaining({
+                event: 'expiration_processing_error',
+                squareCustomerId: 'CUST_X',
+                offerId: 7,
+                merchantId: MERCHANT_ID,
+                error: 'table not found'
+            })
+        );
+    });
+
+    test('MED-2: rolls back per-record transaction on failure', async () => {
+        const rows = [
+            { offer_id: 1, square_customer_id: 'CUST_A' }
+        ];
+        db.query.mockResolvedValueOnce({ rows });
+
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'ROLLBACK') return {};
+            if (typeof sql === 'string' && sql.includes('SELECT * FROM loyalty_offers')) {
+                throw new Error('some error');
+            }
+            return { rows: [] };
+        });
+
+        await processExpiredWindowEntries(MERCHANT_ID);
+
+        const rollbackCalls = mockClient.query.mock.calls.filter(
+            ([sql]) => sql === 'ROLLBACK'
+        );
+        expect(rollbackCalls).toHaveLength(1);
+    });
+
+    test('MED-2: returns empty errors array when all records succeed', async () => {
+        const rows = [
+            { offer_id: 1, square_customer_id: 'CUST_A' }
+        ];
+        db.query.mockResolvedValueOnce({ rows });
+
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT') return {};
+            if (typeof sql === 'string' && sql.includes('SELECT * FROM loyalty_offers')) {
+                return { rows: [{ id: 1 }] };
+            }
+            return { rows: [] };
+        });
+
+        const result = await processExpiredWindowEntries(MERCHANT_ID);
+
+        expect(result.processedCount).toBe(1);
+        expect(result.errors).toEqual([]);
     });
 });

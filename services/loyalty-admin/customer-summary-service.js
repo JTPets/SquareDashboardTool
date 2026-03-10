@@ -20,7 +20,13 @@ const logger = require('../../utils/logger');
  * @param {number} offerId - Offer ID
  */
 async function updateCustomerSummary(client, merchantId, squareCustomerId, offerId) {
-    // Get current stats — exclude superseded parent rows (rows that have
+    // LOGIC CHANGE (MED-4): Combined 6 sequential queries into 2 using CTEs.
+    // Previously ran: stats, earned count, redeemed count, total count, offer lookup,
+    // and conditional earned reward ID lookup — all sequentially. Now uses a single
+    // CTE query for reward counts + offer + earned reward ID, plus the original
+    // stats query (kept separate due to its complexity with NOT EXISTS subqueries).
+
+    // Query 1: Purchase event stats — exclude superseded parent rows (rows that have
     // been split into locked + excess children via original_event_id)
     const stats = await client.query(`
         SELECT
@@ -43,39 +49,37 @@ async function updateCustomerSummary(client, merchantId, squareCustomerId, offer
           AND pe.square_customer_id = $3
     `, [merchantId, offerId, squareCustomerId]);
 
-    const earnedRewards = await client.query(`
-        SELECT COUNT(*) as count FROM loyalty_rewards
-        WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3 AND status = 'earned'
+    // Query 2: Reward counts, offer required_quantity, and earliest earned reward ID
+    // in a single CTE query (replaces 5 separate queries)
+    const rewardStats = await client.query(`
+        WITH reward_counts AS (
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'earned') AS earned_count,
+                COUNT(*) FILTER (WHERE status = 'redeemed') AS redeemed_count,
+                COUNT(*) FILTER (WHERE status IN ('earned', 'redeemed')) AS total_earned_redeemed,
+                MIN(CASE WHEN status = 'earned' THEN id END) AS earliest_earned_id
+            FROM loyalty_rewards
+            WHERE merchant_id = $1
+              AND offer_id = $2
+              AND square_customer_id = $3
+        ),
+        offer_info AS (
+            SELECT required_quantity FROM loyalty_offers WHERE id = $2
+        )
+        SELECT
+            rc.earned_count,
+            rc.redeemed_count,
+            rc.total_earned_redeemed,
+            rc.earliest_earned_id,
+            oi.required_quantity
+        FROM reward_counts rc
+        LEFT JOIN offer_info oi ON TRUE
     `, [merchantId, offerId, squareCustomerId]);
-
-    const redeemedRewards = await client.query(`
-        SELECT COUNT(*) as count FROM loyalty_rewards
-        WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3 AND status = 'redeemed'
-    `, [merchantId, offerId, squareCustomerId]);
-
-    const totalEarned = await client.query(`
-        SELECT COUNT(*) as count FROM loyalty_rewards
-        WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3
-          AND status IN ('earned', 'redeemed')
-    `, [merchantId, offerId, squareCustomerId]);
-
-    const offer = await client.query(`
-        SELECT required_quantity FROM loyalty_offers WHERE id = $1
-    `, [offerId]);
 
     const s = stats.rows[0];
-    const hasEarned = parseInt(earnedRewards.rows[0]?.count || 0) > 0;
-
-    // Get the earned reward ID if exists
-    let earnedRewardId = null;
-    if (hasEarned) {
-        const earnedResult = await client.query(`
-            SELECT id FROM loyalty_rewards
-            WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3 AND status = 'earned'
-            ORDER BY earned_at ASC LIMIT 1
-        `, [merchantId, offerId, squareCustomerId]);
-        earnedRewardId = earnedResult.rows[0]?.id;
-    }
+    const rs = rewardStats.rows[0];
+    const hasEarned = parseInt(rs?.earned_count || 0) > 0;
+    const earnedRewardId = rs?.earliest_earned_id || null;
 
     await client.query(`
         INSERT INTO loyalty_customer_summary (
@@ -101,12 +105,12 @@ async function updateCustomerSummary(client, merchantId, squareCustomerId, offer
     `, [
         merchantId, squareCustomerId, offerId,
         parseInt(s.current_quantity) || 0,
-        offer.rows[0]?.required_quantity || 0,
+        parseInt(rs?.required_quantity) || 0,
         s.window_start, s.window_end,
         hasEarned, earnedRewardId,
         parseInt(s.lifetime_purchases) || 0,
-        parseInt(totalEarned.rows[0]?.count || 0),
-        parseInt(redeemedRewards.rows[0]?.count || 0),
+        parseInt(rs?.total_earned_redeemed || 0),
+        parseInt(rs?.redeemed_count || 0),
         s.last_purchase
     ]);
 }

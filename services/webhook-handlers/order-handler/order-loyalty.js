@@ -154,52 +154,60 @@ async function checkOrderForRedemption(order, merchantId) {
         }))
     });
 
+    // LOGIC CHANGE (MED-3): Batch discount lookup. Previously queried
+    // loyalty_rewards individually per discount (N+1). Now collects all
+    // catalog_object_ids and pricing_rule_ids, then does a single query.
+    const catalogObjectIds = [];
     for (const discount of discounts) {
-        const catalogObjectId = discount.catalog_object_id;
-
-        // DIAGNOSTIC: Log each discount evaluation (remove after issue confirmed resolved)
         logger.debug('Redemption detection: evaluating discount', {
             orderId: order.id,
             discountUid: discount.uid,
-            catalogObjectId: catalogObjectId || 'NONE (manual/ad-hoc)',
+            catalogObjectId: discount.catalog_object_id || 'NONE (manual/ad-hoc)',
             pricingRuleId: discount.pricing_rule_id || 'NONE',
             discountName: discount.name,
             discountType: discount.type,
             appliedMoney: discount.applied_money,
-            skipped: !catalogObjectId
+            skipped: !discount.catalog_object_id
         });
 
-        if (!catalogObjectId) continue;
+        if (discount.catalog_object_id) {
+            catalogObjectIds.push(discount.catalog_object_id);
+        }
+        if (discount.pricing_rule_id) {
+            catalogObjectIds.push(discount.pricing_rule_id);
+        }
+    }
 
-        // Match on square_discount_id OR square_pricing_rule_id (Square may use either)
+    if (catalogObjectIds.length > 0) {
+        const uniqueIds = [...new Set(catalogObjectIds)];
         const rewardResult = await db.query(`
-            SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name
+            SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name,
+                   r.square_discount_id, r.square_pricing_rule_id
             FROM loyalty_rewards r
             JOIN loyalty_offers o ON r.offer_id = o.id
             WHERE r.merchant_id = $1
-              AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
+              AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
               AND r.status = 'earned'
-        `, [merchantId, catalogObjectId]);
+        `, [merchantId, uniqueIds]);
 
-        // DIAGNOSTIC: Log reward lookup results (remove after issue confirmed resolved)
-        logger.debug('Redemption detection: reward lookup', {
+        logger.debug('Redemption detection: batch reward lookup', {
             orderId: order.id,
-            catalogObjectId,
-            pricingRuleId: discount.pricing_rule_id || null,
-            matchedRewardId: rewardResult.rows[0]?.id || null,
-            matchedBy: rewardResult.rows.length > 0 ? 'catalog_id' : 'none',
+            lookupIds: uniqueIds,
             earnedRewardsFound: rewardResult.rows.length
         });
 
         if (rewardResult.rows.length > 0) {
             const reward = rewardResult.rows[0];
+            const matchedId = uniqueIds.find(id =>
+                id === reward.square_discount_id || id === reward.square_pricing_rule_id
+            );
 
             logger.info('Pre-detected reward redemption on order', {
                 action: 'REDEMPTION_PRE_CHECK',
                 orderId: order.id,
                 rewardId: reward.id,
                 offerId: reward.offer_id,
-                discountCatalogId: catalogObjectId,
+                discountCatalogId: matchedId,
                 detectionMethod: 'catalog_object_id',
                 merchantId
             });
@@ -210,7 +218,7 @@ async function checkOrderForRedemption(order, merchantId) {
                 offerId: reward.offer_id,
                 offerName: reward.offer_name,
                 squareCustomerId: reward.square_customer_id,
-                discountCatalogId: catalogObjectId
+                discountCatalogId: matchedId
             };
         }
     }

@@ -501,24 +501,34 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
             }))
         });
 
-        // Strategy 1: Match by catalog_object_id (exact discount ID match)
+        // LOGIC CHANGE (MED-3): Batch discount lookup. Previously queried
+        // loyalty_rewards individually per discount (N+1). Now collects all
+        // catalog_object_ids and pricing_rule_ids, then does a single query.
+        // Strategy 1: Match by catalog_object_id (batch lookup)
         if (discounts.length > 0) {
+            const catalogObjectIds = [];
             for (const discount of discounts) {
-                const catalogObjectId = discount.catalog_object_id;
-
-                // DIAGNOSTIC: Log each discount evaluation (remove after issue confirmed resolved)
                 logger.info('Redemption detection: evaluating discount', {
                     orderId: order.id,
                     discountUid: discount.uid,
-                    catalogObjectId: catalogObjectId || 'NONE (manual/ad-hoc)',
+                    catalogObjectId: discount.catalog_object_id || 'NONE (manual/ad-hoc)',
                     pricingRuleId: discount.pricing_rule_id || 'NONE',
                     discountName: discount.name,
                     discountType: discount.type,
                     appliedMoney: discount.applied_money,
-                    skipped: !catalogObjectId
+                    skipped: !discount.catalog_object_id
                 });
 
-                if (!catalogObjectId) continue;
+                if (discount.catalog_object_id) {
+                    catalogObjectIds.push(discount.catalog_object_id);
+                }
+                if (discount.pricing_rule_id) {
+                    catalogObjectIds.push(discount.pricing_rule_id);
+                }
+            }
+
+            if (catalogObjectIds.length > 0) {
+                const uniqueIds = [...new Set(catalogObjectIds)];
 
                 // Check BOTH square_discount_id AND square_pricing_rule_id because Square
                 // may reference either one in the order discount depending on how it was applied
@@ -527,28 +537,32 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                     FROM loyalty_rewards r
                     JOIN loyalty_offers o ON r.offer_id = o.id
                     WHERE r.merchant_id = $1
-                      AND (r.square_discount_id = $2 OR r.square_pricing_rule_id = $2)
+                      AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
                       AND r.status = 'earned'
-                `, [merchantId, catalogObjectId]);
+                `, [merchantId, uniqueIds]);
 
-                // DIAGNOSTIC: Log reward lookup results (remove after issue confirmed resolved)
-                logger.info('Redemption detection: reward lookup', {
+                logger.info('Redemption detection: batch reward lookup', {
                     orderId: order.id,
-                    catalogObjectId,
-                    pricingRuleId: discount.pricing_rule_id || null,
-                    matchedRewardId: rewardResult.rows[0]?.id || null,
-                    matchedBy: rewardResult.rows.length > 0 ? 'catalog_id' : 'none',
+                    lookupIds: uniqueIds,
                     earnedRewardsFound: rewardResult.rows.length
                 });
 
                 if (rewardResult.rows.length > 0) {
                     const reward = rewardResult.rows[0];
+                    const matchedId = uniqueIds.find(id =>
+                        id === reward.square_discount_id || id === reward.square_pricing_rule_id
+                    );
+
+                    // Find the original discount to get applied_money
+                    const matchedDiscount = discounts.find(d =>
+                        d.catalog_object_id === matchedId || d.pricing_rule_id === matchedId
+                    );
 
                     logger.info('Detected reward redemption from order', {
                         merchantId,
                         orderId: order.id,
                         rewardId: reward.id,
-                        discountId: catalogObjectId,
+                        discountId: matchedId,
                         detectionMethod: 'catalog_object_id',
                         dryRun
                     });
@@ -561,7 +575,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                             squareOrderId: order.id,
                             squareCustomerId: order.customer_id,
                             redemptionType: RedemptionTypes.AUTO_DETECTED,
-                            redeemedValueCents: Number(discount.applied_money?.amount || 0),
+                            redeemedValueCents: Number(matchedDiscount?.applied_money?.amount || 0),
                             squareLocationId: order.location_id
                         });
                     }
@@ -575,8 +589,8 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                         redemptionResult,
                         detectionMethod: 'catalog_object_id',
                         discountDetails: {
-                            catalogObjectId,
-                            appliedMoney: discount.applied_money
+                            catalogObjectId: matchedId,
+                            appliedMoney: matchedDiscount?.applied_money
                         }
                     };
                 }
