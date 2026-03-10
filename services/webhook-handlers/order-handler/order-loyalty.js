@@ -2,8 +2,8 @@
  * Loyalty processing logic for order webhooks
  *
  * Extracted from order-handler.js (Phase 2 split).
- * Contains customer identification, redemption pre-check, loyalty intake
- * for both order.* and payment.* webhook paths, and the order processing cache.
+ * Contains customer identification, loyalty intake for both order.* and
+ * payment.* webhook paths, and the order processing cache.
  *
  * @module services/webhook-handlers/order-handler/order-loyalty
  */
@@ -117,164 +117,6 @@ async function identifyCustomerForOrder(order, merchantId) {
     const customerSource = sourceMap[result.method] || 'order';
 
     return { customerId: result.customerId, customerSource };
-}
-
-/**
- * Pre-check if an order contains a reward redemption
- *
- * BUG FIX: This must run BEFORE processing purchases. Previously, purchases
- * were recorded first, linking them to the old reward being redeemed. Now we
- * detect redemption first so new purchases can start a fresh reward window.
- *
- * Detection strategy (in priority order):
- * 1. Match discount catalog_object_id to stored square_discount_id/pricing_rule_id
- * 2. Fallback: match 100% discounted line items to earned rewards via qualifying variations
- *    (catches manual discounts, re-applied discounts, migrated discount objects)
- *
- * @param {Object} order - Square order object
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<Object>} Redemption info or { isRedemptionOrder: false }
- */
-async function checkOrderForRedemption(order, merchantId) {
-    const db = require('../../../utils/database');
-
-    // Strategy 1: Match by catalog_object_id (exact discount ID match)
-    const discounts = order.discounts || [];
-
-    // DIAGNOSTIC: Log all discounts before scanning (remove after issue confirmed resolved)
-    const squareCustomerId = order.customer_id || (order.tenders || []).find(t => t.customer_id)?.customer_id;
-    logger.debug('Redemption detection: scanning order discounts', {
-        orderId: order.id,
-        squareCustomerId,
-        discountCount: discounts.length,
-        discounts: discounts.map(d => ({
-            uid: d.uid,
-            name: d.name,
-            type: d.type,
-            catalog_object_id: d.catalog_object_id || null,
-            pricing_rule_id: d.pricing_rule_id || null,
-            applied_money: d.applied_money,
-            scope: d.scope
-        }))
-    });
-
-    // LOGIC CHANGE (MED-3): Batch discount lookup. Previously queried
-    // loyalty_rewards individually per discount (N+1). Now collects all
-    // catalog_object_ids and pricing_rule_ids, then does a single query.
-    const catalogObjectIds = [];
-    for (const discount of discounts) {
-        logger.debug('Redemption detection: evaluating discount', {
-            orderId: order.id,
-            discountUid: discount.uid,
-            catalogObjectId: discount.catalog_object_id || 'NONE (manual/ad-hoc)',
-            pricingRuleId: discount.pricing_rule_id || 'NONE',
-            discountName: discount.name,
-            discountType: discount.type,
-            appliedMoney: discount.applied_money,
-            skipped: !discount.catalog_object_id
-        });
-
-        if (discount.catalog_object_id) {
-            catalogObjectIds.push(discount.catalog_object_id);
-        }
-        if (discount.pricing_rule_id) {
-            catalogObjectIds.push(discount.pricing_rule_id);
-        }
-    }
-
-    if (catalogObjectIds.length > 0) {
-        const uniqueIds = [...new Set(catalogObjectIds)];
-        const rewardResult = await db.query(`
-            SELECT r.id, r.offer_id, r.square_customer_id, o.offer_name,
-                   r.square_discount_id, r.square_pricing_rule_id
-            FROM loyalty_rewards r
-            JOIN loyalty_offers o ON r.offer_id = o.id
-            WHERE r.merchant_id = $1
-              AND (r.square_discount_id = ANY($2) OR r.square_pricing_rule_id = ANY($2))
-              AND r.status = 'earned'
-        `, [merchantId, uniqueIds]);
-
-        logger.debug('Redemption detection: batch reward lookup', {
-            orderId: order.id,
-            lookupIds: uniqueIds,
-            earnedRewardsFound: rewardResult.rows.length
-        });
-
-        if (rewardResult.rows.length > 0) {
-            const reward = rewardResult.rows[0];
-            const matchedId = uniqueIds.find(id =>
-                id === reward.square_discount_id || id === reward.square_pricing_rule_id
-            );
-
-            logger.info('Pre-detected reward redemption on order', {
-                action: 'REDEMPTION_PRE_CHECK',
-                orderId: order.id,
-                rewardId: reward.id,
-                offerId: reward.offer_id,
-                discountCatalogId: matchedId,
-                detectionMethod: 'catalog_object_id',
-                merchantId
-            });
-
-            return {
-                isRedemptionOrder: true,
-                rewardId: reward.id,
-                offerId: reward.offer_id,
-                offerName: reward.offer_name,
-                squareCustomerId: reward.square_customer_id,
-                discountCatalogId: matchedId
-            };
-        }
-    }
-
-    // Strategy 2: Fallback — match free items to earned rewards
-    const freeItemMatch = await loyaltyService.matchEarnedRewardByFreeItem(order, merchantId);
-    if (freeItemMatch) {
-        logger.info('Pre-detected reward redemption via free item fallback', {
-            action: 'REDEMPTION_PRE_CHECK_FREE_ITEM',
-            orderId: order.id,
-            rewardId: freeItemMatch.reward_id,
-            offerId: freeItemMatch.offer_id,
-            matchedVariationId: freeItemMatch.matched_variation_id,
-            merchantId
-        });
-
-        return {
-            isRedemptionOrder: true,
-            rewardId: freeItemMatch.reward_id,
-            offerId: freeItemMatch.offer_id,
-            offerName: freeItemMatch.offer_name,
-            squareCustomerId: freeItemMatch.square_customer_id,
-            discountCatalogId: null
-        };
-    }
-
-    // Strategy 3: Match by total discount amount on qualifying variations
-    const discountAmountMatch = await loyaltyService.matchEarnedRewardByDiscountAmount({
-        order, squareCustomerId, merchantId
-    });
-    if (discountAmountMatch) {
-        logger.info('Pre-detected reward redemption via discount-amount fallback', {
-            action: 'REDEMPTION_PRE_CHECK_DISCOUNT_AMOUNT',
-            orderId: order.id,
-            rewardId: discountAmountMatch.reward_id,
-            offerId: discountAmountMatch.offer_id,
-            totalDiscountCents: discountAmountMatch.totalDiscountCents,
-            expectedValueCents: discountAmountMatch.expectedValueCents,
-            merchantId
-        });
-
-        return {
-            isRedemptionOrder: true,
-            rewardId: discountAmountMatch.reward_id,
-            offerId: discountAmountMatch.offer_id,
-            offerName: discountAmountMatch.offer_name,
-            squareCustomerId: discountAmountMatch.square_customer_id,
-            discountCatalogId: null
-        };
-    }
-
-    return { isRedemptionOrder: false };
 }
 
 /**
@@ -598,7 +440,6 @@ async function processPaymentForLoyalty(payment, merchantId, result, source) {
 module.exports = {
     orderProcessingCache,
     identifyCustomerForOrder,
-    checkOrderForRedemption,
     processLoyalty,
     processPaymentForLoyalty,
     // Exported for testing only

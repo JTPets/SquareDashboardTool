@@ -491,7 +491,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
         const squareCustomerId = customerIdOverride
             || order.customer_id
             || (order.tenders || []).find(t => t.customer_id)?.customer_id;
-        logger.info('Redemption detection: scanning order discounts', {
+        logger.debug('Redemption detection: scanning order discounts', {
             orderId: order.id,
             squareCustomerId,
             discountCount: discounts.length,
@@ -513,7 +513,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
         if (discounts.length > 0) {
             const catalogObjectIds = [];
             for (const discount of discounts) {
-                logger.info('Redemption detection: evaluating discount', {
+                logger.debug('Redemption detection: evaluating discount', {
                     orderId: order.id,
                     discountUid: discount.uid,
                     catalogObjectId: discount.catalog_object_id || 'NONE (manual/ad-hoc)',
@@ -546,7 +546,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                       AND r.status = 'earned'
                 `, [merchantId, uniqueIds]);
 
-                logger.info('Redemption detection: batch reward lookup', {
+                logger.debug('Redemption detection: batch reward lookup', {
                     orderId: order.id,
                     lookupIds: uniqueIds,
                     earnedRewardsFound: rewardResult.rows.length

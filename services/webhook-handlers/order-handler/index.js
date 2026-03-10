@@ -34,7 +34,7 @@ const {
     autoIngestFromFulfillment
 } = require('./order-delivery');
 const {
-    orderProcessingCache, identifyCustomerForOrder, checkOrderForRedemption,
+    orderProcessingCache, identifyCustomerForOrder,
     processLoyalty, processPaymentForLoyalty
 } = require('./order-loyalty');
 
@@ -304,15 +304,6 @@ class OrderHandler {
      */
     async _refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result) {
         return refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result);
-    }
-
-    /**
-     * Pre-check if an order contains a reward redemption
-     * Delegates to extracted order-loyalty module.
-     * @private
-     */
-    async _checkOrderForRedemption(order, merchantId) {
-        return checkOrderForRedemption(order, merchantId);
     }
 
     /**
