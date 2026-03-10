@@ -275,6 +275,17 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 ---
 
+## Square Online Store Gaps
+
+| ID | Description |
+|----|-------------|
+| BACKLOG-64 | `sold_out` flag not reconciled with inventory = 0 — customers may see available items that are out of stock |
+| BACKLOG-65 | Website catalog categories not synced — online store navigation may be stale |
+| BACKLOG-63 | Product image captions not populated — SEO and accessibility gap on live store |
+| BACKLOG-61 | GMC v1beta deprecated — Google Shopping feed broken since Feb 28 2026 |
+
+---
+
 ## Expiry Discount Automation
 
 | ID | Description |
