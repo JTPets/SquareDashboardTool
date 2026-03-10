@@ -227,8 +227,11 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
  * If a refund causes an earned reward to become invalid, the reward is REVOKED
  *
  * @param {Object} refundData - Refund details
+ * @param {Object} [transactionClient=null] - Optional external transaction client.
+ *   When provided, the caller owns the transaction (BEGIN/COMMIT/ROLLBACK).
+ *   When omitted, processRefund manages its own transaction (backward compatible).
  */
-async function processRefund(refundData) {
+async function processRefund(refundData, transactionClient = null) {
     const {
         merchantId, squareOrderId, squareCustomerId, variationId,
         quantity, unitPriceCents, refundedAt, squareLocationId, originalEventId,
@@ -255,7 +258,10 @@ async function processRefund(refundData) {
 
     // Check for existing event (idempotency) — prevents duplicate refund inserts
     // from rapid-fire webhooks (Square sends 4-5 per event)
-    const existingEvent = await db.query(`
+    // LOGIC CHANGE (HIGH-3): Use transactionClient for idempotency check when provided,
+    // so the check is within the same transaction snapshot as the insert
+    const queryFn = transactionClient || db;
+    const existingEvent = await queryFn.query(`
         SELECT id FROM loyalty_purchase_events
         WHERE merchant_id = $1 AND idempotency_key = $2
     `, [merchantId, idempotencyKey]);
@@ -289,11 +295,16 @@ async function processRefund(refundData) {
     // Lines: ~342–408 (current)
     // Risk: medium (reward state machine transition — needs careful test coverage)
 
-    const client = await db.pool.connect();
+    // LOGIC CHANGE (HIGH-3): When transactionClient is provided, the caller manages
+    // the transaction (BEGIN/COMMIT/ROLLBACK). This enables atomic batch refunds.
+    const client = transactionClient || await db.pool.connect();
+    const managesOwnTransaction = !transactionClient;
     // Track revoked reward for post-transaction Square cleanup
     let revokedReward = null;
     try {
-        await client.query('BEGIN');
+        if (managesOwnTransaction) {
+            await client.query('BEGIN');
+        }
 
         // LA-11 fix: Look up the original purchase event's window dates
         // instead of calculating from the refund date
@@ -432,13 +443,18 @@ async function processRefund(refundData) {
             offer
         });
 
-        await client.query('COMMIT');
+        if (managesOwnTransaction) {
+            await client.query('COMMIT');
+        }
 
         // LOGIC CHANGE (HIGH-6): Clean up Square discount objects OUTSIDE the transaction
         // (external API call — matches expiration-service.js and reward-service.js pattern).
         // Without this, the customer retains an active discount in Square POS and can
         // redeem a free item even though their reward was revoked in our DB.
-        if (revokedReward) {
+        // LOGIC CHANGE (HIGH-3): When caller owns the transaction, defer Square cleanup
+        // to the caller (returned via revokedReward in result) since the transaction
+        // has not committed yet.
+        if (revokedReward && managesOwnTransaction) {
             logger.info('Reward revoked via refund', {
                 event: 'reward_revoked_via_refund',
                 customerId: squareCustomerId,
@@ -477,11 +493,14 @@ async function processRefund(refundData) {
         return {
             processed: true,
             refundEvent,
-            rewardAffected: earnedReward.rows.length > 0
+            rewardAffected: earnedReward.rows.length > 0,
+            revokedReward: revokedReward || null
         };
 
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (managesOwnTransaction) {
+            await client.query('ROLLBACK');
+        }
         logger.error('Failed to process refund', {
             error: error.message,
             merchantId,
@@ -489,7 +508,9 @@ async function processRefund(refundData) {
         });
         throw error;
     } finally {
-        client.release();
+        if (managesOwnTransaction) {
+            client.release();
+        }
     }
 }
 

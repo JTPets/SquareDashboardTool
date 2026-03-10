@@ -65,6 +65,11 @@ jest.mock('../../../services/loyalty-admin/purchase-service', () => ({
     processRefund: mockProcessRefund
 }));
 
+const mockCleanupDiscount = jest.fn().mockResolvedValue({ success: true });
+jest.mock('../../../services/loyalty-admin/square-discount-service', () => ({
+    cleanupSquareCustomerGroupDiscount: mockCleanupDiscount
+}));
+
 const db = require('../../../utils/database');
 const { processOrderRefundsForLoyalty } = require('../../../services/loyalty-admin/webhook-processing-service');
 
@@ -119,6 +124,7 @@ describe('processOrderRefundsForLoyalty — LA-3: order.returns[] shape', () => 
         expect(result.refundsProcessed[0].variationId).toBe('var_001');
         expect(result.refundsProcessed[0].quantity).toBe(2);
         expect(mockProcessRefund).toHaveBeenCalledTimes(1);
+        // LOGIC CHANGE (HIGH-3): processRefund now receives transactionClient as second arg
         expect(mockProcessRefund).toHaveBeenCalledWith(expect.objectContaining({
             merchantId: 1,
             squareOrderId: 'order_abc',
@@ -126,7 +132,7 @@ describe('processOrderRefundsForLoyalty — LA-3: order.returns[] shape', () => 
             variationId: 'var_001',
             quantity: 2,
             returnLineItemUid: 'rli_1'
-        }));
+        }), mockClient);
     });
 
     it('should return no_returns when order has no returns array', async () => {
@@ -228,8 +234,9 @@ describe('processOrderRefundsForLoyalty — LA-3: order.returns[] shape', () => 
 
         const result = await processOrderRefundsForLoyalty(order, 1);
 
-        expect(result.processed).toBe(true);
-        expect(result.refundsProcessed).toHaveLength(0);
+        // LOGIC CHANGE (HIGH-3): no qualifying items after filtering returns no_qualifying_returns
+        expect(result.processed).toBe(false);
+        expect(result.reason).toBe('no_qualifying_returns');
         expect(mockProcessRefund).not.toHaveBeenCalled();
     });
 
@@ -251,8 +258,9 @@ describe('processOrderRefundsForLoyalty — LA-3: order.returns[] shape', () => 
 
         const result = await processOrderRefundsForLoyalty(order, 1);
 
-        expect(result.processed).toBe(true);
-        expect(result.refundsProcessed).toHaveLength(0);
+        // LOGIC CHANGE (HIGH-3): no qualifying items after filtering returns no_qualifying_returns
+        expect(result.processed).toBe(false);
+        expect(result.reason).toBe('no_qualifying_returns');
         expect(mockProcessRefund).not.toHaveBeenCalled();
     });
 });
@@ -368,7 +376,7 @@ describe('processRefund idempotency — LA-5: returnLineItemUid prevents collisi
 
         expect(mockProcessRefund).toHaveBeenCalledWith(expect.objectContaining({
             returnLineItemUid: 'src_li_1'
-        }));
+        }), mockClient);
     });
 });
 
@@ -386,10 +394,11 @@ describe('processOrderRefundsForLoyalty — error handling', () => {
             .rejects.toThrow('merchantId is required');
     });
 
-    it('should collect errors but continue processing other return items', async () => {
+    // LOGIC CHANGE (HIGH-3): batch now rolls back entirely on any failure
+    it('should rollback entire batch and throw when any refund fails', async () => {
         mockProcessRefund
-            .mockRejectedValueOnce(new Error('DB timeout'))
-            .mockResolvedValueOnce({ processed: true, rewardAffected: false });
+            .mockResolvedValueOnce({ processed: true, rewardAffected: false })
+            .mockRejectedValueOnce(new Error('DB timeout'));
 
         const order = makeSquareOrderWithReturns([
             {
@@ -413,10 +422,41 @@ describe('processOrderRefundsForLoyalty — error handling', () => {
             }
         ]);
 
-        const result = await processOrderRefundsForLoyalty(order, 1);
+        await expect(processOrderRefundsForLoyalty(order, 1))
+            .rejects.toThrow('DB timeout');
 
-        expect(result.processed).toBe(true);
-        expect(result.errors).toHaveLength(1);
-        expect(result.refundsProcessed).toHaveLength(1);
+        // Verify ROLLBACK was called (not COMMIT)
+        const queryCalls = mockClient.query.mock.calls.map(c => c[0]);
+        expect(queryCalls).toContain('BEGIN');
+        expect(queryCalls).toContain('ROLLBACK');
+        expect(queryCalls).not.toContain('COMMIT');
+        expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it('should pass transaction BEGIN/COMMIT for successful batch', async () => {
+        mockProcessRefund.mockResolvedValue({ processed: true, rewardAffected: false });
+
+        const order = makeSquareOrderWithReturns([
+            {
+                uid: 'ret_1',
+                return_line_items: [
+                    {
+                        uid: 'rli_1',
+                        catalog_object_id: 'var_001',
+                        quantity: '1',
+                        base_price_money: { amount: 1000n },
+                        total_money: { amount: 1000n }
+                    }
+                ]
+            }
+        ]);
+
+        await processOrderRefundsForLoyalty(order, 1);
+
+        const queryCalls = mockClient.query.mock.calls.map(c => c[0]);
+        expect(queryCalls).toContain('BEGIN');
+        expect(queryCalls).toContain('COMMIT');
+        expect(queryCalls).not.toContain('ROLLBACK');
+        expect(mockClient.release).toHaveBeenCalled();
     });
 });
