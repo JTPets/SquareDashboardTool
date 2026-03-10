@@ -44,8 +44,12 @@ function hashResetToken(token) {
 const subscriptionHandler = require('../utils/subscription-handler');
 const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { configureLoginRateLimit, configureSubscriptionRateLimit } = require('../middleware/security');
 const validators = require('../middleware/validators/subscriptions');
 const asyncHandler = require('../middleware/async-handler');
+
+const promoRateLimit = configureLoginRateLimit();
+const subscriptionRateLimit = configureSubscriptionRateLimit();
 const subscriptionBridge = require('../services/subscription-bridge');
 
 /**
@@ -77,7 +81,8 @@ router.get('/subscriptions/plans', asyncHandler(async (req, res) => {
  * POST /api/subscriptions/promo/validate
  * Validate a promo code and return discount info
  */
-router.post('/subscriptions/promo/validate', validators.validatePromo, asyncHandler(async (req, res) => {
+// LOGIC CHANGE: rate limit unauthenticated endpoint (security audit 2026-03-10)
+router.post('/subscriptions/promo/validate', promoRateLimit, validators.validatePromo, asyncHandler(async (req, res) => {
     const { code, plan, priceCents } = req.body;
 
     // Look up the promo code
@@ -145,7 +150,8 @@ router.post('/subscriptions/promo/validate', validators.validatePromo, asyncHand
  * We only store Square IDs (customer_id, card_id, subscription_id).
  * Square handles all recurring billing, PCI compliance, and payment processing.
  */
-router.post('/subscriptions/create', validators.createSubscription, asyncHandler(async (req, res) => {
+// LOGIC CHANGE: rate limit unauthenticated endpoint (security audit 2026-03-10)
+router.post('/subscriptions/create', subscriptionRateLimit, validators.createSubscription, asyncHandler(async (req, res) => {
     const { email, businessName, plan, sourceId, promoCode, termsAcceptedAt } = req.body;
 
     // Capture merchant_id from session if user is logged in (bridges System A ↔ B)
