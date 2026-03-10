@@ -268,6 +268,10 @@ async function matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId
 
     // Find an earned reward for this customer where one of the free items
     // is a qualifying variation for the reward's offer
+    // LOGIC CHANGE (MED-6): Added ORDER BY r.earned_at ASC to return the
+    // oldest earned reward first (FIFO). Before: LIMIT 1 with no ORDER BY
+    // returned an arbitrary match when a customer had multiple earned rewards,
+    // potentially redeeming a newer reward before an older one.
     const result = await db.query(`
         SELECT r.id AS reward_id, r.offer_id, r.square_customer_id, o.offer_name,
                qv.variation_id AS matched_variation_id
@@ -281,6 +285,7 @@ async function matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId
           AND qv.variation_id = ANY($2)
           AND qv.is_active = TRUE
           AND o.is_active = TRUE
+        ORDER BY r.earned_at ASC
         LIMIT 1
     `, [merchantId, freeVariationIds, customerId]);
 

@@ -191,6 +191,15 @@ async function resolveConflictViaSquare(client, reward, params) {
 async function updateRewardProgress(client, data) {
     const { merchantId, offerId, squareCustomerId, offer } = data;
 
+    // LOGIC CHANGE (MED-1): Collect earned reward IDs during the transaction,
+    // fire Square discount creation AFTER the transaction commits. Before: the
+    // createSquareCustomerGroupDiscount() call ran as a detached promise inside
+    // the transaction. If the transaction rolled back, the reward row would not
+    // exist but markSyncPending() could still fire using a pool connection,
+    // creating an orphaned sync record. After: earned rewards are collected in
+    // this array and processed post-commit by the caller receiving the result.
+    const earnedRewardIds = [];
+
     // Calculate current qualifying quantity within the rolling window
     // Only count purchases that haven't been locked into an earned reward
     // and are still within their window.
@@ -470,38 +479,9 @@ async function updateRewardProgress(client, data) {
             hasActiveRewards: true
         }).catch(err => logger.debug('Failed to update customer stats', { error: err.message }));
 
-        // Create Square Customer Group Discount ASYNCHRONOUSLY
-        // LA-4 fix: on failure, set square_sync_pending = true for retry
-        const earnedRewardId = reward.id;
-        createSquareCustomerGroupDiscount({
-            merchantId,
-            squareCustomerId,
-            internalRewardId: earnedRewardId,
-            offerId
-        }).then(async (squareResult) => {
-            if (squareResult.success) {
-                logger.info('Square discount created for earned reward', {
-                    merchantId,
-                    rewardId: earnedRewardId,
-                    groupId: squareResult.groupId,
-                    discountId: squareResult.discountId
-                });
-            } else {
-                logger.error('Square discount creation failed — marking for retry', {
-                    merchantId,
-                    rewardId: earnedRewardId,
-                    reason: squareResult.error
-                });
-                await markSyncPending(earnedRewardId, merchantId);
-            }
-        }).catch(async (err) => {
-            logger.error('Square discount creation threw — marking for retry', {
-                error: err.message,
-                merchantId,
-                rewardId: earnedRewardId
-            });
-            await markSyncPending(earnedRewardId, merchantId);
-        });
+        // LOGIC CHANGE (MED-1): Collect earned reward ID for post-commit
+        // Square discount creation. See earnedRewardIds declaration above.
+        earnedRewardIds.push(reward.id);
 
         // Re-count remaining unlocked purchases for multi-threshold check
         const reCountResult = await client.query(`
@@ -580,6 +560,44 @@ async function updateRewardProgress(client, data) {
     // Update customer summary
     await updateCustomerSummary(client, merchantId, squareCustomerId, offerId);
 
+    // LOGIC CHANGE (MED-1): Fire Square discount creation AFTER the transaction
+    // commits. The caller (purchase-service) commits the transaction before this
+    // code runs, so the reward rows are guaranteed to exist in the database.
+    // Previously this fired inside the transaction as a detached promise.
+    for (const earnedRewardId of earnedRewardIds) {
+        createSquareCustomerGroupDiscount({
+            merchantId,
+            squareCustomerId,
+            internalRewardId: earnedRewardId,
+            offerId
+        }).then(async (squareResult) => {
+            if (squareResult.success) {
+                logger.info('Square discount created for earned reward', {
+                    merchantId,
+                    rewardId: earnedRewardId,
+                    groupId: squareResult.groupId,
+                    discountId: squareResult.discountId
+                });
+            } else {
+                logger.error('earned_reward_discount_creation_failed', {
+                    event: 'earned_reward_discount_creation_failed',
+                    rewardId: earnedRewardId,
+                    merchantId,
+                    error: squareResult.error
+                });
+                await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+            }
+        }).catch(async (err) => {
+            logger.error('earned_reward_discount_creation_failed', {
+                event: 'earned_reward_discount_creation_failed',
+                rewardId: earnedRewardId,
+                merchantId,
+                error: err.message
+            });
+            await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+        });
+    }
+
     return {
         rewardId: reward?.id,
         status: reward?.status || 'no_progress',
@@ -591,11 +609,27 @@ async function updateRewardProgress(client, data) {
 /**
  * Mark a reward as needing Square sync retry (LA-4 fix)
  *
+ * LOGIC CHANGE (MED-1): Verify the reward row exists before marking sync
+ * pending. If the transaction that created the reward rolled back, the row
+ * won't exist and we must not create an orphaned sync record.
+ *
  * @param {string} rewardId - Reward UUID
  * @param {number} merchantId - Merchant ID
  */
-async function markSyncPending(rewardId, merchantId) {
+async function markSyncPendingIfRewardExists(rewardId, merchantId) {
     try {
+        const checkResult = await db.query(
+            `SELECT id FROM loyalty_rewards WHERE id = $1 AND merchant_id = $2`,
+            [rewardId, merchantId]
+        );
+        if (checkResult.rows.length === 0) {
+            logger.error('Reward not found for sync pending — transaction may have rolled back', {
+                event: 'sync_pending_skipped_missing_reward',
+                rewardId,
+                merchantId
+            });
+            return;
+        }
         await db.query(
             `UPDATE loyalty_rewards
              SET square_sync_pending = TRUE, updated_at = NOW()
