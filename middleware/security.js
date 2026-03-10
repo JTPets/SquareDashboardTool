@@ -423,6 +423,30 @@ function corsErrorHandler(err, req, res, next) {
     next(err);
 }
 
+/**
+ * Configure rate limiting for unauthenticated subscription endpoints
+ * (subscription creation, promo validation)
+ */
+function configureSubscriptionRateLimit() {
+    return rateLimit({
+        windowMs: 60 * 60 * 1000,  // 1 hour
+        max: 5,  // 5 attempts per hour per IP
+        message: {
+            error: 'Too many subscription attempts, please try again later',
+            code: 'SUBSCRIPTION_RATE_LIMITED'
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        handler: (req, res, next, options) => {
+            logger.warn('Subscription rate limit exceeded', {
+                ip: req.ip,
+                email: req.body?.email
+            });
+            res.status(429).json(options.message);
+        }
+    });
+}
+
 module.exports = {
     configureHelmet,
     configurePermissionsPolicy,
@@ -433,6 +457,7 @@ module.exports = {
     configureDeliveryRateLimit,
     configureDeliveryStrictRateLimit,
     configureSensitiveOperationRateLimit,
+    configureSubscriptionRateLimit,
     configureCors,
     corsErrorHandler
 };
