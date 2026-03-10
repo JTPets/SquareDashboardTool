@@ -120,6 +120,18 @@ describe('isTransientError', () => {
         expect(isTransientError(err)).toBe(true);
     });
 
+    test('detects error.retryable === true (MED-7 partial intake failure)', () => {
+        const err = new Error('Order intake failed for 1 variation(s): VAR_001');
+        err.retryable = true;
+        expect(isTransientError(err)).toBe(true);
+    });
+
+    test('does not treat error.retryable === false as transient', () => {
+        const err = new Error('some error');
+        err.retryable = false;
+        expect(isTransientError(err)).toBe(false);
+    });
+
     test('returns false for business logic errors', () => {
         const err = new Error('customer not found');
         expect(isTransientError(err)).toBe(false);
@@ -232,6 +244,25 @@ describe('processLoyalty error classification', () => {
                 merchantId: 42,
                 error: 'Unexpected null reference in fooBar',
                 willRetry: false
+            })
+        );
+    });
+
+    test('MED-7: retryable partial intake failure is re-thrown (not swallowed)', async () => {
+        const intakeError = new Error('Order intake failed for 1 variation(s): VAR_001');
+        intakeError.retryable = true;
+        processLoyaltyOrder.mockRejectedValueOnce(intakeError);
+
+        const result = {};
+        await expect(processLoyalty(order, merchantId, result)).rejects.toThrow('Order intake failed');
+
+        expect(logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('transient'),
+            expect.objectContaining({
+                event: 'loyalty_transient_error',
+                orderId: 'order_test_1',
+                merchantId: 42,
+                willRetry: true
             })
         );
     });
