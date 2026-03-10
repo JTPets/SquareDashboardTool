@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-04
+**Last Updated**: 2026-03-10
 
 Items here are planned but not yet started. They represent significant future initiatives beyond the active priority list.
 
@@ -136,13 +136,9 @@ Use `employee_id` already present on Square orders to auto-apply staff discount.
 
 ## Loyalty Data Integrity - Known Issues
 
-### BACKLOG-59: Multi-Reward Redemption Detection Bug
+### ~~BACKLOG-59: Multi-Reward Redemption Detection Bug~~ RESOLVED (2026-03-10)
 
-`detectRewardRedemptionFromOrder()` early-returns after the first redemption detection. If a customer redeems 2 rewards in the same order, only the first is recorded.
-
-**Fix**: Loop detection until no more earned rewards are found on the order.
-
-**Confirmed incident**: 2026-03-10 — customer redeemed 2 free items, only 1 was recorded.
+`detectRewardRedemptionFromOrder()` now loops all matched earned rewards instead of early-returning after the first. Multi-reward redemption confirmed incident resolved 2026-03-10.
 
 ### BACKLOG-60: Orphaned Earned Rewards Cleanup (Pre-CRIT-1/CRIT-2)
 
@@ -156,3 +152,19 @@ WHERE merchant_id = 3 AND status = 'earned'
 GROUP BY square_customer_id
 HAVING COUNT(*) > 1;
 ```
+
+### BACKLOG-63: Caption Auto-Generation for Square Online Store Product Images
+
+Medium priority. Use Claude API to generate descriptive captions for all catalog images (under 140 chars). Push via `POST /v2/catalog/batch-upsert` updating `image_data.caption`. Square has no `alt_text` field — `caption` is displayed in Online Store and is the closest SEO/accessibility equivalent. One-time bulk run + hook into catalog sync for new items. Requires: Claude API integration already exists (SEO content generation). Low effort — reuse existing pattern.
+
+### BACKLOG-64: Audit Square sold_out Flag vs Inventory = 0
+
+Medium priority. Square's `sold_out` sync has known issues — customers may see items as available in online store when actual inventory is 0. Need: query variations where `inventory_counts.quantity = 0 AND state = 'IN_STOCK'`, cross-reference with Square Online `sold_out` flag, build reconciliation job to set `sold_out = true` when quantity = 0. Affects customer experience on live online store.
+
+### BACKLOG-65: Sync Square Online Store Category Assignments
+
+Medium priority. Square has two category types: reporting categories (currently synced) and online store/website catalog categories (not synced). Online categories control store navigation and product discovery. Need: investigate what Square API exposes for online category assignments, determine if they are on CatalogItem or a separate object type, add to catalog sync if available.
+
+### BACKLOG-66: Customer Email Bounce Tracking
+
+Low priority. Loyalty notification emails may be silently failing for customers with invalid or bounced email addresses. Need: track `email_address` validity in `loyalty_customers`, flag bounced addresses, exclude from notification sends. Affects loyalty engagement reporting accuracy.

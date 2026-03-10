@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-06
+**Last Updated**: 2026-03-10
 **Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, MULTI-TENANT-AUDIT, CLAUDE.md backlog
 
 ---
@@ -33,6 +33,7 @@
 |----|-------------|--------|--------|
 | BACKLOG-50 | Post-trial conversion — $1 first month. Capture payment method, prove intent. Decide Stripe vs Square for SaaS billing | CLAUDE.md | L |
 | BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need `vendor_billbacks` table, reporting view for claim submission | CLAUDE.md | L |
+| BACKLOG-61 | GMC v1beta → v1 migration — `services/gmc/merchant-service.js` using deprecated Google Merchant API v1beta (discontinued Feb 28 2026). All product upserts failing with 409. Live store affected — organic Google Shopping visibility broken for 10+ days. **P0.** Source: error logs 2026-03-09 | Error logs 2026-03-09 | M |
 
 ---
 

@@ -76,15 +76,11 @@ The entire `processLoyalty` function is wrapped in try/catch that logs but never
 
 ---
 
-### HIGH-4: Pre-Redemption Check Implemented But Never Called
+### ~~HIGH-4: Pre-Redemption Check Implemented But Never Called~~ RESOLVED (2026-03-10)
 
 **File**: `order-loyalty.js:74-206`
 
-`checkOrderForRedemption()` is exported and wired into OrderHandler but never called in the webhook flow. The function comment says "must run BEFORE processing purchases" to prevent linking purchases to the reward being redeemed. The actual code does the opposite — purchases first, then redemption detection.
-
-`shouldSkipLineItem` + `buildDiscountMap` in `order-intake.js` may partially mitigate this by skipping items with loyalty discounts. Needs verification.
-
-**Fix**: Either wire the pre-check into the flow or delete the dead code.
+`checkOrderForRedemption()` was exported and wired into OrderHandler but never called in the webhook flow. Dead code removed 2026-03-10. The `shouldSkipLineItem` + `buildDiscountMap` in `order-intake.js` already handles the pre-redemption filtering.
 
 ---
 
@@ -182,33 +178,33 @@ If one variation's `processQualifyingPurchase` throws, the error is caught, but 
 
 ## LOW Issues
 
-### LOW-1: Diagnostic Logging at INFO Level
+### ~~LOW-1: Diagnostic Logging at INFO Level~~ (PARTIALLY RESOLVED 2026-03-10)
 
-Multiple `DIAGNOSTIC` blocks marked "remove after issue confirmed resolved" log full discount arrays at INFO level on every order.
+Multiple `DIAGNOSTIC` blocks marked "remove after issue confirmed resolved" log full discount arrays at INFO level on every order. **Fix**: Diagnostic logs downgraded to debug level 2026-03-10.
 
-### LOW-2: New DB Connection Per Expired Reward
+### ~~LOW-2: New DB Connection Per Expired Reward~~ RESOLVED (2026-03-10)
 
-`expiration-service.js:134` creates a new connection per reward in the loop.
+`expiration-service.js:134` creates a new connection per reward in the loop. **Fix**: Expiry connection reuse fixed 2026-03-10.
 
-### LOW-3: `buildDiscountMap` Includes Non-Earned Reward IDs
+### ~~LOW-3: `buildDiscountMap` Includes Non-Earned Reward IDs~~ RESOLVED (2026-03-10)
 
-`order-intake.js:290-296` fetches all reward discount IDs regardless of status.
+`order-intake.js:290-296` fetches all reward discount IDs regardless of status. **Fix**: Earned filter added to `buildDiscountMap` 2026-03-10.
 
-### LOW-4: Refund Idempotency Key Collision Without `returnLineItemUid`
+### ~~LOW-4: Refund Idempotency Key Collision Without `returnLineItemUid`~~ CLOSED (2026-03-10)
 
-`purchase-service.js:251-253` falls back to quantity-based key, which can collide.
+`purchase-service.js:251-253` falls back to quantity-based key, which can collide. **Closed**: Covered by LA-5 (`returnLineItemUid` path).
 
-### LOW-5: Dead Code — `checkOrderForRedemption`
+### ~~LOW-5: Dead Code — `checkOrderForRedemption`~~ RESOLVED (2026-03-10)
 
-Exported, never called. Duplicates `detectRewardRedemptionFromOrder`.
+Exported, never called. Duplicates `detectRewardRedemptionFromOrder`. **Fix**: Dead code removed with HIGH-4 2026-03-10.
 
-### LOW-6: Customer Source Mapping Loses Granularity
+### ~~LOW-6: Customer Source Mapping Loses Granularity~~ RESOLVED (2026-03-10)
 
-`order-loyalty.js:48-53` only maps 3 of 6+ identification methods.
+`order-loyalty.js:48-53` only maps 3 of 6+ identification methods. **Fix**: Customer source mapping expanded to all 6 methods 2026-03-10.
 
-### LOW-7: `markSyncPending` Silently Fails
+### ~~LOW-7: `markSyncPending` Silently Fails~~ RESOLVED (2026-03-10)
 
-`reward-progress-service.js:353-369` catches all errors, never throws.
+`reward-progress-service.js:353-369` catches all errors, never throws. **Fix**: `markSyncPending` now logs at error level 2026-03-10.
 
 ### LOW-8: 43% of Services Have Zero Test Coverage
 
@@ -226,7 +222,7 @@ Exported, never called. Duplicates `detectRewardRedemptionFromOrder`.
 | HIGH-1 | HIGH | Double redemption detection window | order-loyalty.js / reward-service.js |
 | HIGH-2 | HIGH | Loyalty errors silently swallowed | order-loyalty.js |
 | HIGH-3 | HIGH | Refund processing not atomic | purchase-service.js |
-| HIGH-4 | HIGH | Pre-redemption check never called | order-loyalty.js |
+| ~~HIGH-4~~ | ~~HIGH~~ | ~~Pre-redemption check never called~~ RESOLVED 2026-03-10 | order-loyalty.js |
 | HIGH-5 | HIGH | schema.sql out of sync | database/schema.sql |
 | HIGH-6 | HIGH | Revocation missing Square cleanup | purchase-service.js |
 | MED-1 | MEDIUM | Async discount creation orphans | reward-progress-service.js |
@@ -236,13 +232,13 @@ Exported, never called. Duplicates `detectRewardRedemptionFromOrder`.
 | MED-5 | MEDIUM | No DB state transition enforcement | schema |
 | MED-6 | MEDIUM | Ambiguous LIMIT 1 in free-item match | reward-service.js |
 | MED-7 | MEDIUM | Partial commit on per-item error | order-intake.js |
-| LOW-1 | LOW | Diagnostic logs at INFO level | multiple |
-| LOW-2 | LOW | New DB connection per expired reward | expiration-service.js |
-| LOW-3 | LOW | buildDiscountMap includes all statuses | order-intake.js |
-| LOW-4 | LOW | Refund idempotency key collision | purchase-service.js |
-| LOW-5 | LOW | Dead code — unused function | order-loyalty.js |
-| LOW-6 | LOW | Customer source mapping gaps | order-loyalty.js |
-| LOW-7 | LOW | markSyncPending silently fails | reward-progress-service.js |
+| ~~LOW-1~~ | ~~LOW~~ | ~~Diagnostic logs at INFO level~~ partial fix 2026-03-10 | multiple |
+| ~~LOW-2~~ | ~~LOW~~ | ~~New DB connection per expired reward~~ RESOLVED 2026-03-10 | expiration-service.js |
+| ~~LOW-3~~ | ~~LOW~~ | ~~buildDiscountMap includes all statuses~~ RESOLVED 2026-03-10 | order-intake.js |
+| ~~LOW-4~~ | ~~LOW~~ | ~~Refund idempotency key collision~~ CLOSED 2026-03-10 | purchase-service.js |
+| ~~LOW-5~~ | ~~LOW~~ | ~~Dead code — unused function~~ RESOLVED 2026-03-10 | order-loyalty.js |
+| ~~LOW-6~~ | ~~LOW~~ | ~~Customer source mapping gaps~~ RESOLVED 2026-03-10 | order-loyalty.js |
+| ~~LOW-7~~ | ~~LOW~~ | ~~markSyncPending silently fails~~ RESOLVED 2026-03-10 | reward-progress-service.js |
 | LOW-8 | LOW | 43% services untested | systemic |
 
 **Recommended fix order**: CRIT-2 → CRIT-1 → HIGH-6 → HIGH-2 → CRIT-3 → HIGH-5 → HIGH-3 → HIGH-4 → MED-1 → MED-5 → MED-2 → MED-7 → remaining.
