@@ -251,7 +251,7 @@ async function matchEarnedRewardByFreeItem(order, merchantId, { squareCustomerId
     }
 
     // DIAGNOSTIC: Log free item identification
-    logger.info('Strategy 2: free item scan', {
+    logger.debug('Strategy 2: free item scan', {
         orderId: order.id,
         merchantId,
         customerId,

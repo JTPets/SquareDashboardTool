@@ -108,11 +108,17 @@ async function identifyCustomerForOrder(order, merchantId) {
         return { customerId: null, customerSource: 'unknown' };
     }
 
-    // Map detailed method to shorter DB values
+    // LOGIC CHANGE (LOW-6): Expanded sourceMap to cover all 6 identification
+    // methods from LoyaltyCustomerService. Before: only 3 methods were mapped;
+    // ORDER_REWARDS, FULFILLMENT_RECIPIENT, and LOYALTY_DISCOUNT fell through
+    // to the default 'order', losing identification granularity.
     const sourceMap = {
-        'order.customer_id': 'order',
-        'tender.customer_id': 'tender',
-        'loyalty_event_order_id': 'loyalty_api'
+        'ORDER_CUSTOMER_ID': 'order',
+        'TENDER_CUSTOMER_ID': 'tender',
+        'LOYALTY_API': 'loyalty_api',
+        'ORDER_REWARDS': 'order_rewards',
+        'FULFILLMENT_RECIPIENT': 'fulfillment',
+        'LOYALTY_DISCOUNT': 'loyalty_discount'
     };
     const customerSource = sourceMap[result.method] || 'order';
 
