@@ -20,8 +20,8 @@ const logger = require('../../utils/logger');
 const { RewardStatus, AuditActions } = require('./constants');
 const { logAuditEvent } = require('./audit-service');
 const { getOfferForVariation } = require('./variation-admin-service');
-const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
-const { updateRewardProgress } = require('./reward-progress-service');
+const { cleanupSquareCustomerGroupDiscount, createSquareCustomerGroupDiscount } = require('./square-discount-service');
+const { updateRewardProgress, markSyncPendingIfRewardExists } = require('./reward-progress-service');
 const { updateCustomerSummary } = require('./customer-summary-service');
 
 // ============================================================================
@@ -213,6 +213,47 @@ async function processQualifyingPurchase(purchaseData, options = {}) {
 
         if (managesOwnTransaction) {
             await client.query('COMMIT');
+        }
+
+        // LOGIC CHANGE (MED-1): Fire Square discount creation AFTER the
+        // transaction commits. updateRewardProgress() returns earnedRewardIds
+        // but does not fire the discount creation itself — reward rows must
+        // be committed before calling the Square API, otherwise a rollback
+        // would leave orphaned sync records.
+        if (rewardResult.earnedRewardIds && rewardResult.earnedRewardIds.length > 0) {
+            for (const earnedRewardId of rewardResult.earnedRewardIds) {
+                createSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId,
+                    internalRewardId: earnedRewardId,
+                    offerId: offer.id
+                }).then(async (squareResult) => {
+                    if (squareResult.success) {
+                        logger.info('Square discount created for earned reward', {
+                            merchantId,
+                            rewardId: earnedRewardId,
+                            groupId: squareResult.groupId,
+                            discountId: squareResult.discountId
+                        });
+                    } else {
+                        logger.error('earned_reward_discount_creation_failed', {
+                            event: 'earned_reward_discount_creation_failed',
+                            rewardId: earnedRewardId,
+                            merchantId,
+                            error: squareResult.error
+                        });
+                        await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+                    }
+                }).catch(async (err) => {
+                    logger.error('earned_reward_discount_creation_failed', {
+                        event: 'earned_reward_discount_creation_failed',
+                        rewardId: earnedRewardId,
+                        merchantId,
+                        error: err.message
+                    });
+                    await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+                });
+            }
         }
 
         logger.info('Purchase processed successfully', {
@@ -496,7 +537,7 @@ async function processRefund(refundData, transactionClient = null) {
         }
 
         // Update reward progress for any in-progress reward
-        await updateRewardProgress(client, {
+        const refundRewardResult = await updateRewardProgress(client, {
             merchantId,
             offerId: offer.id,
             squareCustomerId,
@@ -505,6 +546,45 @@ async function processRefund(refundData, transactionClient = null) {
 
         if (managesOwnTransaction) {
             await client.query('COMMIT');
+        }
+
+        // LOGIC CHANGE (MED-1): Fire Square discount creation for any rewards
+        // earned during refund-triggered progress recalculation (edge case:
+        // refund + rollover could still earn a reward). Same pattern as purchase path.
+        if (refundRewardResult.earnedRewardIds && refundRewardResult.earnedRewardIds.length > 0) {
+            for (const earnedRewardId of refundRewardResult.earnedRewardIds) {
+                createSquareCustomerGroupDiscount({
+                    merchantId,
+                    squareCustomerId,
+                    internalRewardId: earnedRewardId,
+                    offerId: offer.id
+                }).then(async (squareResult) => {
+                    if (squareResult.success) {
+                        logger.info('Square discount created for earned reward', {
+                            merchantId,
+                            rewardId: earnedRewardId,
+                            groupId: squareResult.groupId,
+                            discountId: squareResult.discountId
+                        });
+                    } else {
+                        logger.error('earned_reward_discount_creation_failed', {
+                            event: 'earned_reward_discount_creation_failed',
+                            rewardId: earnedRewardId,
+                            merchantId,
+                            error: squareResult.error
+                        });
+                        await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+                    }
+                }).catch(async (err) => {
+                    logger.error('earned_reward_discount_creation_failed', {
+                        event: 'earned_reward_discount_creation_failed',
+                        rewardId: earnedRewardId,
+                        merchantId,
+                        error: err.message
+                    });
+                    await markSyncPendingIfRewardExists(earnedRewardId, merchantId);
+                });
+            }
         }
 
         // LOGIC CHANGE (HIGH-6): Clean up Square discount objects OUTSIDE the transaction
