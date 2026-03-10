@@ -1209,6 +1209,183 @@ describe('processRefund', () => {
             expect.objectContaining({ merchantId: 1, squareOrderId: 'ord_orphan' })
         );
     });
+
+    // ========================================================================
+    // HIGH-3: transactionClient parameter
+    // ========================================================================
+
+    it('HIGH-3: backward compat — processRefund without transactionClient still works', async () => {
+        db.query.mockImplementation(async () => ({ rows: [] })); // idempotency check
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -2 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date()
+        });
+
+        expect(result.processed).toBe(true);
+        // Should manage its own transaction
+        expect(db.pool.connect).toHaveBeenCalled();
+        const queries = mockClient.query.mock.calls.map(c => typeof c[0] === 'string' ? c[0] : '');
+        expect(queries).toContain('BEGIN');
+        expect(queries).toContain('COMMIT');
+        expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it('HIGH-3: with transactionClient — does not BEGIN/COMMIT/ROLLBACK or release', async () => {
+        const externalClient = {
+            query: jest.fn(),
+            release: jest.fn()
+        };
+
+        // Idempotency check on external client
+        externalClient.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('SELECT id FROM loyalty_purchase_events') && sql.includes('idempotency_key')) {
+                return { rows: [] };
+            }
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -2 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes('total_quantity')) return { rows: [{ total_quantity: 0 }] };
+            if (sql.includes("status = 'in_progress'")) return { rows: [] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity')) return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date()
+        }, externalClient);
+
+        expect(result.processed).toBe(true);
+        // Should NOT acquire its own connection
+        expect(db.pool.connect).not.toHaveBeenCalled();
+        // Should NOT manage transaction lifecycle
+        const queries = externalClient.query.mock.calls.map(c => typeof c[0] === 'string' ? c[0] : '');
+        expect(queries).not.toContain('BEGIN');
+        expect(queries).not.toContain('COMMIT');
+        expect(queries).not.toContain('ROLLBACK');
+        expect(externalClient.release).not.toHaveBeenCalled();
+    });
+
+    it('HIGH-3: with transactionClient — error does not ROLLBACK (caller owns transaction)', async () => {
+        const externalClient = {
+            query: jest.fn(),
+            release: jest.fn()
+        };
+
+        externalClient.query.mockImplementation(async (sql) => {
+            if (sql.includes('SELECT id FROM loyalty_purchase_events') && sql.includes('idempotency_key')) {
+                return { rows: [] };
+            }
+            if (sql.includes('SELECT window_start_date')) {
+                throw new Error('Simulated DB error');
+            }
+            return { rows: [] };
+        });
+
+        await expect(processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 2,
+            refundedAt: new Date()
+        }, externalClient)).rejects.toThrow('Simulated DB error');
+
+        const queries = externalClient.query.mock.calls.map(c => typeof c[0] === 'string' ? c[0] : '');
+        expect(queries).not.toContain('ROLLBACK');
+        expect(externalClient.release).not.toHaveBeenCalled();
+    });
+
+    it('HIGH-3: with transactionClient — revokedReward returned but Square cleanup deferred', async () => {
+        const externalClient = {
+            query: jest.fn(),
+            release: jest.fn()
+        };
+
+        externalClient.query.mockImplementation(async (sql, params) => {
+            if (sql.includes('SELECT id FROM loyalty_purchase_events') && sql.includes('idempotency_key')) {
+                return { rows: [] };
+            }
+            if (sql.includes('SELECT window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('TRUE')) {
+                return { rows: [{ id: 101, quantity: -3 }] };
+            }
+            if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 50, offer_id: OFFER.id, square_customer_id: 'cust_1', status: 'earned' }] };
+            }
+            if (sql.includes('COALESCE(SUM(quantity), 0) as total') && sql.includes('reward_id')) {
+                return { rows: [{ total: 10 }] }; // 10 < 12 required
+            }
+            if (sql.includes("SET status = 'revoked'")) return { rows: [] };
+            if (sql.includes('SET reward_id = NULL') && sql.includes('WHERE reward_id')) return { rows: [] };
+            if (sql.includes('total_quantity') && !sql.includes('reward_id')) return { rows: [{ total_quantity: 10 }] };
+            if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) return { rows: [] };
+            if (sql.includes("INSERT INTO loyalty_rewards") && sql.includes("'in_progress'")) {
+                return { rows: [{ id: 201, status: 'in_progress', current_quantity: 10, required_quantity: 12 }] };
+            }
+            if (sql.includes('MIN(window_start_date)')) return { rows: [{ start_date: '2026-01-01', end_date: '2026-12-31' }] };
+            if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                return { rows: [{ current_quantity: 0, lifetime_purchases: 0 }] };
+            if (sql.includes('COUNT(*)')) return { rows: [{ count: 0 }] };
+            if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                return { rows: [{ required_quantity: 12 }] };
+            if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await processRefund({
+            merchantId: 1,
+            squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1',
+            variationId: 'var_1',
+            quantity: 3,
+            refundedAt: new Date()
+        }, externalClient);
+
+        expect(result.processed).toBe(true);
+        expect(result.revokedReward).toBeTruthy();
+        expect(result.revokedReward.id).toBe(50);
+        // Square cleanup should NOT be called — caller owns the transaction
+        expect(mockCleanupDiscount).not.toHaveBeenCalled();
+    });
 });
 
 // ============================================================================

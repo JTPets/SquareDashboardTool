@@ -8,8 +8,10 @@
  * The legacy processOrderForLoyalty() was removed (LA-15) after LA-1/LA-2 migrated all callers.
  */
 
+const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { processRefund } = require('./purchase-service');
+const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
 
 // ============================================================================
 // WEBHOOK REFUND PROCESSING
@@ -43,73 +45,133 @@ async function processOrderRefundsForLoyalty(order, merchantId) {
         returnCount: returns.length
     });
 
+    // Build the list of refund line items to process (filtering/validation first)
+    const refundItems = [];
+    for (const ret of returns) {
+        for (const returnItem of ret.return_line_items || []) {
+            const variationId = returnItem.catalog_object_id;
+            if (!variationId) continue;
+
+            const quantity = parseInt(returnItem.quantity) || 0;
+            if (quantity <= 0) continue;
+
+            // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
+            // that were free (never counted toward loyalty in the first place)
+            // Convert BigInt to Number for Square SDK v43+
+            const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
+            // Use nullish check to preserve 0 values (free items have total_money = 0)
+            const rawTotalMoney = returnItem.total_money?.amount;
+            const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
+
+            if (unitPriceCents > 0 && totalMoneyCents === 0) {
+                logger.info('Skipping refund of FREE item (was 100% discounted)', {
+                    orderId: order.id,
+                    variationId,
+                    quantity,
+                    reason: 'free_item_refund_no_adjustment_needed'
+                });
+                continue;
+            }
+
+            // Use source_line_item_uid or uid for unique idempotency per return line item
+            const returnLineItemUid = returnItem.uid || returnItem.source_line_item_uid;
+
+            refundItems.push({
+                merchantId,
+                squareOrderId: order.id,
+                squareCustomerId,
+                variationId,
+                quantity,
+                unitPriceCents,
+                refundedAt: ret.created_at || order.updated_at,
+                squareLocationId: order.location_id,
+                returnLineItemUid
+            });
+        }
+    }
+
+    if (refundItems.length === 0) {
+        return { processed: false, reason: 'no_qualifying_returns' };
+    }
+
+    // LOGIC CHANGE (HIGH-3): Wrap all refund line items in a single transaction.
+    // Previously each processRefund() call created its own transaction, so a failure
+    // on the Nth item left items 1..N-1 committed and N+1..end unattempted.
+    // Now all succeed or all rollback atomically.
+    const client = await db.pool.connect();
     const results = {
         processed: true,
         orderId: order.id,
         refundsProcessed: [],
-        errors: []
+        revokedRewards: []
     };
 
-    for (const ret of returns) {
-        for (const returnItem of ret.return_line_items || []) {
-            try {
-                const variationId = returnItem.catalog_object_id;
-                if (!variationId) continue;
+    try {
+        await client.query('BEGIN');
 
-                const quantity = parseInt(returnItem.quantity) || 0;
-                if (quantity <= 0) continue;
+        for (let i = 0; i < refundItems.length; i++) {
+            const refundResult = await processRefund(refundItems[i], client);
 
-                // SKIP FREE ITEM REFUNDS: Don't create negative adjustments for items
-                // that were free (never counted toward loyalty in the first place)
-                // Convert BigInt to Number for Square SDK v43+
-                const unitPriceCents = Number(returnItem.base_price_money?.amount || 0);
-                // Use nullish check to preserve 0 values (free items have total_money = 0)
-                const rawTotalMoney = returnItem.total_money?.amount;
-                const totalMoneyCents = rawTotalMoney != null ? Number(rawTotalMoney) : unitPriceCents;
-
-                if (unitPriceCents > 0 && totalMoneyCents === 0) {
-                    logger.info('Skipping refund of FREE item (was 100% discounted)', {
-                        orderId: order.id,
-                        variationId,
-                        quantity,
-                        reason: 'free_item_refund_no_adjustment_needed'
-                    });
-                    continue;
-                }
-
-                // Use source_line_item_uid or uid for unique idempotency per return line item
-                const returnLineItemUid = returnItem.uid || returnItem.source_line_item_uid;
-
-                const refundResult = await processRefund({
-                    merchantId,
-                    squareOrderId: order.id,
-                    squareCustomerId,
-                    variationId,
-                    quantity,
-                    unitPriceCents,
-                    refundedAt: ret.created_at || order.updated_at,
-                    squareLocationId: order.location_id,
-                    returnLineItemUid
+            if (refundResult.processed) {
+                results.refundsProcessed.push({
+                    variationId: refundItems[i].variationId,
+                    quantity: refundItems[i].quantity,
+                    rewardAffected: refundResult.rewardAffected
                 });
 
-                if (refundResult.processed) {
-                    results.refundsProcessed.push({
-                        variationId,
-                        quantity,
-                        rewardAffected: refundResult.rewardAffected
+                // Collect revoked rewards for post-commit Square cleanup
+                if (refundResult.revokedReward) {
+                    results.revokedRewards.push({
+                        reward: refundResult.revokedReward,
+                        squareCustomerId: refundItems[i].squareCustomerId,
+                        offerId: refundResult.revokedReward.offer_id
                     });
                 }
-            } catch (error) {
-                logger.error('Error processing refund line item', {
-                    error: error.message,
-                    orderId: order.id,
-                    returnLineItemUid: returnItem.uid
-                });
-                results.errors.push({
-                    returnUid: returnItem.uid,
-                    error: error.message
-                });
             }
+        }
+
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        logger.error('Refund batch failed', {
+            event: 'refund_batch_failed',
+            orderId: order.id,
+            merchantId,
+            failedAt: results.refundsProcessed.length,
+            error: error.message
+        });
+        throw error;
+    } finally {
+        client.release();
+    }
+
+    // LOGIC CHANGE (HIGH-3): Run Square cleanup for revoked rewards AFTER commit
+    // (external API calls must not be inside the transaction)
+    for (const revoked of results.revokedRewards) {
+        try {
+            await cleanupSquareCustomerGroupDiscount({
+                merchantId,
+                squareCustomerId: revoked.squareCustomerId,
+                internalRewardId: revoked.reward.id
+            });
+
+            logger.info('Revocation cleanup complete', {
+                event: 'revocation_cleanup_complete',
+                customerId: revoked.squareCustomerId,
+                offerId: revoked.offerId,
+                merchantId,
+                rewardId: revoked.reward.id
+            });
+        } catch (cleanupError) {
+            // Do NOT throw — cleanup failure should not affect the committed refund batch
+            logger.error('Revocation cleanup failed', {
+                event: 'revocation_cleanup_failed',
+                customerId: revoked.squareCustomerId,
+                offerId: revoked.offerId,
+                merchantId,
+                rewardId: revoked.reward.id,
+                error: cleanupError.message
+            });
         }
     }
 
