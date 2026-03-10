@@ -329,8 +329,10 @@ describe('detectRewardRedemptionFromOrder - fallback path', () => {
         const result = await detectRewardRedemptionFromOrder(order, MERCHANT_ID);
 
         expect(result.detected).toBe(true);
-        expect(result.detectionMethod).toBe('catalog_object_id');
-        expect(result.rewardId).toBe(REWARD_ID);
+        // LOGIC CHANGE (BACKLOG-59): Check redemptions array
+        expect(result.redemptions).toHaveLength(1);
+        expect(result.redemptions[0].detectionMethod).toBe('catalog_object_id');
+        expect(result.redemptions[0].rewardId).toBe(REWARD_ID);
     });
 
     test('falls back to free item matching when no catalog_object_id match', async () => {
@@ -380,8 +382,10 @@ describe('detectRewardRedemptionFromOrder - fallback path', () => {
         const result = await detectRewardRedemptionFromOrder(order, MERCHANT_ID);
 
         expect(result.detected).toBe(true);
-        expect(result.detectionMethod).toBe('free_item_fallback');
-        expect(result.rewardId).toBe(REWARD_ID);
+        // LOGIC CHANGE (BACKLOG-59): Check redemptions array
+        expect(result.redemptions).toHaveLength(1);
+        expect(result.redemptions[0].detectionMethod).toBe('free_item_fallback');
+        expect(result.redemptions[0].rewardId).toBe(REWARD_ID);
     });
 
     test('returns detected:false when neither strategy matches', async () => {
@@ -390,6 +394,7 @@ describe('detectRewardRedemptionFromOrder - fallback path', () => {
         const result = await detectRewardRedemptionFromOrder(order, MERCHANT_ID);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
     });
 
     test('handles errors gracefully', async () => {
@@ -400,6 +405,7 @@ describe('detectRewardRedemptionFromOrder - fallback path', () => {
         const result = await detectRewardRedemptionFromOrder(order, MERCHANT_ID);
 
         expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
         expect(result.error).toBe('DB connection failed');
         expect(logger.error).toHaveBeenCalledWith(
             'Error detecting reward redemption',

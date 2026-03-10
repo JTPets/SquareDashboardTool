@@ -308,19 +308,22 @@ class LoyaltyHandler {
         // Use the existing detectRewardRedemptionFromOrder to find and mark the reward as redeemed
         const redemptionResult = await loyaltyService.detectRewardRedemptionFromOrder(order, merchantId);
 
+        // LOGIC CHANGE (BACKLOG-59): Iterate redemptions array instead of singular rewardId
         if (redemptionResult.detected) {
-            result.loyaltyRedemption = {
+            result.loyaltyRedemptions = redemptionResult.redemptions.map(r => ({ // LOGIC CHANGE: plural key, array
                 orderId,
-                rewardId: redemptionResult.rewardId,
-                offerName: redemptionResult.offerName,
+                rewardId: r.rewardId,
+                offerName: r.offerName,
                 source: 'REDEEM_REWARD_WEBHOOK'
-            };
-            logger.info('Reward redemption processed via REDEEM_REWARD webhook', {
-                orderId,
-                rewardId: redemptionResult.rewardId,
-                offerName: redemptionResult.offerName,
-                merchantId
-            });
+            }));
+            for (const r of redemptionResult.redemptions) { // LOGIC CHANGE: Log each redemption individually
+                logger.info('Reward redemption processed via REDEEM_REWARD webhook', {
+                    orderId,
+                    rewardId: r.rewardId,
+                    offerName: r.offerName,
+                    merchantId
+                });
+            }
         } else {
             // Classify: do any discounts have catalog_object_ids that should have matched?
             const discounts = order.discounts || [];

@@ -191,6 +191,9 @@ async function redeemReward(redemptionData) {
     }
 }
 
+// LOGIC CHANGE (BACKLOG-59): Safety cap — max earned rewards processed per order
+const MAX_REDEMPTIONS_PER_ORDER = 10;
+
 // ============================================================================
 // REWARD DETECTION (moved from square-discount-service.js)
 // ============================================================================
@@ -552,51 +555,71 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                     earnedRewardsFound: rewardResult.rows.length
                 });
 
+                // LOGIC CHANGE (BACKLOG-59): Loop ALL matched earned rewards instead of rows[0] early-return
                 if (rewardResult.rows.length > 0) {
-                    const reward = rewardResult.rows[0];
-                    const matchedId = uniqueIds.find(id =>
-                        id === reward.square_discount_id || id === reward.square_pricing_rule_id
-                    );
+                    const redemptions = []; // LOGIC CHANGE: Collect all redemptions into array
+                    for (const reward of rewardResult.rows) {
+                        // LOGIC CHANGE: Safety cap prevents runaway processing
+                        if (redemptions.length >= MAX_REDEMPTIONS_PER_ORDER) {
+                            logger.error('MAX_REDEMPTIONS_PER_ORDER exceeded — breaking', {
+                                orderId: order.id, merchantId,
+                                totalMatched: rewardResult.rows.length,
+                                cap: MAX_REDEMPTIONS_PER_ORDER
+                            });
+                            break; // LOGIC CHANGE: Stop processing, do not throw
+                        }
 
-                    // Find the original discount to get applied_money
-                    const matchedDiscount = discounts.find(d =>
-                        d.catalog_object_id === matchedId || d.pricing_rule_id === matchedId
-                    );
+                        const matchedId = uniqueIds.find(id =>
+                            id === reward.square_discount_id || id === reward.square_pricing_rule_id
+                        );
 
-                    logger.info('Detected reward redemption from order', {
-                        merchantId,
-                        orderId: order.id,
-                        rewardId: reward.id,
-                        discountId: matchedId,
-                        detectionMethod: 'catalog_object_id',
-                        dryRun
-                    });
+                        // Find the original discount to get applied_money
+                        const matchedDiscount = discounts.find(d =>
+                            d.catalog_object_id === matchedId || d.pricing_rule_id === matchedId
+                        );
 
-                    let redemptionResult;
-                    if (!dryRun) {
-                        redemptionResult = await redeemReward({
+                        logger.info('Detected reward redemption from order', {
                             merchantId,
+                            orderId: order.id,
                             rewardId: reward.id,
-                            squareOrderId: order.id,
-                            squareCustomerId: order.customer_id,
-                            redemptionType: RedemptionTypes.AUTO_DETECTED,
-                            redeemedValueCents: Number(matchedDiscount?.applied_money?.amount || 0),
-                            squareLocationId: order.location_id
+                            discountId: matchedId,
+                            detectionMethod: 'catalog_object_id',
+                            dryRun
+                        });
+
+                        let redemptionResult;
+                        if (!dryRun) {
+                            // LOGIC CHANGE: redeemReward called once per matched reward
+                            redemptionResult = await redeemReward({
+                                merchantId,
+                                rewardId: reward.id,
+                                squareOrderId: order.id,
+                                squareCustomerId: order.customer_id,
+                                redemptionType: RedemptionTypes.AUTO_DETECTED,
+                                redeemedValueCents: Number(matchedDiscount?.applied_money?.amount || 0),
+                                squareLocationId: order.location_id
+                            });
+                        }
+
+                        // LOGIC CHANGE: Push each redemption into array instead of returning immediately
+                        redemptions.push({
+                            rewardId: reward.id,
+                            offerId: reward.offer_id,
+                            offerName: reward.offer_name,
+                            squareCustomerId: reward.square_customer_id,
+                            redemptionResult,
+                            detectionMethod: 'catalog_object_id',
+                            discountDetails: {
+                                catalogObjectId: matchedId,
+                                appliedMoney: matchedDiscount?.applied_money
+                            }
                         });
                     }
 
+                    // LOGIC CHANGE: Return array of all detected redemptions
                     return {
                         detected: true,
-                        rewardId: reward.id,
-                        offerId: reward.offer_id,
-                        offerName: reward.offer_name,
-                        squareCustomerId: reward.square_customer_id,
-                        redemptionResult,
-                        detectionMethod: 'catalog_object_id',
-                        discountDetails: {
-                            catalogObjectId: matchedId,
-                            appliedMoney: matchedDiscount?.applied_money
-                        }
+                        redemptions
                     };
                 }
             }
@@ -628,17 +651,20 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                 });
             }
 
+            // LOGIC CHANGE (BACKLOG-59): Wrap single result in redemptions array
             return {
                 detected: true,
-                rewardId: freeItemMatch.reward_id,
-                offerId: freeItemMatch.offer_id,
-                offerName: freeItemMatch.offer_name,
-                squareCustomerId: freeItemMatch.square_customer_id,
-                redemptionResult,
-                detectionMethod: 'free_item_fallback',
-                discountDetails: {
-                    matchedVariationId: freeItemMatch.matched_variation_id
-                }
+                redemptions: [{
+                    rewardId: freeItemMatch.reward_id,
+                    offerId: freeItemMatch.offer_id,
+                    offerName: freeItemMatch.offer_name,
+                    squareCustomerId: freeItemMatch.square_customer_id,
+                    redemptionResult,
+                    detectionMethod: 'free_item_fallback',
+                    discountDetails: {
+                        matchedVariationId: freeItemMatch.matched_variation_id
+                    }
+                }]
             };
         }
 
@@ -669,22 +695,25 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
                 });
             }
 
+            // LOGIC CHANGE (BACKLOG-59): Wrap single result in redemptions array
             return {
                 detected: true,
-                rewardId: discountAmountMatch.reward_id,
-                offerId: discountAmountMatch.offer_id,
-                offerName: discountAmountMatch.offer_name,
-                squareCustomerId: discountAmountMatch.square_customer_id,
-                redemptionResult,
-                detectionMethod: 'discount_amount_fallback',
-                discountDetails: {
-                    totalDiscountCents: discountAmountMatch.totalDiscountCents,
-                    expectedCents: discountAmountMatch.expectedValueCents
-                }
+                redemptions: [{
+                    rewardId: discountAmountMatch.reward_id,
+                    offerId: discountAmountMatch.offer_id,
+                    offerName: discountAmountMatch.offer_name,
+                    squareCustomerId: discountAmountMatch.square_customer_id,
+                    redemptionResult,
+                    detectionMethod: 'discount_amount_fallback',
+                    discountDetails: {
+                        totalDiscountCents: discountAmountMatch.totalDiscountCents,
+                        expectedCents: discountAmountMatch.expectedValueCents
+                    }
+                }]
             };
         }
 
-        return { detected: false };
+        return { detected: false, redemptions: [] }; // LOGIC CHANGE (BACKLOG-59): Always include redemptions array
 
     } catch (error) {
         logger.error('Error detecting reward redemption', {
@@ -692,7 +721,7 @@ async function detectRewardRedemptionFromOrder(order, merchantId, { dryRun = fal
             orderId: order?.id,
             merchantId
         });
-        return { detected: false, error: error.message };
+        return { detected: false, redemptions: [], error: error.message }; // LOGIC CHANGE (BACKLOG-59): Always include redemptions array
     }
 }
 
@@ -704,5 +733,6 @@ module.exports = {
     redeemReward,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
-    matchEarnedRewardByDiscountAmount
+    matchEarnedRewardByDiscountAmount,
+    MAX_REDEMPTIONS_PER_ORDER // LOGIC CHANGE (BACKLOG-59): Exported for testing
 };

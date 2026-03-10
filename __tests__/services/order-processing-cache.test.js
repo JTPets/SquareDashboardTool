@@ -19,7 +19,7 @@ jest.mock('../../services/square', () => ({
 }));
 
 jest.mock('../../services/loyalty-admin', () => ({
-    detectRewardRedemptionFromOrder: jest.fn().mockResolvedValue({ detected: false }),
+    detectRewardRedemptionFromOrder: jest.fn().mockResolvedValue({ detected: false, redemptions: [] }),
     matchEarnedRewardByFreeItem: jest.fn().mockResolvedValue(null),
     matchEarnedRewardByDiscountAmount: jest.fn().mockResolvedValue(null),
     processOrderRefundsForLoyalty: jest.fn().mockResolvedValue({ processed: false }),

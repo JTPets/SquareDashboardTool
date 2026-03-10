@@ -32,7 +32,7 @@ jest.mock('../../services/square', () => ({
     updateSalesVelocityFromOrder: mockUpdateVelocity
 }));
 
-const mockDetectRedemption = jest.fn().mockResolvedValue({ detected: false });
+const mockDetectRedemption = jest.fn().mockResolvedValue({ detected: false, redemptions: [] });
 const mockMatchFreeItem = jest.fn().mockResolvedValue(null);
 const mockMatchDiscountAmount = jest.fn().mockResolvedValue(null);
 const mockProcessRefundsForLoyalty = jest.fn().mockResolvedValue({ processed: false });
@@ -417,17 +417,17 @@ describe('OrderHandler', () => {
         it('should process redemption detection after purchases', async () => {
             mockDetectRedemption.mockResolvedValueOnce({
                 detected: true,
-                rewardId: 42,
-                offerName: 'Buy 12 Get 1 Free'
+                redemptions: [{ rewardId: 42, offerName: 'Buy 12 Get 1 Free' }] // LOGIC CHANGE (BACKLOG-59)
             });
 
             const ctx = makeContext();
             const result = await handler.handleOrderCreatedOrUpdated(ctx);
 
-            expect(result.loyaltyRedemption).toEqual({
+            // LOGIC CHANGE (BACKLOG-59): loyaltyRedemptions is now an array
+            expect(result.loyaltyRedemptions).toEqual([{
                 rewardId: 42,
                 offerName: 'Buy 12 Get 1 Free'
-            });
+            }]);
         });
 
         it('should process returns when order has return data', async () => {
@@ -1181,8 +1181,7 @@ describe('OrderHandler', () => {
 
             mockDetectRedemption.mockResolvedValueOnce({
                 detected: true,
-                rewardId: 77,
-                offerName: 'Buy 10 Get 1 Free'
+                redemptions: [{ rewardId: 77, offerName: 'Buy 10 Get 1 Free' }] // LOGIC CHANGE (BACKLOG-59)
             });
 
             const ctx = {
@@ -1194,17 +1193,17 @@ describe('OrderHandler', () => {
 
             // Redemption detection should run after purchases (single call, not doubled)
             expect(mockDetectRedemption).toHaveBeenCalled();
-            expect(result.loyaltyRedemption).toEqual({
+            // LOGIC CHANGE (BACKLOG-59): loyaltyRedemptions is now an array
+            expect(result.loyaltyRedemptions).toEqual([{
                 rewardId: 77,
                 offerName: 'Buy 10 Get 1 Free'
-            });
+            }]);
         });
 
         it('should run full redemption detection via payment path', async () => {
             mockDetectRedemption.mockResolvedValueOnce({
                 detected: true,
-                rewardId: 77,
-                offerName: 'Buy 10 Get 1 Free'
+                redemptions: [{ rewardId: 77, offerName: 'Buy 10 Get 1 Free' }] // LOGIC CHANGE (BACKLOG-59)
             });
 
             const ctx = {
@@ -1218,10 +1217,11 @@ describe('OrderHandler', () => {
                 expect.objectContaining({ id: 'order_1' }),
                 1
             );
-            expect(result.loyaltyRedemption).toEqual({
+            // LOGIC CHANGE (BACKLOG-59): loyaltyRedemptions is now an array
+            expect(result.loyaltyRedemptions).toEqual([{
                 rewardId: 77,
                 offerName: 'Buy 10 Get 1 Free'
-            });
+            }]);
         });
 
         it('should run full customer identification when cache is empty (payment-only)', async () => {
