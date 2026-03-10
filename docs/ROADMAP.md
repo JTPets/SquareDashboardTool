@@ -131,3 +131,28 @@ Do not recreate Square's native labor reports. Instead pull `employee_id` from o
 ## 11. Employee Auto-Discounts (BACKLOG-54)
 
 Use `employee_id` already present on Square orders to auto-apply staff discount. Create discount via Square catalog API, apply via pricing rule scoped to employee group. No loyalty points on staff purchases. Needs staff list management UI.
+
+---
+
+## Loyalty Data Integrity - Known Issues
+
+### BACKLOG-59: Multi-Reward Redemption Detection Bug
+
+`detectRewardRedemptionFromOrder()` early-returns after the first redemption detection. If a customer redeems 2 rewards in the same order, only the first is recorded.
+
+**Fix**: Loop detection until no more earned rewards are found on the order.
+
+**Confirmed incident**: 2026-03-10 — customer redeemed 2 free items, only 1 was recorded.
+
+### BACKLOG-60: Orphaned Earned Rewards Cleanup (Pre-CRIT-1/CRIT-2)
+
+Manual data cleanup required for orphaned earned rewards created before the CRIT-1/CRIT-2 race condition fixes (merged 2026-03-10). Affected customers have been identified in the database and need SQL audit and manual revocation.
+
+**Audit query**:
+```sql
+SELECT square_customer_id, array_agg(id)
+FROM loyalty_rewards
+WHERE merchant_id = 3 AND status = 'earned'
+GROUP BY square_customer_id
+HAVING COUNT(*) > 1;
+```
