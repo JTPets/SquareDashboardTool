@@ -1526,3 +1526,297 @@ describe('updateRewardProgress', () => {
         expect(result.status).toBe('earned');
     });
 });
+
+// ============================================================================
+// TESTS — CRIT-3: ON CONFLICT idempotency (concurrent duplicate handling)
+// ============================================================================
+
+describe('CRIT-3: ON CONFLICT idempotency', () => {
+    const logger = require('../../../utils/logger');
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetOfferForVariation.mockResolvedValue(OFFER);
+    });
+
+    describe('processQualifyingPurchase — concurrent duplicate', () => {
+        const EXISTING_ROW = {
+            id: 77,
+            merchant_id: 1,
+            offer_id: OFFER.id,
+            square_order_id: 'ord_dup',
+            variation_id: 'var_1',
+            quantity: 2,
+            idempotency_key: 'ord_dup:var_1'
+        };
+
+        function setupConflictMock() {
+            // db.query — idempotency SELECT passes (returns empty, simulating race)
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            mockClient.query.mockImplementation(async (sql) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+                // Window start lookup
+                if (sql.includes('MIN(purchased_at) as first_purchase')) {
+                    return { rows: [{ first_purchase: null }] };
+                }
+
+                // INSERT returns 0 rows (ON CONFLICT DO NOTHING fired)
+                if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('ON CONFLICT')) {
+                    return { rows: [] };
+                }
+
+                // Fetch existing row after conflict
+                if (sql.includes('SELECT * FROM loyalty_purchase_events') && sql.includes('idempotency_key')) {
+                    return { rows: [EXISTING_ROW] };
+                }
+
+                return { rows: [] };
+            });
+        }
+
+        it('should return existing row with alreadyProcessed flag on conflict', async () => {
+            setupConflictMock();
+
+            const result = await processQualifyingPurchase({
+                merchantId: 1,
+                squareOrderId: 'ord_dup',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 2,
+                purchasedAt: new Date('2026-03-01')
+            });
+
+            expect(result.processed).toBe(false);
+            expect(result.reason).toBe('already_processed');
+            expect(result.alreadyProcessed).toBe(true);
+            expect(result.purchaseEvent).toEqual(EXISTING_ROW);
+        });
+
+        it('should not create a duplicate row on conflict', async () => {
+            setupConflictMock();
+
+            await processQualifyingPurchase({
+                merchantId: 1,
+                squareOrderId: 'ord_dup',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 2,
+                purchasedAt: new Date('2026-03-01')
+            });
+
+            // The INSERT was called but ON CONFLICT prevented row creation.
+            // No audit log, no reward progress update should follow.
+            expect(mockLogAuditEvent).not.toHaveBeenCalled();
+        });
+
+        it('should log INFO with correct structured fields on conflict', async () => {
+            setupConflictMock();
+
+            await processQualifyingPurchase({
+                merchantId: 1,
+                squareOrderId: 'ord_dup',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 2,
+                purchasedAt: new Date('2026-03-01')
+            });
+
+            expect(logger.info).toHaveBeenCalledWith(
+                'Concurrent duplicate detected via ON CONFLICT',
+                expect.objectContaining({
+                    event: 'purchase_event_duplicate',
+                    idempotencyKey: 'ord_dup:var_1',
+                    merchantId: 1,
+                    orderId: 'ord_dup'
+                })
+            );
+        });
+
+        it('should not affect normal insert path', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] }); // idempotency SELECT
+
+            setupMockClientForPurchase({ currentQuantity: 3 });
+
+            const result = await processQualifyingPurchase({
+                merchantId: 1,
+                squareOrderId: 'ord_new',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 1,
+                purchasedAt: new Date('2026-03-01')
+            });
+
+            expect(result.processed).toBe(true);
+            expect(result.purchaseEvent).toBeDefined();
+            expect(result.alreadyProcessed).toBeUndefined();
+        });
+    });
+
+    describe('processRefund — concurrent duplicate', () => {
+        const EXISTING_REFUND = {
+            id: 88,
+            merchant_id: 1,
+            offer_id: OFFER.id,
+            square_order_id: 'ord_ref',
+            variation_id: 'var_1',
+            quantity: -1,
+            is_refund: true,
+            idempotency_key: 'refund:ord_ref:var_1:1'
+        };
+
+        function setupRefundConflictMock() {
+            // db.query — idempotency SELECT passes (returns empty, simulating race)
+            db.query.mockResolvedValueOnce({ rows: [] });
+
+            mockClient.query.mockImplementation(async (sql) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+                // Original purchase window lookup
+                if (sql.includes('window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                    return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+                }
+
+                // INSERT returns 0 rows (ON CONFLICT DO NOTHING fired)
+                if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('ON CONFLICT')) {
+                    return { rows: [] };
+                }
+
+                // Fetch existing row after conflict
+                if (sql.includes('SELECT * FROM loyalty_purchase_events') && sql.includes('idempotency_key')) {
+                    return { rows: [EXISTING_REFUND] };
+                }
+
+                return { rows: [] };
+            });
+        }
+
+        it('should return existing refund row with alreadyProcessed flag on conflict', async () => {
+            setupRefundConflictMock();
+
+            const result = await processRefund({
+                merchantId: 1,
+                squareOrderId: 'ord_ref',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 1,
+                refundedAt: new Date('2026-03-01')
+            });
+
+            expect(result.processed).toBe(false);
+            expect(result.reason).toBe('already_processed');
+            expect(result.alreadyProcessed).toBe(true);
+            expect(result.refundEvent).toEqual(EXISTING_REFUND);
+        });
+
+        it('should not create a duplicate refund row on conflict', async () => {
+            setupRefundConflictMock();
+
+            await processRefund({
+                merchantId: 1,
+                squareOrderId: 'ord_ref',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 1,
+                refundedAt: new Date('2026-03-01')
+            });
+
+            // No audit log or reward progress should follow a conflict
+            expect(mockLogAuditEvent).not.toHaveBeenCalled();
+        });
+
+        it('should log INFO with correct structured fields on refund conflict', async () => {
+            setupRefundConflictMock();
+
+            await processRefund({
+                merchantId: 1,
+                squareOrderId: 'ord_ref',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 1,
+                refundedAt: new Date('2026-03-01')
+            });
+
+            expect(logger.info).toHaveBeenCalledWith(
+                'Concurrent duplicate detected via ON CONFLICT',
+                expect.objectContaining({
+                    event: 'purchase_event_duplicate',
+                    idempotencyKey: 'refund:ord_ref:var_1:1',
+                    merchantId: 1,
+                    orderId: 'ord_ref'
+                })
+            );
+        });
+
+        it('should not affect normal refund insert path', async () => {
+            db.query.mockResolvedValueOnce({ rows: [] }); // idempotency SELECT
+
+            mockClient.query.mockImplementation(async (sql, params) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+
+                // Original purchase window lookup
+                if (sql.includes('window_start_date, window_end_date') && sql.includes('is_refund = FALSE')) {
+                    return { rows: [{ window_start_date: '2026-01-01', window_end_date: '2027-01-01' }] };
+                }
+
+                // INSERT succeeds normally (returns a row)
+                if (sql.includes('INSERT INTO loyalty_purchase_events') && sql.includes('RETURNING')) {
+                    return { rows: [{ id: 200, quantity: -1, offer_id: OFFER.id, is_refund: true }] };
+                }
+
+                // Earned reward check
+                if (sql.includes("status = 'earned'") && sql.includes('FOR UPDATE')) {
+                    return { rows: [] };
+                }
+
+                // updateRewardProgress - quantity
+                if (sql.includes('COALESCE(SUM(quantity), 0) as total_quantity')) {
+                    return { rows: [{ total_quantity: 5 }] };
+                }
+
+                // Get existing in_progress reward
+                if (sql.includes("status = 'in_progress'") && sql.includes('FOR UPDATE')) {
+                    return { rows: [{ id: 300, status: 'in_progress', current_quantity: 6 }] };
+                }
+
+                // UPDATE reward quantity
+                if (sql.includes('UPDATE loyalty_rewards') && sql.includes('current_quantity')) {
+                    return { rows: [] };
+                }
+
+                // Window dates for reward
+                if (sql.includes('MIN(window_start_date) as start_date')) {
+                    return { rows: [{ start_date: '2026-01-01', end_date: '2027-01-01' }] };
+                }
+
+                // updateCustomerSummary queries
+                if (sql.includes('current_quantity') && sql.includes('lifetime_purchases'))
+                    return { rows: [{ current_quantity: 0, lifetime_purchases: 0, last_purchase: null, window_start: null, window_end: null }] };
+                if (sql.includes('COUNT(*)'))
+                    return { rows: [{ count: 0 }] };
+                if (sql.includes('required_quantity') && sql.includes('loyalty_offers'))
+                    return { rows: [{ required_quantity: OFFER.required_quantity }] };
+                if (sql.includes('SELECT id FROM loyalty_rewards') && sql.includes("status = 'earned'"))
+                    return { rows: [] };
+                if (sql.includes('INSERT INTO loyalty_customer_summary') || sql.includes('ON CONFLICT'))
+                    return { rows: [] };
+
+                return { rows: [] };
+            });
+
+            const result = await processRefund({
+                merchantId: 1,
+                squareOrderId: 'ord_normal',
+                squareCustomerId: 'cust_1',
+                variationId: 'var_1',
+                quantity: 1,
+                refundedAt: new Date('2026-03-01')
+            });
+
+            expect(result.processed).toBe(true);
+            expect(result.refundEvent).toBeDefined();
+            expect(result.alreadyProcessed).toBeUndefined();
+        });
+    });
+});
