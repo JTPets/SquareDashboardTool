@@ -87,6 +87,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('exact threshold — 12 purchases of qty=1, no rollover', async () => {
         // Progress query: 12 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '12' }] },           // SUM query
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 11 }] }, // SELECT FOR UPDATE
             { rows: [] },                                     // UPDATE current_quantity (void)
@@ -158,6 +159,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('rollover case — 14 units toward buy 12, 2 units carry over', async () => {
         // Progress query: 14 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '14' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 11 }] },
             { rows: [] },  // UPDATE current_quantity
@@ -237,6 +239,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('single large purchase crossing threshold — 1 row qty=14 toward buy 12', async () => {
         // Progress query: 14 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '14' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 0 }] },
             { rows: [] },  // UPDATE current_quantity
@@ -304,6 +307,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('multiple small purchases — last one crosses (10 + 2 + 2 = 14)', async () => {
         // Progress query: 14 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '14' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 12 }] },
             { rows: [] },  // UPDATE current_quantity
@@ -353,6 +357,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('multi-threshold — 26 units toward buy 12 earns 2 rewards', async () => {
         // Progress query: 26 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '26' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 25 }] },
             { rows: [] },  // UPDATE current_quantity
@@ -430,6 +435,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('below threshold — no reward earned, progress updated', async () => {
         // Progress query: 8 unlocked units (below 12 threshold)
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '8' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 7 }] },
             { rows: [] },  // UPDATE current_quantity
@@ -459,6 +465,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('zero quantity — no progress, no reward', async () => {
         // Progress query: 0 unlocked units
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '0' }] },
             { rows: [] },  // No in_progress reward
         );
@@ -487,6 +494,7 @@ describe('updateRewardProgress — split-row rollover', () => {
     test('post-threshold actions fire — audit, Square discount, customer summary', async () => {
         // Progress query: 12 exact
         mockQuerySequence(
+            { rows: [] },                                     // pg_advisory_xact_lock
             { rows: [{ total_quantity: '12' }] },
             { rows: [{ id: 'reward-1', status: 'in_progress', current_quantity: 11 }] },
             { rows: [] },  // UPDATE current_quantity

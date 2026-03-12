@@ -4,7 +4,7 @@
  * Covers the two race condition fixes:
  * CRIT-1: ON CONFLICT handling for concurrent in_progress reward creation
  *         with Square API verification on conflict
- * CRIT-2: FOR UPDATE SKIP LOCKED on purchase event reads
+ * CRIT-2: Advisory lock + FOR UPDATE SKIP LOCKED on purchase event reads
  */
 
 // ============================================================================
@@ -169,20 +169,26 @@ describe('reward-progress-service', () => {
         });
     });
 
-    describe('CRIT-2: FOR UPDATE SKIP LOCKED on purchase event queries', () => {
-        test('quantity calculation query includes FOR UPDATE SKIP LOCKED', async () => {
+    describe('CRIT-2: advisory lock + FOR UPDATE SKIP LOCKED on purchase event queries', () => {
+        test('first query is pg_advisory_xact_lock and aggregate query does NOT contain FOR UPDATE', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] })
                 .mockResolvedValueOnce({ rows: [] });
 
             await updateRewardProgress(mockClient, makeData());
 
             const firstCall = mockClient.query.mock.calls[0][0];
-            expect(firstCall).toContain('FOR UPDATE SKIP LOCKED');
+            expect(firstCall).toContain('pg_advisory_xact_lock');
+
+            const aggregateCall = mockClient.query.mock.calls[1][0];
+            expect(aggregateCall).toContain('COALESCE(SUM(quantity), 0)');
+            expect(aggregateCall).not.toContain('FOR UPDATE');
         });
 
         test('crossing row fetch query includes FOR UPDATE SKIP LOCKED', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '11' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID }] })
                 .mockResolvedValueOnce({ rows: [] }) // UPDATE quantity
@@ -206,12 +212,13 @@ describe('reward-progress-service', () => {
 
         test('reward row fetch includes FOR UPDATE (not SKIP LOCKED)', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] })
                 .mockResolvedValueOnce({ rows: [] });
 
             await updateRewardProgress(mockClient, makeData());
 
-            const rewardQuery = mockClient.query.mock.calls[1][0];
+            const rewardQuery = mockClient.query.mock.calls[2][0];
             expect(rewardQuery).toContain('FOR UPDATE');
             expect(rewardQuery).not.toContain('SKIP LOCKED');
         });
@@ -220,6 +227,7 @@ describe('reward-progress-service', () => {
     describe('CRIT-1: ON CONFLICT on in_progress reward INSERT', () => {
         test('initial in_progress INSERT includes ON CONFLICT clause', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -238,6 +246,7 @@ describe('reward-progress-service', () => {
 
         test('multi-threshold in_progress INSERT includes ON CONFLICT clause', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '20' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 15,
                     merchant_id: MERCHANT_ID }] })
@@ -261,6 +270,7 @@ describe('reward-progress-service', () => {
 
         test('conflict on initial INSERT triggers Square verification and logs WARN', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -307,6 +317,7 @@ describe('reward-progress-service', () => {
 
         test('conflict on multi-threshold INSERT triggers Square verification', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '15' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress', current_quantity: 10,
                     merchant_id: MERCHANT_ID }] })
@@ -345,6 +356,7 @@ describe('reward-progress-service', () => {
 
         test('no WARN logged when no conflict occurs', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -364,6 +376,7 @@ describe('reward-progress-service', () => {
         test('successful Square verification sets correct quantity', async () => {
             // Conflict occurs — GREATEST gives 7, but Square says 3 qualifying items
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -402,6 +415,7 @@ describe('reward-progress-service', () => {
 
         test('Square API failure falls back to GREATEST and logs ERROR', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -434,6 +448,7 @@ describe('reward-progress-service', () => {
 
         test('no order ID found falls back to GREATEST and logs ERROR', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -465,6 +480,7 @@ describe('reward-progress-service', () => {
 
         test('verification counts only qualifying variations from Square order', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '8' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -500,6 +516,7 @@ describe('reward-progress-service', () => {
             // Call 1 (wins the race — no conflict)
             const client1 = { query: jest.fn() };
             client1.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '3' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -511,6 +528,7 @@ describe('reward-progress-service', () => {
             // Call 2 (loses the race — conflict absorbed, Square verification runs)
             const client2 = { query: jest.fn() };
             client2.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -546,6 +564,7 @@ describe('reward-progress-service', () => {
         test('purchase events are not lost when ON CONFLICT fires', async () => {
             const client = { query: jest.fn() };
             client.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
                 .mockResolvedValueOnce({ rows: [] })
                 .mockResolvedValueOnce({ rows: [{ start_date: '2026-01-01', end_date: '2026-07-01' }] })
@@ -570,6 +589,7 @@ describe('reward-progress-service', () => {
             // Transaction 1: sees 10 units, triggers earn
             const client1 = { query: jest.fn() };
             client1.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress',
                     current_quantity: 8, merchant_id: MERCHANT_ID }] })
@@ -581,6 +601,7 @@ describe('reward-progress-service', () => {
             // Transaction 2: rows are SKIP LOCKED — sees only 3 units
             const client2 = { query: jest.fn() };
             client2.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '3' }] })
                 .mockResolvedValueOnce({ rows: [{ id: REWARD_ID, status: 'in_progress',
                     current_quantity: 8, merchant_id: MERCHANT_ID }] })
@@ -602,6 +623,7 @@ describe('reward-progress-service', () => {
     describe('basic progress tracking', () => {
         test('returns no_progress when no purchases exist', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '0' }] })
                 .mockResolvedValueOnce({ rows: [] });
 
@@ -613,6 +635,7 @@ describe('reward-progress-service', () => {
 
         test('updates existing in_progress reward quantity', async () => {
             mockClient.query
+                .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
                 .mockResolvedValueOnce({ rows: [{ total_quantity: '7' }] })
                 .mockResolvedValueOnce({ rows: [{
                     id: REWARD_ID, status: 'in_progress', current_quantity: 5,
