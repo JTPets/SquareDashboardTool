@@ -190,6 +190,17 @@ async function resolveConflictViaSquare(client, reward, params) {
 async function updateRewardProgress(client, data) {
     const { merchantId, offerId, squareCustomerId, offer } = data;
 
+    // Serialize concurrent reward progress updates for the same customer+offer.
+    // Advisory lock replaces FOR UPDATE on the aggregate query below, which is
+    // incompatible with SUM/COALESCE ("FOR UPDATE is not allowed with aggregate
+    // functions"). The lock achieves the same race-condition protection: only one
+    // transaction can process the same customer+offer at a time. The lock
+    // auto-releases when the transaction commits or rolls back.  (CRIT-2 fix)
+    const lockKey = Buffer.from(`${merchantId}:${offerId}:${squareCustomerId}`).reduce(
+        (hash, byte) => ((hash << 5) - hash + byte) | 0, 0
+    );
+    await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
+
     // LOGIC CHANGE (MED-1): Collect earned reward IDs during the transaction,
     // fire Square discount creation AFTER the transaction commits. Before: the
     // createSquareCustomerGroupDiscount() call ran as a detached promise inside
@@ -204,16 +215,9 @@ async function updateRewardProgress(client, data) {
     // and are still within their window.
     // Exclude rows that have been superseded by split records (rows whose
     // original_event_id children exist) to prevent double-counting.
-    // CRIT-2: FOR UPDATE prevents concurrent transactions from reading the same
-    // snapshot and both calculating >= required_quantity on the same purchase rows.
-    // SKIP LOCKED avoids deadlocks: if another transaction already holds a lock,
-    // this transaction skips those rows rather than blocking. This means a
-    // concurrent call sees a lower quantity and won't prematurely trigger an earn.
-    // LOGIC CHANGE: Added FOR UPDATE SKIP LOCKED to quantity calculation query.
-    // Before: unlocked read allowed two concurrent transactions to both see the
-    // same total and both attempt to earn the reward / lock the same purchase rows.
-    // After: rows locked by one transaction are skipped by the other, preventing
-    // double-earn races.
+    // Race-condition protection for this aggregate query is handled by the
+    // pg_advisory_xact_lock above (CRIT-2 fix). FOR UPDATE cannot be used
+    // with aggregate functions (SUM/COALESCE).
     const quantityResult = await client.query(`
         SELECT COALESCE(SUM(quantity), 0) as total_quantity
         FROM loyalty_purchase_events lpe
@@ -226,7 +230,6 @@ async function updateRewardProgress(client, data) {
               SELECT 1 FROM loyalty_purchase_events child
               WHERE child.original_event_id = lpe.id
           )
-        FOR UPDATE SKIP LOCKED
     `, [merchantId, offerId, squareCustomerId]);
 
     let currentQuantity = parseInt(quantityResult.rows[0].total_quantity) || 0;
