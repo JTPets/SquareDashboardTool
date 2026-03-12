@@ -259,6 +259,7 @@ describe('reward-progress-service: returns earnedRewardIds for post-commit handl
      */
     function setupEarnReward(rewardId) {
         mockClient.query
+            .mockResolvedValueOnce({ rows: [] })                         // pg_advisory_xact_lock
             .mockResolvedValueOnce({ rows: [{ total_quantity: 3 }] })    // quantity check
             .mockResolvedValueOnce({ rows: [{                            // existing in_progress reward
                 id: rewardId,
@@ -288,6 +289,7 @@ describe('reward-progress-service: returns earnedRewardIds for post-commit handl
 
     it('should return empty earnedRewardIds when no reward earned', async () => {
         mockClient.query
+            .mockResolvedValueOnce({ rows: [] })                         // pg_advisory_xact_lock
             .mockResolvedValueOnce({ rows: [{ total_quantity: 2 }] })    // below threshold
             .mockResolvedValueOnce({ rows: [{
                 id: 'reward-ip',

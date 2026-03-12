@@ -95,6 +95,7 @@ describe('MED-1: updateRewardProgress returns earnedRewardIds', () => {
 
     test('returns earnedRewardIds when reward transitions to earned', async () => {
         mockClient.query
+            .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
             .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })  // quantity calc
             .mockResolvedValueOnce({ rows: [{                             // existing in_progress reward
                 id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID
@@ -117,6 +118,7 @@ describe('MED-1: updateRewardProgress returns earnedRewardIds', () => {
 
     test('returns empty earnedRewardIds when no reward earned', async () => {
         mockClient.query
+            .mockResolvedValueOnce({ rows: [] })                         // pg_advisory_xact_lock
             .mockResolvedValueOnce({ rows: [{ total_quantity: '5' }] })  // quantity = 5, below threshold
             .mockResolvedValueOnce({ rows: [{                            // existing in_progress reward
                 id: REWARD_ID, status: 'in_progress', current_quantity: 4, merchant_id: MERCHANT_ID
@@ -136,6 +138,7 @@ describe('MED-1: updateRewardProgress returns earnedRewardIds', () => {
 
     test('does NOT call createSquareCustomerGroupDiscount', async () => {
         mockClient.query
+            .mockResolvedValueOnce({ rows: [] })                          // pg_advisory_xact_lock
             .mockResolvedValueOnce({ rows: [{ total_quantity: '10' }] })
             .mockResolvedValueOnce({ rows: [{
                 id: REWARD_ID, status: 'in_progress', current_quantity: 9, merchant_id: MERCHANT_ID
