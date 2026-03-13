@@ -282,86 +282,159 @@ async function diagnoseCustomerOffer(merchantId, squareCustomerId, offerId, squa
 }
 
 // ---------------------------------------------------------------------------
-// Assign events to rewards chronologically
+// LOGIC CHANGE: Unit-based chronological replay with split-row awareness.
+// Replaces the old whole-event assignment that incorrectly assigned entire
+// events to single reward slots even when events crossed reward boundaries.
+// The real system (reward-progress-service.js:334-449) splits crossing events
+// into locked + excess child rows. This replay mirrors that logic at the unit
+// level without creating split rows — it tracks which units belong where.
 // ---------------------------------------------------------------------------
 function assignEventsToRewards(timeline, rewards, requiredQuantity) {
-    const rewardSlots = rewards.map(r => ({
-        rewardId: r.id,
-        status: r.status,
-        windowStart: r.window_start_date,
-        windowEnd: r.window_end_date,
-        capacity: parseInt(r.required_quantity) || requiredQuantity,
-        assigned: 0,
-        events: []
-    }));
+    const unitAssignments = [];
+    const splitEvents = [];
+    const unassignedEvents = [];
 
-    const assignments = [];
-    const unassigned = [];
+    let currentRewardIndex = 0;
+    let unitsAssignedToCurrentReward = 0;
+
+    // Per-reward accumulators for corrections
+    const rewardUnitTotals = new Map();
+    for (const r of rewards) {
+        rewardUnitTotals.set(r.id, 0);
+    }
 
     for (const event of timeline) {
-        const eventDate = new Date(event.orderDate);
-        let assigned = false;
+        let remainingUnits = event.quantity;
+        const eventParts = [];
 
-        // Try to find a reward whose window contains this event date
-        // Prefer the one with fewer assigned events (filling first)
-        const candidates = rewardSlots
-            .filter(s => {
-                const start = new Date(s.windowStart);
-                const end = new Date(s.windowEnd);
-                return eventDate >= start && eventDate <= end && s.assigned < s.capacity;
-            })
-            .sort((a, b) => a.assigned - b.assigned);
+        while (remainingUnits > 0) {
+            const currentReward = currentRewardIndex < rewards.length
+                ? rewards[currentRewardIndex] : null;
+            const capacityLeft = currentReward
+                ? requiredQuantity - unitsAssignedToCurrentReward : 0;
 
-        if (candidates.length > 0) {
-            const slot = candidates[0];
-            slot.assigned += event.quantity;
-            slot.events.push(event);
-            assignments.push({
-                ...event,
-                correctRewardId: slot.rewardId,
-                rewardStatus: slot.status,
-                needsRewardUpdate: event.currentRewardId !== slot.rewardId
-            });
-            assigned = true;
+            if (!currentReward) {
+                // No more rewards — remaining units are unassigned (future in_progress)
+                eventParts.push({
+                    eventId: event.eventId,
+                    squareOrderId: event.squareOrderId,
+                    variationId: event.variationId,
+                    totalEventQuantity: event.quantity,
+                    assignedUnits: remainingUnits,
+                    rewardId: null,
+                    isExisting: event.type === 'existing',
+                    orderDate: event.orderDate,
+                    currentRewardId: event.currentRewardId,
+                    idempotencyKey: event.idempotencyKey,
+                    locationId: event.locationId,
+                    unitPriceCents: event.unitPriceCents,
+                    totalPriceCents: event.totalPriceCents,
+                });
+                remainingUnits = 0;
+            } else if (remainingUnits <= capacityLeft) {
+                // Event fits entirely in current reward
+                eventParts.push({
+                    eventId: event.eventId,
+                    squareOrderId: event.squareOrderId,
+                    variationId: event.variationId,
+                    totalEventQuantity: event.quantity,
+                    assignedUnits: remainingUnits,
+                    rewardId: currentReward.id,
+                    isExisting: event.type === 'existing',
+                    orderDate: event.orderDate,
+                    currentRewardId: event.currentRewardId,
+                    idempotencyKey: event.idempotencyKey,
+                    locationId: event.locationId,
+                    unitPriceCents: event.unitPriceCents,
+                    totalPriceCents: event.totalPriceCents,
+                });
+                unitsAssignedToCurrentReward += remainingUnits;
+                rewardUnitTotals.set(currentReward.id,
+                    (rewardUnitTotals.get(currentReward.id) || 0) + remainingUnits);
+                remainingUnits = 0;
+
+                if (unitsAssignedToCurrentReward === requiredQuantity) {
+                    currentRewardIndex++;
+                    unitsAssignedToCurrentReward = 0;
+                }
+            } else {
+                // Event CROSSES reward boundary — needs split
+                eventParts.push({
+                    eventId: event.eventId,
+                    squareOrderId: event.squareOrderId,
+                    variationId: event.variationId,
+                    totalEventQuantity: event.quantity,
+                    assignedUnits: capacityLeft,
+                    rewardId: currentReward.id,
+                    isExisting: event.type === 'existing',
+                    orderDate: event.orderDate,
+                    currentRewardId: event.currentRewardId,
+                    idempotencyKey: event.idempotencyKey,
+                    locationId: event.locationId,
+                    unitPriceCents: event.unitPriceCents,
+                    totalPriceCents: event.totalPriceCents,
+                });
+                rewardUnitTotals.set(currentReward.id,
+                    (rewardUnitTotals.get(currentReward.id) || 0) + capacityLeft);
+                remainingUnits -= capacityLeft;
+                currentRewardIndex++;
+                unitsAssignedToCurrentReward = 0;
+            }
         }
 
-        // Backfill scenario: event predates all rewards — assign to earliest with capacity
-        if (!assigned) {
-            const fallback = rewardSlots.find(s => s.assigned < s.capacity);
-            if (fallback) {
-                fallback.assigned += event.quantity;
-                fallback.events.push(event);
-                assignments.push({
-                    ...event,
-                    correctRewardId: fallback.rewardId,
-                    rewardStatus: fallback.status,
-                    needsRewardUpdate: event.currentRewardId !== fallback.rewardId,
-                    note: 'backfill_assignment'
-                });
+        // Determine if event was split across rewards
+        const distinctRewards = new Set(eventParts.map(p => p.rewardId));
+        const isSplit = distinctRewards.size > 1;
+
+        // Set isSplit and splitType on each part
+        for (const part of eventParts) {
+            part.isSplit = isSplit;
+            if (isSplit) {
+                part.splitType = part.rewardId ? 'locked' : 'excess';
             } else {
-                unassigned.push(event);
+                part.splitType = null;
             }
+            unitAssignments.push(part);
+            if (part.rewardId === null) {
+                unassignedEvents.push(part);
+            }
+        }
+
+        // Track split events for warnings
+        if (isSplit) {
+            splitEvents.push({
+                eventId: event.eventId,
+                squareOrderId: event.squareOrderId,
+                variationId: event.variationId,
+                totalQuantity: event.quantity,
+                isExisting: event.type === 'existing',
+                portions: eventParts.map(p => ({
+                    units: p.assignedUnits,
+                    rewardId: p.rewardId
+                }))
+            });
         }
     }
 
     // Calculate per-reward correct quantities
-    const rewardCorrections = rewardSlots.map(slot => {
-        const correctLockedQty = slot.events.reduce((sum, e) => sum + e.quantity, 0);
+    const rewardCorrections = rewards.map(r => {
+        const correctLockedQty = rewardUnitTotals.get(r.id) || 0;
         return {
-            rewardId: slot.rewardId,
-            status: slot.status,
-            capacity: slot.capacity,
+            rewardId: r.id,
+            status: r.status,
+            capacity: parseInt(r.required_quantity) || requiredQuantity,
             correctLockedQty,
-            eventCount: slot.events.length,
-            belowRequired: (slot.status === 'earned' || slot.status === 'redeemed') && correctLockedQty < slot.capacity
+            belowRequired: (r.status === 'earned' || r.status === 'redeemed') &&
+                correctLockedQty < (parseInt(r.required_quantity) || requiredQuantity)
         };
     });
 
-    return { assignments, unassigned, rewardCorrections };
+    return { unitAssignments, rewardCorrections, splitEvents, unassignedEvents };
 }
 
 // ---------------------------------------------------------------------------
 // Report diagnostic results for a customer+offer
+// LOGIC CHANGE: Shows unit-based timeline replay instead of whole-event list.
 // ---------------------------------------------------------------------------
 function reportDiagnosis(merchantId, customerId, diagnosis) {
     if (diagnosis.error) {
@@ -370,7 +443,10 @@ function reportDiagnosis(merchantId, customerId, diagnosis) {
     }
 
     const { offer, rewards, existingEventCount, missingEventCount, skipped404,
-        processedOrderCount, assignments, missingEvents } = diagnosis;
+        processedOrderCount, assignments } = diagnosis;
+    const { unitAssignments, rewardCorrections, splitEvents, unassignedEvents } = assignments;
+
+    const shortId = (id) => id ? id.substring(0, 8) : 'null';
 
     log(`  Offer: "${offer.name}" (buy ${offer.required_quantity})`, { offerId: offer.id });
     log(`  Orders processed: ${processedOrderCount}, Events existing: ${existingEventCount}, Events MISSING: ${missingEventCount}`);
@@ -378,30 +454,83 @@ function reportDiagnosis(merchantId, customerId, diagnosis) {
         log(`  Skipped 404 orders: ${skipped404.length}`, { orderIds: skipped404.slice(0, 5) });
     }
 
-    // Report missing events
-    for (const me of missingEvents) {
-        log(`  MISSING: order=${me.squareOrderId} variation=${me.variationId}`, {
-            quantity: me.quantity,
-            date: new Date(me.orderDate).toISOString().split('T')[0],
-            assign_to_reward: assignments.assignments.find(
-                a => a.idempotencyKey === me.idempotencyKey
-            )?.correctRewardId || 'none'
-        });
+    // --- TIMELINE REPLAY (unit-based) ---
+    log('');
+    log('  TIMELINE REPLAY (unit-based):');
+
+    // Group unit assignments by source event (consecutive assignments share idempotencyKey)
+    const eventGroups = [];
+    for (const ua of unitAssignments) {
+        const last = eventGroups[eventGroups.length - 1];
+        if (last && last[0].idempotencyKey === ua.idempotencyKey) {
+            last.push(ua);
+        } else {
+            eventGroups.push([ua]);
+        }
     }
 
-    // Report wrong reward_id assignments
-    const wrongAssignments = assignments.assignments.filter(
-        a => a.type === 'existing' && a.needsRewardUpdate
-    );
-    for (const wa of wrongAssignments) {
-        log(`  WRONG_REWARD: event=${wa.eventId} order=${wa.squareOrderId}`, {
-            current_reward: wa.currentRewardId || 'null',
-            correct_reward: wa.correctRewardId
-        });
+    let currentDisplayRewardId = '__none__';
+    let displayRunning = 0;
+
+    for (const group of eventGroups) {
+        const first = group[0];
+        const date = new Date(first.orderDate).toISOString().split('T')[0];
+        const status = first.isExisting ? 'EXISTING' : 'MISSING';
+
+        if (group.length === 1 && !first.isSplit) {
+            // Non-split event — single line
+            if (first.rewardId !== currentDisplayRewardId) {
+                currentDisplayRewardId = first.rewardId;
+                displayRunning = 0;
+                if (first.rewardId) {
+                    const r = rewards.find(r => r.id === first.rewardId);
+                    log(`  [reward ${shortId(first.rewardId)} — ${r?.status || 'unknown'}, need ${offer.required_quantity}]`);
+                } else {
+                    log(`  [unlocked — future in_progress]`);
+                }
+            }
+            displayRunning += first.assignedUnits;
+            const unitWord = first.assignedUnits === 1 ? 'unit' : 'units';
+            const rewardLabel = first.rewardId ? shortId(first.rewardId) : 'unlocked';
+            const progress = first.rewardId ? ` (${displayRunning}/${offer.required_quantity})` : '';
+            const filled = first.rewardId && displayRunning >= offer.required_quantity;
+            const filledMark = filled ? ' ✓ FILLED' : '';
+            log(`    ${date} order=${first.squareOrderId} qty=${first.totalEventQuantity} → ${first.assignedUnits} ${unitWord} to ${rewardLabel}${progress} ${status}${filledMark}`);
+        } else {
+            // Split event — show SPLIT line with all portions
+            // Ensure reward header is shown for first portion if needed
+            if (group[0].rewardId && group[0].rewardId !== currentDisplayRewardId) {
+                currentDisplayRewardId = group[0].rewardId;
+                displayRunning = 0;
+                const r = rewards.find(r => r.id === group[0].rewardId);
+                log(`  [reward ${shortId(group[0].rewardId)} — ${r?.status || 'unknown'}, need ${offer.required_quantity}]`);
+            }
+
+            const parts = [];
+            for (const ua of group) {
+                if (ua.rewardId && ua.rewardId !== currentDisplayRewardId) {
+                    currentDisplayRewardId = ua.rewardId;
+                    displayRunning = 0;
+                }
+                displayRunning += ua.assignedUnits;
+                const unitWord = ua.assignedUnits === 1 ? 'unit' : 'units';
+                const rewardLabel = ua.rewardId ? shortId(ua.rewardId) : 'next';
+                const progress = ua.rewardId ? ` (${displayRunning}/${offer.required_quantity})` : '';
+                const filled = ua.rewardId && displayRunning >= offer.required_quantity;
+                parts.push(`${ua.assignedUnits} ${unitWord} to ${rewardLabel}${progress}${filled ? ' ✓ FILLED' : ''}`);
+            }
+            log(`    SPLIT: ${date} order=${first.squareOrderId} qty=${first.totalEventQuantity} → ${parts.join(', ')} ${status}`);
+        }
     }
 
-    // Report per-reward quantities
-    for (const rc of assignments.rewardCorrections) {
+    // --- Unassigned events ---
+    if (unassignedEvents.length > 0) {
+        const totalUnassigned = unassignedEvents.reduce((sum, u) => sum + u.assignedUnits, 0);
+        log(`  UNASSIGNED units (no reward slot): ${totalUnassigned}`);
+    }
+
+    // --- Per-reward corrections ---
+    for (const rc of rewardCorrections) {
         const existingReward = rewards.find(r => r.id === rc.rewardId);
         const currentQty = existingReward ? parseInt(existingReward.current_quantity) : 0;
         if (currentQty !== rc.correctLockedQty || rc.belowRequired) {
@@ -409,32 +538,80 @@ function reportDiagnosis(merchantId, customerId, diagnosis) {
                 current_locked_qty: currentQty,
                 correct_locked_qty: rc.correctLockedQty,
                 required: rc.capacity,
-                WARNING: rc.belowRequired ? 'BELOW_REQUIRED' : undefined
+                WARNING: rc.belowRequired ? 'BELOW_REQUIRED — earned/redeemed with insufficient units. Manual review needed.' : undefined
             });
         }
     }
 
-    // Unassigned events
-    if (assignments.unassigned.length > 0) {
-        log(`  UNASSIGNED events (no reward slot): ${assignments.unassigned.length}`);
-        for (const u of assignments.unassigned) {
-            log(`    order=${u.squareOrderId} variation=${u.variationId} qty=${u.quantity}`);
+    // --- Split warnings ---
+    if (splitEvents.length > 0) {
+        log(`  SPLIT WARNINGS: ${splitEvents.length} event(s) cross reward boundaries`);
+        for (const se of splitEvents) {
+            const tag = se.isExisting ? 'existing (needs manual split)' : 'missing (will insert with NULL reward_id)';
+            const portionDesc = se.portions.map(p =>
+                `${p.units} → ${p.rewardId ? shortId(p.rewardId) : 'unlocked'}`
+            ).join(', ');
+            log(`    order=${se.squareOrderId} var=${se.variationId} qty=${se.totalQuantity} [${portionDesc}] ${tag}`);
         }
     }
+
+    // Determine what actions exist
+    const wrongAssignments = unitAssignments.filter(ua =>
+        ua.isExisting && !ua.isSplit && ua.rewardId !== ua.currentRewardId
+    );
 
     return {
         hasMissing: missingEventCount > 0,
         hasWrongAssignments: wrongAssignments.length > 0,
-        hasWarnings: assignments.rewardCorrections.some(r => r.belowRequired)
+        hasWarnings: rewardCorrections.some(r => r.belowRequired),
+        hasSplitWarnings: splitEvents.length > 0
     };
 }
 
 // ---------------------------------------------------------------------------
 // Phase 2: Apply corrections for a single customer+offer
+// LOGIC CHANGE: Unit-based correction with split-row awareness.
+// Does NOT create split child rows — logs warnings for splits that need
+// manual intervention or will be handled by the live system.
 // ---------------------------------------------------------------------------
 async function applyCorrections(merchantId, customerId, offerId, diagnosis) {
     const { offer, rewards, assignments } = diagnosis;
-    const { assignments: eventAssignments, rewardCorrections } = assignments;
+    const { unitAssignments, rewardCorrections } = assignments;
+
+    // Build per-event correction plan from unit assignments.
+    // Each source event (keyed by idempotencyKey) may have 1+ unit assignments
+    // if it was split across reward boundaries.
+    const eventPlan = new Map();
+    for (const ua of unitAssignments) {
+        const key = ua.idempotencyKey;
+        if (!eventPlan.has(key)) {
+            eventPlan.set(key, {
+                eventId: ua.eventId,
+                isExisting: ua.isExisting,
+                squareOrderId: ua.squareOrderId,
+                variationId: ua.variationId,
+                totalQuantity: ua.totalEventQuantity,
+                currentRewardId: ua.currentRewardId,
+                portions: [],
+                orderDate: ua.orderDate,
+                locationId: ua.locationId,
+                unitPriceCents: ua.unitPriceCents,
+                totalPriceCents: ua.totalPriceCents,
+                idempotencyKey: ua.idempotencyKey,
+            });
+        }
+        eventPlan.get(key).portions.push({
+            units: ua.assignedUnits,
+            rewardId: ua.rewardId
+        });
+    }
+
+    // Determine per-event: isSplit (crosses reward boundary), targetRewardId
+    for (const [, plan] of eventPlan) {
+        const distinctRewards = new Set(plan.portions.map(p => p.rewardId));
+        plan.isSplit = distinctRewards.size > 1;
+        plan.targetRewardId = plan.isSplit ? null : (plan.portions[0]?.rewardId ?? null);
+    }
 
     const client = await db.pool.connect();
     try {
@@ -442,65 +619,85 @@ async function applyCorrections(merchantId, customerId, offerId, diagnosis) {
 
         let inserted = 0;
         let rewardIdUpdated = 0;
+        let splitWarnings = 0;
 
-        // 1. INSERT missing events
-        const missingAssignments = eventAssignments.filter(a => a.type === 'missing');
-        for (const ma of missingAssignments) {
-            // Find the reward to get window dates
-            const reward = rewards.find(r => r.id === ma.correctRewardId);
-            const windowStart = reward?.window_start_date || new Date(ma.orderDate).toISOString().split('T')[0];
-            const windowEnd = reward?.window_end_date || (() => {
-                const d = new Date(ma.orderDate);
-                d.setMonth(d.getMonth() + offer.window_months);
-                return d.toISOString().split('T')[0];
-            })();
+        for (const [, plan] of eventPlan) {
+            if (!plan.isExisting) {
+                // --- MISSING event: INSERT ---
+                // LOGIC CHANGE: Split events get NULL reward_id — the live system
+                // will handle proper split-row locking on next reward progress update.
+                // Non-split events get the correct reward_id directly.
+                const rewardIdForInsert = plan.isSplit ? null : plan.targetRewardId;
+                const firstRewardId = plan.portions[0]?.rewardId;
+                const reward = firstRewardId
+                    ? rewards.find(r => r.id === firstRewardId) : null;
+                const windowStart = reward?.window_start_date
+                    || new Date(plan.orderDate).toISOString().split('T')[0];
+                const windowEnd = reward?.window_end_date || (() => {
+                    const d = new Date(plan.orderDate);
+                    d.setMonth(d.getMonth() + offer.window_months);
+                    return d.toISOString().split('T')[0];
+                })();
 
-            // LOGIC CHANGE: INSERT missing purchase event with correct reward_id
-            const insertResult = await client.query(`
-                INSERT INTO loyalty_purchase_events (
-                    merchant_id, offer_id, square_customer_id, square_order_id,
-                    square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
-                    purchased_at, window_start_date, window_end_date,
-                    is_refund, reward_id, idempotency_key, customer_source
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, $14, 'reconciliation')
-                ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
-                RETURNING id
-            `, [
-                merchantId, offerId, customerId, ma.squareOrderId,
-                ma.locationId || null, ma.variationId, ma.quantity,
-                ma.unitPriceCents, ma.totalPriceCents,
-                ma.orderDate, windowStart, windowEnd,
-                ma.correctRewardId, ma.idempotencyKey
-            ]);
+                const insertResult = await client.query(`
+                    INSERT INTO loyalty_purchase_events (
+                        merchant_id, offer_id, square_customer_id, square_order_id,
+                        square_location_id, variation_id, quantity, unit_price_cents, total_price_cents,
+                        purchased_at, window_start_date, window_end_date,
+                        is_refund, reward_id, idempotency_key, customer_source
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, $14, 'reconciliation')
+                    ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
+                    RETURNING id
+                `, [
+                    merchantId, offerId, customerId, plan.squareOrderId,
+                    plan.locationId || null, plan.variationId, plan.totalQuantity,
+                    plan.unitPriceCents, plan.totalPriceCents,
+                    plan.orderDate, windowStart, windowEnd,
+                    rewardIdForInsert, plan.idempotencyKey
+                ]);
 
-            if (insertResult.rows.length > 0) {
-                inserted++;
-                log(`  Inserted event: order=${ma.squareOrderId} variation=${ma.variationId}`, {
-                    qty: ma.quantity, reward: ma.correctRewardId
-                });
+                if (insertResult.rows.length > 0) {
+                    inserted++;
+                    if (plan.isSplit) {
+                        splitWarnings++;
+                        const portionDesc = plan.portions.map(p =>
+                            `${p.units} → ${p.rewardId ? p.rewardId.substring(0, 8) : 'unlocked'}`
+                        ).join(', ');
+                        log(`  Inserted (SPLIT WARNING): order=${plan.squareOrderId} var=${plan.variationId} qty=${plan.totalQuantity} — reward_id=NULL, needs manual split [${portionDesc}]`);
+                    } else {
+                        log(`  Inserted: order=${plan.squareOrderId} var=${plan.variationId}`, {
+                            qty: plan.totalQuantity, reward: rewardIdForInsert
+                        });
+                    }
+                } else {
+                    log(`  Skipped (already exists): ${plan.idempotencyKey}`);
+                }
             } else {
-                log(`  Skipped (already exists): ${ma.idempotencyKey}`);
+                // --- EXISTING event: UPDATE or WARN ---
+                if (plan.isSplit) {
+                    // LOGIC CHANGE: Do NOT create split child rows in the reconciler.
+                    // Log warning — manual intervention or live system will handle split.
+                    splitWarnings++;
+                    const portionDesc = plan.portions.map(p =>
+                        `${p.units} → ${p.rewardId ? p.rewardId.substring(0, 8) : 'unlocked'}`
+                    ).join(', ');
+                    log(`  SPLIT_WARNING: event=${plan.eventId} order=${plan.squareOrderId} qty=${plan.totalQuantity} crosses boundary [${portionDesc}] — skipped`);
+                } else if (plan.targetRewardId !== plan.currentRewardId) {
+                    // LOGIC CHANGE: UPDATE reward_id on existing purchase event
+                    await client.query(`
+                        UPDATE loyalty_purchase_events
+                        SET reward_id = $1, updated_at = NOW()
+                        WHERE id = $2 AND merchant_id = $3
+                    `, [plan.targetRewardId, plan.eventId, merchantId]);
+
+                    rewardIdUpdated++;
+                    log(`  Reassigned event ${plan.eventId}: ${plan.currentRewardId || 'null'} → ${plan.targetRewardId}`);
+                }
             }
         }
 
-        // 2. UPDATE existing events with wrong reward_id
-        const wrongAssignments = eventAssignments.filter(
-            a => a.type === 'existing' && a.needsRewardUpdate
-        );
-        for (const wa of wrongAssignments) {
-            // LOGIC CHANGE: UPDATE reward_id on existing purchase event
-            await client.query(`
-                UPDATE loyalty_purchase_events
-                SET reward_id = $1, updated_at = NOW()
-                WHERE id = $2 AND merchant_id = $3
-            `, [wa.correctRewardId, wa.eventId, merchantId]);
-
-            rewardIdUpdated++;
-            log(`  Reassigned event ${wa.eventId}: ${wa.currentRewardId || 'null'} → ${wa.correctRewardId}`);
-        }
-
-        // 3. UPDATE reward current_quantity for each affected reward
+        // --- Re-sum locked events per reward ---
         for (const rc of rewardCorrections) {
             const lockedSum = await client.query(`
                 SELECT COALESCE(SUM(quantity), 0) AS total
@@ -520,18 +717,17 @@ async function applyCorrections(merchantId, customerId, offerId, diagnosis) {
             log(`  Reward ${rc.rewardId}: current_quantity → ${newQty} (status=${rc.status})`);
 
             if ((rc.status === 'earned' || rc.status === 'redeemed') && newQty < rc.capacity) {
-                log(`  WARNING: reward ${rc.rewardId} has ${newQty} < required ${rc.capacity} — status NOT changed`);
+                log(`  WARNING: reward ${rc.rewardId} has ${newQty} < required ${rc.capacity} — earned/redeemed with insufficient units. Manual review needed.`);
             }
         }
 
-        // 4. Update customer summary
+        // --- Update customer summary ---
         await updateCustomerSummary(client, merchantId, customerId, offerId);
 
-        // 5. COMMIT
         await client.query('COMMIT');
 
-        log(`  Corrections applied: ${inserted} inserted, ${rewardIdUpdated} reassigned`);
-        return { inserted, rewardIdUpdated };
+        log(`  Corrections applied: ${inserted} inserted, ${rewardIdUpdated} reassigned, ${splitWarnings} split warnings`);
+        return { inserted, rewardIdUpdated, splitWarnings };
 
     } catch (err) {
         await client.query('ROLLBACK');
@@ -566,8 +762,10 @@ async function main() {
             pairsWithMissing: 0,
             pairsWithWrongAssignments: 0,
             pairsWithWarnings: 0,
+            pairsWithSplitWarnings: 0,
             totalInserted: 0,
-            totalReassigned: 0
+            totalReassigned: 0,
+            totalSplitWarnings: 0
         };
 
         for (const pair of pairs) {
@@ -584,19 +782,22 @@ async function main() {
                 if (reportResult.hasMissing) summary.pairsWithMissing++;
                 if (reportResult.hasWrongAssignments) summary.pairsWithWrongAssignments++;
                 if (reportResult.hasWarnings) summary.pairsWithWarnings++;
+                if (reportResult.hasSplitWarnings) summary.pairsWithSplitWarnings++;
             }
 
             // Apply corrections in execute mode
             if (!DRY_RUN && !diagnosis.error) {
                 const hasMissing = diagnosis.missingEventCount > 0;
-                const hasWrongAssignments = diagnosis.assignments.assignments.some(
-                    a => a.type === 'existing' && a.needsRewardUpdate
+                const { unitAssignments, splitEvents } = diagnosis.assignments;
+                const hasWrongAssignments = unitAssignments.some(ua =>
+                    ua.isExisting && !ua.isSplit && ua.rewardId !== ua.currentRewardId
                 );
 
-                if (hasMissing || hasWrongAssignments) {
+                if (hasMissing || hasWrongAssignments || splitEvents.length > 0) {
                     const result = await applyCorrections(MERCHANT_ID, custId, offId, diagnosis);
                     summary.totalInserted += result.inserted;
                     summary.totalReassigned += result.rewardIdUpdated;
+                    summary.totalSplitWarnings += result.splitWarnings;
                 } else {
                     log('  No corrections needed');
                 }
