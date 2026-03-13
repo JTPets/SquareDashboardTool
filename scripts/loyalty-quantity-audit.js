@@ -110,16 +110,6 @@ function aggregateOrderLineItems(order) {
         const unitPriceCents = Number(lineItem.base_price_money?.amount || 0);
         const totalPriceCents = quantity * unitPriceCents;
 
-        // Skip 100% discounted items (same logic as order-intake.js)
-        const grossSalesCents = Number(lineItem.gross_sales_money?.amount || 0)
-            || (unitPriceCents * quantity);
-        const rawTotalMoney = lineItem.total_money?.amount;
-        const totalMoneyCents = rawTotalMoney != null
-            ? Number(rawTotalMoney)
-            : grossSalesCents - Number(lineItem.total_discount_money?.amount || 0);
-
-        if (grossSalesCents > 0 && totalMoneyCents === 0) continue;
-
         const existing = aggregated.get(variationId);
         if (existing) {
             existing.quantity += quantity;
