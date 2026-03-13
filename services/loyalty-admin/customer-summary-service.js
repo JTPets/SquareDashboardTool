@@ -57,7 +57,10 @@ async function updateCustomerSummary(client, merchantId, squareCustomerId, offer
                 COUNT(*) FILTER (WHERE status = 'earned') AS earned_count,
                 COUNT(*) FILTER (WHERE status = 'redeemed') AS redeemed_count,
                 COUNT(*) FILTER (WHERE status IN ('earned', 'redeemed')) AS total_earned_redeemed,
-                MIN(CASE WHEN status = 'earned' THEN id END) AS earliest_earned_id
+                (SELECT id FROM loyalty_rewards
+                     WHERE merchant_id = $1 AND offer_id = $2 AND square_customer_id = $3
+                       AND status = 'earned'
+                     ORDER BY created_at ASC LIMIT 1) AS earliest_earned_id
             FROM loyalty_rewards
             WHERE merchant_id = $1
               AND offer_id = $2
