@@ -46,11 +46,13 @@ jest.mock('../../../services/loyalty-admin/customer-summary-service', () => ({
 }));
 
 const db = require('../../../utils/database');
+const logger = require('../../../utils/logger');
 const {
     redeemReward,
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
-    matchEarnedRewardByDiscountAmount
+    matchEarnedRewardByDiscountAmount,
+    MAX_REDEMPTIONS_PER_ORDER
 } = require('../../../services/loyalty-admin/reward-service');
 
 // ============================================================================
@@ -819,5 +821,680 @@ describe('detectRewardRedemptionFromOrder', () => {
 
         expect(result.detected).toBe(false);
         expect(result.redemptions).toEqual([]); // LOGIC CHANGE (BACKLOG-59)
+    });
+
+    it('should extract customer ID from tenders when order has no customer_id', async () => {
+        const order = {
+            id: 'ord_1',
+            // No customer_id
+            tenders: [{ id: 't1' }, { id: 't2', customer_id: 'tender_cust' }],
+            discounts: [{ uid: 'd1', catalog_object_id: 'disc_1', applied_money: { amount: 1000 } }],
+            line_items: []
+        };
+
+        // Strategy 1 batch lookup finds a match
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 77, offer_id: 5, square_customer_id: 'tender_cust',
+                offer_name: 'Test', status: 'earned',
+                square_discount_id: 'disc_1'
+            }]
+        });
+
+        // Mock redeemReward transaction
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 77, status: 'earned', offer_id: 5, square_customer_id: 'tender_cust' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 200, reward_id: 77 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(result.detected).toBe(true);
+        expect(result.redemptions).toHaveLength(1);
+    });
+
+    it('should match via pricing_rule_id in order discount', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            location_id: 'loc_1',
+            discounts: [{
+                uid: 'd1',
+                catalog_object_id: null,
+                pricing_rule_id: 'pr_loyalty_1',
+                applied_money: { amount: 5000 }
+            }],
+            line_items: []
+        };
+
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 55, offer_id: 10, square_customer_id: 'cust_1',
+                offer_name: 'Buy 12', status: 'earned',
+                square_pricing_rule_id: 'pr_loyalty_1'
+            }]
+        });
+
+        // Mock redeemReward
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 55, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 300, reward_id: 55 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(result.detected).toBe(true);
+        expect(result.redemptions[0].rewardId).toBe(55);
+        expect(result.redemptions[0].detectionMethod).toBe('catalog_object_id');
+    });
+
+    it('should fall through Strategy 1 → 2 → 3 and detect via Strategy 3', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            location_id: 'loc_1',
+            discounts: [{ uid: 'd1', catalog_object_id: 'disc_loyalty_1' }],
+            line_items: [
+                {
+                    catalog_object_id: 'var_1',
+                    base_price_money: { amount: 5000 },
+                    total_money: { amount: 1000 },
+                    total_discount_money: { amount: 4000 }
+                }
+            ]
+        };
+
+        // Strategy 1: no earned reward match
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        // Strategy 2: matchEarnedRewardByFreeItem — no free items (total > 0)
+        // (no db.query needed — function returns null before querying)
+
+        // Strategy 3: matchEarnedRewardByDiscountAmount
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 88, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test Offer', square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+        // Price query
+        db.query.mockResolvedValueOnce({ rows: [{ expected_value_cents: 4000 }] });
+
+        // Mock redeemReward
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 88, status: 'earned', offer_id: 5, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 400, reward_id: 88 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(result.detected).toBe(true);
+        expect(result.redemptions[0].detectionMethod).toBe('discount_amount_fallback');
+        expect(result.redemptions[0].rewardId).toBe(88);
+    });
+
+    it('should fall through Strategy 1 → detect via Strategy 2 (free item)', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            location_id: 'loc_1',
+            discounts: [{ uid: 'd1', catalog_object_id: 'unrelated_disc' }],
+            line_items: [
+                {
+                    catalog_object_id: 'var_free',
+                    base_price_money: { amount: 3999 },
+                    total_money: { amount: 0 }
+                }
+            ]
+        };
+
+        // Strategy 1: no match
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        // Strategy 2: matchEarnedRewardByFreeItem finds match
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 66, offer_id: 3, square_customer_id: 'cust_1',
+                offer_name: 'Free Item Offer', matched_variation_id: 'var_free'
+            }]
+        });
+
+        // Mock redeemReward
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 66, status: 'earned', offer_id: 3, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 500, reward_id: 66 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(result.detected).toBe(true);
+        expect(result.redemptions[0].detectionMethod).toBe('free_item_fallback');
+        expect(result.redemptions[0].discountDetails.matchedVariationId).toBe('var_free');
+    });
+
+    it('should handle order with no discounts property', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            line_items: []
+            // No discounts property at all
+        };
+
+        // Strategy 3
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(result.detected).toBe(false);
+        expect(result.redemptions).toEqual([]);
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — redeemReward edge cases
+// ============================================================================
+
+describe('redeemReward — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should reject revoked reward', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'revoked', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            return { rows: [] };
+        });
+
+        await expect(redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1'
+        })).rejects.toThrow('Cannot redeem reward in status: revoked');
+    });
+
+    it('should skip variation lookup when redeemedVariationId is null', async () => {
+        const queryLog = [];
+        mockClient.query.mockImplementation(async (sql, params) => {
+            queryLog.push(sql);
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_redemptions')) {
+                return { rows: [{ id: 50, reward_id: 1, offer_id: 10 }] };
+            }
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1'
+            // No redeemedVariationId
+        });
+
+        // Verify no query for loyalty_qualifying_variations
+        const varQuery = queryLog.find(q => q.includes('loyalty_qualifying_variations'));
+        expect(varQuery).toBeUndefined();
+    });
+
+    it('should call updateCustomerSummary with transaction client', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1', offer_name: 'Test' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50, reward_id: 1 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1',
+            redeemedVariationId: 'var_1'
+        });
+
+        expect(mockUpdateCustomerSummary).toHaveBeenCalledWith(
+            mockClient, 1, 'cust_1', 10
+        );
+    });
+
+    it('should set triggeredBy to ADMIN when redeemedByUserId is provided', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50, reward_id: 1 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1',
+            redeemedByUserId: 99
+        });
+
+        expect(mockLogAuditEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                triggeredBy: 'ADMIN',
+                userId: 99
+            }),
+            mockClient
+        );
+    });
+
+    it('should set triggeredBy to SYSTEM when no userId', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50, reward_id: 1 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1'
+        });
+
+        expect(mockLogAuditEvent).toHaveBeenCalledWith(
+            expect.objectContaining({ triggeredBy: 'SYSTEM' }),
+            mockClient
+        );
+    });
+
+    it('should pass redeemedAt to redemption insert and reward update', async () => {
+        const customDate = '2026-03-01T12:00:00Z';
+        const insertParams = [];
+
+        mockClient.query.mockImplementation(async (sql, params) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_redemptions')) {
+                insertParams.push(...params);
+                return { rows: [{ id: 50, reward_id: 1 }] };
+            }
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1',
+            redeemedAt: customDate
+        });
+
+        // The COALESCE($14, NOW()) parameter should be the custom date
+        expect(insertParams[13]).toBe(customDate);
+    });
+
+    it('should always release client even on audit event failure', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN') return {};
+            if (sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) {
+                throw new Error('Update failed');
+            }
+            return { rows: [] };
+        });
+
+        await expect(redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1'
+        })).rejects.toThrow('Update failed');
+
+        expect(mockClient.release).toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — matchEarnedRewardByFreeItem edge cases
+// ============================================================================
+
+describe('matchEarnedRewardByFreeItem — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should handle BigInt amounts from Square SDK v43+', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            line_items: [
+                {
+                    catalog_object_id: 'var_1',
+                    base_price_money: { amount: BigInt(3999) },
+                    total_money: { amount: BigInt(0) }
+                }
+            ]
+        };
+
+        db.query.mockResolvedValueOnce({
+            rows: [{ reward_id: 10, offer_id: 5, square_customer_id: 'cust_1', offer_name: 'Buy 12', matched_variation_id: 'var_1' }]
+        });
+
+        const result = await matchEarnedRewardByFreeItem(order, 1);
+
+        expect(result).toBeDefined();
+        expect(result.matched_variation_id).toBe('var_1');
+    });
+
+    it('should handle missing line_items key (undefined)', async () => {
+        const order = { id: 'ord_1', customer_id: 'cust_1' };
+        // No line_items property
+
+        const result = await matchEarnedRewardByFreeItem(order, 1);
+
+        expect(result).toBeNull();
+        expect(db.query).not.toHaveBeenCalled();
+    });
+
+    it('should run diagnostic queries when no reward match found', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            line_items: [
+                { catalog_object_id: 'var_1', base_price_money: { amount: 1000 }, total_money: { amount: 0 } }
+            ]
+        };
+
+        // Main query: no match
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        // Diagnostic: qualifying variations exist but no earned reward
+        db.query.mockResolvedValueOnce({
+            rows: [{ variation_id: 'var_1', offer_id: 5, qv_active: true, offer_name: 'Test', offer_active: true }]
+        });
+        // Diagnostic: reward check
+        db.query.mockResolvedValueOnce({
+            rows: [{ reward_id: 99, offer_id: 5, square_customer_id: 'cust_1', status: 'redeemed' }]
+        });
+
+        const result = await matchEarnedRewardByFreeItem(order, 1);
+
+        expect(result).toBeNull();
+        // Verify diagnostic queries ran
+        expect(db.query).toHaveBeenCalledTimes(3);
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Strategy 2: free items found but no match — diagnostic',
+            expect.objectContaining({ orderId: 'ord_1' })
+        );
+    });
+
+    it('should handle diagnostic query failure without breaking', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            line_items: [
+                { catalog_object_id: 'var_1', base_price_money: { amount: 1000 }, total_money: { amount: 0 } }
+            ]
+        };
+
+        // Main query: no match
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // Diagnostic: throws
+        db.query.mockRejectedValueOnce(new Error('DB timeout'));
+
+        const result = await matchEarnedRewardByFreeItem(order, 1);
+
+        // Should not throw — diagnostic errors are swallowed
+        expect(result).toBeNull();
+    });
+
+    it('should log when no qualifying variations found in diagnostic', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            line_items: [
+                { catalog_object_id: 'var_orphan', base_price_money: { amount: 500 }, total_money: { amount: 0 } }
+            ]
+        };
+
+        // Main: no match
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // Diagnostic: no qualifying variations either
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        const result = await matchEarnedRewardByFreeItem(order, 1);
+
+        expect(result).toBeNull();
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Strategy 2: no qualifying variations found for free item IDs',
+            expect.objectContaining({ freeVariationIds: ['var_orphan'] })
+        );
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — matchEarnedRewardByDiscountAmount edge cases
+// ============================================================================
+
+describe('matchEarnedRewardByDiscountAmount — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should match via pricing_rule_id (not just discount_id)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 20, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Buy 12', square_discount_id: null,
+                square_pricing_rule_id: 'pr_loyalty_1',
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [{ expected_value_cents: 4000 }] });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'pr_loyalty_1', applied_money: { amount: 4000 } }],
+            line_items: [{ catalog_object_id: 'var_1', total_discount_money: { amount: 4000 } }]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeDefined();
+        expect(result.reward_id).toBe(20);
+    });
+
+    it('should skip reward when no discount IDs on reward (rewardDiscountIds empty)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 30, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: null,
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'some_disc' }],
+            line_items: [{ catalog_object_id: 'var_1', total_discount_money: { amount: 5000 } }]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeNull();
+    });
+
+    it('should skip reward when order discount is not from our loyalty (hasOurDiscount false)', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 40, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_loyalty_1',
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'unrelated_manual_disc' }],
+            line_items: [{ catalog_object_id: 'var_1', total_discount_money: { amount: 5000 } }]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeNull();
+    });
+
+    it('should skip reward when total discount on qualifying items is 0', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 50, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_1',
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_1' }],
+            line_items: [{ catalog_object_id: 'var_1', total_discount_money: { amount: 0 } }]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeNull();
+    });
+
+    it('should try second reward when first does not match', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [
+                {
+                    reward_id: 60, offer_id: 5, square_customer_id: 'cust_1',
+                    offer_name: 'Offer A', square_discount_id: 'disc_a',
+                    square_pricing_rule_id: null,
+                    qualifying_variation_ids: ['var_a']
+                },
+                {
+                    reward_id: 61, offer_id: 6, square_customer_id: 'cust_1',
+                    offer_name: 'Offer B', square_discount_id: 'disc_b',
+                    square_pricing_rule_id: null,
+                    qualifying_variation_ids: ['var_b']
+                }
+            ]
+        });
+
+        // First reward: no qualifying line items with discount
+        // Second reward: matches
+        db.query.mockResolvedValueOnce({ rows: [{ expected_value_cents: 3000 }] });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_b', applied_money: { amount: 3000 } }],
+            line_items: [
+                { catalog_object_id: 'var_b', total_discount_money: { amount: 3000 } }
+            ]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeDefined();
+        expect(result.reward_id).toBe(61);
+    });
+
+    it('should handle order with empty discounts array', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 70, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_1',
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [],
+            line_items: [{ catalog_object_id: 'var_1', total_discount_money: { amount: 5000 } }]
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeNull();
+    });
+
+    it('should handle line items without total_discount_money', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                reward_id: 80, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_1',
+                square_pricing_rule_id: null,
+                qualifying_variation_ids: ['var_1']
+            }]
+        });
+
+        const order = {
+            id: 'ord_1',
+            discounts: [{ catalog_object_id: 'disc_1' }],
+            line_items: [{ catalog_object_id: 'var_1' }] // No total_discount_money
+        };
+
+        const result = await matchEarnedRewardByDiscountAmount({
+            order, squareCustomerId: 'cust_1', merchantId: 1
+        });
+
+        expect(result).toBeNull();
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — MAX_REDEMPTIONS_PER_ORDER constant
+// ============================================================================
+
+describe('MAX_REDEMPTIONS_PER_ORDER', () => {
+    it('should be exported and be a positive integer', () => {
+        expect(MAX_REDEMPTIONS_PER_ORDER).toBe(10);
+        expect(Number.isInteger(MAX_REDEMPTIONS_PER_ORDER)).toBe(true);
     });
 });

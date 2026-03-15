@@ -817,3 +817,403 @@ describe('validateEarnedRewardsDiscounts', () => {
         expect(result.issues[0].issue).toBe('CUSTOMER_NOT_IN_GROUP');
     });
 });
+
+// ============================================================================
+// ADDITIONAL COVERAGE — createSquareCustomerGroupDiscount orchestration
+// ============================================================================
+
+describe('createSquareCustomerGroupDiscount — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should use purchase price when higher than catalog price', async () => {
+        // Offer
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 10, offer_name: 'Test', variation_ids: ['var_1'] }]
+        });
+
+        // Group creation
+        mockFetchSuccess({ group: { id: 'grp_1' } });
+        // Add customer
+        mockFetchSuccess({});
+
+        // Price query — purchase > catalog
+        db.query.mockResolvedValueOnce({
+            rows: [{ max_purchase_price_cents: '6000', max_catalog_price_cents: '4500' }]
+        });
+
+        // Discount creation
+        mockFetchSuccess({
+            id_mappings: [
+                { client_object_id: '#loyalty-discount-10', object_id: 'D1' },
+                { client_object_id: '#loyalty-productset-10', object_id: 'PS1' },
+                { client_object_id: '#loyalty-pricingrule-10', object_id: 'PR1' }
+            ]
+        });
+
+        // Update reward record
+        db.query.mockResolvedValueOnce({ rows: [] });
+
+        // Customer reward note (GET + PUT)
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetchSuccess({});
+
+        const result = await createSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 10, offerId: 10
+        });
+
+        expect(result.success).toBe(true);
+
+        // Verify discount used 6000 (purchase) not 4500 (catalog)
+        const discountBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+        const discountObj = discountBody.batches[0].objects.find(o => o.type === 'DISCOUNT');
+        expect(discountObj.discount_data.maximum_amount_money.amount).toBe(6000);
+    });
+
+    it('should store Square object IDs in reward record on success', async () => {
+        // Offer
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 10, offer_name: 'Test', variation_ids: ['var_1'] }]
+        });
+
+        // Group creation
+        mockFetchSuccess({ group: { id: 'grp_created' } });
+        // Add customer
+        mockFetchSuccess({});
+        // Price query
+        db.query.mockResolvedValueOnce({
+            rows: [{ max_purchase_price_cents: '5000', max_catalog_price_cents: '0' }]
+        });
+        // Discount creation
+        mockFetchSuccess({
+            id_mappings: [
+                { client_object_id: '#loyalty-discount-10', object_id: 'D_FINAL' },
+                { client_object_id: '#loyalty-productset-10', object_id: 'PS_FINAL' },
+                { client_object_id: '#loyalty-pricingrule-10', object_id: 'PR_FINAL' }
+            ]
+        });
+        // Update reward record
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // Customer note (GET + PUT)
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetchSuccess({});
+
+        const result = await createSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 10, offerId: 10
+        });
+
+        expect(result.success).toBe(true);
+
+        // Verify the UPDATE query stored the correct IDs
+        // db.query calls: [0]=offer, [1]=price, [2]=update reward
+        const updateCall = db.query.mock.calls[2];
+        expect(updateCall[0]).toContain('square_group_id = $1');
+        expect(updateCall[1]).toEqual([
+            'grp_created', 'D_FINAL', 'PS_FINAL', 'PR_FINAL', 5000, 10, 1
+        ]);
+    });
+
+    it('should use truncated customer ID when getCustomerDetails returns null', async () => {
+        const { getCustomerDetails } = require('../../../services/loyalty-admin/customer-admin-service');
+        getCustomerDetails.mockResolvedValueOnce(null);
+
+        // Offer
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 10, offer_name: 'Test', variation_ids: ['var_1'] }]
+        });
+
+        // Group creation
+        mockFetchSuccess({ group: { id: 'grp_1' } });
+        // Add customer
+        mockFetchSuccess({});
+        // Price
+        db.query.mockResolvedValueOnce({
+            rows: [{ max_purchase_price_cents: '3000', max_catalog_price_cents: '0' }]
+        });
+        // Discount
+        mockFetchSuccess({
+            id_mappings: [
+                { client_object_id: '#loyalty-discount-10', object_id: 'D1' },
+                { client_object_id: '#loyalty-productset-10', object_id: 'PS1' },
+                { client_object_id: '#loyalty-pricingrule-10', object_id: 'PR1' }
+            ]
+        });
+        // Update
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // Note
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetchSuccess({});
+
+        const result = await createSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'ABCDEFGHIJKLMNOP', internalRewardId: 10, offerId: 10
+        });
+
+        expect(result.success).toBe(true);
+
+        // Verify group name used truncated customer ID (first 8 chars)
+        const groupBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(groupBody.group.name).toContain('ABCDEFGH');
+    });
+
+    it('should return {success: false} when unexpected error thrown', async () => {
+        db.query.mockRejectedValueOnce(new Error('Unexpected DB crash'));
+
+        const result = await createSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 10, offerId: 10
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Unexpected DB crash');
+    });
+
+    it('should filter out null variation_ids from offer query', async () => {
+        // Offer with mixed null and valid variation_ids (LEFT JOIN behavior)
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 10, offer_name: 'Test', variation_ids: [null, 'var_1', null, 'var_2'] }]
+        });
+
+        // Group
+        mockFetchSuccess({ group: { id: 'grp_1' } });
+        // Add customer
+        mockFetchSuccess({});
+        // Price
+        db.query.mockResolvedValueOnce({
+            rows: [{ max_purchase_price_cents: '4000', max_catalog_price_cents: '0' }]
+        });
+        // Discount
+        mockFetchSuccess({
+            id_mappings: [
+                { client_object_id: '#loyalty-discount-10', object_id: 'D1' },
+                { client_object_id: '#loyalty-productset-10', object_id: 'PS1' },
+                { client_object_id: '#loyalty-pricingrule-10', object_id: 'PR1' }
+            ]
+        });
+        db.query.mockResolvedValueOnce({ rows: [] });
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetchSuccess({});
+
+        const result = await createSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 10, offerId: 10
+        });
+
+        expect(result.success).toBe(true);
+
+        // Verify only non-null IDs passed to discount
+        const discountBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+        const productSet = discountBody.batches[0].objects.find(o => o.type === 'PRODUCT_SET');
+        expect(productSet.product_set_data.product_ids_any).toEqual(['var_1', 'var_2']);
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — cleanupSquareCustomerGroupDiscount edge cases
+// ============================================================================
+
+describe('cleanupSquareCustomerGroupDiscount — additional edge cases', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should skip note removal when offer_name is null', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                square_group_id: 'grp_1',
+                square_discount_id: 'disc_1',
+                square_product_set_id: null,
+                square_pricing_rule_id: null,
+                offer_id: 10,
+                offer_name: null
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
+
+        const result = await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 42
+        });
+
+        expect(result.success).toBe(true);
+        // No fetchWithTimeout calls — note update was skipped
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should skip note removal when squareCustomerId is null', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                square_group_id: 'grp_1',
+                square_discount_id: 'disc_1',
+                square_product_set_id: null,
+                square_pricing_rule_id: null,
+                offer_id: 10,
+                offer_name: 'Buy 12'
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
+
+        const result = await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: null, internalRewardId: 42
+        });
+
+        expect(result.success).toBe(true);
+        // Note update skipped (both offer_name AND squareCustomerId required)
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should pass empty customerIds when squareCustomerId is null', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                square_group_id: 'grp_1',
+                square_discount_id: null,
+                square_product_set_id: null,
+                square_pricing_rule_id: null,
+                offer_id: 10,
+                offer_name: null
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
+
+        const result = await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: null, internalRewardId: 42
+        });
+
+        expect(result.success).toBe(true);
+        expect(deleteCustomerGroupWithMembers).toHaveBeenCalledWith(1, 'grp_1', []);
+    });
+
+    it('should return {success: false} when unexpected error thrown', async () => {
+        db.query.mockRejectedValueOnce(new Error('Network partition'));
+
+        const result = await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 42
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Network partition');
+    });
+
+    it('should clear all Square IDs from reward record after cleanup', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                square_group_id: 'grp_1',
+                square_discount_id: 'disc_1',
+                square_product_set_id: 'ps_1',
+                square_pricing_rule_id: 'pr_1',
+                offer_id: 10,
+                offer_name: 'Buy 12'
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs
+
+        // Note update
+        mockFetchSuccess({ customer: { note: '🎁 REWARD: Free Buy 12', version: 2 } });
+        mockFetchSuccess({});
+
+        await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 42
+        });
+
+        // Verify the NULL update query
+        const clearCall = db.query.mock.calls[1];
+        expect(clearCall[0]).toContain('square_group_id = NULL');
+        expect(clearCall[0]).toContain('square_discount_id = NULL');
+        expect(clearCall[0]).toContain('square_product_set_id = NULL');
+        expect(clearCall[0]).toContain('square_pricing_rule_id = NULL');
+        expect(clearCall[1]).toEqual([42, 1]);
+    });
+
+    it('should handle reward with all null Square IDs gracefully', async () => {
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                square_group_id: null,
+                square_discount_id: null,
+                square_product_set_id: null,
+                square_pricing_rule_id: null,
+                offer_id: 10,
+                offer_name: null
+            }]
+        });
+
+        db.query.mockResolvedValueOnce({ rows: [] }); // Clear IDs (still runs)
+
+        const result = await cleanupSquareCustomerGroupDiscount({
+            merchantId: 1, squareCustomerId: 'cust_1', internalRewardId: 42
+        });
+
+        expect(result.success).toBe(true);
+        expect(deleteCustomerGroupWithMembers).not.toHaveBeenCalled();
+        // deleteCatalogObjects still called with null IDs (it handles them)
+        expect(deleteCatalogObjects).toHaveBeenCalled();
+    });
+});
+
+// ============================================================================
+// ADDITIONAL COVERAGE — updateCustomerRewardNote retry behavior
+// ============================================================================
+
+describe('updateCustomerRewardNote — retry behavior', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should retry on 409 version conflict and succeed on second attempt', async () => {
+        // First attempt: GET succeeds, PUT returns 409
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetch.mockResolvedValueOnce({
+            ok: false, status: 409,
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve('VERSION_CONFLICT')
+        });
+
+        // Second attempt: GET succeeds with new version, PUT succeeds
+        mockFetchSuccess({ customer: { note: '', version: 2 } });
+        mockFetchSuccess({});
+
+        const result = await updateCustomerRewardNote({
+            operation: 'add', merchantId: 1,
+            squareCustomerId: 'cust_1', offerName: 'Test Offer'
+        });
+
+        expect(result.success).toBe(true);
+        // 4 total fetch calls: GET, PUT(409), GET, PUT(200)
+        expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('should return max retries exceeded after 3 consecutive 409s', async () => {
+        // 3 attempts (0, 1, 2) — all get 409 on PUT
+        for (let i = 0; i < 3; i++) {
+            mockFetchSuccess({ customer: { note: '', version: i + 1 } });
+            mockFetch.mockResolvedValueOnce({
+                ok: false, status: 409,
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve('VERSION_CONFLICT')
+            });
+        }
+
+        const result = await updateCustomerRewardNote({
+            operation: 'add', merchantId: 1,
+            squareCustomerId: 'cust_1', offerName: 'Test Offer'
+        });
+
+        expect(result.success).toBe(false);
+        // On last attempt (attempt === MAX_RETRIES), 409 falls through to generic error handler
+        expect(result.error).toContain('Square API error: 409');
+    });
+
+    it('should not retry non-409 PUT errors', async () => {
+        mockFetchSuccess({ customer: { note: '', version: 1 } });
+        mockFetchError(500, { errors: [{ code: 'INTERNAL_ERROR' }] });
+
+        const result = await updateCustomerRewardNote({
+            operation: 'add', merchantId: 1,
+            squareCustomerId: 'cust_1', offerName: 'Test'
+        });
+
+        expect(result.success).toBe(false);
+        // Only 2 calls: GET + PUT (no retry)
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+});
