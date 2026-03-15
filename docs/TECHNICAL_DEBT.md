@@ -1064,6 +1064,38 @@ Comprehensive test coverage session targeting 4 previously-untested loyalty-admi
 
 ---
 
+## Service Test Audit 2026-03-15 (Batch 2)
+
+### BUG (LOW): `catalog-service.js:962` — `regeneratePriceReport` crashes if `db.query` returns undefined
+
+`batchResult.rows.length` is not null-safe. If the query returns `undefined` (e.g., connection blip), the function throws an unhandled `TypeError: Cannot read properties of undefined (reading 'rows')`.
+
+**Fix**: Guard with `|| { rows: [] }`.
+
+### BUG (LOW): `delivery-service.js:1175` — `_decryptOrsKey` swallows decryption errors silently
+
+When the ORS API key fails to decrypt (wrong encryption key, corrupt data), the error is caught and silently returns `null`. Geocoding stops working with no user-visible error — deliveries appear to have no route data.
+
+**Fix**: Surface the decryption failure to the settings UI so merchants can re-enter their ORS key.
+
+### BUG (LOW): `delivery-service.js:1914` — `backfillUnknownCustomers` inconsistent message formatting
+
+The empty-path returns `{ message: 'No unknown customers to backfill' }` while the non-empty path returns `{ message: 'Backfilled X of Y unknown customers', updated, total, failures }`. Frontend parsing is fragile due to the structural inconsistency.
+
+**Fix**: Standardize both paths to return the same response shape with `updated`, `total`, and `failures` fields (all zero for the empty case).
+
+### NOTE: `catalog-service.js:159` — `normalizeHeader('Price')` maps to `'cost'`
+
+This is a B2B convention (the store's purchase price from vendors). Correct for this codebase but a potential footgun for non-B2B file imports where "Price" typically means retail/selling price. Document the mapping in the import UI help text.
+
+### BUG (MED): `inventory-handler.js:219` — `return` without `await` in try/catch
+
+The async function returns a promise without awaiting it inside a try/catch block. If the returned promise rejects, the catch block never executes and the error propagates as an unhandled rejection.
+
+**Status**: FIXED 2026-03-15.
+
+---
+
 ## Grading History
 
 | Date | Grade | Notes |
