@@ -47,10 +47,11 @@ const API_DELAY_MS = 200;
 //   Current:  "Loyalty Reward {id} - {offerName} - {customerName}"
 //   Old v1:   "FBP Reward #{id}: ..."
 //   Old v2:   "FBP Reward {id} - ..."
+const UUID_RE = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const LOYALTY_GROUP_PATTERNS = [
-    /^Loyalty Reward (\d+) - /,
-    /^FBP Reward #(\d+)[:\s]/,
-    /^FBP Reward (\d+) - /
+    new RegExp(`^Loyalty Reward ${UUID_RE} - `, 'i'),
+    new RegExp(`^FBP Reward #${UUID_RE}[:\\s]`, 'i'),
+    new RegExp(`^FBP Reward ${UUID_RE} - `, 'i')
 ];
 
 function log(msg, data = {}) {
@@ -151,7 +152,7 @@ async function runAudit() {
         for (const pattern of LOYALTY_GROUP_PATTERNS) {
             const match = pattern.exec(group.name);
             if (match) {
-                rewardIdFromName = parseInt(match[1]);
+                rewardIdFromName = match[1];
                 break;
             }
         }
