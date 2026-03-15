@@ -2,8 +2,8 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Roadmap](./ROADMAP.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-10
-**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07, MULTI-TENANT-GAPS-2026-03-08
+**Last Updated**: 2026-03-15
+**Consolidated from**: AUDIT-2026-02-28, CODEBASE_AUDIT_2026-02-25, API-SPLIT-PLAN, MULTI-TENANT-AUDIT, SQUARE-API-AUDIT-2026-03-07, MULTI-TENANT-GAPS-2026-03-08, LOYALTY-TEST-AUDIT-2026-03-15
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -425,6 +425,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | T-9 | `services/loyalty-admin/manual-entry-service.js` | 8 tests (2026-03-06). O-8 extraction. No bugs found. |
 | T-10 | `services/loyalty-admin/square-reward-service.js` | 6 tests (2026-03-06). O-9 extraction. No bugs found. |
 | T-11 | `services/loyalty-admin/settings-service.js` | 3 tests (2026-03-06). O-10 extraction — getSettings(). No bugs found. |
+| T-12 | 4 loyalty-admin services | 119 tests added (2026-03-15). `discount-validation-service.js` (30 tests), `customer-admin-service.js` (33 tests), `order-history-audit-service.js` (30 tests), `redemption-audit-service.js` (26 tests). No bugs found. Observations: dead code in customer-admin (BACKLOG-72), duplicate fix pattern in discount-validation (BACKLOG-69), private `_analyzeOrders` not independently testable (BACKLOG-71). Total loyalty-admin suite: 630 tests across 43 suites. |
 
 ### ~~Velocity update error not caught in order handler~~ FIXED 2026-03-06
 
@@ -971,6 +972,68 @@ const localInventoryState = {
 
 ---
 
+## Loyalty Test Audit 2026-03-15
+
+Comprehensive test coverage session targeting 4 previously-untested loyalty-admin services. 119 new tests added (630 total across 43 suites). No bugs found in the tested code — observations documented as backlog items.
+
+### New Backlog Items
+
+#### BACKLOG-67 (HIGH): Square orphan audit tool
+
+**Files**: New service needed
+**Issue**: Scan all loyalty customer groups and pricing rules in Square, cross-reference against `loyalty_rewards` in DB, flag any Square object with no matching active reward as orphaned. Dry-run lists orphans, execute removes them. Discovered during Danny Booth reconciliation — deleted rewards left active Square discounts offering free items.
+**Impact**: Customers could receive unauthorized free items via orphaned Square discounts.
+
+#### BACKLOG-68 (HIGH): Square discount cleanup on redemption
+
+**Files**: `services/loyalty-admin/reward-service.js`
+**Issue**: `redeemReward()` and `detectRewardRedemptionFromOrder()` must call `cleanupSquareCustomerGroupDiscount()` after transitioning to redeemed status. Currently orphans Square objects. Same class as HIGH-6 from loyalty audit.
+**Impact**: Redeemed rewards leave active pricing rules in Square — customer could re-use discount.
+
+#### BACKLOG-69 (MED): Extract duplicate discount fix pattern in discount-validation-service.js
+
+**Files**: `services/loyalty-admin/discount-validation-service.js`
+**Issue**: `validateSingleRewardDiscount` has nearly identical "clear IDs + recreate" blocks for `DISCOUNT_NOT_FOUND` (~line 297-324) and `DISCOUNT_DELETED` (~line 350-377). Extract to `_clearAndRecreateDiscount(reward, merchantId)` helper. DRY fix.
+**Effort**: S
+
+#### BACKLOG-70 (LOW): syncRewardDiscountPrices only updates upward
+
+**Files**: `services/loyalty-admin/discount-validation-service.js`
+**Issue**: Price cap sync only increases caps (`storedCap >= currentPrice` → skip). If catalog price drops, discount cap stays inflated. Square naturally caps at item price so no financial loss, but stale data in DB.
+**Decision needed**: Confirm intentional (customer-friendly) or fix to sync downward too.
+
+#### BACKLOG-71 (MED): Extract _analyzeOrders from order-history-audit-service.js
+
+**Files**: `services/loyalty-admin/order-history-audit-service.js`
+**Issue**: Private method at ~line 240 handles qualifying item classification, free item detection, and redemption cross-referencing. Complex money/quantity logic not independently testable. Extract as named export for targeted unit testing.
+**Effort**: S
+
+#### BACKLOG-72 (LOW): Dead code cleanup — customer-admin-service.js
+
+**Files**: `services/loyalty-admin/customer-admin-service.js`
+**Issue**: `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` have 0 callers (confirmed in file's own caller map). Thin delegation wrappers to `LoyaltyCustomerService`. Already documented as DEDUP L-4. Remove when in the file.
+**Effort**: S
+
+#### BACKLOG-73 (MED): Vendor receipt display bug — multi-redemption same order
+
+**Files**: `services/loyalty-admin/reward-service.js`, `services/reports/loyalty-reports.js`
+**Issue**: When 2 rewards redeemed in same order, both receipts show same line item as free. No reward↔line-item linkage. Code picks first qualifying variation. Financial credit is correct; display is wrong.
+**Effort**: M
+
+### Completed Items (March 14-15 Session)
+
+| Item | Description | Completed |
+|------|-------------|-----------|
+| CRIT-1 | Subscription rate limiting | 2026-03-14 |
+| CRIT-2 | Advisory lock fix (FOR UPDATE SKIP LOCKED → pg_advisory_xact_lock) | 2026-03-15 |
+| MIN(uuid) fix | customer-summary-service.js incorrect aggregate | 2026-03-15 |
+| All CRITICAL/HIGH/MED items from loyalty audit | Full sweep | 2026-03-15 |
+| Monolith splits | order-intake.js, purchase-service.js, reward-progress-service.js | Done |
+| customer-details-service.js extraction | Extracted from monolith | Done |
+| Test coverage | 630 loyalty-admin tests across 43 suites (119 new in this session) | 2026-03-15 |
+
+---
+
 ## Resolved Items
 
 ### ~~Catalog Location Health Tracker~~ RESOLVED (2026-03-09)
@@ -1005,6 +1068,7 @@ const localInventoryState = {
 
 | Date | Grade | Notes |
 |------|-------|-------|
+| 2026-03-15 | A+ | Loyalty-admin test coverage: 630 tests / 43 suites. 119 new tests for 4 previously-untested services. 7 new backlog items (BACKLOG-67 to 73). |
 | 2026-03-04 | A+ | All P0-P2 complete. Test coverage and file size violations remain for A++ |
 | 2026-02-19 | A+ | P0 7/7, P1 9/9, P2 6/6. API optimization 4/4 |
 | 2026-01-26 | A | P0-5,6,7 fixed. P1-6,7,8,9 fixed. Master engineering review |

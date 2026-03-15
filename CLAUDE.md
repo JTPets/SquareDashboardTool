@@ -252,7 +252,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 ## Current Status
 
 **Grade**: A+ (All P0 and P1 issues FIXED)
-**Last Review**: 2026-02-19
+**Last Review**: 2026-03-15
 
 | Priority | Status |
 |----------|--------|
@@ -263,6 +263,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | API Optimization | 4/4 Complete |
 | P1-1 Loyalty Migration | Complete (monolith eliminated) |
 | Bundle Reorder System | Complete (new feature) |
+| Loyalty-Admin Test Coverage | 630 tests / 43 suites (2026-03-15) |
 | P3 Scalability | Optional |
 
 ### Backlog — Open Items
@@ -318,6 +319,13 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 — Square's `sold_out` sync has known issues. Customers may see items as available in online store when actual inventory is 0. Need: query variations where `inventory_counts.quantity = 0 AND state = 'IN_STOCK'`, cross-reference with Square Online `sold_out` flag, build reconciliation job to set `sold_out = true` when quantity = 0. Affects customer experience on live online store. |
 | Medium | BACKLOG-65 | Sync Square Online Store category assignments (website catalogs) — Square has two category types: reporting categories (currently synced) and online store/website catalog categories (not synced). Online categories control store navigation and product discovery. Need: investigate what Square API exposes for online category assignments, determine if they are on CatalogItem or a separate object type, add to catalog sync if available. |
 | Low | BACKLOG-66 | Customer email bounce tracking — loyalty notification emails may be silently failing for customers with invalid or bounced email addresses. Need: track `email_address` validity in `loyalty_customers`, flag bounced addresses, exclude from notification sends. Affects loyalty engagement reporting accuracy. |
+| High | BACKLOG-67 | Square orphan audit tool — scan all loyalty customer groups and pricing rules in Square, cross-reference against `loyalty_rewards` in DB, flag any Square object with no matching active reward as orphaned. Dry-run lists orphans, execute removes them. Discovered during Danny Booth reconciliation — deleted rewards left active Square discounts offering free items. |
+| High | BACKLOG-68 | Square discount cleanup on redemption — `redeemReward()` and `detectRewardRedemptionFromOrder()` must call `cleanupSquareCustomerGroupDiscount()` after transitioning to redeemed status. Currently orphans Square objects. Same class as HIGH-6 from loyalty audit. |
+| Medium | BACKLOG-69 | Extract duplicate discount fix pattern in `discount-validation-service.js` — `validateSingleRewardDiscount` has nearly identical "clear IDs + recreate" blocks for DISCOUNT_NOT_FOUND and DISCOUNT_DELETED. Extract to `_clearAndRecreateDiscount()` helper. DRY fix. |
+| Low | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap sync only increases caps. If catalog price drops, discount cap stays inflated. Square naturally caps at item price so no financial loss, but stale data. Confirm intentional or fix. |
+| Medium | BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` — private method handles qualifying item classification, free item detection, and redemption cross-referencing. Complex money/quantity logic not independently testable. Extract as named export. |
+| Low | BACKLOG-72 | Dead code cleanup — `customer-admin-service.js` — `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` have 0 callers. Thin delegation wrappers. Already documented as DEDUP L-4. Remove when in the file. |
+| Medium | BACKLOG-73 | Vendor receipt display bug — multi-redemption same order. When 2 rewards redeemed in same order, both receipts show same line item as free. No reward↔line-item linkage. Code picks first qualifying variation. Financial credit correct; display wrong. |
 
 ### Backlog — Archive (Completed)
 
