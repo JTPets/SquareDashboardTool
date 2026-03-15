@@ -200,6 +200,9 @@ const { auditMissedRedemptions } = require('./redemption-audit-service');
 // Square sync retry service (LA-4 fix)
 const { retryPendingSquareSyncs } = require('./square-sync-retry-service');
 
+// Line item filter (extracted from order-intake.js)
+const { shouldSkipLineItem, buildDiscountMap } = require('./line-item-filter');
+
 // Order intake service (consolidated entry point for all order processing)
 const {
     processLoyaltyOrder,
@@ -277,6 +280,10 @@ module.exports = {
     detectRewardRedemptionFromOrder,
     matchEarnedRewardByFreeItem,
     matchEarnedRewardByDiscountAmount,
+
+    // Line item filter (extracted from order-intake.js)
+    shouldSkipLineItem,
+    buildDiscountMap,
 
     // Order intake (single entry point for all order processing)
     processLoyaltyOrder,
