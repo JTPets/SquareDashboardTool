@@ -499,6 +499,24 @@ describe('_upsertInvoiceCommitment (via handleInvoiceChanged)', () => {
             expect.arrayContaining([1, 'inv_1', 'order_fetched', 'VAR_1', 'LOC_1', 1, 'SCHEDULED'])
         );
     });
+    test('catches _processOrderForCommitment rejection via try/catch (return await fix)', async () => {
+        // Verifies the return-await fix: errors from _processOrderForCommitment
+        // are now caught by _upsertInvoiceCommitment's try/catch instead of
+        // propagating uncaught to the caller.
+        mockSquareClient.orders.get.mockRejectedValueOnce(new Error('Square API down'));
+
+        const result = await handler.handleInvoiceChanged({
+            data: { invoice: { id: 'inv_1', status: 'DRAFT', order_id: 'order_1' } },
+            merchantId: 1,
+            entityId: 'inv_1'
+        });
+
+        expect(result.error).toBe('Square API down');
+        expect(logger.error).toHaveBeenCalledWith(
+            'Failed to upsert invoice commitment',
+            expect.objectContaining({ error: 'Square API down' })
+        );
+    });
 });
 
 // ---------------------------------------------------------------------------
