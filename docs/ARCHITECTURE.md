@@ -307,7 +307,7 @@ services/                     # Business logic services
 
 ## Loyalty Admin Modules
 
-The `services/loyalty-admin/` directory contains 21 modular services (61 exports) for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
+The `services/loyalty-admin/` directory contains 41 modular services for loyalty program administration. The legacy monolith and dead modern layer (`services/loyalty/`) have been fully eliminated (BACKLOG-31).
 
 **Import rule**: Always import from `services/loyalty-admin` (index.js):
 ```javascript

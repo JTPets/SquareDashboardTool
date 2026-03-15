@@ -7,7 +7,7 @@ Multi-tenant SaaS inventory management system for Square POS. Built for JTPets.c
 ## Tech Stack
 
 - **Runtime**: Node.js 18+ with Express.js
-- **Database**: PostgreSQL 14+
+- **Database**: PostgreSQL 15
 - **Process Manager**: PM2
 - **External APIs**: Square SDK v43.2.1, Google APIs v144
 - **Timezone**: America/Toronto
@@ -184,7 +184,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 /home/user/SquareDashboardTool/
 ├── server.js            # Route setup, middleware (~1,000 lines)
 ├── config/constants.js  # Centralized configuration
-├── routes/              # 24 modules, ~257 routes
+├── routes/              # 28 modules, ~260 routes
 ├── middleware/          # auth, merchant, security, validators/
 ├── services/            # Business logic
 │   ├── webhook-processor.js
@@ -201,7 +201,7 @@ set -a && source .env && set +a && PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" 
 
 ### Loyalty-Admin Module Structure
 
-The `services/loyalty-admin/` directory contains 21 modular services (61 exports). The legacy monolith and dead modern layer have been fully eliminated.
+The `services/loyalty-admin/` directory contains 41 modular services. The legacy monolith and dead modern layer have been fully eliminated.
 
 **Usage**: Always import from the index: `const loyaltyAdmin = require('./services/loyalty-admin');`
 
@@ -245,7 +245,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Webhook flow, services structure, loyalty-admin modules |
 | [docs/PRIORITIES.md](./docs/PRIORITIES.md) | Active HIGH/MEDIUM/LOW priority work items |
 | [docs/ROADMAP.md](./docs/ROADMAP.md) | Future initiatives and planned features |
-| [docs/archive/](./docs/archive/) | Reference material: EVENT_DELEGATION, API_CACHING_STRATEGY, sales velocity refactor plan |
+| [docs/WORK-ITEMS.md](./docs/WORK-ITEMS.md) | Consolidated master work list (all open items) |
 
 ---
 
@@ -263,184 +263,68 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 | API Optimization | 4/4 Complete |
 | P1-1 Loyalty Migration | Complete (monolith eliminated) |
 | Bundle Reorder System | Complete (new feature) |
-| Loyalty-Admin Test Coverage | 630 tests / 43 suites (2026-03-15) |
+| Total Test Coverage | 4,035 tests / 187 suites / 0 failures (2026-03-15) |
+| Loyalty-Admin Test Coverage | 857+ tests (2026-03-15) |
 | P3 Scalability | Optional |
 
 ### Backlog — Open Items
 
+See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work list with all open items from all sources.
+
 | Priority | Item | Description |
 |----------|------|-------------|
-| High | BACKLOG-39 | Vendor bill-back tracking — track promotional discounts funded by vendors. Need: `vendor_billbacks` table (item, discount_pct, date_range, vendor_id, expected_credit, status), reporting view for claim submission. Revenue recovery feature — independent retailers routinely lose bill-back credits. Auto-log when BACKLOG-38 promotions run with `vendor_billback_flag` = true. |
+| High | BACKLOG-50 | Post-trial conversion — $1 first month. Decide Stripe vs Square for SaaS billing |
+| High | BACKLOG-39 | Vendor bill-back tracking — `vendor_billbacks` table, reporting for claim submission |
+| High | BACKLOG-61 | GMC v1beta → v1 migration — Google Shopping feed broken since Feb 28 2026. **P0** |
+| Medium | BACKLOG-38 | Timed discount automation — cron-scheduled Square pricing rules |
+| Medium | BACKLOG-41 | User access control with roles — manager, clerk, accountant. Prerequisite for franchise |
+| Medium | BACKLOG-42 | Barcode scan-to-count for cycle counts |
+| Medium | BACKLOG-44 | Purchase order generation with branding |
+| Medium | BACKLOG-45 | Spreadsheet bulk upload — CSV/Google Sheets inventory import |
+| Medium | BACKLOG-51 | Demo account — read-only dashboard view for sales demos |
+| Medium | BACKLOG-55 | VIP customer auto-discounts via Square customer groups |
+| Medium | BACKLOG-63 | Caption auto-generation for Square Online product images (Claude API) |
+| Medium | BACKLOG-53 | Employee KPI coaching dashboard |
+| Medium | BACKLOG-54 | Employee auto-discounts via Square pricing rules |
+| Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 |
+| Medium | BACKLOG-65 | Sync Square Online Store category assignments |
+| Medium | BACKLOG-69 | Extract duplicate discount fix pattern in discount-validation-service.js |
+| Medium | BACKLOG-71 | Extract `_analyzeOrders` from order-history-audit-service.js |
+| Medium | BACKLOG-73 | Vendor receipt display bug — multi-redemption same order |
 | Medium | BACKLOG-4 | Customer birthday sync for marketing |
 | Medium | BACKLOG-1 | Frontend polling rate limits |
-| ~~Medium~~ | ~~BACKLOG-13~~ | ~~Move custom attribute initialization from startup to tenant onboarding~~ **DONE** (2026-02-23) |
-| ~~Medium~~ | ~~BACKLOG-22~~ | ~~Available vs total stock inconsistency in days-of-stock (DEDUP R-3)~~ **DONE** (2026-02-23) |
-| ~~Medium~~ | ~~BACKLOG-28~~ | ~~Wire vendor dashboard per-vendor config into reorder formula~~ **DONE** (2026-02-24) |
 | Low | BACKLOG-3 | Response format standardization |
-| ~~Low~~ | ~~BACKLOG-5~~ | ~~Rapid-fire webhook duplicate processing~~ **DONE** (2026-02-19) |
-| ~~Low~~ | ~~BACKLOG-7~~ | ~~Loyalty audit job per-event Square API calls (batch optimization)~~ **DONE** (2026-02-19) |
-| Low | BACKLOG-8 | Vendor management — pull vendor data from Square |
-| Low | BACKLOG-9 | In-memory global state — PM2 restart recovery (HIGH-4) — investigated, no immediate action needed |
+| Low | BACKLOG-8 | Vendor management — pull vendor data from Square Vendors API |
+| Low | BACKLOG-9 | In-memory global state — PM2 restart recovery |
 | Low | BACKLOG-12 | Driver share link validation failure |
-| Low | BACKLOG-17 | Customer lookup helpers duplicated between loyalty layers (DEDUP L-4) |
-| ~~Low~~ | ~~BACKLOG-21~~ | ~~Days-of-stock calculation — 5 implementations (DEDUP R-2)~~ **DONE** (2026-02-23) |
-| Low | BACKLOG-23 | Currency formatting — no shared helper, 14+ files (DEDUP G-3) |
-| ~~Low~~ | ~~BACKLOG-24~~ | ~~Order normalization boilerplate in order-handler.js (DEDUP G-4)~~ **CLOSED** (2026-02-19, intentional — see archive) |
+| Low | BACKLOG-17 | Customer lookup helpers duplicated (DEDUP L-4) |
+| Low | BACKLOG-23 | Currency formatting — no shared helper (DEDUP G-3) |
 | Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
-| Low | BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7) |
-| Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8) |
-| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook subscription |
-| ~~Low~~ | ~~BACKLOG-33~~ | ~~New variation velocity warning badge on reorder page~~ **DONE** (2026-02-24) |
-| Low | BACKLOG-34 | Documentation: Square reuses variation IDs when POS reorders delete/recreate variations. New variation may inherit historical order data on next velocity sync. Workaround: BACKLOG-33 flag. |
-| ~~Low~~ | ~~BACKLOG-32~~ | ~~Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js~~ **DONE** (2026-02-23) |
-| Low | BACKLOG-35 | Sales velocity does not subtract refunds — `syncSalesVelocity` fetches orders only, ignores refunds; net sales should be order qty minus refunded qty; impact low (~2 refunds/day), velocity slightly inflated on refunded items |
-| Medium | BACKLOG-36 | Phantom velocity rows never self-correct — `syncSalesVelocity` only upserts variations that appear in orders; variations with 0 sales are never written so stale rows persist forever; fix: DELETE FROM sales_velocity WHERE variation_id NOT IN (processed keys) AND period_days/merchant_id match; affects reorder suggestions and slow-mover flags; Tier 1 — implement next velocity sync touch |
-| ~~Medium~~ | ~~BACKLOG-37~~ | ~~Expiry audit assumes all units expired~~ **DONE** (2026-03-01) |
-| Medium | BACKLOG-38 | Timed discount automation — apply/remove Square discount objects (pricing rules) on a cron schedule, bypassing Square's broken native timed discount feature (shows "on sale" badge but displays regular price — confirmed bug, reported multiple times, unfixed). SqTools controls the timing, Square handles the display. Base prices never change. Reuse expiry discount cron pattern for scheduling. Need: `promotions` table (items, discount_type, discount_amount, start_date, end_date, vendor_billback_flag), cron job to apply/remove. Support recurring/template promotions (e.g. "March Flyer" — copy previous year, adjust items, auto-schedule). Ties to BACKLOG-39 for vendor bill-back tracking when `vendor_billback_flag` is true. |
-| Low | BACKLOG-40 | exceljs pulls deprecated transitive deps (inflight, rimraf, glob, fstream, lodash.isequal) — evaluate replacing with lighter xlsx/csv library before open-source launch; Jest also pulls glob@7 but dev-only |
-| Medium | BACKLOG-41 | User access control with roles — manager, clerk, accountant permissions. Per-user action logging. Required for multi-user SaaS deployment. Prerequisite for franchise model. |
-| Medium | BACKLOG-42 | Barcode scan-to-count for cycle counts — accept wireless/wired barcode scanner input during cycle count workflow. Existing cycle count system handles the logic, just needs scanner input support on frontend. |
-| Low | BACKLOG-43 | Min/Max stock per item per location — may already be partially implemented via Square's inventory alert thresholds. Investigate: how does Square store min/max per location? Does `setSquareInventoryAlertThreshold` already handle this? If so, this may just need reorder logic to respect the max cap when calculating order quantities. Explore before building anything new. |
-| Medium | BACKLOG-44 | Purchase order generation with branding — generate printable/emailable POs with merchant logo. Current reorder workflow calculates what to order but doesn't produce a formal PO document. |
-| Medium | BACKLOG-45 | Spreadsheet bulk upload — import/update inventory via CSV or Google Sheets. Lowers onboarding barrier for new merchants migrating from manual tracking. |
-| Low | BACKLOG-46 | QuickBooks daily sync — auto-sync daily sales summaries and inventory data to QuickBooks Online. Retention feature for SaaS — every independent retailer uses QuickBooks. |
-| Low | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce integration. Sync inventory across POS + e-commerce. Depends on multi-POS abstraction layer (post api.js split). |
-| Low | BACKLOG-48 | Clover POS integration — expand beyond Square. Depends on multi-POS abstraction layer. |
-| Low | BACKLOG-49 | Stripe payment integration — alternative payment processor support. |
-| Medium | BACKLOG-51 | Demo account — read-only view of a merchant's SqTools dashboard for sales demos and franchise prospect walkthroughs. Single shared login per merchant, view-only (no mutations), can be enabled/disabled by merchant owner, should not expose sensitive vendor pricing or customer PII. Relates to BACKLOG-41 (user access control) — may be implemented as a role type when that work is done. |
-| High | BACKLOG-50 | Post-trial conversion — $1 first month. When trial expires, offer first month at $1 to verify credit card without friction. Purpose: captures payment method, proves intent, minimal barrier. After $1 month, auto-convert to full price. Need: Square payment integration for SqTools subscriptions (using merchant's OWN Square account to charge them would be weird — need a separate SqTools Square account or Stripe for SaaS billing). This is the "System B" cleanup — current subscribers table has Square billing but disconnected from merchants. Decide: Stripe vs Square for SaaS billing before building this. |
-| High | BACKLOG-61 | GMC v1beta → v1 migration — `services/gmc/merchant-service.js` using deprecated Google Merchant API v1beta (discontinued Feb 28 2026). All product upserts failing with 409 ABORTED. Live store affected — organic Google Shopping visibility broken for 10+ days. P0. Source: error logs 2026-03-09. |
-| Medium | BACKLOG-55 | VIP customer auto-discounts — assign customers to named VIP groups (e.g., "Family", "Staff Alumni", "Investor") in Square customer profiles. Pricing rules auto-apply configured discount % at POS with no staff action required. Management UI to assign/remove VIP status and set discount % per group. Uses existing Square customer group + pricing rule infrastructure from loyalty system. No loyalty points on VIP-discounted items. |
-| Medium | BACKLOG-63 | Caption auto-generation for Square Online Store product images — use Claude API to generate descriptive captions (under 140 chars) for all catalog images. Push via `POST /v2/catalog/batch-upsert` updating `image_data.caption`. Square has no `alt_text` field — `caption` is the closest SEO/accessibility equivalent. One-time bulk run + hook into catalog sync for new items. Reuse existing Claude API integration pattern. |
-| Medium | BACKLOG-53 | Employee KPI coaching dashboard — pull employee_id from orders + labor webhook data to surface: loyalty enrollments per employee, qualifying item upsell rate, avg basket size, punctuality from timecards. Coaching view, not payroll. Franchise-relevant for store managers. |
-| Medium | BACKLOG-54 | Employee auto-discounts — use employee_id on Square orders to auto-apply staff discount via pricing rule scoped to employee group. No loyalty points on staff purchases. Needs staff list management UI. |
-| Low | BACKLOG-57 | Expiry discount daily re-apply noise — `discount-service.js` logs DISCOUNT_APPLIED every day for every discounted item even when tier and price haven't changed. Add idempotency check: skip Square API call and audit log entry if `current_tier_id` is unchanged and `discount_applied_at` is within last 24 hours. Reduces unnecessary Square API calls and audit log noise. |
-| Low | BACKLOG-58 | Inventory increase should trigger expiry re-verification — inventory changes (webhooks, PO receives, manual adjustments) do not call `saveExpirations()` and do not touch `reviewed_at`. When implementing: trigger `reviewed_at` clear ONLY when inventory increases (not decreases), ONLY if item is in AUTO25/AUTO50 tier, and ONLY after the tier-change + Square-push-success guards are satisfied. |
-| Medium | BACKLOG-64 | Audit Square `sold_out` flag vs inventory = 0 — Square's `sold_out` sync has known issues. Customers may see items as available in online store when actual inventory is 0. Need: query variations where `inventory_counts.quantity = 0 AND state = 'IN_STOCK'`, cross-reference with Square Online `sold_out` flag, build reconciliation job to set `sold_out = true` when quantity = 0. Affects customer experience on live online store. |
-| Medium | BACKLOG-65 | Sync Square Online Store category assignments (website catalogs) — Square has two category types: reporting categories (currently synced) and online store/website catalog categories (not synced). Online categories control store navigation and product discovery. Need: investigate what Square API exposes for online category assignments, determine if they are on CatalogItem or a separate object type, add to catalog sync if available. |
-| Low | BACKLOG-66 | Customer email bounce tracking — loyalty notification emails may be silently failing for customers with invalid or bounced email addresses. Need: track `email_address` validity in `loyalty_customers`, flag bounced addresses, exclude from notification sends. Affects loyalty engagement reporting accuracy. |
-| High | BACKLOG-67 | Square orphan audit tool — scan all loyalty customer groups and pricing rules in Square, cross-reference against `loyalty_rewards` in DB, flag any Square object with no matching active reward as orphaned. Dry-run lists orphans, execute removes them. Discovered during Danny Booth reconciliation — deleted rewards left active Square discounts offering free items. |
-| High | BACKLOG-68 | Square discount cleanup on redemption — `redeemReward()` and `detectRewardRedemptionFromOrder()` must call `cleanupSquareCustomerGroupDiscount()` after transitioning to redeemed status. Currently orphans Square objects. Same class as HIGH-6 from loyalty audit. |
-| Medium | BACKLOG-69 | Extract duplicate discount fix pattern in `discount-validation-service.js` — `validateSingleRewardDiscount` has nearly identical "clear IDs + recreate" blocks for DISCOUNT_NOT_FOUND and DISCOUNT_DELETED. Extract to `_clearAndRecreateDiscount()` helper. DRY fix. |
-| Low | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap sync only increases caps. If catalog price drops, discount cap stays inflated. Square naturally caps at item price so no financial loss, but stale data. Confirm intentional or fix. |
-| Medium | BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` — private method handles qualifying item classification, free item detection, and redemption cross-referencing. Complex money/quantity logic not independently testable. Extract as named export. |
-| Low | BACKLOG-72 | Dead code cleanup — `customer-admin-service.js` — `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` have 0 callers. Thin delegation wrappers. Already documented as DEDUP L-4. Remove when in the file. |
-| Medium | BACKLOG-73 | Vendor receipt display bug — multi-redemption same order. When 2 rewards redeemed in same order, both receipts show same line item as free. No reward↔line-item linkage. Code picks first qualifying variation. Financial credit correct; display wrong. |
-
-### Backlog — Archive (Completed)
-
-| Item | Description | Completed |
-|------|-------------|-----------|
-| BACKLOG-2 | Delivery routing webhook sync | 2026-02-12 (investigated — all working correctly) |
-| BACKLOG-6 | Consolidate Square discount/pricing rule deletion code | 2026-02-06 (shared `utils/square-catalog-cleanup.js`, 21 tests) |
-| BACKLOG-32 | Frontend hardcoded expiry tier thresholds in reorder.js and expiry-discounts.js | 2026-02-23 (reorder.js and expiry-discounts.js now load tier config from API, matching expiry-audit.js pattern) |
-| BACKLOG-10 | Invoice-driven committed inventory | 2026-02-19 (invoice webhooks + daily reconciliation) |
-| BACKLOG-11 | Subscribe to `customer.created` webhook | 2026-02-19 (handler + config wired) |
-| BACKLOG-14 | Reorder formula duplication (DEDUP R-1) | 2026-02-17 (shared `services/catalog/reorder-math.js`, 31 tests) |
-| BACKLOG-15 | Reward progress / threshold crossing (DEDUP L-2) | 2026-02-17 (split-row rollover ported to admin layer, 8 tests) |
-| BACKLOG-16 | redeemReward() name collision (DEDUP L-3) | 2026-02-17 (dead code removed from loyalty layer) |
-| BACKLOG-18 | Offer/variation query overlap (DEDUP L-5) | 2026-02-19 (shared `loyalty-queries.js`, fixed 3 missing `is_active` filters) |
-| BACKLOG-19 | Dual Square API client layers (DEDUP L-6) | 2026-02-19 (unified `square-api-client.js`, 429 retry ported) |
-| BACKLOG-20 | Redemption detection asymmetry (DEDUP L-7) | 2026-02-19 (audit job uses canonical `detectRewardRedemptionFromOrder()`) |
-| BACKLOG-30 | Consolidate order processing paths | 2026-02-19 (`services/loyalty-admin/order-intake.js`, 14 tests) |
-| BACKLOG-31 | Remove dead modern loyalty layer | 2026-02-19 (`services/loyalty/` deleted, active code migrated to `loyalty-admin/`) |
-| BACKLOG-5 | Rapid-fire webhook duplicate processing | 2026-02-19 (in-memory event lock in webhook-processor.js, 60s auto-expire) |
-| BACKLOG-24 | Order normalization boilerplate (DEDUP G-4) | 2026-02-19 (investigated — intentional; 3 call sites in order-handler.js serve different workflows with different pre-checks; `_fetchFullOrder()` already encapsulates common case) |
-| BACKLOG-7 | Loyalty audit job batch optimization | 2026-02-19 (`batchFetchSquareOrders()` with concurrency control, no per-event API calls) |
-| BACKLOG-13 | Move custom attribute init from startup to onboarding | 2026-02-23 (added `custom_attributes_initialized_at` column; startup skips initialized merchants) |
-| BACKLOG-21 | Days-of-stock calculation — 5 implementations (DEDUP R-2) | 2026-02-23 (all 4 pages now subtract RESERVED_FOR_SALE committed inventory) |
-| BACKLOG-22 | Available vs total stock inconsistency (DEDUP R-3) | 2026-02-23 (inventory-service, audit-service, bundles now use available_quantity like analytics.js) |
-| BACKLOG-28 | Wire vendor per-vendor config into reorder formula | 2026-02-24 (reorder suggestions now pass per-vendor lead_time_days to formula; SQL + JS threshold include lead time; Lead Time column in reorder.html) |
-| BACKLOG-33 | New variation velocity warning badge on reorder page | 2026-02-24 (display-only badge next to velocity for variations <7 days old; warns about unreliable velocity from Square ID reassignment) |
-| BACKLOG-37 | Expiry audit partial-expiry workflow | 2026-03-01 (expired-pull modal asks "Are ALL units expired?"; full pull zeros inventory via Square API; partial pull updates remaining count + new expiry date; `POST /api/expirations/pull` endpoint; 10 tests) |
-| BACKLOG-59 | `detectRewardRedemptionFromOrder` loops all matched earned rewards — multi-reward redemption confirmed incident resolved | 2026-03-10 |
-
-#### BACKLOG-8: Vendor Management — Pull Vendor Data from Square
-
-**Context**: Vendor emails and contact info are currently NULL in `loyalty_offers`. The vendor receipt report shows N/A for vendor email because we're relying on a local `vendor_email` column that's never populated. Square is the source of truth for vendor data via the Vendors API.
-
-**Files involved**:
-- `services/reports/loyalty-reports.js` (generateVendorReceipt)
-- `database/schema.sql` (loyalty_offers table)
-
-**Proposed solution**:
-- On offer creation/edit, link to Square vendor ID instead of storing vendor details locally
-- When generating reports, fetch vendor contact details (email, company name, rep name) from Square Vendors API
-- Fall back to N/A if vendor not set in Square
-- Remove `vendor_email` column from `loyalty_offers` once migration is complete
-
-**Audit date**: 2026-02-02
-
-#### ~~BACKLOG-28: Wire Vendor Dashboard Per-Vendor Config Into Reorder Formula~~ (RESOLVED 2026-02-24)
-
-Reorder suggestions endpoint (`routes/analytics.js`) now passes per-vendor `lead_time_days` from the vendors table into `calculateReorderQuantity()`. SQL WHERE clause includes per-vendor lead time in the threshold filter (`$1 + COALESCE(ve.lead_time_days, 0)`). JS-side filtering also uses per-vendor threshold. Response includes `vendor_default_supply_days` for visibility. Frontend `reorder.html` displays a "Lead Time" column showing each item's vendor lead time. Items without a vendor default to 0 lead time (matching vendor dashboard pattern). `reorder-math.js` JSDoc updated to reflect wiring is complete.
-
-#### BACKLOG-29: Existing Tenants Missing `invoice.payment_made` Webhook Subscription
-
-**Context**: `invoice.payment_made` was only in the `subscriptions` webhook event group, not `invoices`. New tenants onboarded via `getRecommendedEventTypes()` (which includes `invoices` but not `subscriptions`) would never receive `invoice.payment_made`, so the committed inventory cleanup fix would be inert. Fixed in code for future tenants — `invoice.payment_made` is now in both groups, and `getAllEventTypes()` dedupes.
-
-**Remaining work**: Existing tenants' Square webhook subscriptions may not include `invoice.payment_made`. Need to re-register webhooks for all active merchants via the webhook management endpoint (or a one-time migration script).
-
-**Files involved**:
-- `utils/square-webhooks.js` (event groups — fixed)
-- `routes/webhooks.js` (webhook re-registration endpoint)
-
-**Priority**: Low (JTPets already has both groups enabled; affects future multi-tenant only)
-**Effort**: S
-
-**Audit date**: 2026-02-19
-
-#### ~~BACKLOG-32: Frontend Hardcoded Expiry Tier Thresholds~~ (RESOLVED 2026-02-23)
-
-Both `reorder.js` and `expiry-discounts.js` now load tier config from `/api/expiry-discounts/tiers` on page init, matching the correct pattern in `expiry-audit.js`. Hardcoded thresholds replaced with `getExpiryTierFromDays()` / `getTierFromDays()` using API-loaded `tierRanges`. Falls back to default thresholds if API call fails.
+| Low | BACKLOG-26 | Date string formatting repeated 12 times (DEDUP G-7) |
+| Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses (DEDUP G-8) |
+| Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook |
+| Low | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder |
+| Low | BACKLOG-40 | exceljs deprecated transitive deps — evaluate lighter library |
+| Low | BACKLOG-43 | Min/Max stock per item per location |
+| Low | BACKLOG-46 | QuickBooks daily sync |
+| Low | BACKLOG-47 | Multi-channel inventory sync (Shopify, WooCommerce, BigCommerce) |
+| Low | BACKLOG-48 | Clover POS integration |
+| Low | BACKLOG-49 | Stripe payment integration |
+| Low | BACKLOG-57 | Expiry discount daily re-apply noise |
+| Low | BACKLOG-58 | Inventory increase should trigger expiry re-verification |
+| Low | BACKLOG-66 | Customer email bounce tracking |
+| Low | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward |
+| Low | BACKLOG-72 | Dead code cleanup — customer-admin-service.js (3 unused wrappers) |
 
 ### Architectural Tech Debt
 
-#### Unified Audit Logging
+#### Unified Audit Logging (Pre-Franchise)
 
-**Current state**: Audit trails are fragmented across feature-specific tables:
-- `webhook_events` (webhook processing)
-- `loyalty_audit_logs` (loyalty point changes)
-- `loyalty_purchase_events` (purchase-triggered loyalty)
-- `delivery_audit_log` (delivery state changes)
-- `sync_history` (sync operations)
+Audit trails fragmented across `webhook_events`, `loyalty_audit_logs`, `delivery_audit_log`, `sync_history`. Missing: inventory changes, catalog edits, admin actions. Need single `audit_log` table. Low priority (single store), High (pre-franchise).
 
-**Missing coverage**:
-- Inventory changes (PO receives, adjustments, corrections)
-- Catalog edits (price changes, item creation/deletion)
-- Admin actions (manual overrides, settings changes)
-- No unified "who, what, when, before/after" trail
+#### `merchants.subscription_status` Never Auto-Transitions
 
-**Impact**: Currently acceptable for single-store. Required before franchise deployment — franchisees need auditable change history and central visibility into per-location operations.
-
-**Recommended approach**: Single `audit_log` table with columns for actor, action, entity_type, entity_id, before_value (JSONB), after_value (JSONB), merchant_id, created_at. Retrofit existing feature-specific audit tables as views or migrate data over time.
-
-**Priority**: Low (single store), High (pre-franchise).
-
-#### Sales Velocity Dedup Fix (2026-03-03)
-
-**Bug**: Square sends 4-5 `order.updated` webhooks per sale. Each has a unique `event_id`, so the webhook processor's event-level dedup didn't catch them. The velocity function in `square-velocity.js` had an in-memory TTLCache dedup (120s TTL, keyed by `orderId:merchantId`) that returned `updated: 0` for duplicates, but the order handler still logged "Sales velocity updated incrementally" at INFO level for every call — misleading the user into thinking data was inflated.
-
-**Root cause**: Missing handler-level dedup. The `handleOrderCreatedOrUpdated` method called `updateSalesVelocityFromOrder()` for every webhook, relying solely on the velocity function's internal dedup. The velocity SQL uses additive updates (`total_quantity_sold + qty`), so any dedup failure (PM2 cluster mode, process restart) would cause real inflation.
-
-**Fix**: Added `completedOrderVelocityCache` (60s TTL) in `order-handler.js` that prevents calling the velocity function at all for duplicate COMPLETED order webhooks. Same cache covers both `order.created/updated` and `order.fulfillment.updated` paths. Fixed logging to only emit INFO when `updated > 0`. The velocity-level dedup in `square-velocity.js` remains as a safety net. 8 new tests in `velocity-handler-dedup.test.js`.
-
-| File | Change |
-|------|--------|
-| `services/webhook-handlers/order-handler.js` | Added `completedOrderVelocityCache` TTLCache (60s); handler-level dedup in `handleOrderCreatedOrUpdated` and `handleFulfillmentUpdated`; fixed INFO logging |
-| `__tests__/services/velocity-handler-dedup.test.js` | 8 new tests covering rapid-fire burst, cross-handler dedup, cache expiry |
-
-#### Subscription System Observations (2026-03-01)
-
-Documented during subscription enforcement implementation (2026-03-01).
-
-| Finding | Status | Notes |
-|---------|--------|-------|
-| **System A vs System B disconnect** | **RESOLVED** (2026-03-01) | `subscribers.merchant_id` column added (migration 063). `services/subscription-bridge.js` syncs payment events to `merchants.subscription_status`. Webhook handlers update both tables. System B `subscriptionCheck` middleware removed from server.js. |
-| **`subscriptionCheck` middleware (System B) is redundant** | **RESOLVED** (2026-03-01) | Removed from server.js. System A's `requireValidSubscription` is the sole enforcement layer. System B is now payment-processor-only. |
-| **`merchants.subscription_status` never transitions automatically** | TODO | Status is set to 'trial' at creation but never auto-transitions to 'expired'. The `loadMerchantContext` middleware handles this dynamically by checking `trial_ends_at`, but the column itself stays stale. Consider a cron job to update status for cleaner admin reporting. |
-| **Dead subscription UI routes** | **RESOLVED** (2026-03-01) | `subscription-expired.html` now links to `/upgrade.html`. New `upgrade.html` page is session-aware — shows trial countdown, plan selection, and payment form using merchant context. |
-| **Second merchant connecting today** | SAFE | OAuth flow correctly sets trial_ends_at on INSERT, doesn't overwrite on re-auth. Subscription enforcement middleware grandfathers NULL trial_ends_at. All data queries filter by merchant_id. |
+Status stays stale at 'trial'. Middleware handles dynamically via `trial_ends_at`, but column is wrong for admin reporting. Need cron to UPDATE expired trials.
 
 ---
 
