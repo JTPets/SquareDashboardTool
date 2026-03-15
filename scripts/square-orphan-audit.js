@@ -43,9 +43,15 @@ function getArgValue(prefix) {
 const MERCHANT_ID = parseInt(getArgValue('--merchant-id=')) || 3;
 const API_DELAY_MS = 200;
 
-// Group naming pattern from square-customer-group-service.js:
-// "Loyalty Reward {rewardId} - {offerName} - {customerName}"
-const LOYALTY_GROUP_PATTERN = /^Loyalty Reward (\d+) - /;
+// Group naming patterns used across production history:
+//   Current:  "Loyalty Reward {id} - {offerName} - {customerName}"
+//   Old v1:   "FBP Reward #{id}: ..."
+//   Old v2:   "FBP Reward {id} - ..."
+const LOYALTY_GROUP_PATTERNS = [
+    /^Loyalty Reward (\d+) - /,
+    /^FBP Reward #(\d+)[:\s]/,
+    /^FBP Reward (\d+) - /
+];
 
 function log(msg, data = {}) {
     const extra = Object.keys(data).length > 0 ? ` ${JSON.stringify(data)}` : '';
@@ -122,8 +128,10 @@ async function runAudit() {
     const allGroups = await fetchAllCustomerGroups(accessToken);
     log(`Found ${allGroups.length} total customer groups`);
 
-    // Step 2: Filter to loyalty reward groups
-    const loyaltyGroups = allGroups.filter(g => LOYALTY_GROUP_PATTERN.test(g.name));
+    // Step 2: Filter to loyalty reward groups (match any known naming pattern)
+    const loyaltyGroups = allGroups.filter(g =>
+        LOYALTY_GROUP_PATTERNS.some(p => p.test(g.name))
+    );
     log(`Found ${loyaltyGroups.length} loyalty reward groups`);
 
     if (loyaltyGroups.length === 0) {
@@ -138,8 +146,15 @@ async function runAudit() {
 
     for (const group of loyaltyGroups) {
         scanned++;
-        const match = LOYALTY_GROUP_PATTERN.exec(group.name);
-        const rewardIdFromName = match ? parseInt(match[1]) : null;
+        // Extract reward ID from whichever naming pattern matches
+        let rewardIdFromName = null;
+        for (const pattern of LOYALTY_GROUP_PATTERNS) {
+            const match = pattern.exec(group.name);
+            if (match) {
+                rewardIdFromName = parseInt(match[1]);
+                break;
+            }
+        }
 
         await sleep(API_DELAY_MS);
 
