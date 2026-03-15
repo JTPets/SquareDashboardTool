@@ -550,3 +550,67 @@ describe('getReorderSuggestions', () => {
         expect(result.other_vendor_items).toBeUndefined();
     });
 });
+
+// ============================================================================
+// Cheaper-elsewhere false positive fix
+// ============================================================================
+
+describe('is_primary_vendor — equal price vendors', () => {
+    const defaultConfig = {
+        supplyDaysNum: 45,
+        safetyDays: 7,
+        priorityConfig: {
+            urgentDays: 0,
+            highDays: 7,
+            mediumDays: 14,
+            lowDays: 30
+        }
+    };
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        calculateReorderQuantity.mockReturnValue(10);
+    });
+
+    it('should not flag as secondary vendor when prices are equal', () => {
+        // Two vendors with same price — current vendor is not the "primary" by ID
+        // but has equal cost, so should NOT trigger cheaper-elsewhere highlight
+        const row = makeRow({
+            current_vendor_id: 'v2',
+            unit_cost_cents: '2307',
+            primary_vendor_id: 'v1',
+            primary_vendor_name: 'Other Supplier',
+            primary_vendor_cost: '2307',
+            current_stock: '2',
+            available_quantity: '2',
+            daily_avg_quantity: '1.0',
+            days_until_stockout: '2',
+            below_minimum: true,
+            stock_alert_min: '5'
+        });
+
+        const result = processSuggestionRows([row], defaultConfig);
+        expect(result).toHaveLength(1);
+        expect(result[0].is_primary_vendor).toBe(true);
+    });
+
+    it('should flag as secondary vendor when another vendor is truly cheaper', () => {
+        const row = makeRow({
+            current_vendor_id: 'v2',
+            unit_cost_cents: '3000',
+            primary_vendor_id: 'v1',
+            primary_vendor_name: 'Cheaper Supplier',
+            primary_vendor_cost: '2307',
+            current_stock: '2',
+            available_quantity: '2',
+            daily_avg_quantity: '1.0',
+            days_until_stockout: '2',
+            below_minimum: true,
+            stock_alert_min: '5'
+        });
+
+        const result = processSuggestionRows([row], defaultConfig);
+        expect(result).toHaveLength(1);
+        expect(result[0].is_primary_vendor).toBe(false);
+    });
+});
