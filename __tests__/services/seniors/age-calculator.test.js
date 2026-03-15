@@ -176,14 +176,13 @@ describe('Age Calculator', () => {
     // ==================== getNextBirthday ====================
     describe('getNextBirthday', () => {
         test('returns this year birthday if not yet passed', () => {
-            const today = new Date();
-            // Use a birthday that's always in the future (Dec 31)
-            const birthday = `1990-12-31`;
+            // Use local Date constructor to avoid UTC-vs-local mismatch in EDT:
+            // new Date('1990-12-31') parses as UTC midnight, which in EDT shifts to Dec 30 local
+            const birthday = new Date(1990, 11, 31); // Dec 31, 1990 local
             const next = getNextBirthday(birthday);
-            if (next) {
-                expect(next.getMonth()).toBe(11); // December
-                expect(next.getDate()).toBe(31);
-            }
+            expect(next).toBeInstanceOf(Date);
+            expect(next.getMonth()).toBe(11); // December
+            expect(next.getDate()).toBe(31);
         });
 
         test('returns null for invalid birthday string', () => {
