@@ -62,13 +62,17 @@ describe('Age Calculator', () => {
         });
 
         test('same month, day before birthday', () => {
+            // Use local Date constructor for both to avoid UTC-vs-local mismatch:
+            // new Date('1990-06-15') parses as UTC midnight, which in EDT shifts to June 14 local
             const asOf = new Date(2026, 5, 14);
-            expect(calculateAge('1990-06-15', asOf)).toBe(35);
+            const birthday = new Date(1990, 5, 15); // June 15, 1990 local
+            expect(calculateAge(birthday, asOf)).toBe(35);
         });
 
         test('same month, day after birthday', () => {
             const asOf = new Date(2026, 5, 16);
-            expect(calculateAge('1990-06-15', asOf)).toBe(36);
+            const birthday = new Date(1990, 5, 15); // June 15, 1990 local
+            expect(calculateAge(birthday, asOf)).toBe(36);
         });
     });
 
@@ -90,8 +94,10 @@ describe('Age Calculator', () => {
         });
 
         test('returns false for 59 (birthday not yet)', () => {
+            // Use local Date constructor to avoid UTC-vs-local mismatch in EDT
             const asOf = new Date(2026, 5, 14);
-            expect(isSenior('1966-06-15', undefined, asOf)).toBe(false);
+            const birthday = new Date(1966, 5, 15); // June 15, 1966 local
+            expect(isSenior(birthday, undefined, asOf)).toBe(false);
         });
 
         test('returns false for null birthday', () => {
