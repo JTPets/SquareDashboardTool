@@ -17,7 +17,7 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 
 // Customer lookup for fallback when fulfillment recipient data is missing
-const { LoyaltyCustomerService } = require('../loyalty-admin/customer-identification-service');
+const { getCustomerDetails: getSquareCustomerDetails } = require('../loyalty-admin/customer-details-service');
 
 // POD storage directory (relative to app root)
 const POD_STORAGE_DIR = process.env.POD_STORAGE_DIR || 'storage/pod';
@@ -1450,9 +1450,7 @@ async function ingestSquareOrder(merchantId, squareOrder) {
     // This fixes "Unknown Customer" when webhook data has incomplete fulfillment recipient
     if ((customerName === 'Unknown Customer' || !phone) && squareCustomerId) {
         try {
-            const customerService = new LoyaltyCustomerService(merchantId);
-            await customerService.initialize();
-            const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
+            const customerDetails = await getSquareCustomerDetails(squareCustomerId, merchantId);
 
             if (customerDetails) {
                 if (customerName === 'Unknown Customer' && customerDetails.displayName) {
@@ -1924,13 +1922,9 @@ async function backfillUnknownCustomers(merchantId) {
     let updated = 0;
     let failed = 0;
 
-    // Initialize customer service once
-    const customerService = new LoyaltyCustomerService(merchantId);
-    await customerService.initialize();
-
     for (const order of ordersToFix.rows) {
         try {
-            const customerDetails = await customerService.getCustomerDetails(order.square_customer_id);
+            const customerDetails = await getSquareCustomerDetails(order.square_customer_id, merchantId);
 
             if (customerDetails) {
                 const updates = {};
