@@ -150,7 +150,10 @@ async function redeemReward(redemptionData) {
 
         await client.query('COMMIT');
 
-        // Clean up Square discount objects (outside transaction - non-critical)
+        // LOGIC CHANGE: cleanup Square discount objects on redemption (BACKLOG-68)
+        // After successful redemption, remove the customer group membership,
+        // pricing rule, and discount from Square to prevent orphaned objects
+        // that would continue offering free items.
         try {
             await cleanupSquareCustomerGroupDiscount({
                 merchantId,
@@ -158,10 +161,11 @@ async function redeemReward(redemptionData) {
                 internalRewardId: rewardId
             });
         } catch (cleanupErr) {
-            // Log but don't fail - the redemption was successful
-            logger.warn('Failed to cleanup Square discount after redemption', {
+            // Cleanup failure should NOT roll back the redemption
+            logger.error('Failed to cleanup Square discount after redemption (BACKLOG-68)', {
                 error: cleanupErr.message,
-                rewardId
+                rewardId,
+                merchantId
             });
         }
 

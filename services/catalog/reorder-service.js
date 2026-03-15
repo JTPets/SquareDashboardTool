@@ -413,7 +413,9 @@ function processSuggestionRows(rows, { supplyDaysNum, safetyDays, priorityConfig
                 order_cost: orderCost,
                 vendor_name: row.vendor_name,
                 vendor_code: row.vendor_code || 'N/A',
-                is_primary_vendor: row.current_vendor_id === row.primary_vendor_id,
+                // LOGIC CHANGE: equal prices should not trigger cheaper-elsewhere highlight (reorder page bug fix)
+                is_primary_vendor: row.current_vendor_id === row.primary_vendor_id
+                    || (parseInt(row.unit_cost_cents) || 0) <= (parseInt(row.primary_vendor_cost) || 0),
                 primary_vendor_name: row.primary_vendor_name,
                 primary_vendor_cost: parseInt(row.primary_vendor_cost) || 0,
                 lead_time_days: leadTime,

@@ -1094,6 +1094,24 @@ The async function returns a promise without awaiting it inside a try/catch bloc
 
 **Status**: FIXED 2026-03-15.
 
+### ~~BACKLOG-68: Square discount cleanup on redemption~~ RESOLVED (2026-03-15)
+
+**Files**: `services/loyalty-admin/reward-service.js`
+**Issue**: `redeemReward()` and `detectRewardRedemptionFromOrder()` transition rewards to redeemed status but were not cleaning up Square discount objects (customer group membership, pricing rule, discount) afterward, leaving orphaned objects that continued offering free items.
+**Fix**: Added `cleanupSquareCustomerGroupDiscount()` call after successful redemption in `redeemReward()`. The cleanup runs outside the transaction — failures log an error but do not roll back the redemption. `detectRewardRedemptionFromOrder()` calls `redeemReward()` which now includes cleanup. 4 new tests.
+
+### ~~BACKLOG-67: Square orphan audit tool~~ RESOLVED (2026-03-15)
+
+**File**: `scripts/square-orphan-audit.js`
+**Issue**: Deleted or redeemed rewards could leave orphaned Square objects (customer groups, pricing rules, discounts) that continued offering free items. No tool existed to scan and clean these up.
+**Fix**: Created `scripts/square-orphan-audit.js` — scans all Square customer groups matching the `Loyalty Reward {id} - ...` naming pattern, cross-references against `loyalty_rewards` in DB, flags orphans (no DB match, redeemed, revoked, expired). Dry-run mode lists orphans; execute mode removes customer from group, deletes pricing rule/discount/group, and clears Square IDs from DB. Rate-limited at 200ms between API calls. Skips failures and continues.
+
+### ~~Reorder page "cheaper elsewhere" false positive~~ RESOLVED (2026-03-15)
+
+**File**: `services/catalog/reorder-service.js`
+**Issue**: When two suppliers had the same price for an item, the reorder page incorrectly flagged the item as "cheaper elsewhere." The `is_primary_vendor` flag compared vendor IDs only (`current_vendor_id === primary_vendor_id`), so when the tiebreaker picked a different vendor as "primary," the equal-cost vendor showed a false positive highlight.
+**Fix**: Changed `is_primary_vendor` to also return `true` when the current vendor's cost equals the primary vendor's cost (`unit_cost_cents <= primary_vendor_cost`). 2 new tests.
+
 ---
 
 ## Grading History

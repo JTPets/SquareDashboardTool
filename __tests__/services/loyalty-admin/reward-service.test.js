@@ -1489,6 +1489,147 @@ describe('matchEarnedRewardByDiscountAmount — additional edge cases', () => {
 });
 
 // ============================================================================
+// BACKLOG-68: Square discount cleanup on redemption
+// ============================================================================
+
+describe('BACKLOG-68 — Square discount cleanup on redemption', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('redeemReward calls cleanupSquareCustomerGroupDiscount after successful redemption', async () => {
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50, reward_id: 1 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1'
+        });
+
+        expect(mockCleanupDiscount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            internalRewardId: 1
+        });
+    });
+
+    it('redeemReward still succeeds if cleanup throws (logs error, does not roll back)', async () => {
+        mockCleanupDiscount.mockRejectedValueOnce(new Error('Square API timeout'));
+
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 1, status: 'earned', offer_id: 10, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 50, reward_id: 1 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await redeemReward({
+            merchantId: 1, rewardId: 1, squareOrderId: 'ord_1',
+            squareCustomerId: 'cust_1'
+        });
+
+        // Redemption succeeded despite cleanup failure
+        expect(result.success).toBe(true);
+        expect(logger.error).toHaveBeenCalledWith(
+            'Failed to cleanup Square discount after redemption (BACKLOG-68)',
+            expect.objectContaining({ error: 'Square API timeout', rewardId: 1 })
+        );
+    });
+
+    it('detectRewardRedemptionFromOrder calls cleanup after redemption (via redeemReward)', async () => {
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            location_id: 'loc_1',
+            discounts: [{ uid: 'd1', catalog_object_id: 'disc_123' }],
+            line_items: []
+        };
+
+        // Strategy 1: match by catalog_object_id
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 77, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_123',
+                square_pricing_rule_id: null, status: 'earned'
+            }]
+        });
+
+        // Mock redeemReward internals
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 77, status: 'earned', offer_id: 5, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 300, reward_id: 77 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        await detectRewardRedemptionFromOrder(order, 1);
+
+        expect(mockCleanupDiscount).toHaveBeenCalledWith({
+            merchantId: 1,
+            squareCustomerId: 'cust_1',
+            internalRewardId: 77
+        });
+    });
+
+    it('detectRewardRedemptionFromOrder still succeeds if cleanup throws', async () => {
+        mockCleanupDiscount.mockRejectedValueOnce(new Error('Network error'));
+
+        const order = {
+            id: 'ord_1',
+            customer_id: 'cust_1',
+            location_id: 'loc_1',
+            discounts: [{ uid: 'd1', catalog_object_id: 'disc_123' }],
+            line_items: []
+        };
+
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 77, offer_id: 5, square_customer_id: 'cust_1',
+                offer_name: 'Test', square_discount_id: 'disc_123',
+                square_pricing_rule_id: null, status: 'earned'
+            }]
+        });
+
+        mockClient.query.mockImplementation(async (sql) => {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return {};
+            if (sql.includes('FROM loyalty_rewards r') && sql.includes('FOR UPDATE')) {
+                return { rows: [{ id: 77, status: 'earned', offer_id: 5, square_customer_id: 'cust_1' }] };
+            }
+            if (sql.includes('FROM loyalty_qualifying_variations')) return { rows: [] };
+            if (sql.includes('INSERT INTO loyalty_redemptions')) return { rows: [{ id: 300, reward_id: 77 }] };
+            if (sql.includes('UPDATE loyalty_rewards')) return { rows: [] };
+            return { rows: [] };
+        });
+
+        const result = await detectRewardRedemptionFromOrder(order, 1);
+
+        // Detection still succeeded despite cleanup failure
+        expect(result.detected).toBe(true);
+        expect(result.redemptions).toHaveLength(1);
+        expect(logger.error).toHaveBeenCalledWith(
+            'Failed to cleanup Square discount after redemption (BACKLOG-68)',
+            expect.objectContaining({ error: 'Network error' })
+        );
+    });
+});
+
+// ============================================================================
 // ADDITIONAL COVERAGE — MAX_REDEMPTIONS_PER_ORDER constant
 // ============================================================================
 
