@@ -211,12 +211,14 @@ class InventoryHandler {
                     result.skipped = true;
                     return result;
                 }
-                return this._processOrderForCommitment(
+                // LOGIC CHANGE: added await to catch rejections in try/catch (bug found by test audit 2026-03-15)
+                return await this._processOrderForCommitment(
                     merchantId, invoiceId, fullInvoice.order_id, fullInvoice.status
                 );
             }
 
-            return this._processOrderForCommitment(
+            // LOGIC CHANGE: added await to catch rejections in try/catch (bug found by test audit 2026-03-15)
+            return await this._processOrderForCommitment(
                 merchantId, invoiceId, orderId, invoice.status
             );
         } catch (error) {
