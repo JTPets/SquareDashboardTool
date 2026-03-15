@@ -11,7 +11,7 @@
 const logger = require('../../../utils/logger');
 const deliveryApi = require('../../delivery');
 const { getSquareClientForMerchant } = require('../../../middleware/merchant');
-const { LoyaltyCustomerService } = require('../../loyalty-admin/customer-identification-service');
+const { getCustomerDetails: getSquareCustomerDetails } = require('../../loyalty-admin/customer-details-service');
 const { fetchFullOrder } = require('./order-normalize');
 
 /**
@@ -155,9 +155,7 @@ async function refreshDeliveryOrderCustomerIfNeeded(order, merchantId, result) {
         const squareCustomerId = fullOrder.customerId || fullOrder.customer_id;
         if ((!customerName || customerName === existingOrder.customer_name) && squareCustomerId) {
             try {
-                const customerService = new LoyaltyCustomerService(merchantId);
-                await customerService.initialize();
-                const customerDetails = await customerService.getCustomerDetails(squareCustomerId);
+                const customerDetails = await getSquareCustomerDetails(squareCustomerId, merchantId);
 
                 if (customerDetails) {
                     if (!customerName && customerDetails.displayName) {

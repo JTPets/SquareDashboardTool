@@ -10,11 +10,13 @@
  * 6. Loyalty Discount - Reverse-lookup from order discount catalog_object_id to loyalty_rewards
  *
  * Relocated from services/loyalty/customer-service.js (BACKLOG-31).
+ * Customer details/caching extracted to customer-details-service.js.
  */
 
 const db = require('../../utils/database');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { SquareApiClient } = require('./square-api-client');
+const customerDetailsService = require('./customer-details-service');
 
 /**
  * Customer identification result
@@ -596,104 +598,23 @@ class LoyaltyCustomerService {
   }
 
   /**
-   * Get customer details by ID
+   * Get customer details by ID.
+   * Delegates to customer-details-service.js standalone function.
    * @param {string} customerId - Square customer ID
    * @returns {Promise<Object|null>}
    */
   async getCustomerDetails(customerId) {
-    try {
-      const customer = await this.squareClient.getCustomer(customerId);
-      return {
-        id: customer.id,
-        givenName: customer.given_name || null,
-        familyName: customer.family_name || null,
-        displayName: [customer.given_name, customer.family_name]
-          .filter(Boolean).join(' ') || customer.company_name || null,
-        email: customer.email_address || null,
-        phone: customer.phone_number || null,
-        companyName: customer.company_name || null,
-        createdAt: customer.created_at,
-        updatedAt: customer.updated_at,
-      };
-    } catch (error) {
-      loyaltyLogger.error({
-        action: 'GET_CUSTOMER_DETAILS_ERROR',
-        customerId,
-        error: error.message,
-        merchantId: this.merchantId,
-      });
-      return null;
-    }
+    return customerDetailsService.getCustomerDetails(customerId, this.merchantId);
   }
 
   /**
-   * Cache customer details to loyalty_customers table
-   * Ensures phone number is available in rewards reporting
+   * Cache customer details to loyalty_customers table.
+   * Delegates to customer-details-service.js standalone function.
    * @param {string} customerId - Square customer ID
-   * @returns {Promise<Object|null>} Customer details or null if not found
+   * @returns {Promise<Object|null>}
    */
   async cacheCustomerDetails(customerId) {
-    try {
-      // First check if already cached with phone number
-      const cached = await db.query(`
-        SELECT phone_number FROM loyalty_customers
-        WHERE merchant_id = $1 AND square_customer_id = $2
-      `, [this.merchantId, customerId]);
-
-      if (cached.rows.length > 0 && cached.rows[0].phone_number) {
-        // Already cached with phone, no need to fetch again
-        return { id: customerId, phone: cached.rows[0].phone_number, cached: true };
-      }
-
-      // Fetch from Square API
-      const customer = await this.getCustomerDetails(customerId);
-      if (!customer) {
-        return null;
-      }
-
-      // Cache to database
-      await db.query(`
-        INSERT INTO loyalty_customers (
-          merchant_id, square_customer_id, given_name, family_name,
-          display_name, phone_number, email_address, company_name,
-          last_updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        ON CONFLICT (merchant_id, square_customer_id) DO UPDATE SET
-          given_name = COALESCE(EXCLUDED.given_name, loyalty_customers.given_name),
-          family_name = COALESCE(EXCLUDED.family_name, loyalty_customers.family_name),
-          display_name = COALESCE(EXCLUDED.display_name, loyalty_customers.display_name),
-          phone_number = COALESCE(EXCLUDED.phone_number, loyalty_customers.phone_number),
-          email_address = COALESCE(EXCLUDED.email_address, loyalty_customers.email_address),
-          company_name = COALESCE(EXCLUDED.company_name, loyalty_customers.company_name),
-          last_updated_at = NOW()
-      `, [
-        this.merchantId,
-        customer.id,
-        customer.givenName,
-        customer.familyName,
-        customer.displayName,
-        customer.phone,
-        customer.email,
-        customer.companyName,
-      ]);
-
-      loyaltyLogger.customer({
-        action: 'CUSTOMER_CACHED',
-        customerId,
-        hasPhone: !!customer.phone,
-        merchantId: this.merchantId,
-      });
-
-      return customer;
-    } catch (error) {
-      loyaltyLogger.error({
-        action: 'CACHE_CUSTOMER_ERROR',
-        customerId,
-        error: error.message,
-        merchantId: this.merchantId,
-      });
-      return null;
-    }
+    return customerDetailsService.cacheCustomerDetails(customerId, this.merchantId);
   }
 }
 
