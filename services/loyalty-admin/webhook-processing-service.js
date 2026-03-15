@@ -10,7 +10,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { processRefund } = require('./purchase-service');
+const { processRefund } = require('./refund-service');
 const { cleanupSquareCustomerGroupDiscount } = require('./square-discount-service');
 
 // ============================================================================

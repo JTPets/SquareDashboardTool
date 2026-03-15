@@ -147,9 +147,11 @@ const { syncRewardDiscountPrices, validateEarnedRewardsDiscounts } = require('./
 
 // Purchase service (NEW - extracted from loyalty-service.js)
 const {
-    processQualifyingPurchase,
-    processRefund
+    processQualifyingPurchase
 } = require('./purchase-service');
+
+// Refund service (extracted from purchase-service.js)
+const { processRefund } = require('./refund-service');
 
 // Reward progress service (split from purchase-service.js)
 const { updateRewardProgress } = require('./reward-progress-service');
