@@ -59,9 +59,7 @@ jest.mock('../../../services/loyalty-admin/customer-identification-service', () 
 }));
 
 const mockProcessRefund = jest.fn();
-const mockProcessQualifyingPurchase = jest.fn();
-jest.mock('../../../services/loyalty-admin/purchase-service', () => ({
-    processQualifyingPurchase: mockProcessQualifyingPurchase,
+jest.mock('../../../services/loyalty-admin/refund-service', () => ({
     processRefund: mockProcessRefund
 }));
 
