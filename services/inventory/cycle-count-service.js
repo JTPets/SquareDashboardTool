@@ -29,6 +29,7 @@ async function generateDailyBatch(merchantId) {
     }
     try {
         logger.info('Starting daily cycle count batch generation', { merchantId });
+        // TODO(pre-franchise): make per-merchant (MT-7)
         const dailyTarget = parseInt(process.env.DAILY_COUNT_TARGET || '30');
 
         // Create today's session

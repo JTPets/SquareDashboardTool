@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-03-16
 **Total Open Items**: ~95
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
@@ -146,18 +146,18 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 ### Multi-Tenant Gaps
 
-| ID | Description | Effort | Discovered |
-|----|-------------|--------|------------|
-| MT-4 | GMC debug files overwrite across merchants — not merchant-scoped. | S | 2026-03-08 |
-| MT-5 | GMC feed TSV file default filename not merchant-scoped. | S | 2026-03-08 |
-| MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 |
-| MT-7 | `DAILY_COUNT_TARGET` cycle count target is global. | S | 2026-03-08 |
-| MT-8 | Shared log files across all merchants. | S | 2026-03-08 |
-| MT-9 | Health check picks arbitrary merchant for Square status. | S | 2026-03-08 |
-| MT-10 | Setup script defaults to merchant ID 1. | S | 2026-03-08 |
-| MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants. | S | 2026-03-08 |
-| MT-12 | Subscription status never auto-transitions from trial. | S | 2026-03-08 |
-| MT-13 | GMC module-level debug state shared across merchants. | S | 2026-03-08 |
+| ID | Description | Effort | Discovered | Status |
+|----|-------------|--------|------------|--------|
+| MT-4 | GMC debug files overwrite across merchants — not merchant-scoped. | S | 2026-03-08 | **FIXED** 2026-03-16 — debug files removed |
+| MT-5 | GMC feed TSV file default filename not merchant-scoped. | S | 2026-03-08 | **FIXED** 2026-03-16 — merchantId in filename |
+| MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
+| MT-7 | `DAILY_COUNT_TARGET` cycle count target is global. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
+| MT-8 | Shared log files across all merchants. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
+| MT-9 | Health check picks arbitrary merchant for Square status. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
+| MT-10 | Setup script defaults to merchant ID 1. | S | 2026-03-08 | **FIXED** 2026-03-16 — --merchant-id CLI param added |
+| MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants. | S | 2026-03-08 | **Documented** 2026-03-16 — acceptable, noted in code |
+| MT-12 | Subscription status never auto-transitions from trial. | S | 2026-03-08 | **FIXED** 2026-03-16 — auto-transition in trial-expiry-job |
+| MT-13 | GMC module-level debug state shared across merchants. | S | 2026-03-08 | **FIXED** 2026-03-16 — module state removed |
 
 ---
 

@@ -6,6 +6,7 @@
  * Usage:
  *   node scripts/init-admin.js
  *   node scripts/init-admin.js --email admin@example.com --password MySecurePass1
+ *   node scripts/init-admin.js --merchant-id 2 --email admin@store2.com
  *
  * Or set environment variables:
  *   ADMIN_EMAIL=admin@example.com
@@ -59,6 +60,8 @@ async function initAdmin() {
         const args = process.argv.slice(2);
         let email = process.env.ADMIN_EMAIL;
         let password = process.env.ADMIN_PASSWORD;
+        // MT-10: Support --merchant-id param (default 1 for backward compatibility)
+        let merchantId = 1;
 
         // Parse command line arguments
         for (let i = 0; i < args.length; i++) {
@@ -67,6 +70,9 @@ async function initAdmin() {
                 i++;
             } else if (args[i] === '--password' && args[i + 1]) {
                 password = args[i + 1];
+                i++;
+            } else if (args[i] === '--merchant-id' && args[i + 1]) {
+                merchantId = parseInt(args[i + 1], 10);
                 i++;
             }
         }
@@ -128,6 +134,19 @@ async function initAdmin() {
         `, [normalizedEmail, passwordHash]);
 
         const newAdmin = result.rows[0];
+
+        // MT-10: Associate admin with merchant (if user_merchants table exists)
+        try {
+            await db.query(`
+                INSERT INTO user_merchants (user_id, merchant_id, role, is_primary, accepted_at)
+                VALUES ($1, $2, 'owner', true, NOW())
+                ON CONFLICT (user_id, merchant_id) DO NOTHING
+            `, [newAdmin.id, merchantId]);
+            console.log(`\n  Linked to merchant ID: ${merchantId}`);
+        } catch (e) {
+            // user_merchants table may not exist yet — non-fatal
+            console.log(`\n  Note: Could not link to merchant (${e.message})`);
+        }
 
         console.log('\n' + '='.repeat(50));
         console.log('Admin user created successfully!');

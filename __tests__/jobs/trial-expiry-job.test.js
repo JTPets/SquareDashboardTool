@@ -85,7 +85,8 @@ describe('Trial Expiry Notification Job', () => {
                         { id: 3, business_name: 'Another Store', trial_ends_at: new Date(Date.now() + 10 * 86400000).toISOString() }
                     ]
                 })
-                .mockResolvedValueOnce({ rows: [] });
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] }); // MT-12 auto-transition query
 
             const result = await runTrialExpiryNotifications();
 
@@ -105,7 +106,8 @@ describe('Trial Expiry Notification Job', () => {
                     rows: [
                         { id: 4, business_name: 'Expired Store', trial_ends_at: new Date(Date.now() - 3600000).toISOString() }
                     ]
-                });
+                })
+                .mockResolvedValueOnce({ rows: [] }); // MT-12 auto-transition query
 
             await runTrialExpiryNotifications();
 
@@ -118,12 +120,35 @@ describe('Trial Expiry Notification Job', () => {
         it('should not send email when no merchants are expiring or expired', async () => {
             db.query
                 .mockResolvedValueOnce({ rows: [] })
-                .mockResolvedValueOnce({ rows: [] });
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] }); // MT-12 auto-transition query
 
             await runTrialExpiryNotifications();
 
             expect(emailNotifier.sendAlert).not.toHaveBeenCalled();
             expect(logger.info).toHaveBeenCalledWith('No expiring or recently expired trials');
+        });
+
+        it('should auto-transition expired trials to expired status (MT-12)', async () => {
+            db.query
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({ rows: [] })
+                .mockResolvedValueOnce({
+                    rows: [{ id: 5, business_name: 'Old Trial Store' }]
+                });
+
+            const result = await runTrialExpiryNotifications();
+
+            expect(result.transitioned).toBe(1);
+            // Verify the UPDATE query
+            const transitionQuery = db.query.mock.calls[2][0];
+            expect(transitionQuery).toContain("subscription_status = 'expired'");
+            expect(transitionQuery).toContain("subscription_status = 'trial'");
+            expect(transitionQuery).toContain('trial_ends_at < NOW()');
+            expect(logger.info).toHaveBeenCalledWith(
+                'Auto-transitioned expired trials',
+                expect.objectContaining({ count: 1 })
+            );
         });
 
         it('should handle database errors gracefully', async () => {
@@ -143,7 +168,8 @@ describe('Trial Expiry Notification Job', () => {
                 })
                 .mockResolvedValueOnce({
                     rows: [{ id: 3, business_name: 'Expired Store', trial_ends_at: new Date(Date.now() - 3600000).toISOString() }]
-                });
+                })
+                .mockResolvedValueOnce({ rows: [{ id: 3, business_name: 'Expired Store' }] }); // MT-12 auto-transition
 
             await runTrialExpiryNotifications();
 

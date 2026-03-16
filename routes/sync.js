@@ -145,6 +145,7 @@ async function isSyncNeeded(syncType, intervalHours, merchantId) {
 async function runSmartSync({ merchantId } = {}) {
     logger.info('Smart sync initiated', { merchantId });
 
+    // TODO(pre-franchise): make per-merchant (MT-6)
     // Get intervals from environment variables
     const intervals = {
         catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),

@@ -120,7 +120,24 @@ async function runTrialExpiryNotifications() {
             logger.info('No expiring or recently expired trials');
         }
 
-        return { expiring: expiring.length, recentlyExpired: recentlyExpired.length };
+        // MT-12: Auto-transition expired trials so subscription_status stays accurate
+        const transitioned = await db.query(`
+            UPDATE merchants
+            SET subscription_status = 'expired', updated_at = NOW()
+            WHERE subscription_status = 'trial'
+              AND trial_ends_at IS NOT NULL
+              AND trial_ends_at < NOW()
+            RETURNING id, business_name
+        `);
+
+        if (transitioned.rows.length > 0) {
+            logger.info('Auto-transitioned expired trials', {
+                count: transitioned.rows.length,
+                merchants: transitioned.rows.map(m => ({ id: m.id, name: m.business_name }))
+            });
+        }
+
+        return { expiring: expiring.length, recentlyExpired: recentlyExpired.length, transitioned: transitioned.rows.length };
     } catch (error) {
         logger.error('Trial expiry notification job failed', {
             error: error.message,

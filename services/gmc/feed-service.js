@@ -288,10 +288,14 @@ function generateTsvContent(products) {
 /**
  * Save TSV feed to file
  * @param {string} content - TSV content
- * @param {string} filename - Output filename (default: gmc-feed.tsv)
+ * @param {string} filename - Output filename (default: gmc-feed.tsv). Use merchantId to scope per-merchant.
  * @returns {Promise<string>} Full path to saved file
  */
-async function saveTsvFile(content, filename = 'gmc-feed.tsv') {
+async function saveTsvFile(content, filename = 'gmc-feed.tsv', { merchantId } = {}) {
+    // MT-5: Scope filename by merchantId to prevent cross-merchant overwrites
+    if (merchantId && filename === 'gmc-feed.tsv') {
+        filename = `gmc-feed-merchant-${merchantId}.tsv`;
+    }
     // Write to output/feeds directory (outside public/ to avoid pm2 watch loops)
     const feedsDir = path.join(__dirname, '..', '..', 'output', 'feeds');
 
