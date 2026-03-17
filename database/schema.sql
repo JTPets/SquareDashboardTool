@@ -144,7 +144,8 @@ CREATE INDEX idx_merchants_active ON merchants(is_active) WHERE is_active = TRUE
 CREATE TABLE oauth_states (
     id SERIAL PRIMARY KEY,
     state TEXT UNIQUE NOT NULL,
-    user_id INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     merchant_id INTEGER REFERENCES merchants(id),
     redirect_uri TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1372,7 +1373,8 @@ CREATE TABLE IF NOT EXISTS delivery_routes (
     merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
     route_date DATE NOT NULL,
     generated_at TIMESTAMPTZ DEFAULT NOW(),
-    generated_by INTEGER REFERENCES users(id),  -- user who generated the route
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    generated_by INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- user who generated the route
     total_stops INTEGER NOT NULL DEFAULT 0,
     total_distance_km DECIMAL(10, 2),
     estimated_duration_min INTEGER,
@@ -1401,7 +1403,8 @@ COMMENT ON TABLE delivery_routes IS 'Route generation history with optimization 
 CREATE TABLE IF NOT EXISTS delivery_audit_log (
     id SERIAL PRIMARY KEY,
     merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
-    user_id INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     action VARCHAR(100) NOT NULL,  -- route_generated, order_completed, order_skipped, etc.
     delivery_order_id UUID REFERENCES delivery_orders(id) ON DELETE SET NULL,
     route_id UUID REFERENCES delivery_routes(id) ON DELETE SET NULL,
@@ -1514,7 +1517,8 @@ CREATE TABLE IF NOT EXISTS loyalty_offers (
     description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
 
     -- Prevent duplicate offers for same brand+size per merchant
     CONSTRAINT loyalty_offers_unique_brand_size UNIQUE(merchant_id, brand_name, size_group)
@@ -1763,7 +1767,8 @@ CREATE TABLE IF NOT EXISTS loyalty_redemptions (
     square_discount_id TEXT,  -- If applied via Square discount
 
     -- Admin info (for manual redemptions)
-    redeemed_by_user_id INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    redeemed_by_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     admin_notes TEXT,
 
     -- Metadata
@@ -1808,7 +1813,8 @@ CREATE TABLE IF NOT EXISTS loyalty_audit_logs (
 
     -- Context
     triggered_by VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',  -- SYSTEM, WEBHOOK, MANUAL, ADMIN
-    user_id INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
 
     -- Additional details (JSON for flexibility)
     details JSONB,
@@ -1988,7 +1994,8 @@ CREATE TABLE IF NOT EXISTS delivery_route_tokens (
     route_id UUID NOT NULL REFERENCES delivery_routes(id) ON DELETE CASCADE,
     token VARCHAR(64) NOT NULL UNIQUE,
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'revoked')),
-    created_by INTEGER REFERENCES users(id),
+    -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
+    created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ,
     used_at TIMESTAMPTZ,
