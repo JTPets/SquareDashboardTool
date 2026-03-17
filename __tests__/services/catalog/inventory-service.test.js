@@ -103,7 +103,7 @@ describe('getInventory', () => {
         // merchant_id in query params
         expect(db.query.mock.calls[0][1]).toContain(MERCHANT_ID);
         // batchResolveImageUrls called with the rows
-        expect(mockBatchResolveImageUrls).toHaveBeenCalledWith(mockRows);
+        expect(mockBatchResolveImageUrls).toHaveBeenCalledWith(mockRows, MERCHANT_ID);
     });
 
     it('applies location_id filter', async () => {

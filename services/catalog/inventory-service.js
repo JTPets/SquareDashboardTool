@@ -119,7 +119,7 @@ async function getInventory(merchantId, filters = {}) {
     const result = await db.query(query, params);
 
     // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
 
     const inventoryWithImages = result.rows.map((row, index) => ({
         ...row,
@@ -174,7 +174,7 @@ async function getLowStock(merchantId) {
     const result = await db.query(query, [merchantId]);
 
     // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
 
     const items = result.rows.map((row, index) => ({
         ...row,
@@ -273,7 +273,7 @@ async function getDeletedItems(merchantId, filters = {}) {
     const result = await db.query(query, params);
 
     // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
 
     const items = result.rows.map((row, index) => ({
         ...row,
@@ -374,7 +374,7 @@ async function getExpirations(merchantId, filters = {}) {
     const result = await db.query(query, params);
 
     // Resolve image URLs in a SINGLE batch query
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
     const items = result.rows.map((row, index) => ({
         ...row,
         image_urls: imageUrlMap.get(index) || [],

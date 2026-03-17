@@ -209,7 +209,7 @@ router.get('/expiry-discounts/variations', requireAuth, requireMerchant, validat
     const countResult = await db.query(countQuery, countParams);
 
     // Resolve image URLs
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
     const variations = result.rows.map((row, index) => ({
         ...row,
         image_urls: imageUrlMap.get(index) || [],

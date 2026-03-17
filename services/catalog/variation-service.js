@@ -96,7 +96,7 @@ async function getVariations(merchantId, filters = {}) {
     const result = await db.query(query, params);
 
     // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
 
     const variations = result.rows.map((variation, index) => ({
         ...variation,
@@ -153,7 +153,7 @@ async function getVariationsWithCosts(merchantId) {
     const result = await db.query(query, [merchantId]);
 
     // Batch resolve image URLs in a SINGLE query (instead of N+1 queries)
-    const imageUrlMap = await batchResolveImageUrls(result.rows);
+    const imageUrlMap = await batchResolveImageUrls(result.rows, merchantId);
 
     const variations = result.rows.map((variation, index) => ({
         ...variation,
