@@ -102,7 +102,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | DB-6 | ~~Missing `ON DELETE CASCADE` on user_id foreign keys~~ **FIXED 2026-03-17** — Added `ON DELETE CASCADE` to 7 user_id FKs: `oauth_states`, `delivery_routes`, `delivery_audit_log`, `loyalty_offers`, `loyalty_redemptions`, `loyalty_audit_logs`, `delivery_route_tokens`. Migration 072. Note: `password_reset_tokens` already had CASCADE (via schema-manager.js); `delivery_orders` has no user_id FK. | `database/schema.sql`, `migrations/072_add_cascade_user_fks.sql` | S | 2026-02-28 |
-| DB-7 | Timestamp inconsistency: 169 `TIMESTAMP` vs 102 `TIMESTAMPTZ` columns. | `database/schema.sql` | M | 2026-02-28 |
+| DB-7 | ~~Timestamp inconsistency: bare `TIMESTAMP` vs `TIMESTAMPTZ` columns~~ **FIXED 2026-03-17** — Converted 66 columns across 31 tables to `TIMESTAMPTZ`. Also fixed 40 occurrences in `schema-manager.js`. Migration 073. | `database/schema.sql`, `utils/schema-manager.js`, `migrations/073_timestamp_to_timestamptz.sql` | M | 2026-02-28 |
 
 ### Security
 
