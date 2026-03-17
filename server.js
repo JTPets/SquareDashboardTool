@@ -615,85 +615,8 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// ==================== GMC ROUTES (EXTRACTED) ====================
-// GMC routes have been extracted to routes/gmc.js
-// 32 endpoints for Google Merchant Center feed and API management
-// Includes: feed generation, brand management, taxonomy mapping, local inventory
-// See routes/gmc.js for implementation
-
-// ==================== VENDOR CATALOG (EXTRACTED) ====================
-// Vendor and vendor catalog routes have been extracted to routes/vendor-catalog.js
-// See routes/vendor-catalog.js for implementation
-
-// ==================== CYCLE COUNTS (EXTRACTED) ====================
-// Cycle count routes and helpers have been extracted to routes/cycle-counts.js and utils/cycle-count-utils.js
-// See routes/cycle-counts.js for implementation
-// ==================== PURCHASE ORDERS (EXTRACTED) ====================
-// Purchase order routes have been extracted to routes/purchase-orders.js
-// This includes: create, list, get, update, submit, receive, delete, and CSV/XLSX exports
-// See routes/purchase-orders.js for implementation
-
-// ==================== DATABASE BACKUP & RESTORE ====================
-
-// NOTE: Database export/import endpoints removed for security (2026-01-05)
-// These endpoints exposed all merchant data without tenant filtering.
-// Database backups should be managed at the infrastructure level (pg_dump with proper access controls).
-
-// runAutomatedBackup has been extracted to jobs/backup-job.js
-// Use jobs.runAutomatedBackup() for programmatic access
-
-// ==================== SUBSCRIPTIONS & PAYMENTS (EXTRACTED) ====================
-// Subscription routes have been extracted to routes/subscriptions.js
-// This includes: payment-config, plans, promo validation, create, status, cancel, refund
-// See routes/subscriptions.js for implementation
-
-// ==================== WEBHOOK SUBSCRIPTION MANAGEMENT (EXTRACTED) ====================
-// Webhook management routes have been extracted to routes/webhooks.js
-// This includes: list subscriptions, audit, event-types, register, ensure, update, delete, test
-// See routes/webhooks.js for implementation
-
-
-// ==================== WEBHOOK PROCESSOR (EXTRACTED) ====================
-// Main webhook processor has been extracted to services/webhook-processor.js
-// Route handler is in routes/webhooks/square.js
-// Handlers are in services/webhook-handlers/
-//
-// Event types processed:
-// - Subscription: subscription.created, subscription.updated, invoice.*, customer.deleted
-// - Catalog: catalog.version.updated, vendor.*, location.*, customer.updated
-// - Inventory: inventory.count.updated
-// - Orders: order.*, payment.*, refund.*, fulfillment.*
-// - Loyalty: loyalty.*, gift_card.*
-// - OAuth: oauth.authorization.revoked
-//
-// See services/webhook-processor.js for implementation details
-
-// ==================== DELIVERY SCHEDULER API (EXTRACTED) ====================
-// Delivery routes have been extracted to routes/delivery.js
-// 23 endpoints including orders, POD photos, routes, settings, sync
-// See routes/delivery.js for implementation
-
-// --- DELIVERY CODE REMOVED (was ~1200 lines) ---
-// The following endpoints were extracted to routes/delivery.js:
-// GET/POST /api/delivery/orders, PATCH/DELETE /api/delivery/orders/:id
-// POST /api/delivery/orders/:id/skip, POST /api/delivery/orders/:id/complete
-// GET/PATCH /api/delivery/orders/:id/customer, /customer-note, /notes, /customer-stats
-// POST /api/delivery/orders/:id/pod, GET /api/delivery/pod/:id
-// POST/GET /api/delivery/route/generate, /active, /:id, /finish
-// POST /api/delivery/geocode, GET/PUT /api/delivery/settings
-// GET /api/delivery/audit, /stats, POST /api/delivery/sync
-
-
-// ==================== DRIVER API (EXTRACTED) ====================
-// Driver API routes have been extracted to routes/driver-api.js
-// This includes both authenticated and public token-based endpoints
-// See routes/driver-api.js for implementation
-
-// ==================== LOYALTY ADDON API (EXTRACTED) ====================
-// Loyalty routes have been extracted to routes/loyalty.js
-// Frequent Buyer Program - Digitizes brand-defined loyalty programs
-// 41 endpoints including offers, variations, rewards, redemptions, reports
-// See routes/loyalty.js for implementation
+// LOGIC CHANGE: removed ~10 stale EXTRACTED section comments (DEAD-6-12, 2026-03-17)
+// Routes are in routes/, handlers in services/webhook-handlers/, jobs in jobs/
 
 // ==================== ERROR HANDLING ====================
 
@@ -1180,9 +1103,9 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Start the server
+// LOGIC CHANGE: replaced console.error with logger.error (L-1)
 startServer().catch(err => {
-    console.error('FATAL: Server startup failed:', err.message);
-    console.error(err.stack);
+    logger.error('FATAL: Server startup failed', { error: err.message, stack: err.stack });
     process.exit(1);
 });
 

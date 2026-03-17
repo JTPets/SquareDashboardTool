@@ -665,93 +665,7 @@ async function getVariationsNeedingDiscountUpdate(merchantId) {
     return result.rows;
 }
 
-/**
- * Update Square discount object with list of item IDs to apply to
- * @param {string} tierCode - Tier code (e.g., 'AUTO50')
- * @param {Array<string>} variationIds - Array of variation IDs
- * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
- * @returns {Promise<Object>} Update result
- */
-async function updateDiscountAppliesTo(tierCode, variationIds, merchantId) {
-    if (!merchantId) {
-        throw new Error('merchantId is required for updateDiscountAppliesTo');
-    }
-
-    const squareApiModule = getSquareApi();
-    const accessToken = await squareApiModule.getMerchantToken(merchantId);
-
-    logger.info('Updating discount applies_to list', {
-        tierCode,
-        variationCount: variationIds.length,
-        merchantId
-    });
-
-    try {
-        // Get the tier and its Square discount ID
-        const tier = await getTierByCode(tierCode, merchantId);
-
-        if (!tier || !tier.square_discount_id) {
-            throw new Error(`No Square discount found for tier: ${tierCode}`);
-        }
-
-        // Fetch current discount object
-        const retrieveData = await squareApiModule.makeSquareRequest(
-            `/v2/catalog/object/${tier.square_discount_id}?include_related_objects=false`,
-            { accessToken }
-        );
-
-        if (!retrieveData.object) {
-            throw new Error(`Discount object not found: ${tier.square_discount_id}`);
-        }
-
-        const currentObject = retrieveData.object;
-        const idempotencyKey = squareApiModule.generateIdempotencyKey(`discount-items-${tierCode}`);
-
-        // Build update with pricing rules
-        // Note: Square item-level discounts work by creating pricing rules
-        // that reference the discount and specify which items it applies to
-
-        const requestBody = {
-            idempotency_key: idempotencyKey,
-            object: {
-                type: 'DISCOUNT',
-                id: tier.square_discount_id,
-                version: currentObject.version,
-                discount_data: {
-                    ...currentObject.discount_data,
-                    // Item-level discounts in Square can use modify_tax_basis
-                    // and product_set_data to target specific items
-                }
-            }
-        };
-
-        const response = await squareApiModule.makeSquareRequest('/v2/catalog/object', {
-            method: 'POST',
-            accessToken,
-            body: JSON.stringify(requestBody)
-        });
-
-        logger.info('Discount applies_to updated', {
-            tierCode,
-            discountId: tier.square_discount_id,
-            variationCount: variationIds.length
-        });
-
-        return {
-            success: true,
-            discountId: tier.square_discount_id,
-            variationIds
-        };
-
-    } catch (error) {
-        logger.error('Failed to update discount applies_to', {
-            tierCode,
-            error: error.message,
-            merchantId
-        });
-        throw error;
-    }
-}
+// LOGIC CHANGE: removed dead function updateDiscountAppliesTo — 0 callers (CQ-4, 2026-03-17)
 
 /**
  * Apply discounts to variations based on their current tier
@@ -1827,8 +1741,8 @@ async function clearExpiryDiscountForReorder(merchantId, variationId) {
 
         const status = statusResult.rows[0];
 
-        // Only clear if in an auto-apply discount tier (AUTO50, AUTO25, EXPIRED)
-        if (!status.is_auto_apply || !['AUTO50', 'AUTO25', 'EXPIRED'].includes(status.tier_code)) {
+        // LOGIC CHANGE: removed unreachable 'EXPIRED' — not a valid tier_code, only AUTO50/AUTO25 are auto-apply
+        if (!status.is_auto_apply || !['AUTO50', 'AUTO25'].includes(status.tier_code)) {
             return { cleared: false, previousTier: status.tier_code, message: 'Not in an auto-apply discount tier' };
         }
 
@@ -2090,7 +2004,6 @@ module.exports = {
     initializeSquareDiscounts,
     upsertSquareDiscount,
     upsertPricingRule,
-    updateDiscountAppliesTo,
 
     // Discount application
     applyDiscounts,

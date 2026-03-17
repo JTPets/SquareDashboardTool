@@ -157,6 +157,7 @@ describe('Password Reset Token Hashing (SEC-7)', () => {
     });
 
     describe('subscriptions.js also hashes setup tokens', () => {
+        // LOGIC CHANGE: updated test — hashResetToken extracted to utils/hash-utils.js (CQ-6)
         test('hashResetToken is used in subscriptions.js', () => {
             const fs = require('fs');
             const subSource = fs.readFileSync(
@@ -164,9 +165,19 @@ describe('Password Reset Token Hashing (SEC-7)', () => {
                 'utf8'
             );
 
-            // Verify subscriptions.js also hashes tokens before storage
+            // Verify subscriptions.js uses hashResetToken (now imported from utils/hash-utils.js)
             expect(subSource).toContain('hashResetToken(passwordSetupToken)');
-            expect(subSource).toContain('function hashResetToken');
+            expect(subSource).toContain("require('../utils/hash-utils')");
+        });
+    });
+
+    describe('hashResetToken shared utility', () => {
+        test('utils/hash-utils.js exports hashResetToken', () => {
+            const { hashResetToken } = require('../../utils/hash-utils');
+            expect(typeof hashResetToken).toBe('function');
+            const hash = hashResetToken('test-token');
+            expect(hash).toHaveLength(64);
+            expect(hash).toMatch(/^[a-f0-9]{64}$/);
         });
     });
 });

@@ -71,6 +71,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-69 | Extract duplicate discount fix pattern — same recreate-discount logic repeated 3 times in validation checks. | `discount-validation-service.js:238-257, 297-322, 350-375` | S | 2026-03-15 |
 | BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing. | `order-history-audit-service.js:240-314` | S | 2026-03-15 |
 | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops. | `discount-validation-service.js:124-217` | S | 2026-03-15 |
+| BACKLOG-74 | Extract promo code validation — duplicated between `POST /promo/validate` (~line 92) and `POST /create` (~line 208) in `routes/subscriptions.js`. Extract to `validatePromoCode(code, merchantId, plan, priceCents)` service function. | `routes/subscriptions.js` | S | 2026-03-17 |
 
 ### Features
 
@@ -151,17 +152,17 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| DEAD-6-12 | 10 "EXTRACTED" section comments in `server.js` (lines 617-691). Dead imports removed but comments remain. | `server.js` | S | 2026-02-28 |
-| CQ-3 | Velocity return location ternary is a no-op — both branches return `order.location_id`. | `square-velocity.js:132` | S | 2026-03-10 |
-| CQ-4 | `updateDiscountAppliesTo` exported but never called (0 callers outside definition). | `services/expiry/discount-service.js:675` | S | 2026-03-10 |
-| BACKLOG-72 | Dead code — 3 customer lookup wrappers with 0 callers, documented as dead. | `customer-admin-service.js` | S | 2026-03-15 |
-| Dead | `'EXPIRED'` in `includes()` array unreachable — EXPIRED tier has `auto_apply: false`, but check requires `is_auto_apply = true`. | `services/expiry/discount-service.js:1831` | S | 2026-03-15 |
+| DEAD-6-12 | ~~10 "EXTRACTED" section comments in `server.js`~~ **FIXED 2026-03-17** — Removed ~10 stale EXTRACTED section comments from server.js. | `server.js` | S | 2026-02-28 |
+| CQ-3 | ~~Velocity return location ternary no-op~~ **FIXED 2026-03-17** — Removed ternary, using `order.location_id` directly. | `services/square/square-velocity.js:132` | S | 2026-03-10 |
+| CQ-4 | ~~`updateDiscountAppliesTo` dead function~~ **FIXED 2026-03-17** — Removed function and export (0 callers). | `services/expiry/discount-service.js` | S | 2026-03-10 |
+| BACKLOG-72 | ~~3 dead customer lookup wrappers~~ **FIXED 2026-03-17** — Removed `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` (0 callers). | `customer-admin-service.js`, `loyalty-admin/index.js` | S | 2026-03-15 |
+| Dead | ~~`'EXPIRED'` unreachable in `includes()`~~ **FIXED 2026-03-17** — Removed from array. | `services/expiry/discount-service.js` | S | 2026-03-15 |
 
 ### Logging
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| L-1 | Critical startup paths use `console.error()` instead of Winston logger (3 occurrences in `server.js`). | S | 2026-02-25 |
+| L-1 | ~~`console.error()` in startup paths~~ **FIXED 2026-03-17** — Replaced 2 `console.error()` calls in `startServer().catch()` with `logger.error()`. 1 pre-logger `console.error` kept (line 29, runs before logger loads). | S | 2026-02-25 |
 
 ### Frontend
 
@@ -175,7 +176,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CQ-6 | `hashResetToken` duplicated in `auth.js` and `subscriptions.js`. | `routes/auth.js:19`, `routes/subscriptions.js:41` | S | 2026-03-10 |
+| CQ-6 | ~~`hashResetToken` duplicated~~ **FIXED 2026-03-17** — Extracted to `utils/hash-utils.js`. Both `auth.js` and `subscriptions.js` now import from shared module. | `utils/hash-utils.js`, `routes/auth.js`, `routes/subscriptions.js` | S | 2026-03-10 |
 | CQ-10 | `filterValidVariations` returns all variations on API failure — fails open instead of safe. | `services/expiry/discount-service.js:974-981` | S | 2026-03-10 |
 | Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
 | Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |

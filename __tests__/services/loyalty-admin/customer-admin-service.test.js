@@ -4,7 +4,6 @@
  * Customer lookup, status queries, history retrieval, and offer progress.
  * Covers:
  * - getCustomerDetails: cache hit, cache miss (API fetch), API errors
- * - lookupCustomerFromLoyalty/FulfillmentRecipient/OrderRewards: delegation
  * - getCustomerLoyaltyStatus: tenant isolation, query results
  * - getCustomerLoyaltyHistory: purchase/reward/redemption queries, offer filter
  * - getCustomerEarnedRewards: basic query + tenant isolation
@@ -58,11 +57,9 @@ jest.mock('../../../services/loyalty-admin/customer-identification-service', () 
 }));
 
 const db = require('../../../utils/database');
+// LOGIC CHANGE: removed 3 dead lookup wrappers (BACKLOG-72)
 const {
     getCustomerDetails,
-    lookupCustomerFromLoyalty,
-    lookupCustomerFromFulfillmentRecipient,
-    lookupCustomerFromOrderRewards,
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
     getCustomerEarnedRewards,
@@ -238,104 +235,7 @@ describe('getCustomerDetails', () => {
     });
 });
 
-// ============================================================================
-// TESTS — lookupCustomerFromLoyalty
-// ============================================================================
-
-describe('lookupCustomerFromLoyalty', () => {
-    beforeEach(() => jest.clearAllMocks());
-
-    it('should return customerId when identification succeeds', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromLoyaltyEvents.mockResolvedValueOnce({
-            success: true, customerId: 'CUST_1'
-        });
-
-        const result = await lookupCustomerFromLoyalty('ORD_1', 1);
-
-        expect(result).toBe('CUST_1');
-    });
-
-    it('should return null when identification fails', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromLoyaltyEvents.mockResolvedValueOnce({
-            success: false
-        });
-
-        const result = await lookupCustomerFromLoyalty('ORD_1', 1);
-
-        expect(result).toBeNull();
-    });
-
-    it('should return null when service throws', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromLoyaltyEvents.mockRejectedValueOnce(
-            new Error('API error')
-        );
-
-        const result = await lookupCustomerFromLoyalty('ORD_1', 1);
-
-        expect(result).toBeNull();
-    });
-});
-
-// ============================================================================
-// TESTS — lookupCustomerFromFulfillmentRecipient
-// ============================================================================
-
-describe('lookupCustomerFromFulfillmentRecipient', () => {
-    beforeEach(() => jest.clearAllMocks());
-
-    it('should return customerId on success', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromFulfillmentRecipient.mockResolvedValueOnce({
-            success: true, customerId: 'CUST_2'
-        });
-
-        const result = await lookupCustomerFromFulfillmentRecipient({ id: 'ORD_1' }, 1);
-        expect(result).toBe('CUST_2');
-    });
-
-    it('should return null on failure', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromFulfillmentRecipient.mockResolvedValueOnce({
-            success: false
-        });
-
-        const result = await lookupCustomerFromFulfillmentRecipient({ id: 'ORD_1' }, 1);
-        expect(result).toBeNull();
-    });
-
-    it('should return null when service throws', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromFulfillmentRecipient.mockRejectedValueOnce(
-            new Error('fail')
-        );
-
-        const result = await lookupCustomerFromFulfillmentRecipient({ id: 'ORD_1' }, 1);
-        expect(result).toBeNull();
-    });
-});
-
-// ============================================================================
-// TESTS — lookupCustomerFromOrderRewards
-// ============================================================================
-
-describe('lookupCustomerFromOrderRewards', () => {
-    beforeEach(() => jest.clearAllMocks());
-
-    it('should return customerId on success', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromOrderRewards.mockResolvedValueOnce({
-            success: true, customerId: 'CUST_3'
-        });
-
-        const result = await lookupCustomerFromOrderRewards({ id: 'ORD_1' }, 1);
-        expect(result).toBe('CUST_3');
-    });
-
-    it('should return null on failure', async () => {
-        mockLoyaltyCustomerServiceInstance.identifyFromOrderRewards.mockResolvedValueOnce({
-            success: false
-        });
-
-        const result = await lookupCustomerFromOrderRewards({ id: 'ORD_1' }, 1);
-        expect(result).toBeNull();
-    });
-});
+// LOGIC CHANGE: removed tests for 3 dead lookup wrappers (BACKLOG-72)
 
 // ============================================================================
 // TESTS — getCustomerLoyaltyStatus

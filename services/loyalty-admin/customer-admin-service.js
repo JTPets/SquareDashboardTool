@@ -32,14 +32,10 @@ const { LoyaltyCustomerService } = require('./customer-identification-service');
  *   webhook-processing-service.js:94  — pre-purchase caching
  *   square-discount-service.js:518    — group naming
  *
- * lookupCustomerFromLoyalty(orderId, merchantId) — 0 callers (dead code)
- *   Delegates to: LoyaltyCustomerService.identifyFromLoyaltyEvents()
- *
- * lookupCustomerFromFulfillmentRecipient(order, merchantId) — 0 callers (dead code)
- *   Delegates to: LoyaltyCustomerService.identifyFromFulfillmentRecipient()
- *
- * lookupCustomerFromOrderRewards(order, merchantId) — 0 callers (dead code)
- *   Delegates to: LoyaltyCustomerService.identifyFromOrderRewards()
+ * LOGIC CHANGE: removed 3 dead lookup wrappers (BACKLOG-72, 2026-03-17):
+ *   lookupCustomerFromLoyalty, lookupCustomerFromFulfillmentRecipient,
+ *   lookupCustomerFromOrderRewards — all had 0 callers, delegated to
+ *   LoyaltyCustomerService methods which are called directly by actual callers.
  *
  * LoyaltyCustomerService class methods (customer-identification-service.js):
  *   identifyCustomerFromOrder() — 3 callers (order-handler, webhook-processing, catchup-job)
@@ -124,75 +120,6 @@ async function getCustomerDetails(customerId, merchantId) {
 
     } catch (error) {
         logger.error('Error fetching customer details', { error: error.message, customerId });
-        return null;
-    }
-}
-
-/**
- * Look up customer from Square Loyalty API by order ID.
- * Delegates to LoyaltyCustomerService.identifyFromLoyaltyEvents() (DEDUP L-4).
- * @param {string} orderId - Square order ID
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<string|null>} customer_id if found, null otherwise
- */
-async function lookupCustomerFromLoyalty(orderId, merchantId) {
-    try {
-        const service = new LoyaltyCustomerService(merchantId);
-        await service.initialize();
-        const result = await service.identifyFromLoyaltyEvents({ id: orderId });
-        return result.success ? result.customerId : null;
-    } catch (error) {
-        logger.error('Error in loyalty customer lookup', {
-            error: error.message,
-            orderId,
-            merchantId
-        });
-        return null;
-    }
-}
-
-/**
- * Look up customer by phone/email from fulfillment recipient.
- * Delegates to LoyaltyCustomerService.identifyFromFulfillmentRecipient() (DEDUP L-4).
- * @param {Object} order - Square order object
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<string|null>} customer_id if found, null otherwise
- */
-async function lookupCustomerFromFulfillmentRecipient(order, merchantId) {
-    try {
-        const service = new LoyaltyCustomerService(merchantId);
-        await service.initialize();
-        const result = await service.identifyFromFulfillmentRecipient(order);
-        return result.success ? result.customerId : null;
-    } catch (error) {
-        logger.error('Error looking up customer from fulfillment', {
-            error: error.message,
-            orderId: order.id,
-            merchantId
-        });
-        return null;
-    }
-}
-
-/**
- * Look up customer from order rewards (Square Loyalty redemptions).
- * Delegates to LoyaltyCustomerService.identifyFromOrderRewards() (DEDUP L-4).
- * @param {Object} order - Square order object
- * @param {number} merchantId - Internal merchant ID
- * @returns {Promise<string|null>} customer_id if found, null otherwise
- */
-async function lookupCustomerFromOrderRewards(order, merchantId) {
-    try {
-        const service = new LoyaltyCustomerService(merchantId);
-        await service.initialize();
-        const result = await service.identifyFromOrderRewards(order);
-        return result.success ? result.customerId : null;
-    } catch (error) {
-        logger.error('Error looking up customer from order rewards', {
-            error: error.message,
-            orderId: order.id,
-            merchantId
-        });
         return null;
     }
 }
@@ -462,9 +389,6 @@ async function getCustomerOfferProgress({ squareCustomerId, merchantId }) {
 
 module.exports = {
     getCustomerDetails,
-    lookupCustomerFromLoyalty,
-    lookupCustomerFromFulfillmentRecipient,
-    lookupCustomerFromOrderRewards,
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
     getCustomerEarnedRewards,

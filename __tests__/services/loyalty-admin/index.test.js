@@ -50,8 +50,7 @@ describe('loyalty-admin index (barrel exports)', () => {
         'processExpiredWindowEntries',
         // Customer APIs
         'getCustomerLoyaltyStatus', 'getCustomerLoyaltyHistory', 'getCustomerDetails',
-        'getCustomerOfferProgress', 'lookupCustomerFromLoyalty',
-        'lookupCustomerFromFulfillmentRecipient', 'lookupCustomerFromOrderRewards',
+        'getCustomerOfferProgress',
         'prefetchRecentLoyaltyEvents', 'findCustomerFromPrefetchedEvents',
         // Customer caching
         'cacheCustomerDetails', 'getCachedCustomer', 'searchCachedCustomers', 'updateCustomerStats',

@@ -99,11 +99,9 @@ const {
 const { searchCustomers } = require('./customer-search-service');
 
 // Customer admin service
+// LOGIC CHANGE: removed 3 dead lookup wrappers (BACKLOG-72)
 const {
     getCustomerDetails,
-    lookupCustomerFromLoyalty,
-    lookupCustomerFromFulfillmentRecipient,
-    lookupCustomerFromOrderRewards,
     getCustomerLoyaltyStatus,
     getCustomerLoyaltyHistory,
     getCustomerEarnedRewards,
@@ -259,9 +257,6 @@ module.exports = {
     getCustomerLoyaltyHistory,
     getCustomerDetails,
     getCustomerOfferProgress,
-    lookupCustomerFromLoyalty,
-    lookupCustomerFromFulfillmentRecipient,
-    lookupCustomerFromOrderRewards,
     prefetchRecentLoyaltyEvents,
     findCustomerFromPrefetchedEvents,
 
