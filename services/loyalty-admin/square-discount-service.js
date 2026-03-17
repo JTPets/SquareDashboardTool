@@ -18,7 +18,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { getCustomerDetails } = require('./customer-admin-service');
 const { deleteCatalogObjects, deleteCustomerGroupWithMembers } = require('../../utils/square-catalog-cleanup');
 
@@ -52,7 +52,7 @@ async function getSquareLoyaltyProgram(merchantId) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             }
         }, 10000); // 10 second timeout
         const loyaltyProgramDuration = Date.now() - loyaltyProgramStart;
@@ -415,7 +415,7 @@ async function updateCustomerRewardNote({ operation, merchantId, squareCustomerI
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
+                        'Square-Version': SQUARE_API_VERSION
                     }
                 },
                 10000
@@ -487,7 +487,7 @@ async function updateCustomerRewardNote({ operation, merchantId, squareCustomerI
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
+                        'Square-Version': SQUARE_API_VERSION
                     },
                     body: JSON.stringify({
                         note: updatedNote,

@@ -11,7 +11,7 @@
 
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 
 /**
  * Pre-fetch all recent loyalty ACCUMULATE_POINTS events for batch processing
@@ -63,7 +63,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
+                    'Square-Version': SQUARE_API_VERSION
                 },
                 body: JSON.stringify(requestBody)
             }, 15000);
@@ -123,7 +123,7 @@ async function prefetchRecentLoyaltyEvents(merchantId, days = 7) {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
+                        'Square-Version': SQUARE_API_VERSION
                     }
                 }, 10000);
                 const accountDuration = Date.now() - accountStartTime;

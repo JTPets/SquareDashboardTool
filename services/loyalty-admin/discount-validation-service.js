@@ -11,7 +11,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { addCustomerToGroup } = require('./square-customer-group-service');
 const { updateRewardDiscountAmount } = require('./square-discount-catalog-service');
 
@@ -269,7 +269,7 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
+                        'Square-Version': SQUARE_API_VERSION
                     }
                 },
                 10000
@@ -395,7 +395,7 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json',
-                        'Square-Version': '2025-01-16'
+                        'Square-Version': SQUARE_API_VERSION
                     }
                 },
                 10000
