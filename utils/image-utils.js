@@ -18,9 +18,10 @@ const logger = require('./logger');
  *
  * @param {Array|null} variationImages - Array of image IDs from variation
  * @param {Array|null} itemImages - Array of image IDs from parent item (fallback)
+ * @param {number} merchantId - Merchant ID for tenant isolation
  * @returns {Promise<Array>} Array of image URLs
  */
-async function resolveImageUrls(variationImages, itemImages = null) {
+async function resolveImageUrls(variationImages, itemImages = null, merchantId) {
     // Try variation images first, then fall back to item images
     let imageIds = variationImages;
 
@@ -33,11 +34,12 @@ async function resolveImageUrls(variationImages, itemImages = null) {
     }
 
     try {
-        // Query the images table to get URLs
+        // LOGIC CHANGE: added merchant_id filter for tenant isolation (SEC-14)
         const placeholders = imageIds.map((_, i) => `$${i + 1}`).join(',');
+        const merchantParam = `$${imageIds.length + 1}`;
         const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
-            imageIds
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND merchant_id = ${merchantParam} AND url IS NOT NULL`,
+            [...imageIds, merchantId]
         );
 
         // Create a map of id -> url
@@ -66,9 +68,10 @@ async function resolveImageUrls(variationImages, itemImages = null) {
  *
  * This is much more efficient than calling resolveImageUrls for each item
  * @param {Array} items - Array of objects with 'images' and optional 'item_images' fields
+ * @param {number} merchantId - Merchant ID for tenant isolation
  * @returns {Promise<Map>} Map of item index -> image URLs array
  */
-async function batchResolveImageUrls(items) {
+async function batchResolveImageUrls(items, merchantId) {
     // Collect all unique image IDs
     const allImageIds = new Set();
     const itemImageMapping = []; // Track which images belong to which item
@@ -97,10 +100,12 @@ async function batchResolveImageUrls(items) {
     let urlMap = {};
 
     try {
+        // LOGIC CHANGE: added merchant_id filter for tenant isolation (SEC-14)
         const placeholders = imageIdArray.map((_, i) => `$${i + 1}`).join(',');
+        const merchantParam = `$${imageIdArray.length + 1}`;
         const result = await db.query(
-            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND url IS NOT NULL`,
-            imageIdArray
+            `SELECT id, url FROM images WHERE id IN (${placeholders}) AND merchant_id = ${merchantParam} AND url IS NOT NULL`,
+            [...imageIdArray, merchantId]
         );
 
         result.rows.forEach(row => {

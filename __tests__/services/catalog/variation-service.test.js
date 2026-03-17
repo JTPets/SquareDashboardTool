@@ -69,7 +69,7 @@ describe('variation-service', () => {
             expect(result.variations[0].item_images).toBeUndefined();
             expect(result.variations[0].image_urls).toEqual([]);
             expect(db.query.mock.calls[0][1]).toEqual([merchantId]);
-            expect(batchResolveImageUrls).toHaveBeenCalledWith(mockVariationRows);
+            expect(batchResolveImageUrls).toHaveBeenCalledWith(mockVariationRows, merchantId);
         });
 
         it('filters by item_id', async () => {

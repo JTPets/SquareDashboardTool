@@ -233,7 +233,7 @@ async function getCatalogAudit(merchantId, filters = {}) {
     const imageUrlMap = await batchResolveImageUrls(filteredData.map(row => ({
         images: row.variation_images,
         item_images: row.item_images
-    })));
+    })), merchantId);
 
     // Calculate issue count per item (synchronous - no DB calls)
     const itemsWithIssueCounts = filteredData.map((row, index) => {

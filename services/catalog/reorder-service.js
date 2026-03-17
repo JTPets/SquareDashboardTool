@@ -94,7 +94,7 @@ async function getReorderSuggestions({ merchantId, businessName, query }) {
     sortSuggestions(filteredSuggestions);
 
     // Resolve image URLs
-    const imageUrlMap = await batchResolveImageUrls(filteredSuggestions);
+    const imageUrlMap = await batchResolveImageUrls(filteredSuggestions, merchantId);
     const suggestionsWithImages = filteredSuggestions.map((suggestion, index) => ({
         ...suggestion,
         image_urls: imageUrlMap.get(index) || [],

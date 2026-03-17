@@ -108,7 +108,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| SEC-14 | `resolveImageUrls` missing `merchant_id` filter — queries images table by ID without tenant scoping. | `utils/image-utils.js:38-41` | S | 2026-02-28 |
+| ~~SEC-14~~ | ~~`resolveImageUrls` missing `merchant_id` filter~~ — **FIXED 2026-03-17**. Added `merchant_id` param to `resolveImageUrls` and `batchResolveImageUrls`; updated all 8 callers. | `utils/image-utils.js` | S | 2026-02-28 |
 
 ### Multi-Tenant Gaps
 

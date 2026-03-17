@@ -108,7 +108,7 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(a
 
         // Combine and resolve images
         const allItems = [...priorityItems.rows, ...dailyBatchItems.rows];
-        const imageUrlMap = await batchResolveImageUrls(allItems);
+        const imageUrlMap = await batchResolveImageUrls(allItems, merchantId);
 
         const itemsWithImages = allItems.map((item, index) => ({
             ...item,
