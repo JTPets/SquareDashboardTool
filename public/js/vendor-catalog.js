@@ -527,6 +527,10 @@
     }
 
     // Search catalog
+    // LOGIC CHANGE: bulk create items from vendor catalog
+    // Track browse catalog items for checkbox selection
+    let browseCatalogItems = [];
+
     async function searchCatalog() {
       const search = document.getElementById('search-input').value;
       const vendorId = document.getElementById('vendor-filter').value;
@@ -538,19 +542,24 @@
       if (matchFilter === 'true') params.set('matched_only', 'true');
 
       const tbody = document.getElementById('catalog-body');
-      tbody.innerHTML = '<tr><td colspan="8" class="loading">Searching...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="loading">Searching...</td></tr>';
 
       try {
         const response = await fetch('/api/vendor-catalog?' + params.toString());
         const data = await response.json();
+        browseCatalogItems = data.items || [];
 
-        if (data.items.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No items found</td></tr>';
+        if (browseCatalogItems.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No items found</td></tr>';
+          updateCreateButton();
           return;
         }
 
-        tbody.innerHTML = data.items.map(item => `
+        tbody.innerHTML = browseCatalogItems.map(item => `
           <tr>
+            <td>${!item.matched_variation_id
+              ? `<input type="checkbox" class="vendor-item-checkbox" data-vendor-catalog-id="${item.id}" data-change="updateCreateButton">`
+              : ''}</td>
             <td>${escapeHtml(item.vendor_name)}</td>
             <td><code>${escapeHtml(item.vendor_item_number)}</code></td>
             <td>${escapeHtml(item.product_name)}</td>
@@ -564,8 +573,76 @@
           </tr>
         `).join('');
 
+        updateCreateButton();
+        const selectAllCheckbox = document.getElementById('select-all-unmatched');
+        if (selectAllCheckbox) selectAllCheckbox.checked = false;
+
       } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="8" class="error">Error: ${escapeHtml(error.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="error">Error: ${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    // Toggle select all unmatched checkboxes
+    function toggleSelectAllUnmatched(element) {
+      const checkboxes = document.querySelectorAll('.vendor-item-checkbox');
+      checkboxes.forEach(cb => { cb.checked = element.checked; });
+      updateCreateButton();
+    }
+
+    // Update create button state based on selected checkboxes
+    function updateCreateButton() {
+      const selected = document.querySelectorAll('.vendor-item-checkbox:checked');
+      const btn = document.getElementById('create-in-square-btn');
+      if (!btn) return;
+      const count = selected.length;
+      btn.disabled = count === 0;
+      btn.style.opacity = count === 0 ? '0.5' : '1';
+      btn.textContent = count > 0 ? `Create ${count} Item${count > 1 ? 's' : ''} in Square` : 'Create in Square';
+    }
+
+    // Create selected items in Square
+    async function createInSquare() {
+      const selected = document.querySelectorAll('.vendor-item-checkbox:checked');
+      if (selected.length === 0) return;
+
+      const count = selected.length;
+      if (!confirm(`Create ${count} item${count > 1 ? 's' : ''} in Square? You can add images, descriptions, and categories later.`)) {
+        return;
+      }
+
+      const vendorCatalogIds = Array.from(selected).map(cb => parseInt(cb.dataset.vendorCatalogId, 10));
+      const btn = document.getElementById('create-in-square-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      btn.style.opacity = '0.5';
+
+      try {
+        const response = await fetch('/api/vendor-catalog/create-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vendorCatalogIds })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          alert(`Error: ${result.error || 'Failed to create items'}`);
+          return;
+        }
+
+        let message = `Created ${result.created} item${result.created !== 1 ? 's' : ''} in Square.`;
+        if (result.failed > 0) {
+          message += ` ${result.failed} failed.`;
+        }
+        alert(message);
+
+        // Refresh the browse tab
+        searchCatalog();
+        loadStats();
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      } finally {
+        updateCreateButton();
       }
     }
 

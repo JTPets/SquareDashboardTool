@@ -806,12 +806,17 @@
             <option value="false">Unmatched Only</option>
           </select>
           <button data-action="searchCatalog">Search</button>
+          <button id="create-in-square-btn" data-action="createInSquare" disabled
+                  style="padding: 10px 20px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; opacity: 0.5;">
+            Create in Square
+          </button>
         </div>
 
         <div class="table-container">
           <table id="catalog-table">
             <thead>
               <tr>
+                <th style="width: 40px;"><input type="checkbox" id="select-all-unmatched" title="Select All Unmatched" data-change="toggleSelectAllUnmatched"></th>
                 <th>Vendor</th>
                 <th>Vendor Item #</th>
                 <th>Product Name</th>
@@ -823,7 +828,7 @@
               </tr>
             </thead>
             <tbody id="catalog-body">
-              <tr><td colspan="8" class="loading">Loading...</td></tr>
+              <tr><td colspan="9" class="loading">Loading...</td></tr>
             </tbody>
           </table>
         </div>
