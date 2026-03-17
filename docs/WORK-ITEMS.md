@@ -43,7 +43,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-1 (audit) | Subscription endpoint gaps — POST endpoints now rate-limited, but **GET /api/subscriptions/status** still unauthenticated with no rate limit. Leaks subscription info by email. | `routes/subscriptions.js:559` | S | 2026-03-10 |
+| CRIT-1 (audit) | ~~Subscription endpoint gaps~~ **FIXED 2026-03-17** — Added `subscriptionRateLimit` as first middleware on GET `/api/subscriptions/status`. Stripped response to `{ active, planName }` only — no email, dates, status details, or payment info leaked. Added `planName` to `checkSubscriptionStatus` return value. | `routes/subscriptions.js`, `utils/subscription-handler.js` | S | 2026-03-10 |
 | CRIT-2 (audit) | Subscription routes have no `merchant_id` scoping — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans` tables all lack `merchant_id` column. Promo codes usable cross-tenant. | `routes/subscriptions.js`, `database/schema.sql` | M | 2026-03-10 |
 | CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
 | CRIT-4 (audit) | Subscription tables missing tenant isolation — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`, `platform_settings` have no `merchant_id`. `oauth_states.merchant_id` allows NULL. | `database/schema.sql` | M | 2026-02-28 |

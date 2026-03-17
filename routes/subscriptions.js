@@ -556,10 +556,11 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
  * GET /api/subscriptions/status
  * Check subscription status for an email
  */
-router.get('/subscriptions/status', validators.checkStatus, asyncHandler(async (req, res) => {
+// LOGIC CHANGE: rate limit + minimal response on unauthenticated status endpoint (CRIT-1 audit)
+router.get('/subscriptions/status', subscriptionRateLimit, validators.checkStatus, asyncHandler(async (req, res) => {
     const { email } = req.query;
     const status = await subscriptionHandler.checkSubscriptionStatus(email);
-    res.json(status);
+    res.json({ active: status.isValid, planName: status.planName || null });
 }));
 
 /**

@@ -146,11 +146,12 @@ async function checkSubscriptionStatus(email) {
     const subscriber = await getSubscriberByEmail(email);
 
     if (!subscriber) {
-        return { isValid: false, status: 'not_found', message: 'No subscription found' };
+        return { isValid: false, status: 'not_found', planName: null, message: 'No subscription found' };
     }
 
     const now = new Date();
     const status = subscriber.subscription_status;
+    const planName = subscriber.subscription_plan || null;
 
     // Check trial status
     if (status === STATUS.TRIAL) {
@@ -160,13 +161,14 @@ async function checkSubscriptionStatus(email) {
             return {
                 isValid: true,
                 status: STATUS.TRIAL,
+                planName,
                 daysLeft,
                 message: `Trial active - ${daysLeft} days remaining`
             };
         } else {
             // Trial expired, update status
             await updateSubscriptionStatus(subscriber.id, STATUS.EXPIRED);
-            return { isValid: false, status: STATUS.EXPIRED, message: 'Trial expired' };
+            return { isValid: false, status: STATUS.EXPIRED, planName, message: 'Trial expired' };
         }
     }
 
@@ -174,21 +176,21 @@ async function checkSubscriptionStatus(email) {
     if (status === STATUS.ACTIVE) {
         const subEnd = subscriber.subscription_end_date ? new Date(subscriber.subscription_end_date) : null;
         if (!subEnd || now < subEnd) {
-            return { isValid: true, status: STATUS.ACTIVE, message: 'Subscription active' };
+            return { isValid: true, status: STATUS.ACTIVE, planName, message: 'Subscription active' };
         } else {
             // Subscription expired
             await updateSubscriptionStatus(subscriber.id, STATUS.EXPIRED);
-            return { isValid: false, status: STATUS.EXPIRED, message: 'Subscription expired' };
+            return { isValid: false, status: STATUS.EXPIRED, planName, message: 'Subscription expired' };
         }
     }
 
     // Past due - give grace period
     if (status === STATUS.PAST_DUE) {
-        return { isValid: false, status: STATUS.PAST_DUE, message: 'Payment past due' };
+        return { isValid: false, status: STATUS.PAST_DUE, planName, message: 'Payment past due' };
     }
 
     // Canceled or expired
-    return { isValid: false, status, message: `Subscription ${status}` };
+    return { isValid: false, status, planName, message: `Subscription ${status}` };
 }
 
 /**
