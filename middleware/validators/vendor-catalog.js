@@ -263,6 +263,20 @@ const updateVendorSettings = [
 ];
 
 /**
+ * POST /api/vendor-catalog/create-items
+ * LOGIC CHANGE: bulk create items from vendor catalog
+ */
+const createItems = [
+    body('vendorCatalogIds')
+        .isArray({ min: 1 })
+        .withMessage('vendorCatalogIds must be a non-empty array'),
+    body('vendorCatalogIds.*')
+        .isInt({ min: 1 })
+        .withMessage('Each vendorCatalogId must be a positive integer'),
+    handleValidationErrors
+];
+
+/**
  * POST /api/vendor-catalog/push-price-changes
  */
 const pushPriceChanges = [
@@ -290,6 +304,7 @@ module.exports = {
     lookupUpc,
     getBatches,
     batchAction,
+    createItems,
     pushPriceChanges,
     updateVendorSettings
 };
