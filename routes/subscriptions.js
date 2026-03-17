@@ -68,8 +68,13 @@ router.get('/square/payment-config', (req, res) => {
  * GET /api/subscriptions/plans
  * Get available subscription plans
  */
+// LOGIC CHANGE: scope plans to merchant (CRIT-2 audit)
 router.get('/subscriptions/plans', asyncHandler(async (req, res) => {
-    const plans = await subscriptionHandler.getPlans();
+    const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
+    if (!merchantId) {
+        return res.status(400).json({ success: false, error: 'Merchant context required', code: 'NO_MERCHANT' });
+    }
+    const plans = await subscriptionHandler.getPlans(merchantId);
     res.json({
         success: true,
         plans,
@@ -82,18 +87,24 @@ router.get('/subscriptions/plans', asyncHandler(async (req, res) => {
  * Validate a promo code and return discount info
  */
 // LOGIC CHANGE: rate limit unauthenticated endpoint (security audit 2026-03-10)
+// LOGIC CHANGE: scope promo code lookup to merchant (CRIT-2 audit)
 router.post('/subscriptions/promo/validate', promoRateLimit, validators.validatePromo, asyncHandler(async (req, res) => {
     const { code, plan, priceCents } = req.body;
+    const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
+    if (!merchantId) {
+        return res.status(400).json({ valid: false, error: 'Merchant context required' });
+    }
 
-    // Look up the promo code
+    // Look up the promo code scoped to this merchant
     const result = await db.query(`
         SELECT * FROM promo_codes
         WHERE UPPER(code) = UPPER($1)
+          AND merchant_id = $2
           AND is_active = TRUE
           AND (valid_from IS NULL OR valid_from <= NOW())
           AND (valid_until IS NULL OR valid_until >= NOW())
           AND (max_uses IS NULL OR times_used < max_uses)
-    `, [code.trim()]);
+    `, [code.trim(), merchantId]);
 
     if (result.rows.length === 0) {
         return res.json({ valid: false, error: 'Invalid or expired promo code' });
@@ -154,8 +165,11 @@ router.post('/subscriptions/promo/validate', promoRateLimit, validators.validate
 router.post('/subscriptions/create', subscriptionRateLimit, validators.createSubscription, asyncHandler(async (req, res) => {
     const { email, businessName, plan, sourceId, promoCode, termsAcceptedAt } = req.body;
 
-    // Capture merchant_id from session if user is logged in (bridges System A ↔ B)
-    const merchantId = req.session?.activeMerchantId || req.merchantContext?.id || null;
+    // LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+    const merchantId = req.session?.activeMerchantId || req.merchantContext?.id;
+    if (!merchantId) {
+        return res.status(400).json({ success: false, error: 'Merchant context required', code: 'NO_MERCHANT' });
+    }
 
     // Verify Square configuration
     const locationId = process.env.SQUARE_LOCATION_ID;
@@ -170,8 +184,8 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
         return res.status(400).json({ error: 'An account with this email already exists' });
     }
 
-    // Get plan pricing and Square plan variation ID
-    const plans = await subscriptionHandler.getPlans();
+    // Get plan pricing and Square plan variation ID (scoped to merchant)
+    const plans = await subscriptionHandler.getPlans(merchantId);
     const selectedPlan = plans.find(p => p.plan_key === plan);
     if (!selectedPlan) {
         return res.status(400).json({ error: 'Invalid plan selected' });
@@ -191,14 +205,16 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
     let finalPriceCents = selectedPlan.price_cents;
 
     if (promoCode) {
+        // LOGIC CHANGE: scope promo code to merchant (CRIT-2 audit)
         const promoResult = await db.query(`
             SELECT * FROM promo_codes
             WHERE UPPER(code) = UPPER($1)
+              AND merchant_id = $2
               AND is_active = TRUE
               AND (valid_from IS NULL OR valid_from <= NOW())
               AND (valid_until IS NULL OR valid_until >= NOW())
               AND (max_uses IS NULL OR times_used < max_uses)
-        `, [promoCode.trim()]);
+        `, [promoCode.trim(), merchantId]);
 
         if (promoResult.rows.length > 0) {
             const promo = promoResult.rows[0];
@@ -328,11 +344,11 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 
                 // Record payment
                 await subscriptionHandler.recordPayment({
+                    merchantId,
                     subscriberId: subscriber.id,
                     squarePaymentId: paymentResult.id,
                     amountCents: finalPriceCents,
                     currency: 'CAD', // OSS: SaaS billing currency, not per-merchant
-
                     status: paymentResult.status === 'COMPLETED' ? 'completed' : 'pending',
                     paymentType: 'subscription',
                     receiptUrl: paymentResult.receipt_url
@@ -439,6 +455,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 
     // Log subscription event
     await subscriptionHandler.logEvent({
+        merchantId,
         subscriberId: subscriber.id,
         eventType: 'subscription.created',
         eventData: {
@@ -578,7 +595,7 @@ router.get('/subscriptions/merchant-status', requireAuth, asyncHandler(async (re
     }
 
     const mc = req.merchantContext;
-    const plans = await subscriptionHandler.getPlans();
+    const plans = await subscriptionHandler.getPlans(mc.id);
 
     // Check System B for billing info
     const subscriber = await subscriptionHandler.getSubscriberByMerchantId(mc.id);
@@ -651,6 +668,7 @@ router.post('/subscriptions/cancel', requireAuth, validators.cancelSubscription,
     }
 
     await subscriptionHandler.logEvent({
+        merchantId: subscriber.merchant_id,
         subscriberId: subscriber.id,
         eventType: 'subscription.canceled',
         eventData: {
@@ -678,7 +696,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
         return res.status(404).json({ error: 'Subscriber not found' });
     }
 
-    const payments = await subscriptionHandler.getPaymentHistory(subscriber.id);
+    const payments = await subscriptionHandler.getPaymentHistory(subscriber.id, subscriber.merchant_id);
     const lastPayment = payments.find(p => p.status === 'completed' && !p.refunded_at);
 
     if (!lastPayment) {
@@ -717,10 +735,11 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
         }
     }
 
-    await subscriptionHandler.processRefund(lastPayment.id, lastPayment.amount_cents, reason || '30-day trial refund');
+    await subscriptionHandler.processRefund(lastPayment.id, lastPayment.amount_cents, reason || '30-day trial refund', subscriber.merchant_id);
     await subscriptionHandler.cancelSubscription(subscriber.id, 'Refunded');
 
     await subscriptionHandler.logEvent({
+        merchantId: subscriber.merchant_id,
         subscriberId: subscriber.id,
         eventType: 'payment.refunded',
         eventData: { payment_id: lastPayment.id, amount: lastPayment.amount_cents, reason }
@@ -738,9 +757,13 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
  * Get all subscribers (admin endpoint)
  */
 router.get('/subscriptions/admin/list', requireAdmin, validators.listSubscribers, asyncHandler(async (req, res) => {
+    const merchantId = req.merchantContext?.id;
+    if (!merchantId) {
+        return res.status(403).json({ success: false, error: 'No merchant connected', code: 'NO_MERCHANT' });
+    }
     const { status } = req.query;
-    const subscribers = await subscriptionHandler.getAllSubscribers({ status });
-    const stats = await subscriptionHandler.getSubscriptionStats();
+    const subscribers = await subscriptionHandler.getAllSubscribers({ merchantId, status });
+    const stats = await subscriptionHandler.getSubscriptionStats(merchantId);
 
     res.json({
         success: true,

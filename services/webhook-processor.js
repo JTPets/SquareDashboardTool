@@ -309,7 +309,9 @@ class WebhookProcessor {
             }
 
             // ==================== LEGACY EVENT LOGGING ====================
+            // LOGIC CHANGE: pass merchant_id for tenant isolation (CRIT-2 audit)
             await subscriptionHandler.logEvent({
+                merchantId: internalMerchantId,
                 subscriberId,
                 eventType: event.type,
                 eventData: event.data,

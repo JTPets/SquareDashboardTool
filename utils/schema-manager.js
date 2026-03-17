@@ -475,6 +475,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_payments (
                 id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
                 square_payment_id TEXT UNIQUE,
                 square_invoice_id TEXT,
@@ -492,12 +493,15 @@ async function ensureSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant ON subscription_payments(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant_subscriber ON subscription_payments(merchant_id, subscriber_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscriber ON subscription_payments(subscriber_id)');
 
         // 3. Subscription events table
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_events (
                 id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE SET NULL,
                 event_type TEXT NOT NULL,
                 event_data JSONB,
@@ -505,13 +509,16 @@ async function ensureSchema() {
                 processed_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant ON subscription_events(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant_type ON subscription_events(merchant_id, event_type)');
         await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id)');
 
         // 4. Subscription plans table
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_plans (
                 id SERIAL PRIMARY KEY,
-                plan_key TEXT NOT NULL UNIQUE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                plan_key TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT,
                 price_cents INTEGER NOT NULL,
@@ -520,9 +527,11 @@ async function ensureSchema() {
                 is_active BOOLEAN DEFAULT TRUE,
                 is_intro_pricing BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, plan_key)
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_plans_merchant ON subscription_plans(merchant_id)');
 
         // Insert default plans (intro pricing)
         await query(`
@@ -587,7 +596,8 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS promo_codes (
                 id SERIAL PRIMARY KEY,
-                code TEXT NOT NULL UNIQUE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                code TEXT NOT NULL,
                 description TEXT,
                 discount_type TEXT NOT NULL DEFAULT 'percent',
                 discount_value INTEGER NOT NULL,
@@ -600,10 +610,12 @@ async function ensureSchema() {
                 applies_to_plans TEXT[],
                 created_by TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, code)
             )
         `);
-        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant ON promo_codes(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant_code ON promo_codes(merchant_id, code)');
         await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes(is_active)');
 
         // 2. Promo code uses tracking

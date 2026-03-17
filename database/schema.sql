@@ -146,7 +146,7 @@ CREATE TABLE oauth_states (
     state TEXT UNIQUE NOT NULL,
     -- LOGIC CHANGE: added ON DELETE CASCADE for tenant isolation (DB-6)
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    merchant_id INTEGER REFERENCES merchants(id),
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     redirect_uri TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL,
@@ -155,7 +155,7 @@ CREATE TABLE oauth_states (
 
 CREATE INDEX idx_oauth_states_state ON oauth_states(state);
 CREATE INDEX idx_oauth_states_expires ON oauth_states(expires_at);
-CREATE INDEX IF NOT EXISTS idx_oauth_states_merchant ON oauth_states(merchant_id) WHERE merchant_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_oauth_states_merchant ON oauth_states(merchant_id);
 
 -- ==================== CORE APPLICATION TABLES ====================
 
@@ -1072,8 +1072,11 @@ END $$;
 CREATE TABLE IF NOT EXISTS platform_settings (
     key VARCHAR(255) PRIMARY KEY,
     value TEXT NOT NULL,
+    merchant_id INTEGER REFERENCES merchants(id),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_platform_settings_merchant ON platform_settings(merchant_id) WHERE merchant_id IS NOT NULL;
 
 -- Seed default trial duration
 INSERT INTO platform_settings (key, value)
@@ -1088,7 +1091,8 @@ ON CONFLICT (key) DO NOTHING;
 -- Promo/Discount Codes for Subscriptions (from 006_promo_codes.sql)
 CREATE TABLE IF NOT EXISTS promo_codes (
     id SERIAL PRIMARY KEY,
-    code TEXT NOT NULL UNIQUE,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    code TEXT NOT NULL,
     description TEXT,
     discount_type TEXT NOT NULL DEFAULT 'percent',
     discount_value INTEGER NOT NULL,
@@ -1101,10 +1105,12 @@ CREATE TABLE IF NOT EXISTS promo_codes (
     applies_to_plans TEXT[],
     created_by TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id, code)
 );
 
-CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code);
+CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant ON promo_codes(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant_code ON promo_codes(merchant_id, code);
 CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes(is_active);
 
 COMMENT ON TABLE promo_codes IS 'Promotional discount codes for subscriptions';
@@ -1155,6 +1161,7 @@ CREATE TABLE IF NOT EXISTS subscribers (
 -- Subscription payments history
 CREATE TABLE IF NOT EXISTS subscription_payments (
     id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
     square_payment_id TEXT UNIQUE,
     square_invoice_id TEXT,
@@ -1183,6 +1190,7 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
 -- Subscription events log (for debugging and audit)
 CREATE TABLE IF NOT EXISTS subscription_events (
     id SERIAL PRIMARY KEY,
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
     subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE SET NULL,
     event_type TEXT NOT NULL, -- subscription.created, payment.completed, subscription.canceled, etc
     event_data JSONB,
@@ -1193,7 +1201,8 @@ CREATE TABLE IF NOT EXISTS subscription_events (
 -- Subscription plans configuration
 CREATE TABLE IF NOT EXISTS subscription_plans (
     id SERIAL PRIMARY KEY,
-    plan_key TEXT NOT NULL UNIQUE, -- monthly, annual
+    merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+    plan_key TEXT NOT NULL, -- monthly, annual
     name TEXT NOT NULL,
     description TEXT,
     price_cents INTEGER NOT NULL,
@@ -1202,7 +1211,8 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
     is_active BOOLEAN DEFAULT TRUE,
     is_intro_pricing BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(merchant_id, plan_key)
 );
 
 -- Insert default subscription plans (intro pricing)
@@ -1219,10 +1229,15 @@ CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email);
 CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(subscription_status);
 CREATE INDEX IF NOT EXISTS idx_subscribers_square_customer ON subscribers(square_customer_id);
 CREATE INDEX IF NOT EXISTS idx_subscribers_square_subscription ON subscribers(square_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant ON subscription_payments(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant_subscriber ON subscription_payments(merchant_id, subscriber_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscriber ON subscription_payments(subscriber_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_status ON subscription_payments(status);
+CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant ON subscription_events(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant_type ON subscription_events(merchant_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_events_type ON subscription_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_subscription_plans_merchant ON subscription_plans(merchant_id);
 
 -- Promo code usage tracking
 CREATE TABLE IF NOT EXISTS promo_code_uses (

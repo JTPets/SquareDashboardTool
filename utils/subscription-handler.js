@@ -28,9 +28,10 @@ async function createSubscriber({ email, businessName, plan, squareCustomerId, c
     trialEndDate.setDate(trialEndDate.getDate() + TRIAL_DAYS);
 
     // Get plan pricing from database
+    // LOGIC CHANGE: scope plan lookup to merchant (CRIT-2 audit)
     const planResult = await db.query(
-        'SELECT price_cents FROM subscription_plans WHERE plan_key = $1',
-        [plan]
+        'SELECT price_cents FROM subscription_plans WHERE plan_key = $1 AND merchant_id = $2',
+        [plan, merchantId]
     );
 
     let priceCents;
@@ -284,7 +285,9 @@ async function cancelSubscription(subscriberId, reason = null) {
  * @param {Object} payment - Payment details
  * @returns {Promise<Object>} Created payment record
  */
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
 async function recordPayment({
+    merchantId,
     subscriberId,
     squarePaymentId,
     squareInvoiceId,
@@ -299,12 +302,13 @@ async function recordPayment({
 }) {
     const result = await db.query(`
         INSERT INTO subscription_payments (
-            subscriber_id, square_payment_id, square_invoice_id, amount_cents, currency,
+            merchant_id, subscriber_id, square_payment_id, square_invoice_id, amount_cents, currency,
             status, payment_type, billing_period_start, billing_period_end,
             receipt_url, failure_reason
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
     `, [
+        merchantId,
         subscriberId,
         squarePaymentId || null,
         squareInvoiceId || null,
@@ -318,7 +322,7 @@ async function recordPayment({
         failureReason || null
     ]);
 
-    logger.info('Payment recorded', { subscriberId, squarePaymentId, squareInvoiceId, status, amountCents });
+    logger.info('Payment recorded', { merchantId, subscriberId, squarePaymentId, squareInvoiceId, status, amountCents });
     return result.rows[0];
 }
 
@@ -329,18 +333,19 @@ async function recordPayment({
  * @param {string} reason - Refund reason
  * @returns {Promise<Object>} Updated payment record
  */
-async function processRefund(paymentId, refundAmountCents, reason) {
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+async function processRefund(paymentId, refundAmountCents, reason, merchantId) {
     const result = await db.query(`
         UPDATE subscription_payments
         SET status = 'refunded',
             refund_amount_cents = $1,
             refund_reason = $2,
             refunded_at = CURRENT_TIMESTAMP
-        WHERE id = $3
+        WHERE id = $3 AND merchant_id = $4
         RETURNING *
-    `, [refundAmountCents, reason, paymentId]);
+    `, [refundAmountCents, reason, paymentId, merchantId]);
 
-    logger.info('Refund processed', { paymentId, refundAmountCents, reason });
+    logger.info('Refund processed', { paymentId, merchantId, refundAmountCents, reason });
     return result.rows[0];
 }
 
@@ -349,12 +354,13 @@ async function processRefund(paymentId, refundAmountCents, reason) {
  * @param {Object} event - Event details
  * @returns {Promise<Object>} Created event record
  */
-async function logEvent({ subscriberId, eventType, eventData, squareEventId }) {
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+async function logEvent({ merchantId, subscriberId, eventType, eventData, squareEventId }) {
     const result = await db.query(`
-        INSERT INTO subscription_events (subscriber_id, event_type, event_data, square_event_id)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO subscription_events (merchant_id, subscriber_id, event_type, event_data, square_event_id)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING *
-    `, [subscriberId, eventType, JSON.stringify(eventData), squareEventId]);
+    `, [merchantId, subscriberId, eventType, JSON.stringify(eventData), squareEventId]);
 
     return result.rows[0];
 }
@@ -363,10 +369,11 @@ async function logEvent({ subscriberId, eventType, eventData, squareEventId }) {
  * Get subscription plans
  * @returns {Promise<Array>} Active subscription plans
  */
-async function getPlans() {
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+async function getPlans(merchantId) {
     const result = await db.query(`
-        SELECT * FROM subscription_plans WHERE is_active = TRUE ORDER BY price_cents ASC
-    `);
+        SELECT * FROM subscription_plans WHERE is_active = TRUE AND merchant_id = $1 ORDER BY price_cents ASC
+    `, [merchantId]);
     return result.rows;
 }
 
@@ -375,12 +382,13 @@ async function getPlans() {
  * @param {number} subscriberId - Subscriber ID
  * @returns {Promise<Array>} Payment history
  */
-async function getPaymentHistory(subscriberId) {
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+async function getPaymentHistory(subscriberId, merchantId) {
     const result = await db.query(`
         SELECT * FROM subscription_payments
-        WHERE subscriber_id = $1
+        WHERE subscriber_id = $1 AND merchant_id = $2
         ORDER BY created_at DESC
-    `, [subscriberId]);
+    `, [subscriberId, merchantId]);
     return result.rows;
 }
 
@@ -407,13 +415,14 @@ async function updateCardOnFile(subscriberId, { cardId, cardBrand, cardLastFour 
  * @param {Object} filters - Optional filters
  * @returns {Promise<Array>} Subscribers list
  */
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
 async function getAllSubscribers(filters = {}) {
-    let sql = 'SELECT * FROM subscribers';
-    const params = [];
+    let sql = 'SELECT * FROM subscribers WHERE merchant_id = $1';
+    const params = [filters.merchantId];
 
     if (filters.status) {
-        sql += ' WHERE subscription_status = $1';
         params.push(filters.status);
+        sql += ` AND subscription_status = $${params.length}`;
     }
 
     sql += ' ORDER BY created_at DESC';
@@ -426,7 +435,8 @@ async function getAllSubscribers(filters = {}) {
  * Get subscription statistics
  * @returns {Promise<Object>} Subscription stats
  */
-async function getSubscriptionStats() {
+// LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
+async function getSubscriptionStats(merchantId) {
     const result = await db.query(`
         SELECT
             COUNT(*) as total_subscribers,
@@ -438,7 +448,8 @@ async function getSubscriptionStats() {
             COUNT(*) FILTER (WHERE subscription_plan = 'annual') as annual_count,
             COALESCE(SUM(price_cents) FILTER (WHERE subscription_status = 'active'), 0) as monthly_revenue_cents
         FROM subscribers
-    `);
+        WHERE merchant_id = $1
+    `, [merchantId]);
 
     return result.rows[0];
 }
