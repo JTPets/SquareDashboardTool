@@ -13,7 +13,7 @@
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { decryptToken, isEncryptedToken } = require('../../utils/token-encryption');
-const { fetchWithTimeout } = require('./shared-utils');
+const { fetchWithTimeout, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { RedemptionTypes } = require('./constants');
 const { detectRewardRedemptionFromOrder, redeemReward } = require('./reward-service');
 
@@ -30,7 +30,7 @@ async function fetchOrderFromSquare(orderId, accessToken) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             }
         }, 10000);
 

@@ -12,7 +12,7 @@ const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
 const { AuditActions } = require('./constants');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { logAuditEvent } = require('./audit-service');
 const { processLoyaltyOrder } = require('./order-intake');
 const { SQUARE: { MAX_PAGINATION_ITERATIONS } } = require('../../config/constants');
@@ -180,7 +180,7 @@ async function getCustomerOrderHistoryForAudit({
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             },
             body: JSON.stringify(requestBody)
         }, 15000);
@@ -345,7 +345,7 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
+                    'Square-Version': SQUARE_API_VERSION
                 }
             }, 10000);
             const orderFetchDuration = Date.now() - orderFetchStart;

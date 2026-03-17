@@ -15,7 +15,7 @@
 
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { prefetchRecentLoyaltyEvents, findCustomerFromPrefetchedEvents } = require('./loyalty-event-prefetch-service');
 const { processLoyaltyOrder } = require('./order-intake');
 
@@ -120,7 +120,7 @@ async function runBackfill({ merchantId, days = 7 }) {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             },
             body: JSON.stringify(requestBody)
         }, 15000);

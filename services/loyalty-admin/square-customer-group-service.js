@@ -9,7 +9,7 @@
 
 const logger = require('../../utils/logger');
 const { loyaltyLogger } = require('../../utils/loyalty-logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 
 /**
  * Create a Customer Group in Square for a specific reward
@@ -37,7 +37,7 @@ async function createRewardCustomerGroup({ merchantId, internalRewardId, offerNa
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             },
             body: JSON.stringify({
                 idempotency_key: `loyalty-reward-group-${internalRewardId}`,
@@ -115,7 +115,7 @@ async function addCustomerToGroup({ merchantId, squareCustomerId, groupId }) {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
+                    'Square-Version': SQUARE_API_VERSION
                 }
             },
             10000

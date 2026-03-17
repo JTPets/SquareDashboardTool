@@ -11,7 +11,7 @@
  */
 
 const logger = require('../../utils/logger');
-const { fetchWithTimeout, getSquareAccessToken } = require('./shared-utils');
+const { fetchWithTimeout, getSquareAccessToken, SQUARE_API_VERSION } = require('./shared-utils'); // LOGIC CHANGE: use centralized Square API version from constants (CRIT-5)
 const { getCustomerDetails } = require('./customer-admin-service');
 const { processLoyaltyOrder } = require('./order-intake');
 
@@ -45,7 +45,7 @@ async function processOrderManually({ merchantId, squareOrderId }) {
         headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            'Square-Version': '2025-01-16'
+            'Square-Version': SQUARE_API_VERSION
         }
     }, 10000);
 

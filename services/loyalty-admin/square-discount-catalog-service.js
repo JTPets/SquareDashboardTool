@@ -158,7 +158,7 @@ async function createRewardDiscount({ merchantId, internalRewardId, groupId, off
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             },
             body: JSON.stringify({
                 idempotency_key: generateIdempotencyKey(`loyalty-discount-batch-${internalRewardId}`),
@@ -275,7 +275,7 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json',
-                    'Square-Version': '2025-01-16'
+                    'Square-Version': SQUARE_API_VERSION
                 }
             },
             10000
@@ -317,7 +317,7 @@ async function updateRewardDiscountAmount({ merchantId, squareDiscountId, newAmo
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json',
-                'Square-Version': '2025-01-16'
+                'Square-Version': SQUARE_API_VERSION
             },
             body: JSON.stringify({
                 idempotency_key: generateIdempotencyKey(`loyalty-discount-price-update-${rewardId}-${newAmountCents}`),
