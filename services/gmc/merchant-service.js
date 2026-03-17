@@ -16,8 +16,6 @@
  */
 
 const { google } = require('googleapis');
-const fsPromises = require('fs').promises;
-const path = require('path');
 const db = require('../../utils/database');
 const logger = require('../../utils/logger');
 
@@ -324,12 +322,7 @@ async function getDataSourceInfo(merchantId, gmcMerchantId, dataSourceId) {
 
 // ==================== PRODUCT CATALOG SYNC ====================
 
-// Debug counters for upsertProduct (module-level state)
-const upsertProductState = {
-    _logged: false,
-    _debugCount: { ONLINE: 0, LOCAL: 0 },
-    _successCount: { ONLINE: 0, LOCAL: 0 }
-};
+// LOGIC CHANGE: removed write-only debug files and shared module state (MT-4, MT-13)
 
 /**
  * Insert or update a single product in GMC using Merchant API
@@ -340,9 +333,6 @@ async function upsertProduct(options) {
 
     const auth = await getAuthClient(merchantId);
 
-    // Debug file logging
-    const debugFile = path.join(__dirname, '../../output/gmc-product-sync-debug.log');
-
     try {
         // Use the Products API (products_v1beta)
         // dataSource must be passed as query parameter, not in body
@@ -352,47 +342,15 @@ async function upsertProduct(options) {
         // Convert to Merchant API format (without dataSource in body)
         const productInput = buildMerchantApiProduct(product, gmcMerchantId, channel);
 
-        // Log first product for debugging (only log first to avoid spam)
-        if (!upsertProductState._logged) {
-            logger.info('First product input being sent to GMC', {
-                offerId: productInput.offerId,
-                feedLabel: productInput.feedLabel || '(omitted)',
-                contentLanguage: productInput.contentLanguage || '(omitted)',
-                channel: productInput.channel,
-                dataSource: dataSourceName
-            });
-            upsertProductState._logged = true;
-        }
-
         const response = await merchantApiRequest(auth, 'POST', apiPath, productInput);
-
-        // Log first success per channel to debug file
-        upsertProductState._successCount[channel]++;
-        if (upsertProductState._successCount[channel] === 1) {
-            const successMsg = `[${new Date().toISOString()}] SUCCESS [${channel}] #1: offerId=${product.offerId}\n`;
-            await fsPromises.appendFile(debugFile, successMsg);
-        }
 
         return { success: true, data: response };
     } catch (error) {
-        // Write errors to debug file (first 10 per channel)
-        upsertProductState._debugCount[channel]++;
-        if (upsertProductState._debugCount[channel] <= 10) {
-            const errorMsg = `[${new Date().toISOString()}] ERROR [${channel}] #${upsertProductState._debugCount[channel]}:
-  offerId: ${product.offerId}
-  channel: ${channel}
-  feedLabel: ${product.feedLabel || '(not set)'}
-  contentLanguage: ${product.contentLanguage || '(not set)'}
-  error: ${error.message}
-  details: ${error.details ? JSON.stringify(error.details, null, 2) : 'none'}
----
-`;
-            await fsPromises.appendFile(debugFile, errorMsg);
-        }
-
         logger.error('Failed to upsert product in GMC', {
             error: error.message,
+            merchantId,
             productId: product.offerId,
+            channel,
             feedLabel: product.feedLabel || '(not set)',
             contentLanguage: product.contentLanguage || '(not set)',
             errorDetails: error.details ? JSON.stringify(error.details) : undefined
@@ -563,15 +521,6 @@ function buildGmcProduct(row, settings, channel = 'online') {
  * Sync all products to GMC
  */
 async function syncProductCatalog(merchantId) {
-    // Reset debug logging flags for fresh sync
-    upsertProductState._logged = false;
-    upsertProductState._debugCount = { ONLINE: 0, LOCAL: 0 };
-    upsertProductState._successCount = { ONLINE: 0, LOCAL: 0 };
-
-    // Write sync start to debug file
-    const debugFile = path.join(__dirname, '../../output/gmc-product-sync-debug.log');
-    await fsPromises.writeFile(debugFile, `[${new Date().toISOString()}] === STARTING PRODUCT CATALOG SYNC ===\nmerchantId: ${merchantId}\n\n`);
-
     // Create sync log entry
     const logId = await createSyncLog({
         merchantId,
@@ -689,15 +638,6 @@ async function syncProductCatalog(merchantId) {
 
         const totalProducts = products.length;
 
-        // Write summary to debug file
-        const summaryMsg = `
-[${new Date().toISOString()}] === SYNC COMPLETE ===
-Total products: ${totalProducts}
-Succeeded: ${syncResult.succeeded}
-Failed: ${syncResult.failed}
-`;
-        await fsPromises.appendFile(debugFile, summaryMsg);
-
         logger.info('Product catalog sync completed', {
             merchantId,
             totalProducts,
@@ -737,12 +677,7 @@ Failed: ${syncResult.failed}
 
 // ==================== LOCAL INVENTORY SYNC ====================
 
-// Debug counters for updateLocalInventory (module-level state)
-const localInventoryState = {
-    _loggedSuccess: false,
-    _errorCount: 0,
-    _debugCount: 0
-};
+// LOGIC CHANGE: removed write-only debug files and shared module state (MT-4, MT-13)
 
 /**
  * Update local inventory for a single product at a specific store
@@ -770,62 +705,22 @@ async function updateLocalInventory(options) {
         quantity: quantity.toString()
     };
 
-    // Debug: Write to file for troubleshooting (first few only)
-    const debugFile = path.join(__dirname, '../../output/gmc-local-inventory-debug.log');
-
     try {
         const response = await merchantApiRequest(auth, 'POST', apiPath, localInventory);
 
-        // Log first success to debug file
-        if (!localInventoryState._loggedSuccess) {
-            const successMsg = `[${new Date().toISOString()}] SUCCESS: productId=${productId}, productName=${productName}, storeCode=${storeCode}\n`;
-            await fsPromises.appendFile(debugFile, successMsg);
-            logger.info('First successful local inventory update', {
-                productId,
-                productName,
-                storeCode,
-                path
-            });
-            localInventoryState._loggedSuccess = true;
-        }
-
         return { success: true, data: response };
     } catch (error) {
-        // Write errors to debug file
-        localInventoryState._debugCount++;
-        if (localInventoryState._debugCount <= 10) {
-            const errorMsg = `[${new Date().toISOString()}] ERROR #${localInventoryState._debugCount}:
-  productId: ${productId}
-  productName: ${productName}
-  storeCode: ${storeCode}
-  path: ${apiPath}
-  feedLabel: ${feed}
-  contentLanguage: ${lang}
-  error: ${error.message}
-  details: ${error.details ? JSON.stringify(error.details, null, 2) : 'none'}
-  body: ${JSON.stringify(localInventory)}
----
-`;
-            await fsPromises.appendFile(debugFile, errorMsg);
-        }
-
-        // Log errors with full details for debugging
-        // Only log first few errors to avoid spam
-        localInventoryState._errorCount++;
-
-        if (localInventoryState._errorCount <= 3) {
-            logger.error('Local inventory update failed', {
-                error: error.message,
-                errorDetails: error.details ? JSON.stringify(error.details) : undefined,
-                productId,
-                productName,
-                storeCode,
-                path: apiPath,
-                localInventory,
-                feedLabel: feed,
-                contentLanguage: lang
-            });
-        }
+        logger.error('Local inventory update failed', {
+            error: error.message,
+            errorDetails: error.details ? JSON.stringify(error.details) : undefined,
+            merchantId,
+            productId,
+            productName,
+            storeCode,
+            path: apiPath,
+            feedLabel: feed,
+            contentLanguage: lang
+        });
         throw error;
     }
 }
@@ -1015,15 +910,6 @@ async function syncLocationInventory(options) {
  * Sync all locations' inventory to GMC
  */
 async function syncAllLocationsInventory(merchantId) {
-    // Reset logging flags for fresh sync
-    localInventoryState._loggedSuccess = false;
-    localInventoryState._errorCount = 0;
-    localInventoryState._debugCount = 0;
-
-    // Write sync start to debug file
-    const debugFile = path.join(__dirname, '../../output/gmc-local-inventory-debug.log');
-    await fsPromises.writeFile(debugFile, `[${new Date().toISOString()}] === STARTING LOCAL INVENTORY SYNC ===\nmerchantId: ${merchantId}\n\n`);
-
     // Create sync log entry
     const logId = await createSyncLog({
         merchantId,

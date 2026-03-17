@@ -15,6 +15,8 @@
 const crypto = require('crypto');
 const logger = require('./logger');
 
+// NOTE: Single encryption key shared across all merchants. Acceptable — tokens are
+// merchant-scoped in DB. Evaluate per-merchant keys pre-franchise. (MT-11)
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;        // 128 bits
 const AUTH_TAG_LENGTH = 16;  // 128 bits

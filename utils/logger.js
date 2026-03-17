@@ -9,6 +9,7 @@ const winston = require('winston');
 const DailyRotateFile = require('winston-daily-rotate-file');
 const path = require('path');
 
+// TODO(pre-franchise): scope log files per-merchant or add merchantId to all log entries (MT-8)
 // Ensure logs directory exists (in output folder to consolidate all file writes)
 const logsDir = path.join(__dirname, '../output/logs');
 const fs = require('fs');

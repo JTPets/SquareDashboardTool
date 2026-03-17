@@ -495,6 +495,7 @@ app.get('/api/health/detailed', requireAuth, requireAdmin, async (req, res) => {
     try {
         const dbConnected = await db.testConnection();
 
+        // TODO(pre-franchise): check all merchants or accept merchantId param (MT-9)
         // Check Square connection status from database
         let squareStatus = 'not_configured';
         let squareError = null;

@@ -5,6 +5,7 @@
 **Last Validated**: 2026-03-15
 **Total Open Items**: ~65
 
+
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
 ### Purge Log — 2026-03-15 Validation
@@ -129,7 +130,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|---------|--------|------------|
 | T-4 | Background jobs mostly untested — 2 of 16 jobs have tests (`cron-scheduler`, `trial-expiry-job`). 13 jobs untested. | `jobs/` | L | 2026-02-25 |
 
----
 
 ## Low Priority
 
