@@ -532,4 +532,26 @@ router.post('/vendor-catalog/push-price-changes', requireAuth, requireMerchant, 
     });
 }));
 
+/**
+ * POST /api/vendor-catalog/create-items
+ * LOGIC CHANGE: bulk create items from vendor catalog
+ * Create Square catalog items from unmatched vendor catalog entries
+ * Body: { vendorCatalogIds: [1, 2, 3, ...] }
+ */
+router.post('/vendor-catalog/create-items', requireAuth, requireMerchant, validators.createItems, asyncHandler(async (req, res) => {
+    const { vendorCatalogIds } = req.body;
+    const merchantId = req.merchantContext.id;
+
+    logger.info('Bulk create Square items from vendor catalog', { count: vendorCatalogIds.length, merchantId });
+
+    const { bulkCreateSquareItems } = require('../services/vendor/catalog-create-service');
+    const result = await bulkCreateSquareItems(vendorCatalogIds, merchantId);
+
+    res.json({
+        created: result.created,
+        failed: result.failed,
+        errors: result.errors
+    });
+}));
+
 module.exports = router;

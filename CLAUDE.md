@@ -73,6 +73,7 @@ jobs/            → Background jobs and cron tasks
 | Service scope | Single responsibility |
 | Route logic | Validation + call service only |
 | New files | Tests + docs reference required |
+| New features | Tests required in same commit — no exceptions |
 | Complexity | Explainable in one sentence |
 | Dependencies | `npm install --save` or `--save-dev` only — never manually edit package.json. Commit package.json and package-lock.json together in the same commit as the code requiring the new dependency. |
 
@@ -215,7 +216,7 @@ See [ARCHITECTURE.md](./docs/ARCHITECTURE.md#loyalty-admin-modules) for module d
 1. Create validator in `middleware/validators/routename.js`
 2. Create route file in `routes/routename.js` using `asyncHandler`
 3. Add to `server.js`
-4. Write tests in `__tests__/routes/routename.test.js`
+4. **Write tests in `__tests__/routes/routename.test.js` — mandatory, must be in the same commit**
 
 ### New Database Table
 1. Add to `database/schema.sql`

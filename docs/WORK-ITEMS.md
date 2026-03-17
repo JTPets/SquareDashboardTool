@@ -2,10 +2,30 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-16
-**Total Open Items**: ~95
+**Last Validated**: 2026-03-15
+**Total Open Items**: ~65
+
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-15 Validation
+
+46 items confirmed FIXED and purged:
+- **CRIT-1/2/3 (loyalty race conditions)**: ON CONFLICT, pg_advisory_xact_lock, idempotency all implemented
+- **HIGH-1/2/3/5/6**: Row-level locking, error classification, atomic refunds, schema sync, discount cleanup all fixed
+- **BACKLOG-67/68**: Square orphan audit tool built; redemption cleanup implemented
+- **MED-1 through MED-7**: All loyalty issues fixed (detached .then, expiration loop, N+1 queries, customer summary, state transitions, LIMIT 1, partial commit)
+- **LA-14/16/17/18/21/27**: All loyalty-admin issues resolved
+- **BACKLOG-36/73**: Delta sync variation deletion fixed; vendor receipt bug fixed
+- **DB-2/3/4**: Composite index added, schema drift fixed, nullable merchant_id fixed
+- **S-5/7/8/9/11**: Password token, OAuth revoke, health endpoint, CSRF, session regeneration all fixed
+- **SEC-8**: batchUpsert function removed
+- **ERR-10**: process.exit(-1) removed from pool error handler
+- **PERF-1, P-3, P-7**: Batch inserts, specific column SELECT, cache eviction all fixed
+- **ARCH-4, O-1, O-6**: Dual HTTP clients unified; dead updateVariationPrice removed; lazy require documented
+- **TEST-28, T-1, T-3, LOW-8**: Subscription tests rewritten; purchase/reward/route tests added; 40/41 loyalty-admin services tested
+- **FE-1, SEC-12/13**: fetch() response.ok checks added; XSS in logs.js/delivery-settings.js fixed with escapeHtml
+- **L-3**: console.log reduced from 32 to 8 frontend files
 
 ---
 
@@ -13,45 +33,25 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409 ABORTED. Live store organic Google Shopping visibility broken. | `services/gmc/merchant-service.js` | M | 2026-03-09 |
+| BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409 ABORTED. Live store organic Google Shopping visibility broken. Services still use v1beta endpoints. | `services/gmc/merchant-service.js` | M | 2026-03-09 |
 
 ---
 
 ## Critical Priority
 
-### Loyalty Race Conditions
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| CRIT-1 | Race condition — concurrent webhooks create duplicate rewards. No error handling for unique violation; transaction throws, purchase silently lost. | `reward-progress-service.js:308-333` | M | 2026-03-09 |
-| CRIT-2 | No row-level locking on purchase events during progress calculation. Double-earning of rewards possible. | `reward-progress-service.js:36-48` | M | 2026-03-09 |
-| CRIT-3 | Purchase INSERT lacks ON CONFLICT for idempotency key. Concurrent calls with same key both pass SELECT, second INSERT throws. | `purchase-service.js:88-99, 142-157` | S | 2026-03-09 |
-
 ### Security
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-1 (audit) | Unauthenticated subscription endpoints write to `users`/`subscribers`. `POST /create` creates user accounts with no auth/rate limit. `POST /promo/validate` brute-forceable. `GET /status` leaks subscription info by email. | `routes/subscriptions.js:148, :80, :553` | S | 2026-03-10 |
-| CRIT-2 (audit) | Subscription routes have no `merchant_id` scoping — global database writes. Promo codes usable by any subscriber. | `routes/subscriptions.js:422-506` | M | 2026-03-10 |
-| CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface. Multi-tenant data rendered without escaping. | `public/js/` (all files) | L | 2026-03-10 |
-| CRIT-4 (audit) | DB-1 — 14+ tables have nullable `merchant_id`. Bug in INSERT creates orphaned rows. | `database/schema.sql` | M | 2026-02-28 |
-| CRIT-5 | 19 loyalty-admin files hardcode Square API version `'2025-01-16'` instead of using `config/constants.js` (`'2025-10-16'`). 9-month version gap. | 19 files in `services/loyalty-admin/` | S | 2026-03-10 |
+| CRIT-1 (audit) | Subscription endpoint gaps — POST endpoints now rate-limited, but **GET /api/subscriptions/status** still unauthenticated with no rate limit. Leaks subscription info by email. | `routes/subscriptions.js:559` | S | 2026-03-10 |
+| CRIT-2 (audit) | Subscription routes have no `merchant_id` scoping — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans` tables all lack `merchant_id` column. Promo codes usable cross-tenant. | `routes/subscriptions.js`, `database/schema.sql` | M | 2026-03-10 |
+| CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
+| CRIT-4 (audit) | Subscription tables missing tenant isolation — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`, `platform_settings` have no `merchant_id`. `oauth_states.merchant_id` allows NULL. | `database/schema.sql` | M | 2026-02-28 |
+| CRIT-5 | 12 loyalty-admin files hardcode Square API version `'2025-01-16'` instead of using `config/constants.js` (`'2025-10-16'`). 9-month version gap. | 12 files in `services/loyalty-admin/` | S | 2026-03-10 |
 
 ---
 
 ## High Priority
-
-### Loyalty System
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| HIGH-1 | Double redemption detection window — `detectRewardRedemptionFromOrder()` reads earned rewards without locking, another webhook can detect same reward. | `order-loyalty.js:275`, `reward-service.js:481-678` | S | 2026-03-09 |
-| HIGH-2 | All loyalty errors silently swallowed — entire `processLoyalty` wrapped in try/catch that never re-throws. Transient DB error permanently loses order's loyalty data. | `order-loyalty.js:310-317` | S | 2026-03-09 |
-| HIGH-3 | Refund processing not atomic across line items — each refund line item gets independent transaction. Partial commit on multi-item refund failure. | `purchase-service.js:276-437` | M | 2026-03-09 |
-| HIGH-5 | schema.sql out of sync with live database — old UNIQUE constraint vs migration 024's partial unique index. | `database/schema.sql:1559-1560` | S | 2026-03-09 |
-| HIGH-6 | Refund-triggered revocation doesn't clean up Square discount — customer retains active discount in Square POS. | `purchase-service.js:342-408` | S | 2026-03-09 |
-| BACKLOG-67 | Square orphan audit tool — scan all loyalty customer groups/pricing rules, flag any with no matching active reward. | New tool needed | M | 2026-03-15 |
-| BACKLOG-68 | Square discount cleanup on redemption — `redeemReward()` must call `cleanupSquareCustomerGroupDiscount()` after transitioning to redeemed. | `reward-service.js` | S | 2026-03-15 |
 
 ### Business
 
@@ -68,22 +68,9 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| MED-1 | Async Square discount creation fires as detached `.then()` — orphans on rollback. | `reward-progress-service.js:261-289` | S | 2026-03-09 |
-| MED-2 | Expiration loop exits on first error — one bad record prevents processing remaining. | `expiration-service.js:46-81` | S | 2026-03-09 |
-| MED-3 | N+1 queries in redemption detection — per-discount query. | `order-loyalty.js`, `reward-service.js` | S | 2026-03-09 |
-| MED-4 | 6 sequential queries in customer summary update. | `customer-summary-service.js:22-111` | M | 2026-03-09 |
-| MED-5 | No DB-level state transition enforcement on `loyalty_rewards.status`. | Database schema | M | 2026-03-09 |
-| MED-6 | Ambiguous LIMIT 1 in free-item reward matching. | `reward-service.js:271-285` | S | 2026-03-09 |
-| MED-7 | Partial commit on per-item error — failed variation permanently lost. | `order-intake.js:188-197` | S | 2026-03-09 |
-| LA-14 | `processExpiredWindowEntries` error handler misleadingly appears to roll back committed rows. | `expiration-service.js` | S | 2026-03-09 |
-| LA-16 | Manual entry sets $0 price — can't calculate discount cap. | `manual-entry-service.js` | S | 2026-03-09 |
-| LA-17 | `buildDiscountMap` swallows DB errors — could double-count redemption items. | `line-item-filter.js` | S | 2026-03-09 |
-| LA-18 | Five files use raw `fetch()` instead of `SquareApiClient` — no rate-limit retry. | 5 loyalty-admin files | M | 2026-03-09 |
-| LA-21 | Multi-threshold rollover with split-row edge cases untested. | Tests needed | M | 2026-03-09 |
-| LA-27 | Loyalty event prefetch returns partial data silently on API failures. | `loyalty-event-prefetch-service.js` | S | 2026-03-09 |
-| BACKLOG-69 | Extract duplicate discount fix pattern in `discount-validation-service.js`. DRY fix. | `discount-validation-service.js` | S | 2026-03-15 |
-| BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing. | `order-history-audit-service.js` | S | 2026-03-15 |
-| BACKLOG-73 | Vendor receipt display bug — multi-redemption same order shows same line item as free for both. | `loyalty-reports.js` | M | 2026-03-15 |
+| BACKLOG-69 | Extract duplicate discount fix pattern — same recreate-discount logic repeated 3 times in validation checks. | `discount-validation-service.js:238-257, 297-322, 350-375` | S | 2026-03-15 |
+| BACKLOG-71 | Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing. | `order-history-audit-service.js:240-314` | S | 2026-03-15 |
+| BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops. | `discount-validation-service.js:124-217` | S | 2026-03-15 |
 
 ### Features
 
@@ -108,58 +95,41 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| Backfill | Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug. | `purchase-service.js` | M | 2026-03-07 |
-| BACKLOG-36 (velocity) | Delta sync does not mark child variations as deleted — orphaned variations appear in reorder suggestions. | `square-catalog-sync.js:612-629` | M | 2026-03-15 |
+| Backfill | Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug. Requires runtime DB inspection. | `purchase-service.js` | M | 2026-03-07 |
 
 ### Database
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| DB-2 | Missing composite index on `inventory_counts(merchant_id, location_id, state)`. | `database/schema.sql` | S | 2026-02-28 |
-| DB-3 | Schema drift — `schema.sql` missing indexes from migration 005. | `database/schema.sql` | S | 2026-02-28 |
-| DB-4 | `expiry_discount_audit_log.merchant_id` allows NULL. | `database/schema.sql` | S | 2026-02-28 |
-| DB-5 | Potentially dead column `subscription_plans.square_plan_id`. | `database/schema.sql` | S | 2026-02-28 |
-| DB-6 | Missing `ON DELETE CASCADE` on 14 tables — orphan rows on merchant deletion. | `database/schema.sql` | M | 2026-02-28 |
-| DB-7 | Timestamp inconsistency: mix of `TIMESTAMP` and `TIMESTAMPTZ`. | `database/schema.sql` | M | 2026-02-28 |
+| DB-6 | Missing `ON DELETE CASCADE` on 4 `user_id` foreign keys — `oauth_states`, `delivery_orders`, `loyalty_redemptions`, `password_reset_tokens`. Orphan rows on user deletion. | `database/schema.sql` | S | 2026-02-28 |
+| DB-7 | Timestamp inconsistency: 169 `TIMESTAMP` vs 102 `TIMESTAMPTZ` columns. | `database/schema.sql` | M | 2026-02-28 |
+
+### Security
+
+| ID | Description | File(s) | Effort | Discovered |
+|----|-------------|---------|--------|------------|
+| SEC-14 | `resolveImageUrls` missing `merchant_id` filter — queries images table by ID without tenant scoping. | `utils/image-utils.js:38-41` | S | 2026-02-28 |
+
+### Multi-Tenant Gaps
+
+| ID | Description | Effort | Discovered |
+|----|-------------|--------|------------|
+| MT-4 | GMC debug files overwrite across merchants — hardcoded `gmc-product-sync-debug.log` not merchant-scoped. | S | 2026-03-08 |
+| MT-5 | GMC feed TSV file default filename not merchant-scoped (`gmc-feed.tsv`). | S | 2026-03-08 |
+| MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 |
+| MT-7 | `DAILY_COUNT_TARGET` cycle count target from env var is global, not per-merchant. | S | 2026-03-08 |
+| MT-8 | Shared log files across all merchants — `app-*.log` and `error-*.log` not segregated. | S | 2026-03-08 |
+| MT-9 | Health check picks arbitrary merchant for Square status via `LIMIT 1`. | S | 2026-03-08 |
+| MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants — no per-merchant key derivation. | S | 2026-03-08 |
+| MT-12 | `merchants.subscription_status` never auto-transitions from trial. Middleware handles dynamically but column is stale for reporting. | S | 2026-03-08 |
+| MT-13 | GMC module-level `upsertProductState` debug state shared across concurrent merchant syncs. | S | 2026-03-08 |
 
 ### Testing
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| TEST-28 | `subscriptions.test.js` — 849 lines testing JS operators, not app code. Rewrite needed. | `__tests__/routes/subscriptions.test.js` | M | 2026-02-28 |
-| T-1 | Financial/loyalty services have partial test coverage. | `purchase-service.js`, `reward-service.js` | L | 2026-02-25 |
-| T-3 | Many routes untested — prioritize analytics.js, catalog.js, loyalty.js. | `routes/` | L | 2026-02-25 |
-| T-4 | Background jobs mostly untested. | `jobs/` | L | 2026-02-25 |
-| LOW-8 | 43% of loyalty-admin services have zero test coverage. | `services/loyalty-admin/` | L | 2026-03-09 |
+| T-4 | Background jobs mostly untested — 2 of 16 jobs have tests (`cron-scheduler`, `trial-expiry-job`). 13 jobs untested. | `jobs/` | L | 2026-02-25 |
 
-### Security (Medium)
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| S-5 | Password reset token exposed in non-production response. | `routes/auth.js:655` | S | 2026-02-28 |
-| S-7 | Missing `requireMerchant` on OAuth revoke route. | `routes/square-oauth.js:320` | S | 2026-02-28 |
-| S-8 | Health endpoint exposes heap/node version to unauthenticated users. | `server.js:459-472` | S | 2026-02-28 |
-| S-9 | No CSRF token middleware — relies on SameSite + CORS only. | Project-wide | M | 2026-02-28 |
-| S-11 | Session not regenerated after merchant binding on OAuth callback. | `routes/square-oauth.js:242-244` | S | 2026-02-28 |
-| SEC-8 | `batchUpsert` interpolates column names — not user-controlled but violates parameterization rule. | `utils/database.js` | S | 2026-02-28 |
-| SEC-14 | `resolveImageUrls` missing `merchant_id` filter. | `services/gmc/feed-service.js` | S | 2026-02-28 |
-
-### Multi-Tenant Gaps
-
-| ID | Description | Effort | Discovered | Status |
-|----|-------------|--------|------------|--------|
-| MT-4 | GMC debug files overwrite across merchants — not merchant-scoped. | S | 2026-03-08 | **FIXED** 2026-03-16 — debug files removed |
-| MT-5 | GMC feed TSV file default filename not merchant-scoped. | S | 2026-03-08 | **FIXED** 2026-03-16 — merchantId in filename |
-| MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
-| MT-7 | `DAILY_COUNT_TARGET` cycle count target is global. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
-| MT-8 | Shared log files across all merchants. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
-| MT-9 | Health check picks arbitrary merchant for Square status. | S | 2026-03-08 | **Documented** 2026-03-16 — TODO(pre-franchise) added |
-| MT-10 | Setup script defaults to merchant ID 1. | S | 2026-03-08 | **FIXED** 2026-03-16 — --merchant-id CLI param added |
-| MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants. | S | 2026-03-08 | **Documented** 2026-03-16 — acceptable, noted in code |
-| MT-12 | Subscription status never auto-transitions from trial. | S | 2026-03-08 | **FIXED** 2026-03-16 — auto-transition in trial-expiry-job |
-| MT-13 | GMC module-level debug state shared across merchants. | S | 2026-03-08 | **FIXED** 2026-03-16 — module state removed |
-
----
 
 ## Low Priority
 
@@ -167,39 +137,56 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| PERF-1 | N+1 INSERT — per-variation sequential inserts during velocity sync. | `square-velocity.js` | M | 2026-02-28 |
-| PERF-6 | Reorder suggestions: 9-table JOIN, 3 correlated subqueries, no LIMIT. | `routes/analytics.js:147-278` | M | 2026-02-28 |
-| PERF-7 | N+1 bundle component inserts. | `routes/bundles.js:340-359` | S | 2026-02-28 |
-| P-3 | `SELECT *` on merchants for every `getSquareClientForMerchant()`. | `middleware/merchant.js:210` | S | 2026-02-25 |
-| P-5 | Google OAuth token listener duplicated on every call — leaks listeners. | `services/gmc/merchant-service.js:57-70` | S | 2026-02-25 |
-| P-7 | `clientCache` Map has no max size or LRU eviction. | `middleware/merchant.js:19-20` | S | 2026-02-25 |
-| P-8 | Follow-up syncs block sequentially. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
+| PERF-6 | Reorder suggestions query: 11-table JOIN with 4 correlated subqueries. Moved from `routes/analytics.js` to `services/catalog/reorder-service.js:135+` but still complex. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
+| P-5 | Google OAuth token listener — guard (`listenerCount`) prevents duplication, but same pattern repeated across calls. | `services/gmc/merchant-service.js:65-80` | S | 2026-02-25 |
+| P-8 | Follow-up syncs fire-and-forget — async but not fully non-blocking within request handler. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
 
 ### Error Handling
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| ERR-10 | Pool error handler calls `process.exit(-1)` on transient DB errors. | `utils/database.js` | S | 2026-02-28 |
-| E-4 | Audit logging silently swallows errors. | `services/loyalty-admin/audit-service.js:66-73` | S | 2026-02-25 |
+| E-4 | Audit logging silently swallows errors (by design — "should not break main operations"). | `services/loyalty-admin/audit-service.js:66-73` | S | 2026-02-25 |
 
 ### Dead Code / Cleanup
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| DEAD-6-12 | 7 dead imports + dead `podUpload` config + ~75 lines of "EXTRACTED" comments. | `server.js` | S | 2026-02-28 |
-| O-1 | `updateVariationPrice` exported but never called. | `services/square/square-pricing.js` | S | 2026-02-25 |
-| CQ-3 | Velocity return location ternary is a no-op — both branches return `order.location_id`. | `square-velocity.js:131-132` | S | 2026-03-10 |
-| CQ-4 | `updateDiscountAppliesTo` is a 78-line no-op function. | `services/expiry/discount-service.js:660-738` | S | 2026-03-10 |
-| BACKLOG-72 | Dead code — 3 customer lookup wrappers with 0 callers. | `customer-admin-service.js` | S | 2026-03-15 |
-| Dead | `'EXPIRED'` in `includes()` array unreachable due to short-circuit. | `services/expiry/discount-service.js:1816` | S | 2026-03-15 |
+| DEAD-6-12 | 10 "EXTRACTED" section comments in `server.js` (lines 617-691). Dead imports removed but comments remain. | `server.js` | S | 2026-02-28 |
+| CQ-3 | Velocity return location ternary is a no-op — both branches return `order.location_id`. | `square-velocity.js:132` | S | 2026-03-10 |
+| CQ-4 | `updateDiscountAppliesTo` exported but never called (0 callers outside definition). | `services/expiry/discount-service.js:675` | S | 2026-03-10 |
+| BACKLOG-72 | Dead code — 3 customer lookup wrappers with 0 callers, documented as dead. | `customer-admin-service.js` | S | 2026-03-15 |
+| Dead | `'EXPIRED'` in `includes()` array unreachable — EXPIRED tier has `auto_apply: false`, but check requires `is_auto_apply = true`. | `services/expiry/discount-service.js:1831` | S | 2026-03-15 |
 
 ### Logging
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| L-1 | Critical startup paths use `console.error()` instead of Winston logger. | S | 2026-02-25 |
-| L-2 | 10 locations missing `merchantId` in error logs. | S | 2026-02-25 |
-| L-3 | 32 frontend JS files have `console.log` visible to end users (180 calls). | M | 2026-02-25 |
+| L-1 | Critical startup paths use `console.error()` instead of Winston logger (3 occurrences in `server.js`). | S | 2026-02-25 |
+
+### Frontend
+
+| ID | Description | Effort | Discovered |
+|----|-------------|--------|------------|
+| FE-2 | `showToast()` duplicated across 9 files — no shared utility. | S | 2026-02-28 |
+| FE-3 | `escapeHtml()` still duplicated in 2 files (`delivery-settings.js`, `upgrade.js`) — not using global `utils/escape.js`. | S | 2026-02-28 |
+| FE-4 | `formatDate()` variants duplicated across 7 files. | S | 2026-02-28 |
+
+### Code Quality
+
+| ID | Description | File(s) | Effort | Discovered |
+|----|-------------|---------|--------|------------|
+| CQ-6 | `hashResetToken` duplicated in `auth.js` and `subscriptions.js`. | `routes/auth.js:19`, `routes/subscriptions.js:41` | S | 2026-03-10 |
+| CQ-10 | `filterValidVariations` returns all variations on API failure — fails open instead of safe. | `services/expiry/discount-service.js:974-981` | S | 2026-03-10 |
+| Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
+| Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
+| Google | Legacy plaintext Google OAuth tokens persist until refresh — migration guard in place, new tokens encrypted. JTPets only. | `utils/google-auth.js:275` | S | 2026-03-15 |
+
+### Architecture
+
+| ID | Description | File(s) | Effort | Discovered |
+|----|-------------|---------|--------|------------|
+| A-3 | Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`. | Multiple | S | 2026-02-25 |
+| O-5 | Business logic leaking into API sync layer — vendor sync logic embedded in catalog sync. | `services/square/square-catalog-sync.js` | M | 2026-02-25 |
 
 ### Config
 
@@ -207,31 +194,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|--------|------------|
 | C-1 | ~20 hardcoded timeouts, batch sizes, retention limits — should be in `config/constants.js`. | M | 2026-02-25 |
 | C-4 | Backups not encrypted at rest, no post-backup verification, local only. | M | 2026-02-25 |
-| I-2 | Dual Square API version constants — `2025-10-16` vs `2025-01-16` across 19 files. | S | 2026-02-25 |
-
-### Frontend
-
-| ID | Description | Effort | Discovered |
-|----|-------------|--------|------------|
-| FE-1 | 79 of 183 `fetch()` calls missing `response.ok` check. | M | 2026-02-28 |
-| FE-2 | `showToast()` duplicated across 7 files. | S | 2026-02-28 |
-| FE-3 | `escapeJsString()` duplicated across 7 files. | S | 2026-02-28 |
-| FE-4 | `formatDate()` variants duplicated across multiple files. | S | 2026-02-28 |
-| SEC-12/13 | XSS in `logs.js` and `delivery-settings.js` — innerHTML without escaping. | S | 2026-02-28 |
-
-### Code Quality
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| CQ-6 | `hashResetToken` duplicated in `auth.js` and `subscriptions.js`. | `routes/auth.js`, `routes/subscriptions.js` | S | 2026-03-10 |
-| CQ-8 | `totalSynced++` inflates on error path. | `square-catalog-sync.js` | S | 2026-03-10 |
-| CQ-9 | Vendor constraint errors log as ERROR not WARN. | `square-vendors.js` | S | 2026-03-10 |
-| CQ-10 | `filterValidVariations` returns all variations on API failure. | `services/expiry/discount-service.js:967-974` | S | 2026-03-10 |
-| Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
-| OAuth | `/connect` error handler uses global error handler instead of redirect. | `routes/square-oauth.js` | S | 2026-03-15 |
-| Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate. | `services/square/square-vendors.js` | S | 2026-03-15 |
-| Google | Legacy plaintext Google OAuth tokens persist until refresh (JTPets only). | `utils/google-auth.js` | S | 2026-03-15 |
-| BACKLOG-70 | `syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops. | `discount-validation-service.js` | S | 2026-03-15 |
 
 ### Features (Low)
 
@@ -242,16 +204,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-12 | Driver share link validation failure. | S | 2026-01-01 |
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
-
-### Architecture
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| A-3 | Circular dependency — `middleware/merchant.js` ↔ `routes/square-oauth.js` via deferred `require()`. | Multiple | S | 2026-02-25 |
-| O-4 | Scoping bug — `catch` references var from `try` block. | `services/square/square-pricing.js` | S | 2026-02-25 |
-| O-5 | Business logic leaking into API sync layer. | `services/square/square-catalog-sync.js` | M | 2026-02-25 |
-| O-6 | Soft coupling to loyalty-admin via lazy `require()`. | `services/square/square-velocity.js` | S | 2026-02-25 |
-| ARCH-4 | Two Square API HTTP client implementations remain alongside SDK client. | `square-api-client.js`, `square-client.js`, `merchant.js` | M | 2026-03-10 |
 
 ### Code TODOs in Source
 
@@ -286,24 +238,16 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 ---
 
-## Expiry Discount Automation
-
-| ID | Description | Effort |
-|----|-------------|--------|
-| EXPIRY-REORDER-AUDIT | Clearance items receiving PO/restock need re-audit trigger. | S |
-| BACKLOG-57 | Daily re-apply noise — logs DISCOUNT_APPLIED even when tier unchanged. | S |
-| BACKLOG-58 | Inventory increase should trigger expiry re-verification. | S |
-
----
-
 ## Summary by Priority
 
 | Tier | Count |
 |------|-------|
 | Active Bugs (P0) | 1 |
-| Critical | 8 |
-| High | 9 |
-| Medium | ~40 |
-| Low | ~30 |
-| Nice to Have | ~16 |
-| **Total** | **~95** |
+| Critical | 5 |
+| High | 2 |
+| Medium | ~31 |
+| Low | ~26 |
+| Nice to Have | 16 |
+| **Total** | **~65** |
+
+**Validation delta**: ~95 → ~65 items. **46 items purged** (confirmed fixed in code). **~30 items remain from original audit**; remainder are features and backlog items.
