@@ -43,10 +43,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-1 (audit) | Subscription endpoint gaps — POST endpoints now rate-limited, but **GET /api/subscriptions/status** still unauthenticated with no rate limit. Leaks subscription info by email. | `routes/subscriptions.js:559` | S | 2026-03-10 |
-| CRIT-2 (audit) | Subscription routes have no `merchant_id` scoping — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans` tables all lack `merchant_id` column. Promo codes usable cross-tenant. | `routes/subscriptions.js`, `database/schema.sql` | M | 2026-03-10 |
+| CRIT-1 (audit) | ~~Subscription endpoint gaps~~ **FIXED 2026-03-17** — Added `subscriptionRateLimit` as first middleware on GET `/api/subscriptions/status`. Stripped response to `{ active, planName }` only — no email, dates, status details, or payment info leaked. Added `planName` to `checkSubscriptionStatus` return value. | `routes/subscriptions.js`, `utils/subscription-handler.js` | S | 2026-03-10 |
+| CRIT-2 (audit) | ~~Subscription routes have no `merchant_id` scoping~~ **FIXED 2026-03-17** — Added `merchant_id NOT NULL` to `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`. Added nullable `merchant_id` to `platform_settings`. Fixed `oauth_states.merchant_id` to NOT NULL. All route queries now filter by `merchant_id`. Promo codes scoped per-tenant. Migration 074. | `routes/subscriptions.js`, `database/schema.sql`, `utils/subscription-handler.js`, `utils/schema-manager.js`, `services/webhook-handlers/subscription-handler.js`, `services/webhook-processor.js` | M | 2026-03-10 |
 | CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
-| CRIT-4 (audit) | Subscription tables missing tenant isolation — `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`, `platform_settings` have no `merchant_id`. `oauth_states.merchant_id` allows NULL. | `database/schema.sql` | M | 2026-02-28 |
+| CRIT-4 (audit) | ~~Subscription tables missing tenant isolation~~ **FIXED 2026-03-17** — Resolved as part of CRIT-2. See CRIT-2 for details. Migration 074. | `database/schema.sql` | M | 2026-02-28 |
 | CRIT-5 | 12 loyalty-admin files hardcode Square API version `'2025-01-16'` instead of using `config/constants.js` (`'2025-10-16'`). 9-month version gap. | 12 files in `services/loyalty-admin/` | S | 2026-03-10 |
 
 ---
@@ -102,7 +102,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | DB-6 | ~~Missing `ON DELETE CASCADE` on user_id foreign keys~~ **FIXED 2026-03-17** — Added `ON DELETE CASCADE` to 7 user_id FKs: `oauth_states`, `delivery_routes`, `delivery_audit_log`, `loyalty_offers`, `loyalty_redemptions`, `loyalty_audit_logs`, `delivery_route_tokens`. Migration 072. Note: `password_reset_tokens` already had CASCADE (via schema-manager.js); `delivery_orders` has no user_id FK. | `database/schema.sql`, `migrations/072_add_cascade_user_fks.sql` | S | 2026-02-28 |
-| DB-7 | Timestamp inconsistency: 169 `TIMESTAMP` vs 102 `TIMESTAMPTZ` columns. | `database/schema.sql` | M | 2026-02-28 |
+| DB-7 | ~~Timestamp inconsistency: bare `TIMESTAMP` vs `TIMESTAMPTZ` columns~~ **FIXED 2026-03-17** — Converted 66 columns across 31 tables to `TIMESTAMPTZ`. Also fixed 40 occurrences in `schema-manager.js`. Migration 073. | `database/schema.sql`, `utils/schema-manager.js`, `migrations/073_timestamp_to_timestamptz.sql` | M | 2026-02-28 |
 
 ### Security
 

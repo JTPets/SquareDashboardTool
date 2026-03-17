@@ -102,15 +102,15 @@ async function ensureSchema() {
     const migrations = [
         // Soft delete tracking (added in earlier migration)
         { table: 'items', column: 'is_deleted', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
-        { table: 'items', column: 'deleted_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
+        { table: 'items', column: 'deleted_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ' },
         { table: 'variations', column: 'is_deleted', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE' },
-        { table: 'variations', column: 'deleted_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP' },
+        { table: 'variations', column: 'deleted_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ' },
 
         // Archive status from Square (archived items are hidden in Square but still operational)
         { table: 'items', column: 'is_archived', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
-        { table: 'items', column: 'archived_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+        { table: 'items', column: 'archived_at', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ' },
         { table: 'variations', column: 'is_archived', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE' },
-        { table: 'variations', column: 'archived_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP' },
+        { table: 'variations', column: 'archived_at', sql: 'ALTER TABLE variations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ' },
 
         // SEO and tax fields from Square API
         { table: 'items', column: 'tax_ids', sql: 'ALTER TABLE items ADD COLUMN IF NOT EXISTS tax_ids JSONB' },
@@ -214,8 +214,8 @@ async function ensureSchema() {
                 import_batch_id TEXT,
                 import_name TEXT,
                 is_archived BOOLEAN DEFAULT FALSE,
-                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                imported_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(vendor_id, vendor_item_number, import_batch_id)
             )
         `);
@@ -279,8 +279,8 @@ async function ensureSchema() {
                 name TEXT NOT NULL UNIQUE,
                 logo_url TEXT,
                 website TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_brands_name ON brands(name)');
@@ -292,7 +292,7 @@ async function ensureSchema() {
                 name TEXT NOT NULL,
                 parent_id INTEGER REFERENCES google_taxonomy(id),
                 level INTEGER DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_google_taxonomy_parent ON google_taxonomy(parent_id)');
@@ -304,8 +304,8 @@ async function ensureSchema() {
                 id SERIAL PRIMARY KEY,
                 category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
                 google_taxonomy_id INTEGER NOT NULL REFERENCES google_taxonomy(id) ON DELETE CASCADE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(category_id)
             )
         `);
@@ -317,7 +317,7 @@ async function ensureSchema() {
                 id SERIAL PRIMARY KEY,
                 item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
                 brand_id INTEGER NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(item_id)
             )
         `);
@@ -331,7 +331,7 @@ async function ensureSchema() {
                 setting_key TEXT NOT NULL UNIQUE,
                 setting_value TEXT,
                 description TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
 
@@ -354,7 +354,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS gmc_feed_history (
                 id SERIAL PRIMARY KEY,
-                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                generated_at TIMESTAMPTZ DEFAULT NOW(),
                 total_products INTEGER,
                 products_with_errors INTEGER DEFAULT 0,
                 tsv_file_path TEXT,
@@ -373,8 +373,8 @@ async function ensureSchema() {
                 location_id TEXT NOT NULL,
                 google_store_code TEXT,
                 enabled BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(merchant_id, location_id)
             )
         `);
@@ -391,8 +391,8 @@ async function ensureSchema() {
                 token_type TEXT,
                 expiry_date BIGINT,
                 scope TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(merchant_id)
             )
         `);
@@ -453,18 +453,18 @@ async function ensureSchema() {
                 subscription_status TEXT DEFAULT 'trial',
                 subscription_plan TEXT DEFAULT 'monthly',
                 price_cents INTEGER NOT NULL DEFAULT 999,
-                trial_start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                trial_end_date TIMESTAMP,
-                subscription_start_date TIMESTAMP,
-                subscription_end_date TIMESTAMP,
-                next_billing_date TIMESTAMP,
-                canceled_at TIMESTAMP,
+                trial_start_date TIMESTAMPTZ DEFAULT NOW(),
+                trial_end_date TIMESTAMPTZ,
+                subscription_start_date TIMESTAMPTZ,
+                subscription_end_date TIMESTAMPTZ,
+                next_billing_date TIMESTAMPTZ,
+                canceled_at TIMESTAMPTZ,
                 card_brand TEXT,
                 card_last_four TEXT,
                 card_id TEXT,
                 is_intro_pricing BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email)');
@@ -475,6 +475,7 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_payments (
                 id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
                 square_payment_id TEXT UNIQUE,
                 square_invoice_id TEXT,
@@ -482,36 +483,42 @@ async function ensureSchema() {
                 currency TEXT DEFAULT 'CAD', -- OSS: SaaS billing currency, not per-merchant inventory currency
                 status TEXT NOT NULL,
                 payment_type TEXT DEFAULT 'subscription',
-                billing_period_start TIMESTAMP,
-                billing_period_end TIMESTAMP,
+                billing_period_start TIMESTAMPTZ,
+                billing_period_end TIMESTAMPTZ,
                 refund_amount_cents INTEGER,
                 refund_reason TEXT,
-                refunded_at TIMESTAMP,
+                refunded_at TIMESTAMPTZ,
                 receipt_url TEXT,
                 failure_reason TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant ON subscription_payments(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_merchant_subscriber ON subscription_payments(merchant_id, subscriber_id)');
         await query('CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscriber ON subscription_payments(subscriber_id)');
 
         // 3. Subscription events table
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_events (
                 id SERIAL PRIMARY KEY,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 subscriber_id INTEGER REFERENCES subscribers(id) ON DELETE SET NULL,
                 event_type TEXT NOT NULL,
                 event_data JSONB,
                 square_event_id TEXT,
-                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                processed_at TIMESTAMPTZ DEFAULT NOW()
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant ON subscription_events(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_merchant_type ON subscription_events(merchant_id, event_type)');
         await query('CREATE INDEX IF NOT EXISTS idx_subscription_events_subscriber ON subscription_events(subscriber_id)');
 
         // 4. Subscription plans table
         await query(`
             CREATE TABLE IF NOT EXISTS subscription_plans (
                 id SERIAL PRIMARY KEY,
-                plan_key TEXT NOT NULL UNIQUE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                plan_key TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT,
                 price_cents INTEGER NOT NULL,
@@ -519,10 +526,12 @@ async function ensureSchema() {
                 square_plan_id TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
                 is_intro_pricing BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, plan_key)
             )
         `);
+        await query('CREATE INDEX IF NOT EXISTS idx_subscription_plans_merchant ON subscription_plans(merchant_id)');
 
         // Insert default plans (intro pricing)
         await query(`
@@ -587,23 +596,26 @@ async function ensureSchema() {
         await query(`
             CREATE TABLE IF NOT EXISTS promo_codes (
                 id SERIAL PRIMARY KEY,
-                code TEXT NOT NULL UNIQUE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+                code TEXT NOT NULL,
                 description TEXT,
                 discount_type TEXT NOT NULL DEFAULT 'percent',
                 discount_value INTEGER NOT NULL,
                 max_uses INTEGER,
                 times_used INTEGER DEFAULT 0,
                 min_purchase_cents INTEGER DEFAULT 0,
-                valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                valid_until TIMESTAMP,
+                valid_from TIMESTAMPTZ DEFAULT NOW(),
+                valid_until TIMESTAMPTZ,
                 is_active BOOLEAN DEFAULT TRUE,
                 applies_to_plans TEXT[],
                 created_by TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(merchant_id, code)
             )
         `);
-        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant ON promo_codes(merchant_id)');
+        await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_merchant_code ON promo_codes(merchant_id, code)');
         await query('CREATE INDEX IF NOT EXISTS idx_promo_codes_active ON promo_codes(is_active)');
 
         // 2. Promo code uses tracking
@@ -613,7 +625,7 @@ async function ensureSchema() {
                 promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
                 subscriber_id INTEGER NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
                 discount_applied_cents INTEGER NOT NULL,
-                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                used_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(promo_code_id, subscriber_id)
             )
         `);
@@ -1776,8 +1788,8 @@ async function ensureSchema() {
                     error_details JSONB,
                     location_id TEXT,
                     location_name TEXT,
-                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TIMESTAMP,
+                    started_at TIMESTAMPTZ DEFAULT NOW(),
+                    completed_at TIMESTAMPTZ,
                     duration_ms INTEGER
                 )
             `);

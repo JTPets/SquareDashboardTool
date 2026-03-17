@@ -51,12 +51,18 @@ describe('Subscription rate limiting', () => {
         expect(typeof firstHandler.resetKey).toBe('function');
     });
 
-    test('GET /subscriptions/status does NOT have a rate limiter', () => {
+    test('GET /subscriptions/status has a rate limiter (CRIT-1)', () => {
         const route = getRoute('/subscriptions/status', 'get');
         expect(route).toBeDefined();
 
         const limiters = getRateLimiters(route);
-        expect(limiters.length).toBe(0);
+        expect(limiters.length).toBe(1);
+    });
+
+    test('rate limiter is the first middleware on GET /subscriptions/status (CRIT-1)', () => {
+        const route = getRoute('/subscriptions/status', 'get');
+        const firstHandler = route.route.stack[0].handle;
+        expect(typeof firstHandler.resetKey).toBe('function');
     });
 
     test('GET /subscriptions/plans does NOT have a rate limiter', () => {

@@ -158,7 +158,9 @@ class SubscriptionHandler {
             result.subscriberId = subscriber.id;
 
             await subscriptionHandler.activateSubscription(subscriber.id);
+            // LOGIC CHANGE: pass merchant_id for tenant isolation (CRIT-2 audit)
             await subscriptionHandler.recordPayment({
+                merchantId: subscriber.merchant_id,
                 subscriberId: subscriber.id,
                 squarePaymentId: invoice.payment_requests?.[0]?.computed_amount_money ? null : invoice.id,
                 squareInvoiceId: invoice.id,
@@ -217,7 +219,9 @@ class SubscriptionHandler {
             result.subscriberId = subscriber.id;
 
             await subscriptionHandler.updateSubscriberStatus(subscriber.id, 'past_due');
+            // LOGIC CHANGE: pass merchant_id for tenant isolation (CRIT-2 audit)
             await subscriptionHandler.recordPayment({
+                merchantId: subscriber.merchant_id,
                 subscriberId: subscriber.id,
                 squareInvoiceId: invoice.id,
                 amountCents: invoice.payment_requests?.[0]?.computed_amount_money?.amount || 0,

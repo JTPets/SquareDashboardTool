@@ -427,7 +427,9 @@ describe('WebhookProcessor', () => {
 
             await webhookProcessor.processWebhook(mockReq, mockRes);
 
+            // LOGIC CHANGE: logEvent now includes merchantId (CRIT-2 audit)
             expect(subscriptionHandler.logEvent).toHaveBeenCalledWith({
+                merchantId: 42,
                 subscriberId: null,
                 eventType: 'catalog.version.updated',
                 eventData: mockReq.body.data,
