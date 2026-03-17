@@ -319,7 +319,7 @@ describe('catalog-create-service', () => {
 
         it('vendor assignment is set correctly on created items', async () => {
             // Use upc: null to simplify mock chain
-            const entry = makeEntry({ id: 11, vendor_id: 'VENDOR_ABC', cost_cents: 300, upc: null });
+            const entry = makeEntry({ id: 11, vendor_id: 'VENDOR_ABC', cost_cents: 300, upc: null, vendor_item_number: 'VIN-ABC-001' });
 
             mockDbQuery
                 .mockResolvedValueOnce({ rows: [entry] });
@@ -344,10 +344,20 @@ describe('catalog-create-service', () => {
             expect(variation.item_variation_data.vendor_information).toBeDefined();
             expect(variation.item_variation_data.vendor_information[0].vendor_id).toBe('VENDOR_ABC');
 
-            // Check variation_vendors insert
+            // Check variations INSERT includes vendor_code and vendor_id
+            const varInsert = txQueries.find(q => q[0].includes('INSERT INTO variations'));
+            expect(varInsert).toBeDefined();
+            expect(varInsert[0]).toContain('vendor_code');
+            expect(varInsert[0]).toContain('vendor_id');
+            expect(varInsert[1]).toContain('VENDOR_ABC'); // vendor_id
+            expect(varInsert[1]).toContain('VIN-ABC-001'); // vendor_code from vendor_item_number
+
+            // Check variation_vendors insert includes vendor_code
             const vendorInsert = txQueries.find(q => q[0].includes('INSERT INTO variation_vendors'));
             expect(vendorInsert).toBeDefined();
+            expect(vendorInsert[0]).toContain('vendor_code');
             expect(vendorInsert[1]).toContain('VENDOR_ABC');
+            expect(vendorInsert[1]).toContain('VIN-ABC-001'); // vendor_code
             expect(vendorInsert[1]).toContain(300); // cost_cents
         });
 

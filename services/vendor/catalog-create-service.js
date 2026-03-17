@@ -332,21 +332,22 @@ async function createSquareBatch(entries, merchantId, accessToken) {
 
             // INSERT into variations table
             await client.query(
-                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, merchant_id, created_at, updated_at)
-                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, vendor_id, vendor_code, merchant_id, created_at, updated_at)
+                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO NOTHING`,
-                [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, merchantId]
+                [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, entry.vendor_id || null, entry.vendor_item_number || null, merchantId]
             );
 
             // INSERT into variation_vendors if cost and vendor exist
             if (entry.cost_cents !== null && entry.cost_cents !== undefined && entry.vendor_id) {
                 await client.query(
-                    `INSERT INTO variation_vendors (variation_id, vendor_id, unit_cost_money, currency, merchant_id, updated_at)
-                     VALUES ($1, $2, $3, 'CAD', $4, CURRENT_TIMESTAMP)
+                    `INSERT INTO variation_vendors (variation_id, vendor_id, vendor_code, unit_cost_money, currency, merchant_id, updated_at)
+                     VALUES ($1, $2, $3, $4, 'CAD', $5, CURRENT_TIMESTAMP)
                      ON CONFLICT (variation_id, vendor_id, merchant_id) DO UPDATE SET
+                         vendor_code = EXCLUDED.vendor_code,
                          unit_cost_money = EXCLUDED.unit_cost_money,
                          updated_at = CURRENT_TIMESTAMP`,
-                    [realVarId, entry.vendor_id, entry.cost_cents, merchantId]
+                    [realVarId, entry.vendor_id, entry.vendor_item_number || null, entry.cost_cents, merchantId]
                 );
             }
 
