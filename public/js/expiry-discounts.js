@@ -191,14 +191,14 @@ async function loadItems() {
       }
 
       return `
-        <tr class="${rowClass}" title="${isOutOfStock ? '0 available to sell - not on shelf' : ''}">
-          <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span>${zeroAvailableBadge}</td>
+        <tr class="${escapeAttr(rowClass)}" title="${isOutOfStock ? '0 available to sell - not on shelf' : ''}">
+          <td><span class="tier-badge tier-${escapeAttr(item.tier_code)}">${escapeHtml(item.tier_code)}</span>${zeroAvailableBadge}</td>
           <td>
             <strong>${escapeHtml(item.item_name)}</strong>
             ${item.variation_name ? `<br><small style="color: #6b7280;">${escapeHtml(item.variation_name)}</small>` : ''}
           </td>
           <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || '-')}</td>
-          <td><span class="days-badge ${daysClass}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
+          <td><span class="days-badge ${escapeAttr(daysClass)}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
           <td>${expiryDate}</td>
           <td class="text-right">${availableToSell}</td>
           <td class="text-right">${originalPrice}</td>
@@ -265,9 +265,9 @@ async function loadUpcoming() {
         <tr>
           <td><strong>${escapeHtml(item.item_name)}</strong></td>
           <td style="font-family: monospace;">${escapeHtml(item.sku || '-')}</td>
-          <td><span class="tier-badge tier-${item.tier_code}">${item.tier_code}</span></td>
+          <td><span class="tier-badge tier-${escapeAttr(item.tier_code)}">${escapeHtml(item.tier_code)}</span></td>
           <td>${days}d</td>
-          <td><span class="tier-badge tier-${nextTier}">${nextTier}</span></td>
+          <td><span class="tier-badge tier-${escapeAttr(nextTier)}">${escapeHtml(nextTier)}</span></td>
           <td>${daysUntilChange > 0 ? daysUntilChange + ' days' : 'Today'}</td>
         </tr>
       `;
@@ -306,14 +306,14 @@ async function loadFlagged() {
         : '-';
 
       return `
-        <tr data-flagged-id="${item.variation_id}">
+        <tr data-flagged-id="${escapeAttr(item.variation_id)}">
           <td>
             <strong>${escapeHtml(item.item_name)}</strong>
             ${item.variation_name ? `<br><small style="color: #6b7280;">${escapeHtml(item.variation_name)}</small>` : ''}
           </td>
           <td style="font-family: monospace; font-size: 12px;">${escapeHtml(item.sku || '-')}</td>
-          <td><span class="tier-badge tier-${item.current_tier_code || 'OK'}">${item.current_tier_code || '-'}</span></td>
-          <td><span class="tier-badge tier-${item.calculated_tier_code || 'OK'}">${item.calculated_tier_code || '-'}</span>
+          <td><span class="tier-badge tier-${escapeAttr(item.current_tier_code || 'OK')}">${escapeHtml(item.current_tier_code || '-')}</span></td>
+          <td><span class="tier-badge tier-${escapeAttr(item.calculated_tier_code || 'OK')}">${escapeHtml(item.calculated_tier_code || '-')}</span>
               <br><small style="color: #6b7280;">${item.calculated_discount_percent}% off</small></td>
           <td><span class="days-badge ${getDaysClass(item.days_until_expiry)}">${item.days_until_expiry !== null ? item.days_until_expiry + 'd' : '-'}</span></td>
           <td style="font-size: 12px;">${overrideDate}</td>
@@ -409,14 +409,14 @@ async function loadAuditLog() {
       const timestamp = new Date(log.created_at).toLocaleString();
       return `
         <tr>
-          <td style="font-size: 12px; color: #6b7280;">${timestamp}</td>
-          <td><span class="audit-action ${log.action}">${log.action}</span></td>
+          <td style="font-size: 12px; color: #6b7280;">${escapeHtml(timestamp)}</td>
+          <td><span class="audit-action ${escapeAttr(log.action)}">${escapeHtml(log.action)}</span></td>
           <td>${escapeHtml(log.item_name || '-')}</td>
           <td style="font-family: monospace; font-size: 12px;">${escapeHtml(log.sku || '-')}</td>
-          <td>${log.old_tier_code ? `<span class="tier-badge tier-${log.old_tier_code}">${log.old_tier_code}</span>` : '-'}</td>
-          <td>${log.new_tier_code ? `<span class="tier-badge tier-${log.new_tier_code}">${log.new_tier_code}</span>` : '-'}</td>
+          <td>${log.old_tier_code ? `<span class="tier-badge tier-${escapeAttr(log.old_tier_code)}">${escapeHtml(log.old_tier_code)}</span>` : '-'}</td>
+          <td>${log.new_tier_code ? `<span class="tier-badge tier-${escapeAttr(log.new_tier_code)}">${escapeHtml(log.new_tier_code)}</span>` : '-'}</td>
           <td>${log.days_until_expiry !== null ? log.days_until_expiry + 'd' : '-'}</td>
-          <td style="font-size: 12px;">${log.triggered_by}</td>
+          <td style="font-size: 12px;">${escapeHtml(log.triggered_by)}</td>
         </tr>
       `;
     }).join('');
@@ -456,14 +456,14 @@ async function loadTierConfig() {
 
     tbody.innerHTML = data.tiers.map(tier => `
       <tr data-tier-id="${tier.id}">
-        <td><span class="tier-badge tier-${tier.tier_code}">${tier.tier_code}</span></td>
-        <td><input type="text" value="${tier.tier_name || ''}" data-field="tier_name" placeholder="Display name" style="width: 160px;"></td>
+        <td><span class="tier-badge tier-${escapeAttr(tier.tier_code)}">${escapeHtml(tier.tier_code)}</span></td>
+        <td><input type="text" value="${escapeAttr(tier.tier_name || '')}" data-field="tier_name" placeholder="Display name" style="width: 160px;"></td>
         <td><input type="number" value="${tier.min_days_to_expiry ?? ''}" data-field="min_days_to_expiry" placeholder="None" style="width: 70px;"></td>
         <td><input type="number" value="${tier.max_days_to_expiry ?? ''}" data-field="max_days_to_expiry" placeholder="None" style="width: 70px;"></td>
         <td><input type="number" value="${tier.discount_percent}" data-field="discount_percent" min="0" max="100" step="1" style="width: 70px;"></td>
         <td class="text-center"><input type="checkbox" ${tier.is_auto_apply ? 'checked' : ''} data-field="is_auto_apply"></td>
         <td class="text-center"><input type="checkbox" ${tier.requires_review ? 'checked' : ''} data-field="requires_review"></td>
-        <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" data-action="saveTierConfig" data-action-param="${tier.id}">Save</button></td>
+        <td><button class="btn-primary" style="padding: 4px 12px; font-size: 12px;" data-action="saveTierConfig" data-action-param="${escapeAttr(tier.id)}">Save</button></td>
       </tr>
     `).join('');
 

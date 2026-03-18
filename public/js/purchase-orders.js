@@ -81,7 +81,7 @@ async function loadPurchaseOrders() {
               <td class="text-nowrap"><strong>${escapeHtml(po.po_number)}</strong></td>
               <td>${escapeHtml(po.vendor_name)}</td>
               <td>${escapeHtml(po.location_name)}</td>
-              <td><span class="status-badge status-${po.status}">${po.status}</span></td>
+              <td><span class="status-badge status-${escapeAttr(po.status)}">${escapeHtml(po.status)}</span></td>
               <td class="text-right">${po.item_count || 0}</td>
               <td class="text-right">$${(po.total_cents / 100).toFixed(2)}</td>
               <td class="text-nowrap">${formatDate(po.expected_delivery_date)}</td>
@@ -247,7 +247,7 @@ function renderPODetails() {
         </div>
         <div class="po-info-item">
           <span class="po-info-label">Status</span>
-          <span class="po-info-value"><span class="status-badge status-${po.status}">${po.status}</span></span>
+          <span class="po-info-value"><span class="status-badge status-${escapeAttr(po.status)}">${escapeHtml(po.status)}</span></span>
         </div>
         <div class="po-info-item">
           <span class="po-info-label">Vendor</span>

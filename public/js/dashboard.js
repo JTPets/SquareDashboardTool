@@ -73,16 +73,16 @@ async function loadHealthStatus() {
       <div style="display: grid; gap: 15px;">
         <div style="display: flex; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid ${statusColor(data.database)};">
           <span><strong>🗄️ Database</strong></span>
-          <span>${statusIcon(data.database)} ${data.database || 'Unknown'}</span>
+          <span>${statusIcon(data.database)} ${escapeHtml(data.database || 'Unknown')}</span>
         </div>
         <div style="display: flex; justify-content: space-between; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid ${statusColor(data.square)};">
           <span><strong>🟦 Square API</strong></span>
-          <span>${statusIcon(data.square)} ${data.square || 'Unknown'}</span>
+          <span>${statusIcon(data.square)} ${escapeHtml(data.square || 'Unknown')}</span>
         </div>
         <div style="padding: 12px; background: #f9fafb; border-radius: 8px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
             <span><strong>⏱️ Uptime</strong></span>
-            <span>${data.uptime || 'N/A'}</span>
+            <span>${escapeHtml(data.uptime || 'N/A')}</span>
           </div>
           <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
             <span><strong>💾 Memory</strong></span>
@@ -90,7 +90,7 @@ async function loadHealthStatus() {
           </div>
           <div style="display: flex; justify-content: space-between;">
             <span><strong>🔧 Node Version</strong></span>
-            <span>${data.nodeVersion || 'N/A'}</span>
+            <span>${escapeHtml(data.nodeVersion || 'N/A')}</span>
           </div>
         </div>
         <div style="text-align: center; color: #9ca3af; font-size: 12px;">
@@ -272,7 +272,7 @@ async function loadStats() {
       const friendlyMsg = window.ErrorHelper
         ? ErrorHelper.getFriendlyMessage(error, 'inventory', 'load')
         : 'Unable to load dashboard data. Please refresh the page.';
-      statusEl.innerHTML = '⚠️ ' + friendlyMsg;
+      statusEl.innerHTML = '⚠️ ' + escapeHtml(friendlyMsg);
       statusEl.style.background = '#fee2e2';
       statusEl.style.color = '#991b1b';
     }
@@ -333,7 +333,7 @@ async function runSmartSync() {
     const friendlyMsg = window.ErrorHelper
       ? ErrorHelper.getFriendlyMessage(error, 'sync', 'error')
       : 'Sync failed. Please try again.';
-    statusEl.innerHTML = '❌ ' + friendlyMsg;
+    statusEl.innerHTML = '❌ ' + escapeHtml(friendlyMsg);
     statusEl.classList.remove('loading');
     statusEl.style.background = '#fee2e2';
     statusEl.style.color = '#991b1b';

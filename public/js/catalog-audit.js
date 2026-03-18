@@ -383,7 +383,7 @@ function renderTable(data) {
 
     var issues = item.issues || [];
     var issuesHtml = issues.length > 0
-      ? issues.map(function(issue) { return '<span class="issue-badge ' + getIssueBadgeClass(issue) + '">' + issue + '</span>'; }).join('')
+      ? issues.map(function(issue) { return '<span class="issue-badge ' + getIssueBadgeClass(issue) + '">' + escapeHtml(issue) + '</span>'; }).join('')
       : '<span class="issue-badge ok">All Good</span>';
 
     var velocityText = formatVelocity(item.weekly_avg_91d) + ' / ' + formatVelocity(item.weekly_avg_182d) + ' / ' + formatVelocity(item.weekly_avg_365d);
@@ -604,7 +604,7 @@ function renderHealthSummary(openIssues) {
   Object.keys(CHECK_TYPE_LABELS).forEach(function(checkType) {
     var count = byType[checkType] || 0;
     var cardClass = count === 0 ? 'good' : (checkType === 'missing_tax' ? 'warning' : 'critical');
-    html += '<div class="audit-card ' + cardClass + '" style="cursor:pointer;" onclick="filterHealthByType(\'' + checkType + '\')">' +
+    html += '<div class="audit-card ' + cardClass + '" style="cursor:pointer;" onclick="filterHealthByType(\'' + escapeAttr(checkType) + '\')">' +
       '<div class="card-header"><span class="card-title">' + CHECK_TYPE_LABELS[checkType] + '</span></div>' +
       '<div class="card-value">' + count + '</div></div>';
   });

@@ -280,7 +280,7 @@ async function loadUsersList() {
           <div>
             <div style="font-weight: 600;">${escapeHtml(user.email)}</div>
             <div style="font-size: 13px; color: #6b7280;">
-              ${escapeHtml(user.name || 'No name')} &bull; ${user.role} &bull; ${statusText}
+              ${escapeHtml(user.name || 'No name')} &bull; ${escapeHtml(user.role)} &bull; ${escapeHtml(statusText)}
             </div>
             ${user.last_login ? `<div style="font-size: 12px; color: #9ca3af;">Last login: ${new Date(user.last_login).toLocaleString()}</div>` : ''}
           </div>

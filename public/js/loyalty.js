@@ -156,7 +156,7 @@ async function loadVendorsDropdown() {
       const select = document.getElementById('offer-vendor');
       select.innerHTML = '<option value="">-- Select Vendor --</option>';
       for (const vendor of (data.vendors || data || [])) {
-        select.innerHTML += `<option value="${vendor.id}">${vendor.name}</option>`;
+        select.innerHTML += `<option value="${escapeAttr(vendor.id)}">${escapeHtml(vendor.name)}</option>`;
       }
     }
   } catch (error) {
@@ -753,7 +753,7 @@ async function viewCustomerHistory(element, event, customerId) {
           <td>${formatDate(p.purchased_at)}</td>
           <td>${escapeHtml(p.offer_name)}</td>
           <td>${p.quantity}</td>
-          <td style="font-family: monospace; font-size: 10px;">${p.square_order_id?.slice(0,8) || '-'}...</td>
+          <td style="font-family: monospace; font-size: 10px;">${escapeHtml(p.square_order_id?.slice(0,8) || '-')}...</td>
         </tr>
       `).join('');
       historyHtml += '</tbody></table>';
@@ -1172,7 +1172,7 @@ function renderAuditOrders(data) {
     } else if (custIdMatch === 'none') {
       custIdBadge = '<span style="font-size: 9px; color: #f59e0b;" title="Order has no customer_id - will be linked via Loyalty API if added">⚠️ No CustID</span>';
     } else if (custIdMatch === 'mismatch') {
-      custIdBadge = `<span style="font-size: 9px; color: #dc2626;" title="Order customer: ${orderCustId}">❌ Wrong CustID</span>`;
+      custIdBadge = `<span style="font-size: 9px; color: #dc2626;" title="Order customer: ${escapeAttr(orderCustId)}">❌ Wrong CustID</span>`;
     }
 
     html += `
@@ -1181,7 +1181,7 @@ function renderAuditOrders(data) {
           ${canAdd ? `
             <input type="checkbox"
                    class="audit-order-checkbox"
-                   data-order-id="${order.orderId}"
+                   data-order-id="${escapeAttr(order.orderId)}"
                    ${auditSelectedOrders.has(order.orderId) ? 'checked' : ''}
                    data-change="toggleAuditOrderFromCheckbox">
           ` : ''}
@@ -1981,7 +1981,7 @@ async function validateDiscounts(fixIssues = false) {
             <span style="color: #6b7280; font-size: 12px;"> - ${escapeHtml(issue.issue.replace(/_/g, ' '))}</span>
             ${wasFixed ? '<span style="color: #10b981; font-size: 12px;"> (Fixed)</span>' : ''}
             ${fixError ? `<br><small style="color: #dc2626;">Fix failed: ${escapeHtml(fixError)}</small>` : ''}
-            <br><small style="color: #9ca3af;">Customer: ${issue.squareCustomerId?.slice(0, 12)}... | Earned: ${formatDate(issue.earnedAt)}</small>
+            <br><small style="color: #9ca3af;">Customer: ${escapeHtml(issue.squareCustomerId?.slice(0, 12) || '')}... | Earned: ${escapeHtml(formatDate(issue.earnedAt))}</small>
           </li>
         `;
       });

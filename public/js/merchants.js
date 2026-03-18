@@ -96,8 +96,8 @@ function renderMerchants() {
         <div class="merchant-name">${escapeHtml(merchant.business_name)}</div>
         <div class="merchant-id">ID: ${escapeHtml(merchant.square_merchant_id)}</div>
         <div class="merchant-status">
-          <span class="status-badge ${merchant.subscription_status}">${merchant.subscription_status}</span>
-          <span class="role-badge">${merchant.role}</span>
+          <span class="status-badge ${escapeAttr(merchant.subscription_status)}">${escapeHtml(merchant.subscription_status)}</span>
+          <span class="role-badge">${escapeHtml(merchant.role)}</span>
         </div>
         <div class="merchant-meta">
           Last synced: ${merchant.last_sync_at ? formatRelativeDate(merchant.last_sync_at) : 'Never'}
