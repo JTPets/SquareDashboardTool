@@ -197,7 +197,7 @@
         <tr>
           <td>
             ${p.image_link
-              ? `<img src="${p.image_link}" class="thumbnail" alt="" data-error-action="showImageError">`
+              ? `<img src="${escapeAttr(p.image_link)}" class="thumbnail" alt="" data-error-action="showImageError">`
               : '<div class="no-image">NONE</div>'}
           </td>
           <td style="font-family: monospace; font-size: 10px;" title="${escapeHtml(p.id || '')}">${p.id ? p.id.substring(0, 10) + '...' : '-'}</td>
@@ -1395,7 +1395,7 @@
       } catch (error) {
         console.error('Error loading local inventory:', error);
         document.getElementById('local-inventory-loading').innerHTML =
-          `<span style="color: #dc2626;">Error: ${error.message}</span>`;
+          `<span style="color: #dc2626;">Error: ${escapeHtml(error.message)}</span>`;
       }
     }
 

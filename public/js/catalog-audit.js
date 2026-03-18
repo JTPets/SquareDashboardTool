@@ -378,7 +378,7 @@ function renderTable(data) {
 
     var imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
     var imageHtml = imageUrl
-      ? '<img src="' + imageUrl + '" class="product-image" alt="Product" data-fallback="true"><div class="no-image" style="display:none;">?</div>'
+      ? '<img src="' + escapeAttr(imageUrl) + '" class="product-image" alt="Product" data-fallback="true"><div class="no-image" style="display:none;">?</div>'
       : '<div class="no-image">?</div>';
 
     var issues = item.issues || [];

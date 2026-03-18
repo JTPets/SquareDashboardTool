@@ -75,7 +75,8 @@
         // Format first item with quantity
         const first = items[0];
         const qty = parseInt(first.quantity, 10) || 1;
-        const firstItem = qty > 1 ? `${qty}x ${first.name}` : first.name;
+        const safeName = escapeHtml(first.name);
+        const firstItem = qty > 1 ? `${qty}x ${safeName}` : safeName;
 
         // Build preview string
         if (items.length === 1) {
@@ -98,7 +99,8 @@
         if (!Array.isArray(items) || items.length === 0) return '';
         return items.map(i => {
           const qty = parseInt(i.quantity, 10) || 1;
-          return qty > 1 ? `${qty}x ${i.name}` : i.name;
+          const safeName = escapeAttr(i.name);
+          return qty > 1 ? `${qty}x ${safeName}` : safeName;
         }).join('\n');
       } catch {
         return '';
@@ -115,7 +117,7 @@
         abandoned: 'Abandoned',
         canceled: 'Canceled'
       };
-      return `<span class="status-badge status-${status}">${labels[status] || status}</span>`;
+      return `<span class="status-badge status-${escapeAttr(status)}">${escapeHtml(labels[status] || status)}</span>`;
     }
 
     /**
@@ -143,7 +145,7 @@
               </div>
             </td>
             <td><span class="cart-value">${formatCurrency(cart.cart_total_cents)}</span></td>
-            <td>${source}</td>
+            <td>${escapeHtml(source)}</td>
             <td>${getStatusBadge(cart.status)}</td>
             <td><span class="age-badge ${age.class}">${age.text}</span></td>
           </tr>

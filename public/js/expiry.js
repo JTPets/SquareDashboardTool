@@ -158,7 +158,7 @@ function renderTable() {
     return `<tr data-id="${safeId}">
       <td>
         ${imageUrl ?
-          `<img src="${imageUrl}" class="product-image" data-fallback="image">` :
+          `<img src="${escapeAttr(imageUrl)}" class="product-image" data-fallback="image">` :
           '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}
       </td>
       <td class="product-name">${escapeHtml(item.name || '')}</td>
