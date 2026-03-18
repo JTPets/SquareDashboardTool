@@ -34,6 +34,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409 ABORTED. Live store organic Google Shopping visibility broken. Services still use v1beta endpoints. | `services/gmc/merchant-service.js` | M | 2026-03-09 |
+| BUG-2 | Bulk-created items from vendor catalog missing tax assignments — `services/vendor/catalog-create-service.js` does not include `tax_ids` in `BatchUpsertCatalogObjects`. Items created via "Create in Square" from vendor catalog are not taxable until manually fixed in Square Dashboard. Square Dashboard auto-applies default taxes on manual creation but API does not. Priority: HIGH. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
 
 ---
 
@@ -245,7 +246,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | Tier | Count |
 |------|-------|
-| Active Bugs (P0) | 1 |
+| Active Bugs (P0) | 2 |
 | Critical | 5 |
 | High | 2 |
 | Medium | ~31 |
