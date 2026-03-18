@@ -62,6 +62,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|---------|--------|------------|
 | BACKLOG-50 | Post-trial conversion — $1 first month. Decide Stripe vs Square for SaaS billing. | New system | L | 2026-02-01 |
 | BACKLOG-39 | Vendor bill-back tracking — `vendor_billbacks` table, reporting view for claim submission. Revenue recovery feature. | New table + routes | L | 2026-02-01 |
+| BACKLOG-80 | Email alerts not visible — system sends from and to the same email (john@jtpets.ca), causing delivery/visibility issues. Fix: set up Cloudflare Email Routing (free) for alerts@sqtools.ca forwarding to admin inbox. Use Resend (free tier, 3,000/mo) or Mailgun (free tier, 1,000/day) as transactional sender via API. Update SMTP config in `.env` to use the transactional service. Then audit which error paths in `utils/email-notifier.js` send emails and which silently log only — ensure webhook failures, DB errors, and cron job failures all trigger alerts. Do NOT self-host email. | `utils/email-notifier.js`, `.env` | S | 2026-03-18 |
 
 ---
 
@@ -96,6 +97,9 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-1 | Frontend polling rate limits. | `public/js/` | S | 2026-01-01 |
 | BACKLOG-76 | Catalog attribute coverage audit — compare local DB schema (`items`, `variations` tables) against full Square `CatalogItem` and `CatalogItemVariation` object spec. Document every field Square sends that we don't store locally. Likely gaps: SEO title, SEO description, reporting category, item options, modifier lists, tax IDs, visibility settings, channel availability. Should be completed before BACKLOG-75. | `database/schema.sql`, `services/catalog/` | S | 2026-03-18 |
 | BACKLOG-75 | Restore deleted items from local DB — `deleted_items` page already shows items removed from Square catalog. Add "Restore as New" which creates a new Square catalog item pre-populated from local DB snapshot. **Subtasks:** (1) Audit local schema coverage — compare columns in `variations` and `items` tables against all Square Catalog object fields, identify attributes we're NOT capturing today (depends on BACKLOG-76). (2) Expand catalog sync — if audit finds missing attributes, add them to delta/full sync so they're captured before deletion. (3) Restore as New — create a new Square catalog item pre-populated with name, UPC, category, reporting category, vendor, cost, price, description, SEO title, SEO description, images (if stored), tax assignments. Reuses bulk create pattern from `services/vendor/catalog-create-service.js`. (4) Seasonal item workflow — flag restored items as "reintroduced" for tracking. | `routes/`, `services/catalog/`, `services/vendor/catalog-create-service.js` | M | 2026-03-18 |
+| BACKLOG-77 | Cart rescue tool — when a customer can't complete checkout online, staff currently has to manually recreate the entire order at the POS. Add customer identification (name, email, phone) to cart activity view and two actions: "Convert to Invoice" sends the customer a Square Invoice with a payment link they can complete themselves, "Complete at POS" converts the DRAFT order into a completed sale for in-store pickup. Shows full cart contents (items, quantities, prices). Real scenario: customer calls unable to checkout, staff converts cart to invoice in one click, customer gets a payment link via email. Uses Square Invoices API (already integrated for committed inventory). | New routes + service, `routes/`, `services/` | M | 2026-03-18 |
+| BACKLOG-78 | Log viewer date picker — current logs page shows only today's logs. Add date selector to load previous days' archived/zipped logs. Also include PM2 process logs (`~/.pm2/logs/`) which currently aren't visible in the UI and roll over independently. | `routes/`, `public/js/` | M | 2026-03-18 |
+| BACKLOG-79 | Cron job schedule audit — review all 16 background jobs and reschedule where possible to early morning (2–6 AM ET) so automation failures are visible in logs during business hours instead of being missed overnight or requiring next-day review. Document current vs proposed schedule. | `jobs/` | S | 2026-03-18 |
 
 ### Data Integrity
 
@@ -250,10 +254,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |------|-------|
 | Active Bugs (P0) | 4 |
 | Critical | 5 |
-| High | 2 |
-| Medium | ~31 |
+| High | 3 |
+| Medium | ~34 |
 | Low | ~26 |
 | Nice to Have | 16 |
-| **Total** | **~65** |
+| **Total** | **~69** |
 
 **Validation delta**: ~95 → ~65 items. **46 items purged** (confirmed fixed in code). **~30 items remain from original audit**; remainder are features and backlog items.
