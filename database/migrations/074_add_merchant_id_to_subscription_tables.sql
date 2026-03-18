@@ -43,6 +43,8 @@ ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFER
 CREATE INDEX IF NOT EXISTS idx_platform_settings_merchant ON platform_settings(merchant_id) WHERE merchant_id IS NOT NULL;
 
 -- ==================== oauth_states ====================
+-- Column may not exist if DB was created before merchant_id was added to schema
+ALTER TABLE oauth_states ADD COLUMN IF NOT EXISTS merchant_id INTEGER REFERENCES merchants(id);
 -- Backfill any NULL merchant_id rows, then set NOT NULL
 UPDATE oauth_states SET merchant_id = 3 WHERE merchant_id IS NULL;
 ALTER TABLE oauth_states ALTER COLUMN merchant_id SET NOT NULL;

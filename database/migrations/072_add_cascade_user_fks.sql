@@ -41,9 +41,17 @@ ALTER TABLE loyalty_audit_logs
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 -- 7. delivery_route_tokens.created_by
-ALTER TABLE delivery_route_tokens
-    DROP CONSTRAINT IF EXISTS delivery_route_tokens_created_by_fkey,
-    ADD CONSTRAINT delivery_route_tokens_created_by_fkey
-        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE;
+-- NOTE: delivery_route_tokens may not exist in production if its CREATE TABLE
+-- migration has not yet run. The CREATE TABLE in schema.sql already includes
+-- ON DELETE CASCADE, so this is safe to skip when the table is absent.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'delivery_route_tokens') THEN
+        ALTER TABLE delivery_route_tokens
+            DROP CONSTRAINT IF EXISTS delivery_route_tokens_created_by_fkey;
+        ALTER TABLE delivery_route_tokens
+            ADD CONSTRAINT delivery_route_tokens_created_by_fkey
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 COMMIT;
