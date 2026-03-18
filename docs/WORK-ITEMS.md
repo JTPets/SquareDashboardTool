@@ -96,6 +96,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-1 | Frontend polling rate limits. | `public/js/` | S | 2026-01-01 |
 | BACKLOG-76 | Catalog attribute coverage audit — compare local DB schema (`items`, `variations` tables) against full Square `CatalogItem` and `CatalogItemVariation` object spec. Document every field Square sends that we don't store locally. Likely gaps: SEO title, SEO description, reporting category, item options, modifier lists, tax IDs, visibility settings, channel availability. Should be completed before BACKLOG-75. | `database/schema.sql`, `services/catalog/` | S | 2026-03-18 |
 | BACKLOG-75 | Restore deleted items from local DB — `deleted_items` page already shows items removed from Square catalog. Add "Restore as New" which creates a new Square catalog item pre-populated from local DB snapshot. **Subtasks:** (1) Audit local schema coverage — compare columns in `variations` and `items` tables against all Square Catalog object fields, identify attributes we're NOT capturing today (depends on BACKLOG-76). (2) Expand catalog sync — if audit finds missing attributes, add them to delta/full sync so they're captured before deletion. (3) Restore as New — create a new Square catalog item pre-populated with name, UPC, category, reporting category, vendor, cost, price, description, SEO title, SEO description, images (if stored), tax assignments. Reuses bulk create pattern from `services/vendor/catalog-create-service.js`. (4) Seasonal item workflow — flag restored items as "reintroduced" for tracking. | `routes/`, `services/catalog/`, `services/vendor/catalog-create-service.js` | M | 2026-03-18 |
+| BACKLOG-77 | Cart rescue tool — when a customer can't complete checkout online, staff currently has to manually recreate the entire order at the POS. Add customer identification (name, email, phone) to cart activity view and two actions: "Convert to Invoice" sends the customer a Square Invoice with a payment link they can complete themselves, "Complete at POS" converts the DRAFT order into a completed sale for in-store pickup. Shows full cart contents (items, quantities, prices). Real scenario: customer calls unable to checkout, staff converts cart to invoice in one click, customer gets a payment link via email. Uses Square Invoices API (already integrated for committed inventory). | New routes + service, `routes/`, `services/` | M | 2026-03-18 |
 
 ### Data Integrity
 
@@ -251,9 +252,9 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | Active Bugs (P0) | 4 |
 | Critical | 5 |
 | High | 2 |
-| Medium | ~31 |
+| Medium | ~32 |
 | Low | ~26 |
 | Nice to Have | 16 |
-| **Total** | **~65** |
+| **Total** | **~66** |
 
 **Validation delta**: ~95 → ~65 items. **46 items purged** (confirmed fixed in code). **~30 items remain from original audit**; remainder are features and backlog items.
