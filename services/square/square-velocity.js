@@ -128,8 +128,8 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                 for (const ret of returns) {
                     for (const returnItem of ret.return_line_items || []) {
                         const variationId = returnItem.catalog_object_id;
-                        const locationId = returnItem.source_line_item_uid
-                            ? order.location_id : order.location_id;
+                        // LOGIC CHANGE: removed no-op ternary — both branches returned order.location_id (CQ-3)
+                        const locationId = order.location_id;
 
                         if (!variationId || !locationId) continue;
 

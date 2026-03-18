@@ -37,10 +37,8 @@ const logger = require('../utils/logger');
 const squareApi = require('../services/square');
 const { generateIdempotencyKey } = require('../services/square');
 
-/** Hash a password reset token with SHA-256 for secure storage (SEC-7) */
-function hashResetToken(token) {
-    return crypto.createHash('sha256').update(token).digest('hex');
-}
+// LOGIC CHANGE: extracted hashResetToken to shared utils/hash-utils.js (CQ-6)
+const { hashResetToken } = require('../utils/hash-utils');
 const subscriptionHandler = require('../utils/subscription-handler');
 const { hashPassword, generateRandomPassword } = require('../utils/password');
 const { requireAuth, requireAdmin } = require('../middleware/auth');

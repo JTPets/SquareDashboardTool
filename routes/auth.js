@@ -9,16 +9,8 @@ const router = express.Router();
 const db = require('../utils/database');
 const logger = require('../utils/logger');
 const { hashPassword, verifyPassword, validatePassword, generateRandomPassword } = require('../utils/password');
-
-/**
- * Hash a password reset token with SHA-256 for secure storage (SEC-7)
- * The plaintext token is sent to the user; only the hash is stored in the DB.
- * @param {string} token - Plaintext reset token
- * @returns {string} SHA-256 hex digest
- */
-function hashResetToken(token) {
-    return crypto.createHash('sha256').update(token).digest('hex');
-}
+// LOGIC CHANGE: extracted hashResetToken to shared utils/hash-utils.js (CQ-6)
+const { hashResetToken } = require('../utils/hash-utils');
 const { requireAuth, requireAdmin, logAuthEvent, getClientIp } = require('../middleware/auth');
 const { configureLoginRateLimit, configurePasswordResetRateLimit } = require('../middleware/security');
 const asyncHandler = require('../middleware/async-handler');
