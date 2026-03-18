@@ -63,6 +63,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-50 | Post-trial conversion — $1 first month. Decide Stripe vs Square for SaaS billing. | New system | L | 2026-02-01 |
 | BACKLOG-39 | Vendor bill-back tracking — `vendor_billbacks` table, reporting view for claim submission. Revenue recovery feature. | New table + routes | L | 2026-02-01 |
 | BACKLOG-80 | Email alerts not visible — system sends from and to the same email (john@jtpets.ca), causing delivery/visibility issues. Fix: set up Cloudflare Email Routing (free) for alerts@sqtools.ca forwarding to admin inbox. Use Resend (free tier, 3,000/mo) or Mailgun (free tier, 1,000/day) as transactional sender via API. Update SMTP config in `.env` to use the transactional service. Then audit which error paths in `utils/email-notifier.js` send emails and which silently log only — ensure webhook failures, DB errors, and cron job failures all trigger alerts. Do NOT self-host email. | `utils/email-notifier.js`, `.env` | S | 2026-03-18 |
+| BACKLOG-81 | Margin erosion alerts — alert when an item's actual margin drops from its previous margin due to a real change in the system. Triggers: (1) vendor cost updated in Square (via webhook or manual edit), (2) retail price changed in Square, (3) cost change accepted from vendor catalog import into live pricing. Does NOT trigger on vendor catalog imports alone since those are reference data until accepted. Track each variation's margin history (previous margin vs new margin). Alert when margin drops below the item's own previous margin by a configurable threshold (e.g., 5+ percentage points). To suppress false positives from temporary sales/promos, track last 4 price points — if the new price matches a previous temporary reduction, suppress. | New service + table, `services/catalog/` | M | 2026-03-18 |
 
 ---
 
@@ -100,6 +101,11 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-77 | Cart rescue tool — when a customer can't complete checkout online, staff currently has to manually recreate the entire order at the POS. Add customer identification (name, email, phone) to cart activity view and two actions: "Convert to Invoice" sends the customer a Square Invoice with a payment link they can complete themselves, "Complete at POS" converts the DRAFT order into a completed sale for in-store pickup. Shows full cart contents (items, quantities, prices). Real scenario: customer calls unable to checkout, staff converts cart to invoice in one click, customer gets a payment link via email. Uses Square Invoices API (already integrated for committed inventory). | New routes + service, `routes/`, `services/` | M | 2026-03-18 |
 | BACKLOG-78 | Log viewer date picker — current logs page shows only today's logs. Add date selector to load previous days' archived/zipped logs. Also include PM2 process logs (`~/.pm2/logs/`) which currently aren't visible in the UI and roll over independently. | `routes/`, `public/js/` | M | 2026-03-18 |
 | BACKLOG-79 | Cron job schedule audit — review all 16 background jobs and reschedule where possible to early morning (2–6 AM ET) so automation failures are visible in logs during business hours instead of being missed overnight or requiring next-day review. Document current vs proposed schedule. | `jobs/` | S | 2026-03-18 |
+| BACKLOG-82 | Customer purchase cycle prediction — pet food is predictable consumption (e.g., 30lb bag lasts ~30 days). Using 91/182/365-day order history (already built) and loyalty customer linking, calculate per-customer replenishment windows by product. Surface "due to reorder" customers in a dashboard view. Future: trigger automated reminders via email or Square Marketing. Builds on existing sales velocity engine + customer identification service. | New service + routes | L | 2026-03-18 |
+| BACKLOG-83 | Customer category visualizer — build customer purchase trees showing what categories, brands, and products each customer buys. Identify patterns (e.g., "raw food customer who also buys dehydrated treats"). Uses existing order history data linked to loyalty customers. Enables targeted recommendations and informed upselling. | New service + routes | M | 2026-03-18 |
+| BACKLOG-84 | Vendor performance scoring — track and score each vendor on: order fill rate (items ordered vs received), delivery timeliness (scheduled vs actual), price stability (cost changes over time), credit note frequency, and minimum order ease. Display as a vendor scorecard in the vendor dashboard. Use data from purchase orders, vendor catalog imports, and receiving history. | New service + routes | M | 2026-03-18 |
+| BACKLOG-85 | Market basket analysis — analyze order history to find product affinities (items frequently bought together). Inform shelf placement, bundle suggestions, and new store planograms. Critical for franchise expansion: teaches new operators what to stock and how to merchandise. Uses existing order line item data from Square Orders API. | New service + routes | L | 2026-03-18 |
+| BACKLOG-86 | Waste tracking by expiry — when items reach the final expiry tier (pull from shelf), log the cost as waste. Report waste by vendor, category, brand, and time period. Inform future ordering decisions (don't overorder items with high waste rates). Connects to existing expiry discount system. | `services/expiry/`, new table | S | 2026-03-18 |
 
 ### Data Integrity
 
@@ -254,10 +260,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |------|-------|
 | Active Bugs (P0) | 4 |
 | Critical | 5 |
-| High | 3 |
-| Medium | ~34 |
+| High | 4 |
+| Medium | ~39 |
 | Low | ~26 |
 | Nice to Have | 16 |
-| **Total** | **~69** |
+| **Total** | **~75** |
 
 **Validation delta**: ~95 → ~65 items. **46 items purged** (confirmed fixed in code). **~30 items remain from original audit**; remainder are features and backlog items.
