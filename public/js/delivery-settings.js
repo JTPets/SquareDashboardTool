@@ -3,13 +3,6 @@
  * Extracted for CSP compliance (P0-4 Phase 2)
  */
 
-function escapeHtml(text) {
-  if (!text && text !== 0) return '';
-  var div = document.createElement('div');
-  div.textContent = String(text);
-  return div.innerHTML;
-}
-
 let currentSettings = {};
 
 async function loadSettings() {

@@ -915,17 +915,6 @@ async function submitPartialPull() {
   }
 }
 
-function showToast(message, type = '') {
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add('active');
-
-  setTimeout(() => {
-    toast.classList.remove('active');
-  }, 3000);
-}
-
 // Escape strings for use in JavaScript onclick handlers (single-quoted)
 function escapeJsString(str) {
   if (!str) return '';

@@ -161,7 +161,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| E-4 | Audit logging silently swallows errors (by design — "should not break main operations"). | `services/loyalty-admin/audit-service.js:66-73` | S | 2026-02-25 |
+| E-4 | ~~Audit logging silently swallows errors~~ **FIXED 2026-03-18** — Confirmed intentional; added review comment documenting design decision. | `services/loyalty-admin/audit-service.js:66-73` | S | 2026-02-25 |
 
 ### Dead Code / Cleanup
 
@@ -183,16 +183,16 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| FE-2 | `showToast()` duplicated across 9 files — no shared utility. | S | 2026-02-28 |
-| FE-3 | `escapeHtml()` still duplicated in 2 files (`delivery-settings.js`, `upgrade.js`) — not using global `utils/escape.js`. | S | 2026-02-28 |
-| FE-4 | `formatDate()` variants duplicated across 7 files. | S | 2026-02-28 |
+| FE-2 | ~~`showToast()` duplicated across 9 files~~ **FIXED 2026-03-18** — Extracted to `public/js/utils/toast.js`. All 9 files now use shared utility. | S | 2026-02-28 |
+| FE-3 | ~~`escapeHtml()` still duplicated in 2 files~~ **FIXED 2026-03-18** — Removed local definitions from `delivery-settings.js` and `upgrade.js`; both already load `utils/escape.js`. | S | 2026-02-28 |
+| FE-4 | ~~`formatDate()` variants duplicated across 7 files~~ **FIXED 2026-03-18** — Extracted to `public/js/utils/date-format.js`. 5 files use shared utility (with options param); 2 unique variants renamed (`formatRelativeDate`, `formatExpiryDate`). | S | 2026-02-28 |
 
 ### Code Quality
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | CQ-6 | ~~`hashResetToken` duplicated~~ **FIXED 2026-03-17** — Extracted to `utils/hash-utils.js`. Both `auth.js` and `subscriptions.js` now import from shared module. | `utils/hash-utils.js`, `routes/auth.js`, `routes/subscriptions.js` | S | 2026-03-10 |
-| CQ-10 | `filterValidVariations` returns all variations on API failure — fails open instead of safe. | `services/expiry/discount-service.js:974-981` | S | 2026-03-10 |
+| CQ-10 | ~~`filterValidVariations` returns all variations on API failure~~ **FIXED 2026-03-18** — Changed to return empty array on error (fail safe). Invalid variations pushed to `invalidIds` instead of `validIds`. | `services/expiry/discount-service.js:974-981` | S | 2026-03-10 |
 | Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
 | Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
 | Google | Legacy plaintext Google OAuth tokens persist until refresh — migration guard in place, new tokens encrypted. JTPets only. | `utils/google-auth.js:275` | S | 2026-03-15 |

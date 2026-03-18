@@ -72,12 +72,6 @@ function renderPlans(plans) {
     });
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
 function selectPlan(planKey, element) {
     selectedPlan = planKey;
     document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('selected'));

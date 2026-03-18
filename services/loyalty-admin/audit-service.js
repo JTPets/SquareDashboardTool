@@ -69,7 +69,7 @@ async function logAuditEvent(event, client = null) {
             action: event.action,
             merchantId: event.merchantId
         });
-        // Don't throw - audit logging should not break main operations
+        // NOTE: Error swallowing is intentional — audit logging must never break main operations (E-4 reviewed 2026-03-18)
     }
 }
 

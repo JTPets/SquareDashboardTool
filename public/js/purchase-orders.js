@@ -26,29 +26,6 @@ function safeSetContent(elementId, content, useInnerHTML) {
   }
 }
 
-// Toast notification
-function showToast(message, type) {
-  type = type || 'success';
-  const existingToast = document.querySelector('.toast');
-  if (existingToast) {
-    existingToast.remove();
-  }
-
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <div class="toast-message">${escapeHtml(message)}</div>
-    <button class="btn-icon" data-action="dismissToast">&#215;</button>
-  `;
-  document.body.appendChild(toast);
-
-  setTimeout(() => toast.classList.add('show'), 10);
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
-}
-
 // Dismiss toast notification (for data-action handler)
 function dismissToast(element, event, param) {
   const toast = element.closest('.toast');
@@ -154,21 +131,6 @@ async function loadPurchaseOrders() {
         </div>
       `;
     }
-  }
-}
-
-function formatDate(dateString) {
-  if (!dateString) return '-';
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch (error) {
-    console.error('Date formatting error:', error);
-    return '-';
   }
 }
 

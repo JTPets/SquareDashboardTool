@@ -39,20 +39,6 @@
     }
 
     /**
-     * Format date
-     */
-    function formatDate(dateStr) {
-      if (!dateStr) return '--';
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit'
-      });
-    }
-
-    /**
      * Calculate age and return formatted string with class
      */
     function formatAge(createdAt) {
@@ -150,7 +136,7 @@
         const source = cart.source_name && cart.source_name !== 'Unknown' ? cart.source_name : '\u2014';
         return `
           <tr>
-            <td>${formatDate(cart.created_at)}</td>
+            <td>${formatDate(cart.created_at, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
             <td>
               <div class="items-preview" title="${tooltip}">
                 ${formatItems(cart.items_json, cart.item_count)}

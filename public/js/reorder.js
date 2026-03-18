@@ -2281,17 +2281,6 @@ function restoreReorderState() {
   return !!state.vendorId && state.vendorId !== '__none__';
 }
 
-function showToast(message, type = '') {
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add('active');
-
-  setTimeout(() => {
-    toast.classList.remove('active');
-  }, 3000);
-}
-
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();

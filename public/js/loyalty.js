@@ -2028,12 +2028,6 @@ function escapeJsString(str) {
     .replace(/\r/g, '\\r');
 }
 
-// Format date consistently as MM/DD/YYYY (US format)
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('en-US');
-}
-
 // Expose functions to global scope for event delegation
 window.switchTabFromClick = switchTabFromClick;
 window.showCreateOfferModal = showCreateOfferModal;

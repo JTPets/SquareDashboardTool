@@ -475,18 +475,6 @@ async function generateBatch() {
   }
 }
 
-function showToast(message, type) {
-  type = type || '';
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add('active');
-
-  setTimeout(() => {
-    toast.classList.remove('active');
-  }, 3000);
-}
-
 function getLastCountedBadge(item) {
   if (!item.last_counted_date) {
     return '<span class="badge" style="background: #fef3c7; color: #92400e;">&#128203; Never Counted</span>';

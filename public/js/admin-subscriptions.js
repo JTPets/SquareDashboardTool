@@ -334,24 +334,6 @@ async function setupPlans() {
   }
 }
 
-/**
- * Format date string for display
- * @param {string} dateStr - ISO date string
- * @returns {string} Formatted date
- */
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch {
-    return '-';
-  }
-}
-
 // Expose functions to global scope for event delegation
 window.loadStats = loadStats;
 window.setupPlans = setupPlans;
