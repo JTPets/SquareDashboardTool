@@ -34,8 +34,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
 | BUG-2 | Bulk-created items from vendor catalog missing tax assignments — `services/vendor/catalog-create-service.js` does not include `tax_ids` in `BatchUpsertCatalogObjects`. Items created via "Create in Square" from vendor catalog are not taxable until manually fixed in Square Dashboard. Square Dashboard auto-applies default taxes on manual creation but API does not. Priority: HIGH. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
-| BUG-3 | Catalog Health Monitor "Missing Tax" card shows 6 issues but clicking it shows no detail rows. Code logic verified correct — `filterHealthByType` filters the same `healthIssues` array used for summary counts. Likely a runtime issue: migration 070 may not have been applied, causing `check_type` column to be NULL for older rows. Verify by running migration 070 and re-running health check. Priority: MED. | `public/js/catalog-audit.js`, `services/catalog/catalog-health-service.js` | S | 2026-03-18 |
-| BUG-4 | Catalog Health Monitor section is disconnected from the Audit Summary at the top of the page. Health categories (location mismatch, orphaned variation, missing tax, etc.) should be integrated into the upper summary card row for a unified view. Priority: LOW. | `public/js/catalog-audit.js` | M | 2026-03-18 |
+| BUG-3 | ~~Health cards used inline `onclick` violating `script-src-attr 'none'` CSP policy~~ **FIXED 2026-03-19** — Replaced inline `onclick` in `renderHealthSummary` and `card.onclick` in `renderAuditCards` with `data-action`/`data-action-param` event delegation. | `public/js/catalog-audit.js` | S | 2026-03-18 |
+| BUG-4 | ~~Catalog Health Monitor section disconnected from Audit Summary~~ **FIXED 2026-03-19** — Health cards now render in the same audit grid with blue left border separator. "Run Health Check Now" button and detail table remain in their own section below. | `public/js/catalog-audit.js`, `public/catalog-audit.html` | M | 2026-03-18 |
 
 ---
 
@@ -259,7 +259,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | Tier | Count |
 |------|-------|
-| Active Bugs (P0) | 3 |
+| Active Bugs (P0) | 1 |
 | Critical | 5 |
 | High | 4 |
 | Medium | ~39 |

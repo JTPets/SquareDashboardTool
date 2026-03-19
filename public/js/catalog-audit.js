@@ -111,7 +111,8 @@ function renderAuditCards() {
     const card = document.createElement('div');
     card.className = 'audit-card ' + severityClass;
     card.dataset.issueType = audit.key;
-    card.onclick = function() { selectAuditCard(audit.key, card); };
+    card.dataset.action = 'selectAuditCard';
+    card.dataset.actionParam = audit.key;
 
     card.innerHTML =
       '<div class="card-header"><span class="card-title">' + audit.label + '</span></div>' +
@@ -121,9 +122,16 @@ function renderAuditCards() {
 
     grid.appendChild(card);
   });
+
+  // Render health cards into the same grid (if loaded)
+  renderHealthCardsInGrid(grid);
 }
 
-function selectAuditCard(issueType, card) {
+function selectAuditCard(elementOrKey, event, param) {
+  // Support both direct call selectAuditCard('key') and event delegation (element, event, param)
+  var issueType = param || elementOrKey;
+  var card = param ? elementOrKey : document.querySelector('.audit-card[data-issue-type="' + issueType + '"]');
+
   if (activeAuditCard === card) {
     card.classList.remove('active');
     activeAuditCard = null;
@@ -558,67 +566,98 @@ var CHECK_TYPE_LABELS = {
   missing_tax: 'Missing Tax'
 };
 
+let healthDataLoaded = false;
+let healthByType = {};
+
 async function checkCatalogHealthAccess() {
   try {
     var response = await fetch('/api/admin/catalog-health');
     if (response.ok) {
+      // Show the health controls section (Run Health Check button + detail table)
       document.getElementById('catalogHealthSection').style.display = 'block';
       var data = await response.json();
-      renderHealthSummary(data.openIssues || []);
+      var openIssues = data.openIssues || [];
+      healthIssues = openIssues;
+      healthDataLoaded = true;
+
+      // Count by check_type
+      healthByType = {};
+      openIssues.forEach(function(issue) {
+        var ct = issue.check_type || issue.mismatch_type || 'unknown';
+        if (!healthByType[ct]) healthByType[ct] = 0;
+        healthByType[ct]++;
+      });
+
+      // Re-render audit cards to include health cards in the same grid
+      var grid = document.getElementById('auditGrid');
+      if (grid) {
+        renderHealthCardsInGrid(grid);
+      }
+
+      // Show detail prompt if there are issues
+      var totalOpen = openIssues.length;
+      if (totalOpen > 0) {
+        document.getElementById('healthDetailPrompt').style.display = 'block';
+      } else {
+        document.getElementById('healthDetailPrompt').style.display = 'block';
+        document.getElementById('healthDetailPrompt').innerHTML =
+          '<p style="color: #059669; font-weight: 600;">No open catalog health issues found.</p>';
+      }
     }
   } catch (e) {
-    // Not admin — section stays hidden
+    // Not admin — health cards stay hidden
   }
 }
 
-function renderHealthSummary(openIssues) {
-  healthIssues = openIssues;
-  var container = document.getElementById('healthSummaryCards');
+/**
+ * Render health check cards into the audit grid (unified view).
+ * Called from renderAuditCards() and checkCatalogHealthAccess().
+ * Health cards use a distinct blue left border to differentiate from audit cards.
+ */
+function renderHealthCardsInGrid(grid) {
+  if (!healthDataLoaded) return;
 
-  // Count by check_type and severity
-  var errorCount = 0;
-  var warnCount = 0;
-  var byType = {};
+  // Remove any previously rendered health cards
+  grid.querySelectorAll('.health-card').forEach(function(el) { el.remove(); });
 
-  openIssues.forEach(function(issue) {
-    var ct = issue.check_type || issue.mismatch_type || 'unknown';
-    if (!byType[ct]) byType[ct] = 0;
-    byType[ct]++;
-    if (issue.severity === 'warn') warnCount++;
-    else errorCount++;
-  });
-
-  var totalOpen = openIssues.length;
-
-  // Build summary cards
-  var html = '';
+  // Separator
+  var separator = document.createElement('div');
+  separator.className = 'health-card';
+  separator.style.cssText = 'grid-column: 1 / -1; border-top: 2px solid #2563eb; margin: 8px 0 4px; padding-top: 8px;';
+  separator.innerHTML = '<span style="font-size: 12px; color: #2563eb; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Catalog Health Checks (Admin)</span>';
+  grid.appendChild(separator);
 
   // Total card
+  var totalOpen = healthIssues.length;
+  var errorCount = healthIssues.filter(function(i) { return i.severity !== 'warn'; }).length;
+  var warnCount = totalOpen - errorCount;
   var totalClass = totalOpen === 0 ? 'good' : (errorCount > 0 ? 'critical' : 'warning');
-  html += '<div class="audit-card ' + totalClass + '" style="cursor:pointer;" onclick="showAllHealthIssues()">' +
+
+  var totalCard = document.createElement('div');
+  totalCard.className = 'audit-card health-card ' + totalClass;
+  totalCard.style.borderLeftColor = '#2563eb';
+  totalCard.dataset.action = 'showAllHealthIssues';
+  totalCard.innerHTML =
     '<div class="card-header"><span class="card-title">TOTAL OPEN</span></div>' +
     '<div class="card-value">' + totalOpen + '</div>' +
-    '<div class="card-percent">' + errorCount + ' errors, ' + warnCount + ' warnings</div></div>';
+    '<div class="card-percent">' + errorCount + ' errors, ' + warnCount + ' warnings</div>';
+  grid.appendChild(totalCard);
 
   // Per-type cards
   Object.keys(CHECK_TYPE_LABELS).forEach(function(checkType) {
-    var count = byType[checkType] || 0;
+    var count = healthByType[checkType] || 0;
     var cardClass = count === 0 ? 'good' : (checkType === 'missing_tax' ? 'warning' : 'critical');
-    html += '<div class="audit-card ' + cardClass + '" style="cursor:pointer;" onclick="filterHealthByType(\'' + escapeAttr(checkType) + '\')">' +
+
+    var card = document.createElement('div');
+    card.className = 'audit-card health-card ' + cardClass;
+    card.style.borderLeftColor = '#2563eb';
+    card.dataset.action = 'filterHealthByType';
+    card.dataset.actionParam = checkType;
+    card.innerHTML =
       '<div class="card-header"><span class="card-title">' + CHECK_TYPE_LABELS[checkType] + '</span></div>' +
-      '<div class="card-value">' + count + '</div></div>';
+      '<div class="card-value">' + count + '</div>';
+    grid.appendChild(card);
   });
-
-  container.innerHTML = html;
-
-  // Show detail prompt if there are issues
-  if (totalOpen > 0) {
-    document.getElementById('healthDetailPrompt').style.display = 'block';
-  } else {
-    document.getElementById('healthDetailPrompt').style.display = 'block';
-    document.getElementById('healthDetailPrompt').innerHTML =
-      '<p style="color: #059669; font-weight: 600;">No open catalog health issues found.</p>';
-  }
 }
 
 function showAllHealthIssues() {
@@ -627,7 +666,9 @@ function showAllHealthIssues() {
   renderHealthTable(healthIssues);
 }
 
-function filterHealthByType(checkType) {
+function filterHealthByType(elementOrType, event, param) {
+  // Support both direct call filterHealthByType('type') and event delegation (element, event, param)
+  var checkType = param || elementOrType;
   document.getElementById('healthCheckTypeFilter').value = checkType;
   filterHealthIssues();
 }
@@ -743,6 +784,7 @@ window.fixLocationMismatches = fixLocationMismatches;
 window.fixInventoryAlerts = fixInventoryAlerts;
 window.toggleBulkEdits = toggleBulkEdits;
 window.sortTable = sortTable;
+window.selectAuditCard = selectAuditCard;
 window.filterByIssue = filterByIssue;
 window.filterData = filterData;
 window.runHealthCheck = runHealthCheck;
