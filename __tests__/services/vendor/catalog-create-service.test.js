@@ -506,13 +506,11 @@ describe('catalog-create-service', () => {
             expect(variation.item_variation_data.vendor_information).toBeDefined();
             expect(variation.item_variation_data.vendor_information[0].vendor_id).toBe('VENDOR_ABC');
 
-            // Check variations INSERT includes vendor_code and vendor_id
+            // Check variations INSERT does NOT include vendor_id or vendor_code (those columns don't exist on variations)
             const varInsert = txQueries.find(q => q[0].includes('INSERT INTO variations'));
             expect(varInsert).toBeDefined();
-            expect(varInsert[0]).toContain('vendor_code');
-            expect(varInsert[0]).toContain('vendor_id');
-            expect(varInsert[1]).toContain('VENDOR_ABC'); // vendor_id
-            expect(varInsert[1]).toContain('VIN-ABC-001'); // vendor_code from vendor_item_number
+            expect(varInsert[0]).not.toContain('vendor_code');
+            expect(varInsert[0]).not.toContain('vendor_id');
 
             // Check variation_vendors insert includes vendor_code
             const vendorInsert = txQueries.find(q => q[0].includes('INSERT INTO variation_vendors'));
