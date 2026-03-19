@@ -365,10 +365,10 @@ async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) 
 
             // INSERT into variations table
             await client.query(
-                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, vendor_id, vendor_code, merchant_id, created_at, updated_at)
-                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `INSERT INTO variations (id, item_id, name, sku, upc, price_money, currency, merchant_id, created_at, updated_at)
+                 VALUES ($1, $2, 'Regular', $3, $4, $5, 'CAD', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO NOTHING`,
-                [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, entry.vendor_id || null, entry.vendor_item_number || null, merchantId]
+                [realVarId, realItemId, entry.upc || null, entry.upc || null, entry.price_cents, merchantId]
             );
 
             // INSERT into variation_vendors if cost and vendor exist
