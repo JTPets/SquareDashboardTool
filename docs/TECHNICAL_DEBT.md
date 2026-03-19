@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Priorities](./PRIORITIES.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-03-19
 
 Known issues that are logged but not yet scheduled. These are not blocking any feature work — they represent latent risks, code smells, or minor correctness issues to address when touching nearby code.
 
@@ -14,20 +14,20 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 |----------|-----------|
 | Loyalty System (CRIT/HIGH) | 6 |
 | Loyalty System (MED) | 7 |
-| Security (Low) | 7 |
-| Database | 6 |
-| Error Handling | 2 |
+| Security (Low) | 6 |
+| Database | 4 |
+| Error Handling | 1 |
 | Performance | 7 |
-| Dead Code | 2 |
-| Logging | 3 |
+| Dead Code | 1 |
+| Logging | 2 |
 | Config | 3 |
-| Frontend | 4 |
-| Architecture | 5 |
-| Multi-Tenant Gaps | 8 |
+| Frontend | 1 |
+| Architecture | 4 |
+| Multi-Tenant Gaps | 4 |
 | Expiry Discount | 3 |
 | Square Online Store | 4 |
-| Code Quality Observations | 8 |
-| **Total** | **~75** |
+| Code Quality Observations | 4 |
+| **Total** | **~57** |
 
 ---
 
@@ -141,25 +141,10 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **File**: `services/square/square-vendors.js`
 **Issue**: Expected unique constraint race condition logs at ERROR level.
 
-### `discount-service.js` `updateDiscountAppliesTo` is a no-op
-
-**File**: `services/expiry/discount-service.js:660-738`
-**Issue**: Function accepts `variationIds` but never includes them in API request. 78 lines of dead code.
-
-### `discount-service.js` `filterValidVariations` silently assumes all valid on error
-
-**File**: `services/expiry/discount-service.js:967-974`
-**Issue**: API failure returns ALL variations as valid. Rate limiting causes deleted items to get discount pricing rules.
-
 ### Velocity return revenue uses wrong nested property (harmless due to fallback)
 
 **File**: `services/square/square-velocity.js:140-141,474-475`
 **Issue**: `return_amounts` property always undefined on return line item. Correct fallback `total_money` is used.
-
-### Velocity return location ternary is a no-op
-
-**File**: `services/square/square-velocity.js:131-132`
-**Issue**: Both branches of ternary return `order.location_id`. Dead code.
 
 ### RISK: Delta sync does not mark child variations as deleted
 
@@ -167,19 +152,9 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 **Issue**: Delta sync marks item deleted, zeros inventory, but does NOT set `is_deleted = TRUE` on variation rows.
 **Priority**: Medium — orphaned variations appear in reorder suggestions.
 
-### `hashResetToken` duplicated in auth.js and subscriptions.js
-
-**Files**: `routes/auth.js`, `routes/subscriptions.js`
-**Issue**: Identical 3-line SHA-256 function. Should be in `utils/password.js`.
-
 ### OSS locale sweep — remaining frontend hardcoded locale
 
 **Scope**: `public/js/` files still have hardcoded `'en-CA'` and `'CAD'` in `toLocaleString()` calls. Backend fixed; frontend needs merchant context API.
-
-### `discount-service.js` EXPIRED in array is dead code
-
-**File**: `services/expiry/discount-service.js:1816`
-**Issue**: `'EXPIRED'` unreachable in the `includes()` array due to short-circuit on `!is_auto_apply`.
 
 ### Legacy plaintext Google OAuth tokens persist until refresh
 
@@ -219,7 +194,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | S-9 | Project-wide | No CSRF token middleware — relies on SameSite + CORS only |
 | S-11 | `routes/square-oauth.js:242-244` | Session not regenerated after merchant binding on OAuth callback |
 | SEC-8 | `utils/database.js` | `batchUpsert` interpolates column names — not user-controlled but violates rule |
-| SEC-14 | `services/gmc/feed-service.js` | `resolveImageUrls` missing `merchant_id` filter |
 
 ---
 
@@ -232,8 +206,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | DB-3 | Schema drift — `schema.sql` missing indexes from migration 005 |
 | DB-4 | `expiry_discount_audit_log.merchant_id` allows NULL |
 | DB-5 | Potentially dead column `subscription_plans.square_plan_id` |
-| DB-6 | Missing `ON DELETE CASCADE` on 14 tables — orphan rows on merchant deletion |
-| DB-7 | Timestamp inconsistency: mix of `TIMESTAMP` and `TIMESTAMPTZ` |
 
 ---
 
@@ -242,7 +214,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | File | Description |
 |----|------|-------------|
 | ERR-10 | `utils/database.js` | Pool error handler calls `process.exit(-1)` on transient DB errors |
-| E-4 | `services/loyalty-admin/audit-service.js:66-73` | Audit logging silently swallows errors |
 
 ---
 
@@ -264,7 +235,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | File | Description |
 |----|------|-------------|
-| DEAD-6-12 | `server.js` | 7 dead imports + dead `podUpload` config + ~75 lines of "EXTRACTED" comments |
 | O-1 | `services/square/square-pricing.js` | `updateVariationPrice` exported but never called |
 
 ---
@@ -273,7 +243,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | Description |
 |----|-------------|
-| L-1 | Critical startup paths use `console.error()` instead of Winston logger |
 | L-2 | 10 locations missing `merchantId` in error logs |
 | L-3 | 32 frontend JS files have `console.log` visible to end users (180 calls) |
 
@@ -294,9 +263,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | ID | Description |
 |----|-------------|
 | FE-1 | 79 of 183 `fetch()` calls missing `response.ok` check |
-| FE-2 | `showToast()` duplicated across 7 files |
-| FE-3 | `escapeJsString()` duplicated across 7 files |
-| FE-4 | `formatDate()` variants duplicated across multiple files |
 
 ---
 
@@ -308,7 +274,6 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 | O-4 | `services/square/square-pricing.js` | Scoping bug — `catch` references var from `try` block |
 | O-5 | `services/square/square-catalog-sync.js` | Business logic leaking into API sync layer |
 | O-6 | `services/square/square-velocity.js` | Soft coupling to loyalty-admin via lazy `require()` |
-| CRIT-5 | 19 loyalty-admin files | Square API version hardcoded `'2025-01-16'` instead of constants |
 
 ---
 
@@ -316,16 +281,11 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | Severity | Description |
 |----|----------|-------------|
-| MT-4 | Degrades | GMC debug files overwrite across merchants — not merchant-scoped |
-| MT-5 | Degrades | GMC feed TSV file default filename not merchant-scoped |
 | MT-6 | Degrades | Sync interval configuration is global, not per-merchant |
 | MT-7 | Degrades | `DAILY_COUNT_TARGET` cycle count target is global |
 | MT-8 | Cosmetic | Shared log files across all merchants (tags work, but flat files don't scale) |
 | MT-9 | Degrades | Health check picks arbitrary merchant for Square status |
-| MT-10 | Cosmetic | Setup script defaults to merchant ID 1 |
 | MT-11 | Cosmetic | Single global `TOKEN_ENCRYPTION_KEY` for all merchants |
-| MT-12 | Degrades | Subscription status never auto-transitions from trial |
-| MT-13 | Degrades | GMC module-level debug state shared across merchants |
 
 ---
 

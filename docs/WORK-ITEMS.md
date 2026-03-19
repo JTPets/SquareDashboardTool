@@ -2,11 +2,25 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
-**Last Validated**: 2026-03-15
-**Total Open Items**: ~65
+**Last Validated**: 2026-03-19
+**Total Open Items**: ~49
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-17/19 Validation
+
+26 items confirmed FIXED and purged:
+- **CRIT-1/2/4/5**: Rate limiting, merchant_id on subscription tables, API version centralized
+- **SEC-14**: merchant_id filter on resolveImageUrls
+- **DB-6/7**: CASCADE FKs on 7 tables, 66 TIMESTAMPTZ conversions
+- **BUG-2/3/4**: Tax IDs on bulk create, health card CSP fix, unified audit+health UI
+- **MT-4/5/10/12/13**: Debug files removed, feed filename scoped, merchant-id CLI param, trial auto-transition, module state removed
+- **FE-2/3/4**: showToast, escapeHtml, formatDate extracted to shared utilities
+- **CQ-3/4/6/10**: No-op ternary, dead function, hashResetToken dedup, filterValidVariations fail-safe
+- **BACKLOG-72**: Dead customer lookup wrappers removed
+- **DEAD-6-12, L-1, E-4**: Stale comments, console.error, audit logging reviewed
+- **Dead EXPIRED**: Unreachable code removed
 
 ### Purge Log — 2026-03-15 Validation
 
@@ -29,14 +43,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 ---
 
-## Active Bugs (P0)
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| BUG-2 | ~~Bulk-created items missing tax assignments~~ **FIXED 2026-03-19** — Added `fetchMerchantTaxIds()` to query Square Catalog API for active TAX objects once per bulk operation. `tax_ids` now included in `item_data` for all `BatchUpsertCatalogObjects` calls. Graceful fallback if no taxes configured or API fails. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
-| BUG-3 | ~~Health cards used inline `onclick` violating `script-src-attr 'none'` CSP policy~~ **FIXED 2026-03-19** — Replaced inline `onclick` in `renderHealthSummary` and `card.onclick` in `renderAuditCards` with `data-action`/`data-action-param` event delegation. | `public/js/catalog-audit.js` | S | 2026-03-18 |
-| BUG-4 | ~~Catalog Health Monitor section disconnected from Audit Summary~~ **FIXED 2026-03-19** — Health cards now render in the same audit grid with blue left border separator. "Run Health Check Now" button and detail table remain in their own section below. | `public/js/catalog-audit.js`, `public/catalog-audit.html` | M | 2026-03-18 |
-
 ---
 
 ## Critical Priority
@@ -45,11 +51,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-1 (audit) | ~~Subscription endpoint gaps~~ **FIXED 2026-03-17** — Added `subscriptionRateLimit` as first middleware on GET `/api/subscriptions/status`. Stripped response to `{ active, planName }` only — no email, dates, status details, or payment info leaked. Added `planName` to `checkSubscriptionStatus` return value. | `routes/subscriptions.js`, `utils/subscription-handler.js` | S | 2026-03-10 |
-| CRIT-2 (audit) | ~~Subscription routes have no `merchant_id` scoping~~ **FIXED 2026-03-17** — Added `merchant_id NOT NULL` to `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`. Added nullable `merchant_id` to `platform_settings`. Fixed `oauth_states.merchant_id` to NOT NULL. All route queries now filter by `merchant_id`. Promo codes scoped per-tenant. Migration 074. | `routes/subscriptions.js`, `database/schema.sql`, `utils/subscription-handler.js`, `utils/schema-manager.js`, `services/webhook-handlers/subscription-handler.js`, `services/webhook-processor.js` | M | 2026-03-10 |
 | CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
-| CRIT-4 (audit) | ~~Subscription tables missing tenant isolation~~ **FIXED 2026-03-17** — Resolved as part of CRIT-2. See CRIT-2 for details. Migration 074. | `database/schema.sql` | M | 2026-02-28 |
-| CRIT-5 | ~~12 loyalty-admin files hardcode Square API version~~ **FIXED** — All 12 files already import `SQUARE_API_VERSION` from `shared-utils.js` which sources from `config/constants.js` (`'2025-10-16'`). Stale observation comment cleaned up. | 12 files in `services/loyalty-admin/` | S | 2026-03-10 |
 
 ---
 
@@ -115,32 +117,15 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|---------|--------|------------|
 | Backfill | Historical `loyalty_purchase_events` with incorrect quantity — pre-2026-03-07 dedup bug. Requires runtime DB inspection. | `purchase-service.js` | M | 2026-03-07 |
 
-### Database
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| DB-6 | ~~Missing `ON DELETE CASCADE` on user_id foreign keys~~ **FIXED 2026-03-17** — Added `ON DELETE CASCADE` to 7 user_id FKs: `oauth_states`, `delivery_routes`, `delivery_audit_log`, `loyalty_offers`, `loyalty_redemptions`, `loyalty_audit_logs`, `delivery_route_tokens`. Migration 072. Note: `password_reset_tokens` already had CASCADE (via schema-manager.js); `delivery_orders` has no user_id FK. | `database/schema.sql`, `migrations/072_add_cascade_user_fks.sql` | S | 2026-02-28 |
-| DB-7 | ~~Timestamp inconsistency: bare `TIMESTAMP` vs `TIMESTAMPTZ` columns~~ **FIXED 2026-03-17** — Converted 66 columns across 31 tables to `TIMESTAMPTZ`. Also fixed 40 occurrences in `schema-manager.js`. Migration 073. | `database/schema.sql`, `utils/schema-manager.js`, `migrations/073_timestamp_to_timestamptz.sql` | M | 2026-02-28 |
-
-### Security
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~SEC-14~~ | ~~`resolveImageUrls` missing `merchant_id` filter~~ — **FIXED 2026-03-17**. Added `merchant_id` param to `resolveImageUrls` and `batchResolveImageUrls`; updated all 8 callers. | `utils/image-utils.js` | S | 2026-02-28 |
-
 ### Multi-Tenant Gaps
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| MT-4 | ~~GMC debug files overwrite across merchants~~ **FIXED** — `gmc-product-sync-debug.log` no longer exists in any source file. Debug logging removed. | S | 2026-03-08 |
-| MT-5 | ~~GMC feed TSV file default filename not merchant-scoped~~ **FIXED** — `feed-service.js:saveTsvFile` already scopes filename per merchant (`gmc-feed-merchant-${merchantId}.tsv`). | S | 2026-03-08 |
 | MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 |
 | MT-7 | `DAILY_COUNT_TARGET` cycle count target from env var is global, not per-merchant. | S | 2026-03-08 |
 | MT-8 | Shared log files across all merchants — `app-*.log` and `error-*.log` not segregated. | S | 2026-03-08 |
 | MT-9 | Health check picks arbitrary merchant for Square status via `LIMIT 1`. | S | 2026-03-08 |
 | MT-11 | Single global `TOKEN_ENCRYPTION_KEY` for all merchants — no per-merchant key derivation. | S | 2026-03-08 |
-| MT-12 | `merchants.subscription_status` never auto-transitions from trial. Middleware handles dynamically but column is stale for reporting. | S | 2026-03-08 |
-| MT-13 | GMC module-level `upsertProductState` debug state shared across concurrent merchant syncs. | S | 2026-03-08 |
 
 ### Testing
 
@@ -159,43 +144,16 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | P-5 | Google OAuth token listener — guard (`listenerCount`) prevents duplication, but same pattern repeated across calls. | `services/gmc/merchant-service.js:65-80` | S | 2026-02-25 |
 | P-8 | Follow-up syncs fire-and-forget — async but not fully non-blocking within request handler. | `services/sync-queue.js:232-242` | S | 2026-02-25 |
 
-### Error Handling
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| E-4 | ~~Audit logging silently swallows errors~~ **FIXED 2026-03-18** — Confirmed intentional; added review comment documenting design decision. | `services/loyalty-admin/audit-service.js:66-73` | S | 2026-02-25 |
-
 ### Dead Code / Cleanup
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| DEAD-6-12 | ~~10 "EXTRACTED" section comments in `server.js`~~ **FIXED 2026-03-17** — Removed ~10 stale EXTRACTED section comments from server.js. | `server.js` | S | 2026-02-28 |
-| CQ-3 | ~~Velocity return location ternary no-op~~ **FIXED 2026-03-17** — Removed ternary, using `order.location_id` directly. | `services/square/square-velocity.js:132` | S | 2026-03-10 |
-| CQ-4 | ~~`updateDiscountAppliesTo` dead function~~ **FIXED 2026-03-17** — Removed function and export (0 callers). | `services/expiry/discount-service.js` | S | 2026-03-10 |
-| BACKLOG-72 | ~~3 dead customer lookup wrappers~~ **FIXED 2026-03-17** — Removed `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` (0 callers). | `customer-admin-service.js`, `loyalty-admin/index.js` | S | 2026-03-15 |
-| Dead | ~~`'EXPIRED'` unreachable in `includes()`~~ **FIXED 2026-03-17** — Removed from array. | `services/expiry/discount-service.js` | S | 2026-03-15 |
 | BACKLOG-89 | Remove `supplier_item_number` from `variations` table — column has 0 populated rows across all merchants. Vendor codes are stored in `variation_vendors.vendor_code`. Two remaining references: (1) `services/reports/loyalty-reports.js` lines 181, 540 use `COALESCE` fallback — update to use only `variation_vendors.vendor_code`. (2) `services/catalog/variation-service.js` line 26 field allowlist — remove from permitted fields. After references removed, drop column via migration. | `loyalty-reports.js`, `variation-service.js`, new migration | S | 2026-03-19 |
-
-### Logging
-
-| ID | Description | Effort | Discovered |
-|----|-------------|--------|------------|
-| L-1 | ~~`console.error()` in startup paths~~ **FIXED 2026-03-17** — Replaced 2 `console.error()` calls in `startServer().catch()` with `logger.error()`. 1 pre-logger `console.error` kept (line 29, runs before logger loads). | S | 2026-02-25 |
-
-### Frontend
-
-| ID | Description | Effort | Discovered |
-|----|-------------|--------|------------|
-| FE-2 | ~~`showToast()` duplicated across 9 files~~ **FIXED 2026-03-18** — Extracted to `public/js/utils/toast.js`. All 9 files now use shared utility. | S | 2026-02-28 |
-| FE-3 | ~~`escapeHtml()` still duplicated in 2 files~~ **FIXED 2026-03-18** — Removed local definitions from `delivery-settings.js` and `upgrade.js`; both already load `utils/escape.js`. | S | 2026-02-28 |
-| FE-4 | ~~`formatDate()` variants duplicated across 7 files~~ **FIXED 2026-03-18** — Extracted to `public/js/utils/date-format.js`. 5 files use shared utility (with options param); 2 unique variants renamed (`formatRelativeDate`, `formatExpiryDate`). | S | 2026-02-28 |
 
 ### Code Quality
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CQ-6 | ~~`hashResetToken` duplicated~~ **FIXED 2026-03-17** — Extracted to `utils/hash-utils.js`. Both `auth.js` and `subscriptions.js` now import from shared module. | `utils/hash-utils.js`, `routes/auth.js`, `routes/subscriptions.js` | S | 2026-03-10 |
-| CQ-10 | ~~`filterValidVariations` returns all variations on API failure~~ **FIXED 2026-03-18** — Changed to return empty array on error (fail safe). Invalid variations pushed to `invalidIds` instead of `validIds`. | `services/expiry/discount-service.js:974-981` | S | 2026-03-10 |
 | Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
 | Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
 | Google | Legacy plaintext Google OAuth tokens persist until refresh — migration guard in place, new tokens encrypted. JTPets only. | `utils/google-auth.js:275` | S | 2026-03-15 |
@@ -262,12 +220,11 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | Tier | Count |
 |------|-------|
-| Active Bugs (P0) | 1 |
-| Critical | 5 |
+| Critical | 1 |
 | High | 4 |
-| Medium | ~39 |
-| Low | ~27 |
+| Medium | ~30 |
+| Low | ~20 |
 | Nice to Have | 16 |
-| **Total** | **~75** |
+| **Total** | **~49** |
 
-**Validation delta**: ~95 → ~65 items. **46 items purged** (confirmed fixed in code). **~30 items remain from original audit**; remainder are features and backlog items.
+**Validation delta**: ~95 → ~65 → ~49 items. **72 items purged** across two validations (2026-03-15: 46 items, 2026-03-17/19: 26 items).

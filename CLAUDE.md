@@ -315,17 +315,12 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Low | BACKLOG-58 | Inventory increase should trigger expiry re-verification |
 | Low | BACKLOG-66 | Customer email bounce tracking |
 | Low | BACKLOG-70 | `syncRewardDiscountPrices` only updates upward |
-| Low | BACKLOG-72 | Dead code cleanup — customer-admin-service.js (3 unused wrappers) |
 
 ### Architectural Tech Debt
 
 #### Unified Audit Logging (Pre-Franchise)
 
 Audit trails fragmented across `webhook_events`, `loyalty_audit_logs`, `delivery_audit_log`, `sync_history`. Missing: inventory changes, catalog edits, admin actions. Need single `audit_log` table. Low priority (single store), High (pre-franchise).
-
-#### `merchants.subscription_status` Never Auto-Transitions
-
-Status stays stale at 'trial'. Middleware handles dynamically via `trial_ends_at`, but column is wrong for admin reporting. Need cron to UPDATE expired trials.
 
 ---
 
