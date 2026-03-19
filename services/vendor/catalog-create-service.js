@@ -23,6 +23,27 @@ const SQUARE_BATCH_SIZE = 100;
 const BATCH_DELAY_MS = 200;
 
 /**
+ * Fetch active tax IDs for a merchant from Square Catalog API
+ * Called once per bulk create operation, not per item.
+ * @param {string} accessToken - Square access token
+ * @returns {Promise<string[]>} Array of Square tax object IDs
+ */
+async function fetchMerchantTaxIds(accessToken) {
+    try {
+        const data = await makeSquareRequest('/v2/catalog/list?types=TAX', { accessToken });
+        const taxIds = (data.objects || [])
+            .filter(obj => !obj.is_deleted)
+            .map(obj => obj.id);
+        return taxIds;
+    } catch (error) {
+        logger.warn('Failed to fetch tax configurations from Square — items will be created without tax_ids', {
+            error: error.message
+        });
+        return [];
+    }
+}
+
+/**
  * Bulk create Square catalog items from unmatched vendor catalog entries
  * @param {number[]} vendorCatalogIds - IDs of vendor_catalog_items to create
  * @param {number} merchantId - Merchant ID from req.merchantContext.id
@@ -59,6 +80,12 @@ async function bulkCreateSquareItems(vendorCatalogIds, merchantId) {
     const accessToken = await getMerchantToken(merchantId);
     const { toCreate, toMatch } = await checkExistingUPCs(valid, merchantId);
 
+    // 3b. Fetch merchant's active tax IDs once for all batches
+    const taxIds = await fetchMerchantTaxIds(accessToken);
+    if (taxIds.length === 0) {
+        logger.warn('No active tax configurations found for merchant', { merchantId });
+    }
+
     // 4. Handle entries that match existing UPCs — link instead of create
     if (toMatch.length > 0) {
         const matchResults = await matchExistingItems(toMatch, merchantId);
@@ -77,7 +104,7 @@ async function bulkCreateSquareItems(vendorCatalogIds, merchantId) {
 
         try {
             const batchResult = await createSquareBatch(
-                batch, merchantId, accessToken
+                batch, merchantId, accessToken, taxIds
             );
             results.created += batchResult.created;
             results.failed += batchResult.failed;
@@ -229,7 +256,7 @@ async function matchExistingItems(matches, merchantId) {
 /**
  * Create a batch of items in Square and update local DB
  */
-async function createSquareBatch(entries, merchantId, accessToken) {
+async function createSquareBatch(entries, merchantId, accessToken, taxIds = []) {
     const batchResult = { created: 0, failed: 0, errors: [] };
 
     // Build Square catalog objects
@@ -269,17 +296,23 @@ async function createSquareBatch(entries, merchantId, accessToken) {
             }];
         }
 
+        const itemData = {
+            name: entry.product_name.trim(),
+            variations: [{
+                type: 'ITEM_VARIATION',
+                id: varTempId,
+                ...variationData
+            }]
+        };
+
+        if (taxIds.length > 0) {
+            itemData.tax_ids = taxIds;
+        }
+
         const itemObject = {
             type: 'ITEM',
             id: itemTempId,
-            item_data: {
-                name: entry.product_name.trim(),
-                variations: [{
-                    type: 'ITEM_VARIATION',
-                    id: varTempId,
-                    ...variationData
-                }]
-            }
+            item_data: itemData
         };
 
         objects.push(itemObject);
@@ -380,6 +413,7 @@ function splitIntoBatches(arr, size) {
 module.exports = {
     bulkCreateSquareItems,
     // Exported for testing
+    fetchMerchantTaxIds,
     fetchVendorCatalogEntries,
     validateEntries,
     checkExistingUPCs,

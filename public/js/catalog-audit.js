@@ -566,6 +566,13 @@ var CHECK_TYPE_LABELS = {
   missing_tax: 'Missing Tax'
 };
 
+// Health check types that have equivalent audit filters — clicking these
+// filters the main audit item table instead of showing the health detail table.
+var HEALTH_TO_AUDIT_MAP = {
+  missing_tax: 'no_tax_ids',
+  location_mismatch: 'location_mismatch'
+};
+
 let healthDataLoaded = false;
 let healthByType = {};
 
@@ -594,11 +601,15 @@ async function checkCatalogHealthAccess() {
         renderHealthCardsInGrid(grid);
       }
 
-      // Show detail prompt if there are issues
-      var totalOpen = openIssues.length;
-      if (totalOpen > 0) {
+      // Count structural-only issues (no audit equivalent)
+      var structuralCount = openIssues.filter(function(i) {
+        var ct = i.check_type || i.mismatch_type || '';
+        return !HEALTH_TO_AUDIT_MAP[ct];
+      }).length;
+
+      if (structuralCount > 0) {
         document.getElementById('healthDetailPrompt').style.display = 'block';
-      } else {
+      } else if (openIssues.length === 0) {
         document.getElementById('healthDetailPrompt').style.display = 'block';
         document.getElementById('healthDetailPrompt').innerHTML =
           '<p style="color: #059669; font-weight: 600;">No open catalog health issues found.</p>';
@@ -647,6 +658,7 @@ function renderHealthCardsInGrid(grid) {
   Object.keys(CHECK_TYPE_LABELS).forEach(function(checkType) {
     var count = healthByType[checkType] || 0;
     var cardClass = count === 0 ? 'good' : (checkType === 'missing_tax' ? 'warning' : 'critical');
+    var hasAuditEquiv = !!HEALTH_TO_AUDIT_MAP[checkType];
 
     var card = document.createElement('div');
     card.className = 'audit-card health-card ' + cardClass;
@@ -655,32 +667,85 @@ function renderHealthCardsInGrid(grid) {
     card.dataset.actionParam = checkType;
     card.innerHTML =
       '<div class="card-header"><span class="card-title">' + CHECK_TYPE_LABELS[checkType] + '</span></div>' +
-      '<div class="card-value">' + count + '</div>';
+      '<div class="card-value">' + count + '</div>' +
+      (hasAuditEquiv && count > 0 ? '<div class="card-note">Click to filter items</div>' : '');
     grid.appendChild(card);
   });
 }
 
 function showAllHealthIssues() {
-  healthFilteredIssues = healthIssues;
-  document.getElementById('healthCheckTypeFilter').value = '';
-  renderHealthTable(healthIssues);
+  // Filter to structural-only issues (those without an audit equivalent)
+  var structuralIssues = healthIssues.filter(function(i) {
+    var ct = i.check_type || i.mismatch_type || '';
+    return !HEALTH_TO_AUDIT_MAP[ct];
+  });
+
+  if (structuralIssues.length > 0) {
+    healthFilteredIssues = structuralIssues;
+    document.getElementById('healthCheckTypeFilter').value = '';
+    renderHealthTable(structuralIssues);
+  } else {
+    // All issues have audit equivalents — just clear the health detail table
+    document.getElementById('healthFilterRow').style.display = 'none';
+    document.getElementById('healthTableContainer').style.display = 'none';
+    document.getElementById('healthDetailPrompt').style.display = 'block';
+    document.getElementById('healthDetailPrompt').innerHTML =
+      '<p style="color: #059669; font-weight: 600;">All health issues are shown in the audit summary above. Click the matching card to filter.</p>';
+  }
 }
 
 function filterHealthByType(elementOrType, event, param) {
   // Support both direct call filterHealthByType('type') and event delegation (element, event, param)
   var checkType = param || elementOrType;
+
+  // If this health type has an audit equivalent, filter the main audit table instead
+  var auditFilter = HEALTH_TO_AUDIT_MAP[checkType];
+  if (auditFilter) {
+    // Hide health detail table since we're using the audit table
+    document.getElementById('healthFilterRow').style.display = 'none';
+    document.getElementById('healthTableContainer').style.display = 'none';
+    document.getElementById('healthDetailPrompt').style.display = 'none';
+
+    // Find the audit card matching this filter and click it
+    var auditCard = document.querySelector('.audit-card[data-action-param="' + auditFilter + '"]');
+    if (auditCard) {
+      selectAuditCard(auditCard, null, auditFilter);
+    } else {
+      // Fallback: set the filter dropdown directly
+      document.getElementById('issueFilter').value = auditFilter;
+      if (!detailDataLoaded) {
+        loadDetailData();
+      } else {
+        filterByIssue();
+      }
+    }
+    return;
+  }
+
+  // Structural issues (orphans, deleted parents) — use health detail table
   document.getElementById('healthCheckTypeFilter').value = checkType;
   filterHealthIssues();
 }
 
 function filterHealthIssues() {
   var typeFilter = document.getElementById('healthCheckTypeFilter').value;
+
+  // If selected type has an audit equivalent, redirect to audit table
+  if (typeFilter && HEALTH_TO_AUDIT_MAP[typeFilter]) {
+    filterHealthByType(null, null, typeFilter);
+    return;
+  }
+
   if (typeFilter) {
     healthFilteredIssues = healthIssues.filter(function(i) {
       return (i.check_type || i.mismatch_type) === typeFilter;
     });
   } else {
-    healthFilteredIssues = healthIssues;
+    // Show only structural issues in the dropdown "all" view
+    healthFilteredIssues = healthIssues.filter(function(i) {
+      var ct = i.check_type || i.mismatch_type || '';
+      return !HEALTH_TO_AUDIT_MAP[ct];
+    });
   }
   renderHealthTable(healthFilteredIssues);
 }
