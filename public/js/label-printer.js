@@ -406,7 +406,7 @@ const LabelPrinter = (function () {
         printerList.forEach(p => {
             const selected = selectedPrinter && selectedPrinter.uid === p.uid ? 'selected' : '';
             const connType = p.connection ? ` (${p.connection})` : '';
-            html += `<option value="${escapeAttr(p.uid)}" ${selected}>${escapeAttr(p.name)}${connType}</option>`;
+            html += `<option value="${escapeAttr(p.uid)}" ${selected}>${escapeAttr(p.name)}${escapeHtml(connType)}</option>`;
         });
         html += '</select>';
 
@@ -440,7 +440,7 @@ const LabelPrinter = (function () {
             let html = '<select id="label-template-select" style="padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 12px; background: white;">';
             data.templates.forEach(t => {
                 const selected = t.is_default ? 'selected' : '';
-                html += `<option value="${t.id}" ${selected}>${escapeAttr(t.name)} (${t.label_width_mm}x${t.label_height_mm}mm)</option>`;
+                html += `<option value="${escapeAttr(t.id)}" ${selected}>${escapeAttr(t.name)} (${t.label_width_mm}x${t.label_height_mm}mm)</option>`;
             });
             html += '</select>';
 

@@ -637,7 +637,7 @@ function renderTable() {
     // Get image URL
     const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
     const imageHtml = imageUrl
-      ? `<img src="${imageUrl}" class="product-image" alt="Product" data-error-action="hideImageShowPlaceholder">
+      ? `<img src="${escapeAttr(imageUrl)}" class="product-image" alt="Product" data-error-action="hideImageShowPlaceholder">
          <div class="no-image" style="display:none;">📦</div>`
       : `<div class="no-image">📦</div>`;
 
@@ -2050,9 +2050,9 @@ function renderOtherItemsSection() {
     const margin = item.gross_margin_percent != null ? item.gross_margin_percent.toFixed(1) + '%' : '-';
 
     return `
-      <tr data-variation-id="${item.variation_id}">
+      <tr data-variation-id="${escapeAttr(item.variation_id)}">
         <td>
-          <button class="add-item-btn" data-action="addManualItem" data-action-param="${item.variation_id}">+ Add</button>
+          <button class="add-item-btn" data-action="addManualItem" data-action-param="${escapeAttr(item.variation_id)}">+ Add</button>
         </td>
         <td>
           <div class="product-name">${escapeHtml(item.item_name)}</div>
@@ -2279,17 +2279,6 @@ function restoreReorderState() {
   }
 
   return !!state.vendorId && state.vendorId !== '__none__';
-}
-
-function showToast(message, type = '') {
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add('active');
-
-  setTimeout(() => {
-    toast.classList.remove('active');
-  }, 3000);
 }
 
 // Initialize on page load

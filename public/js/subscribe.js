@@ -43,7 +43,7 @@ async function loadPlans() {
       // Update pricing card price in HTML
       const priceEl = document.getElementById('price-' + plan.plan_key);
       if (priceEl) {
-        priceEl.innerHTML = displayPrice + '<span>' + period + '</span>';
+        priceEl.innerHTML = escapeHtml(displayPrice) + '<span>' + escapeHtml(period) + '</span>';
       }
     });
 

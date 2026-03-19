@@ -180,7 +180,7 @@ async function loadPlans() {
             <br><small style="color: #6b7280;">${escapeHtml(plan.plan_key)}</small>
           </td>
           <td>$${(plan.price_cents / 100).toFixed(2)}</td>
-          <td>${plan.billing_frequency}</td>
+          <td>${escapeHtml(plan.billing_frequency)}</td>
           <td>
             ${hasSquarePlan
               ? `<span class="badge badge-success">Configured</span>`
@@ -273,7 +273,7 @@ async function loadSubscribers() {
             ${sub.business_name ? `<div class="subscriber-business">${escapeHtml(sub.business_name)}</div>` : ''}
           </td>
           <td>${escapeHtml(sub.subscription_plan || '-')}</td>
-          <td><span class="badge ${statusClass}">${sub.subscription_status}</span></td>
+          <td><span class="badge ${escapeAttr(statusClass)}">${escapeHtml(sub.subscription_status)}</span></td>
           <td>
             ${sub.square_subscription_id
               ? `<span class="badge badge-success">Linked</span>`
@@ -331,24 +331,6 @@ async function setupPlans() {
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
-  }
-}
-
-/**
- * Format date string for display
- * @param {string} dateStr - ISO date string
- * @returns {string} Formatted date
- */
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch {
-    return '-';
   }
 }
 

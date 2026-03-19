@@ -26,29 +26,6 @@ function safeSetContent(elementId, content, useInnerHTML) {
   }
 }
 
-// Toast notification
-function showToast(message, type) {
-  type = type || 'success';
-  const existingToast = document.querySelector('.toast');
-  if (existingToast) {
-    existingToast.remove();
-  }
-
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <div class="toast-message">${escapeHtml(message)}</div>
-    <button class="btn-icon" data-action="dismissToast">&#215;</button>
-  `;
-  document.body.appendChild(toast);
-
-  setTimeout(() => toast.classList.add('show'), 10);
-  setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
-}
-
 // Dismiss toast notification (for data-action handler)
 function dismissToast(element, event, param) {
   const toast = element.closest('.toast');
@@ -104,7 +81,7 @@ async function loadPurchaseOrders() {
               <td class="text-nowrap"><strong>${escapeHtml(po.po_number)}</strong></td>
               <td>${escapeHtml(po.vendor_name)}</td>
               <td>${escapeHtml(po.location_name)}</td>
-              <td><span class="status-badge status-${po.status}">${po.status}</span></td>
+              <td><span class="status-badge status-${escapeAttr(po.status)}">${escapeHtml(po.status)}</span></td>
               <td class="text-right">${po.item_count || 0}</td>
               <td class="text-right">$${(po.total_cents / 100).toFixed(2)}</td>
               <td class="text-nowrap">${formatDate(po.expected_delivery_date)}</td>
@@ -154,21 +131,6 @@ async function loadPurchaseOrders() {
         </div>
       `;
     }
-  }
-}
-
-function formatDate(dateString) {
-  if (!dateString) return '-';
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch (error) {
-    console.error('Date formatting error:', error);
-    return '-';
   }
 }
 
@@ -285,7 +247,7 @@ function renderPODetails() {
         </div>
         <div class="po-info-item">
           <span class="po-info-label">Status</span>
-          <span class="po-info-value"><span class="status-badge status-${po.status}">${po.status}</span></span>
+          <span class="po-info-value"><span class="status-badge status-${escapeAttr(po.status)}">${escapeHtml(po.status)}</span></span>
         </div>
         <div class="po-info-item">
           <span class="po-info-label">Vendor</span>

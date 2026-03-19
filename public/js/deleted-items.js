@@ -83,7 +83,7 @@ function renderTable() {
     const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
     const statusIcon = item.status === 'archived' ? '📦' : '🗑️';
     const imageHtml = imageUrl
-      ? `<img src="${imageUrl}" class="product-image fallback-image" alt="Product" data-fallback-icon="${statusIcon}">
+      ? `<img src="${escapeAttr(imageUrl)}" class="product-image fallback-image" alt="Product" data-fallback-icon="${statusIcon}">
          <div class="no-image" style="display:none;">${statusIcon}</div>`
       : `<div class="no-image">${statusIcon}</div>`;
 

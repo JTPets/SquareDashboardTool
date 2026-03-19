@@ -558,17 +558,17 @@
         tbody.innerHTML = browseCatalogItems.map(item => `
           <tr>
             <td>${!item.matched_variation_id
-              ? `<input type="checkbox" class="vendor-item-checkbox" data-vendor-catalog-id="${item.id}" data-change="updateCreateButton">`
+              ? `<input type="checkbox" class="vendor-item-checkbox" data-vendor-catalog-id="${escapeAttr(item.id)}" data-change="updateCreateButton">`
               : ''}</td>
             <td>${escapeHtml(item.vendor_name)}</td>
             <td><code>${escapeHtml(item.vendor_item_number)}</code></td>
             <td>${escapeHtml(item.product_name)}</td>
-            <td>${item.upc ? `<code>${item.upc}</code>` : '-'}</td>
+            <td>${item.upc ? `<code>${escapeHtml(item.upc)}</code>` : '-'}</td>
             <td class="money cost">${formatMoney(item.cost_cents)}</td>
             <td class="money price">${formatMoney(item.price_cents)}</td>
             <td>${formatMargin(parseFloat(item.margin_percent))}</td>
             <td>${item.matched_variation_id
-              ? `<span class="badge badge-matched">Matched (${item.match_method})</span>`
+              ? `<span class="badge badge-matched">Matched (${escapeHtml(item.match_method)})</span>`
               : '<span class="badge badge-unmatched">Unmatched</span>'}</td>
           </tr>
         `).join('');
@@ -786,8 +786,8 @@
                   ${isArchived ? '<span style="font-size: 12px; color: #9ca3af; margin-left: 8px;">(Archived)</span>' : ''}
                 </h4>
                 <p style="font-size: 13px;">
-                  Batch: <code style="font-size: 11px;">${batch.import_batch_id}</code><br>
-                  Imported: ${new Date(batch.imported_at).toLocaleString()}
+                  Batch: <code style="font-size: 11px;">${escapeHtml(batch.import_batch_id)}</code><br>
+                  Imported: ${escapeHtml(new Date(batch.imported_at).toLocaleString())}
                 </p>
               </div>
               <div class="batch-stats">
@@ -995,13 +995,13 @@
             const diffSign = p.price_diff_cents > 0 ? '+' : '';
             const variationId = p.matched_variation_id || '';
             html += `
-              <tr data-variation-id="${escapeHtml(variationId)}" data-new-price="${p.vendor_srp_cents}">
+              <tr data-variation-id="${escapeAttr(variationId)}" data-new-price="${p.vendor_srp_cents}">
                 <td style="padding: 4px 6px; text-align: center;">
                   <input type="checkbox" class="price-update-checkbox"
-                         data-variation-id="${escapeHtml(variationId)}"
+                         data-variation-id="${escapeAttr(variationId)}"
                          data-new-price="${p.vendor_srp_cents}"
-                         data-sku="${escapeHtml(p.our_sku || '')}"
-                         data-item-name="${escapeHtml(p.our_item_name || p.product_name)}"
+                         data-sku="${escapeAttr(p.our_sku || '')}"
+                         data-item-name="${escapeAttr(p.our_item_name || p.product_name)}"
                          data-change="updatePushButtonCount"
                          ${!variationId ? 'disabled title="No matched variation"' : ''}
                          style="cursor: ${variationId ? 'pointer' : 'not-allowed'};">

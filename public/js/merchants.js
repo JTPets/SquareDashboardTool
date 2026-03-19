@@ -42,37 +42,6 @@ function checkOAuthMessages() {
 }
 
 /**
- * Show toast notification
- * @param {string} message - Message to display
- * @param {string} type - Type: 'info', 'success', or 'error'
- */
-function showToast(message, type = 'info') {
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    padding: 16px 24px;
-    border-radius: 8px;
-    color: white;
-    font-weight: 500;
-    z-index: 10000;
-    animation: slideIn 0.3s ease;
-    max-width: 400px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  `;
-  toast.style.backgroundColor = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.animation = 'slideOut 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, 5000);
-}
-
-/**
  * Load merchants from API
  */
 async function loadMerchants() {
@@ -127,11 +96,11 @@ function renderMerchants() {
         <div class="merchant-name">${escapeHtml(merchant.business_name)}</div>
         <div class="merchant-id">ID: ${escapeHtml(merchant.square_merchant_id)}</div>
         <div class="merchant-status">
-          <span class="status-badge ${merchant.subscription_status}">${merchant.subscription_status}</span>
-          <span class="role-badge">${merchant.role}</span>
+          <span class="status-badge ${escapeAttr(merchant.subscription_status)}">${escapeHtml(merchant.subscription_status)}</span>
+          <span class="role-badge">${escapeHtml(merchant.role)}</span>
         </div>
         <div class="merchant-meta">
-          Last synced: ${merchant.last_sync_at ? formatDate(merchant.last_sync_at) : 'Never'}
+          Last synced: ${merchant.last_sync_at ? formatRelativeDate(merchant.last_sync_at) : 'Never'}
         </div>
       </div>
       <div class="merchant-actions">
@@ -259,7 +228,7 @@ function copyReferralLink() {
  * @param {string} dateString - ISO date string
  * @returns {string} Formatted relative time
  */
-function formatDate(dateString) {
+function formatRelativeDate(dateString) {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now - date;

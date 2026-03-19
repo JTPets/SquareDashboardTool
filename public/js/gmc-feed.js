@@ -197,26 +197,26 @@
         <tr>
           <td>
             ${p.image_link
-              ? `<img src="${p.image_link}" class="thumbnail" alt="" data-error-action="showImageError">`
+              ? `<img src="${escapeAttr(p.image_link)}" class="thumbnail" alt="" data-error-action="showImageError">`
               : '<div class="no-image">NONE</div>'}
           </td>
-          <td style="font-family: monospace; font-size: 10px;" title="${escapeHtml(p.id || '')}">${p.id ? p.id.substring(0, 10) + '...' : '-'}</td>
+          <td style="font-family: monospace; font-size: 10px;" title="${escapeAttr(p.id || '')}">${escapeHtml(p.id ? p.id.substring(0, 10) + '...' : '-')}</td>
           <td class="truncate" title="${escapeHtml(p.title || '')}">${escapeHtml(p.title || '-')}</td>
-          <td class="url-cell" title="${escapeHtml(p.link || '')}">
-            ${p.link ? `<a href="${escapeHtml(p.link)}" target="_blank">${escapeHtml(p.link.replace(/^https?:\/\/[^/]+/, '').substring(0, 30))}...</a>` : '<span class="status-warning">MISSING</span>'}
+          <td class="url-cell" title="${escapeAttr(p.link || '')}">
+            ${p.link ? `<a href="${escapeAttr(p.link)}" target="_blank">${escapeHtml(p.link.replace(/^https?:\/\/[^/]+/, '').substring(0, 30))}...</a>` : '<span class="status-warning">MISSING</span>'}
           </td>
           <td class="truncate" style="max-width: 120px;" title="${escapeHtml(p.description || '')}">${escapeHtml((p.description || '-').substring(0, 40))}${(p.description || '').length > 40 ? '...' : ''}</td>
-          <td class="${p.gtin ? '' : 'status-warning'}" style="font-family: monospace; font-size: 10px;">${p.gtin || '-'}</td>
+          <td class="${p.gtin ? '' : 'status-warning'}" style="font-family: monospace; font-size: 10px;">${escapeHtml(p.gtin || '-')}</td>
           <td class="truncate" style="max-width: 100px;">${escapeHtml(p.category || '-')}</td>
-          <td class="url-cell ${p.image_link ? '' : 'status-bad'}" title="${escapeHtml(p.image_link || '')}">
-            ${p.image_link ? `<a href="${escapeHtml(p.image_link)}" target="_blank">${escapeHtml(p.image_link.split('/').pop().substring(0, 20))}...</a>` : 'MISSING'}
+          <td class="url-cell ${p.image_link ? '' : 'status-bad'}" title="${escapeAttr(p.image_link || '')}">
+            ${p.image_link ? `<a href="${escapeAttr(p.image_link)}" target="_blank">${escapeHtml(p.image_link.split('/').pop().substring(0, 20))}...</a>` : 'MISSING'}
           </td>
           <td style="font-size: 10px;">
-            ${p.additional_image_link_1 ? `<a href="${escapeHtml(p.additional_image_link_1)}" target="_blank" title="${escapeHtml(p.additional_image_link_1)}">+1</a>` : ''}
-            ${p.additional_image_link_2 ? `<a href="${escapeHtml(p.additional_image_link_2)}" target="_blank" title="${escapeHtml(p.additional_image_link_2)}" style="margin-left:4px;">+2</a>` : ''}
+            ${p.additional_image_link_1 ? `<a href="${escapeAttr(p.additional_image_link_1)}" target="_blank" title="${escapeAttr(p.additional_image_link_1)}">+1</a>` : ''}
+            ${p.additional_image_link_2 ? `<a href="${escapeAttr(p.additional_image_link_2)}" target="_blank" title="${escapeAttr(p.additional_image_link_2)}" style="margin-left:4px;">+2</a>` : ''}
             ${!p.additional_image_link_1 && !p.additional_image_link_2 ? '-' : ''}
           </td>
-          <td>${p.condition || 'new'}</td>
+          <td>${escapeHtml(p.condition || 'new')}</td>
           <td class="${p.availability === 'in_stock' ? 'status-good' : 'status-bad'}">
             ${p.availability === 'in_stock' ? 'in_stock' : 'out_of_stock'}
           </td>
@@ -225,9 +225,9 @@
           <td class="truncate ${p.google_product_category ? '' : 'status-warning'}" style="max-width: 150px;" title="${escapeHtml(p.google_product_category || '')}">
             ${escapeHtml(p.google_product_category || 'NOT MAPPED')}
           </td>
-          <td style="white-space: nowrap;">${p.price || '-'}</td>
-          <td>${p.adult || 'no'}</td>
-          <td>${p.is_bundle || 'no'}</td>
+          <td style="white-space: nowrap;">${escapeHtml(p.price || '-')}</td>
+          <td>${escapeHtml(p.adult || 'no')}</td>
+          <td>${escapeHtml(p.is_bundle || 'no')}</td>
         </tr>
       `).join('');
 
@@ -1395,7 +1395,7 @@
       } catch (error) {
         console.error('Error loading local inventory:', error);
         document.getElementById('local-inventory-loading').innerHTML =
-          `<span style="color: #dc2626;">Error: ${error.message}</span>`;
+          `<span style="color: #dc2626;">Error: ${escapeHtml(error.message)}</span>`;
       }
     }
 

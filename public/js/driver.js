@@ -76,7 +76,7 @@ function showSuccess(result) {
 function renderRoute() {
   // Update header
   document.getElementById('merchantName').textContent = route.merchantName;
-  document.getElementById('routeTitle').textContent = `Route - ${formatDate(route.date)}`;
+  document.getElementById('routeTitle').textContent = `Route - ${formatDate(route.date, { weekday: 'short', month: 'short', day: 'numeric' })}`;
 
   // Update stats
   if (route.distanceKm || route.estimatedMinutes) {
@@ -424,11 +424,6 @@ async function finishRoute() {
   }
 }
 
-// Utility functions
-function formatDate(dateStr) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
 
 function showLoading(text) {
   text = text || 'Loading...';
@@ -440,13 +435,6 @@ function hideLoading() {
   document.getElementById('loadingOverlay').classList.remove('active');
 }
 
-function showToast(message, type) {
-  type = type || '';
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = 'toast visible ' + type;
-  setTimeout(() => { toast.classList.remove('visible'); }, 3000);
-}
 
 // Expose functions to global scope for event delegation
 window.toggleOrderItems = toggleOrderItems;

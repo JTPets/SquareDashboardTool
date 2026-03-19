@@ -474,13 +474,6 @@ async function saveBundle() {
 
 // ==================== UTILITIES ====================
 
-function showToast(message, type = '') {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.className = `toast ${type}`;
-    toast.classList.add('active');
-    setTimeout(() => toast.classList.remove('active'), 3000);
-}
 
 // Close dropdowns when clicking outside
 document.addEventListener('click', (e) => {

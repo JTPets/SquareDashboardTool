@@ -894,13 +894,13 @@ async function filterValidVariations(variationIds, accessToken, merchantId) {
                 }
             }
         } catch (error) {
-            logger.warn('Error validating variations batch, assuming all valid', {
+            // LOGIC CHANGE: fail safe instead of fail open on API error (CQ-10)
+            logger.warn('Error validating variations batch, treating as invalid', {
                 merchantId,
                 batchStart: i,
                 error: error.message
             });
-            // On error, include all to avoid data loss
-            validIds.push(...batch);
+            invalidIds.push(...batch);
         }
     }
 

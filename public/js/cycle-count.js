@@ -122,7 +122,7 @@ function renderItems() {
     .map((item, index) => {
     const imageUrl = item.image_urls && item.image_urls[0] ? item.image_urls[0] : null;
     const imageHtml = imageUrl
-      ? `<img src="${imageUrl}" class="item-image cycle-count-image" alt="Product">
+      ? `<img src="${escapeAttr(imageUrl)}" class="item-image cycle-count-image" alt="Product">
          <div class="no-image" style="display:none;">&#128230;</div>`
       : `<div class="no-image">&#128230;</div>`;
 
@@ -473,18 +473,6 @@ async function generateBatch() {
     btn.disabled = false;
     btn.textContent = '&#9889; Generate Batch';
   }
-}
-
-function showToast(message, type) {
-  type = type || '';
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add('active');
-
-  setTimeout(() => {
-    toast.classList.remove('active');
-  }, 3000);
 }
 
 function getLastCountedBadge(item) {

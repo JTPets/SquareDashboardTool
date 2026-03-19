@@ -411,13 +411,6 @@
     return '$' + (cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function showToast(message, type) {
-    var toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.className = 'toast ' + type + ' visible';
-    setTimeout(function() { toast.classList.remove('visible'); }, 3000);
-  }
-
   // ==================== EVENT DELEGATION REGISTRATION ====================
 
   PageActions.register({

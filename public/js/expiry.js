@@ -158,7 +158,7 @@ function renderTable() {
     return `<tr data-id="${safeId}">
       <td>
         ${imageUrl ?
-          `<img src="${imageUrl}" class="product-image" data-fallback="image">` :
+          `<img src="${escapeAttr(imageUrl)}" class="product-image" data-fallback="image">` :
           '<div style="width:50px;height:50px;background:#f3f4f6;border-radius:4px;"></div>'}
       </td>
       <td class="product-name">${escapeHtml(item.name || '')}</td>
@@ -167,7 +167,7 @@ function renderTable() {
       <td class="gtin gtin-col">${escapeHtml(item.gtin || 'N/A')}</td>
       <td class="price">$${((item.price_money || 0) / 100).toFixed(2)}</td>
       <td>${item.quantity || 0}</td>
-      <td>${formatDate(item.expiration_date)}</td>
+      <td>${formatExpiryDate(item.expiration_date)}</td>
       <td>
         <div class="date-input-container">
           <input type="date" value="${expiryValue}"
@@ -195,7 +195,7 @@ function renderTable() {
  * @param {string} dateStr - ISO date string
  * @returns {string} Formatted date (YYYY-MM-DD)
  */
-function formatDate(dateStr) {
+function formatExpiryDate(dateStr) {
   if (!dateStr) return 'Not set';
   // Return ISO format (YYYY-MM-DD) - Canadian standard
   return dateStr.split('T')[0];

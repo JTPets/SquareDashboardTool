@@ -275,7 +275,7 @@ function renderNeedsDescriptionTab() {
                 <div class="item-name">${escapeHtml(item.name)}</div>
             </td>
             <td>${escapeHtml(item.category_name || 'N/A')}</td>
-            <td class="text-preview">${item.variations?.map(v => v.name).join(', ') || '-'}</td>
+            <td class="text-preview">${item.variations?.map(v => escapeHtml(v.name)).join(', ') || '-'}</td>
         </tr>
     `).join('');
 

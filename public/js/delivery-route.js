@@ -523,13 +523,6 @@ function showLoading(show) {
   document.getElementById('loadingOverlay').classList.toggle('active', show);
 }
 
-function showToast(message, type) {
-  type = type || '';
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.className = 'toast visible ' + type;
-  setTimeout(() => { toast.classList.remove('visible'); }, 3000);
-}
 
 function formatTime(timestamp) {
   if (!timestamp) return '';
