@@ -508,26 +508,19 @@
       </div>
     </div>
 
-    <!-- Catalog Health Monitor (Super Admin Only) -->
+    <!-- Catalog Health Monitor Controls (Super Admin Only) -->
+    <!-- Health cards are integrated into the Audit Summary grid above -->
     <div id="catalogHealthSection" style="display: none;">
       <div style="padding: 20px; border-top: 3px solid #2563eb;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-          <h2 style="font-size: 18px; font-weight: 600; color: #111827;">Catalog Health Monitor</h2>
+          <h2 style="font-size: 18px; font-weight: 600; color: #111827;">Catalog Health Detail</h2>
           <button data-action="runHealthCheck" id="healthCheckBtn" style="background: #dc2626; color: white; border: none; padding: 8px 16px; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;">Run Health Check Now</button>
         </div>
         <div id="healthCheckResult" style="display: none; padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; margin-bottom: 15px; font-size: 13px;"></div>
 
-        <!-- Health Summary Cards -->
-        <div id="healthSummaryCards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 15px;">
-          <div class="loading" id="healthSummaryLoading">
-            <div class="spinner"></div>
-            <p>Loading health summary...</p>
-          </div>
-        </div>
-
-        <!-- Health Detail Table (lazy loaded) -->
+        <!-- Health Detail Table -->
         <div id="healthDetailPrompt" style="display: none; text-align: center; padding: 20px; color: #6b7280;">
-          <p>Click a summary card to view issue details.</p>
+          <p>Click a health card above to view issue details.</p>
         </div>
         <div class="loading" id="healthDetailLoading" style="display: none;">
           <div class="spinner"></div>
