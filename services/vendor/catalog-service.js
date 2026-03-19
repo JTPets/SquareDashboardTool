@@ -475,7 +475,7 @@ async function findOrCreateVendor(vendorName, merchantId) {
  * @param {number} merchantId - REQUIRED: Merchant ID for multi-tenant filtering
  * @returns {Promise<Object>} Match result with variation_id, method, and all matches
  */
-async function matchToOurCatalog(item, merchantId) {
+async function matchToOurCatalog(item, merchantId, vendorId = null) {
     if (!merchantId) {
         throw new Error('merchantId is required for matchToOurCatalog');
     }
@@ -504,28 +504,64 @@ async function matchToOurCatalog(item, merchantId) {
         }
     }
 
-    // Also try vendor item number match (check supplier_item_number and sku)
+    // Try vendor code match via variation_vendors (scoped to vendor to prevent cross-vendor false matches)
     if (item.vendor_item_number) {
-        const vendorSkuMatches = await db.query(`
+        const alreadyMatchedIds = allMatches.map(m => m.variation_id);
+
+        // Primary: match variation_vendors.vendor_code, filtered by vendor_id if available
+        let vendorCodeSql = `
             SELECT v.id, v.sku, v.name as variation_name, v.price_money,
                    i.name as item_name, i.id as item_id
             FROM variations v
+            JOIN variation_vendors vv ON vv.variation_id = v.id AND vv.merchant_id = $1
             LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
-            WHERE (v.supplier_item_number = $2 OR v.sku = $2)
+            WHERE vv.vendor_code = $2
                   AND v.merchant_id = $1
                   AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
                   AND v.id NOT IN (SELECT unnest($3::text[]))
-        `, [merchantId, item.vendor_item_number, allMatches.map(m => m.variation_id)]);
+        `;
+        const vendorCodeParams = [merchantId, item.vendor_item_number, alreadyMatchedIds];
+        if (vendorId) {
+            vendorCodeSql += ` AND vv.vendor_id = $4`;
+            vendorCodeParams.push(vendorId);
+        }
 
-        for (const match of vendorSkuMatches.rows) {
+        const vendorCodeMatches = await db.query(vendorCodeSql, vendorCodeParams);
+        for (const match of vendorCodeMatches.rows) {
             allMatches.push({
                 variation_id: match.id,
-                method: 'vendor_item_number',
+                method: 'vendor_code',
                 sku: match.sku,
                 variation_name: match.variation_name,
                 item_name: match.item_name,
                 our_price_cents: match.price_money
             });
+        }
+
+        // SKU fallback: only if vendor code match found nothing
+        if (vendorCodeMatches.rows.length === 0) {
+            const updatedExclusions = allMatches.map(m => m.variation_id);
+            const skuMatches = await db.query(`
+                SELECT v.id, v.sku, v.name as variation_name, v.price_money,
+                       i.name as item_name, i.id as item_id
+                FROM variations v
+                LEFT JOIN items i ON v.item_id = i.id AND i.merchant_id = $1
+                WHERE v.sku = $2
+                      AND v.merchant_id = $1
+                      AND (v.is_deleted = FALSE OR v.is_deleted IS NULL)
+                      AND v.id NOT IN (SELECT unnest($3::text[]))
+            `, [merchantId, item.vendor_item_number, updatedExclusions]);
+
+            for (const match of skuMatches.rows) {
+                allMatches.push({
+                    variation_id: match.id,
+                    method: 'vendor_item_number',
+                    sku: match.sku,
+                    variation_name: match.variation_name,
+                    item_name: match.item_name,
+                    our_price_cents: match.price_money
+                });
+            }
         }
     }
 
@@ -576,7 +612,7 @@ async function importItems(items, batchId, options = {}) {
     for (const item of items) {
         try {
             // Try to match to our catalog (with merchant filtering)
-            const match = await matchToOurCatalog(item, merchantId);
+            const match = await matchToOurCatalog(item, merchantId, vendorId);
             if (match.variation_id) {
                 stats.matched++;
 
