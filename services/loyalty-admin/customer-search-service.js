@@ -8,7 +8,6 @@
  *
  * OBSERVATION LOG (from extraction):
  * - Uses raw fetch() instead of squareClient SDK (pre-dates SDK standardization)
- * - Hardcoded Square-Version header ('2025-01-16') instead of using config/constants
  * - Phone normalization could be shared with customer-cache-service.searchCachedCustomers
  * - Name search fetches recent customers and filters client-side (no server-side filter)
  */

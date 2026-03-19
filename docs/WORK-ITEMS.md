@@ -33,9 +33,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. All product upserts failing with 409 ABORTED. Live store organic Google Shopping visibility broken. Services still use v1beta endpoints. | `services/gmc/merchant-service.js` | M | 2026-03-09 |
 | BUG-2 | Bulk-created items from vendor catalog missing tax assignments — `services/vendor/catalog-create-service.js` does not include `tax_ids` in `BatchUpsertCatalogObjects`. Items created via "Create in Square" from vendor catalog are not taxable until manually fixed in Square Dashboard. Square Dashboard auto-applies default taxes on manual creation but API does not. Priority: HIGH. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
-| BUG-3 | Catalog Health Monitor "Missing Tax" card shows 6 issues but clicking it shows no detail rows. Either the click handler is missing, the detail query filters incorrectly, or the `issue_type` string doesn't match between the summary count and detail fetch. Priority: MED. | `public/js/catalog-audit.js`, `services/catalog/audit-service.js` | S | 2026-03-18 |
+| BUG-3 | Catalog Health Monitor "Missing Tax" card shows 6 issues but clicking it shows no detail rows. Code logic verified correct — `filterHealthByType` filters the same `healthIssues` array used for summary counts. Likely a runtime issue: migration 070 may not have been applied, causing `check_type` column to be NULL for older rows. Verify by running migration 070 and re-running health check. Priority: MED. | `public/js/catalog-audit.js`, `services/catalog/catalog-health-service.js` | S | 2026-03-18 |
 | BUG-4 | Catalog Health Monitor section is disconnected from the Audit Summary at the top of the page. Health categories (location mismatch, orphaned variation, missing tax, etc.) should be integrated into the upper summary card row for a unified view. Priority: LOW. | `public/js/catalog-audit.js` | M | 2026-03-18 |
 
 ---
@@ -50,7 +49,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | CRIT-2 (audit) | ~~Subscription routes have no `merchant_id` scoping~~ **FIXED 2026-03-17** — Added `merchant_id NOT NULL` to `promo_codes`, `subscription_payments`, `subscription_events`, `subscription_plans`. Added nullable `merchant_id` to `platform_settings`. Fixed `oauth_states.merchant_id` to NOT NULL. All route queries now filter by `merchant_id`. Promo codes scoped per-tenant. Migration 074. | `routes/subscriptions.js`, `database/schema.sql`, `utils/subscription-handler.js`, `utils/schema-manager.js`, `services/webhook-handlers/subscription-handler.js`, `services/webhook-processor.js` | M | 2026-03-10 |
 | CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
 | CRIT-4 (audit) | ~~Subscription tables missing tenant isolation~~ **FIXED 2026-03-17** — Resolved as part of CRIT-2. See CRIT-2 for details. Migration 074. | `database/schema.sql` | M | 2026-02-28 |
-| CRIT-5 | 12 loyalty-admin files hardcode Square API version `'2025-01-16'` instead of using `config/constants.js` (`'2025-10-16'`). 9-month version gap. | 12 files in `services/loyalty-admin/` | S | 2026-03-10 |
+| CRIT-5 | ~~12 loyalty-admin files hardcode Square API version~~ **FIXED** — All 12 files already import `SQUARE_API_VERSION` from `shared-utils.js` which sources from `config/constants.js` (`'2025-10-16'`). Stale observation comment cleaned up. | 12 files in `services/loyalty-admin/` | S | 2026-03-10 |
 
 ---
 
@@ -131,8 +130,8 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | Effort | Discovered |
 |----|-------------|--------|------------|
-| MT-4 | GMC debug files overwrite across merchants — hardcoded `gmc-product-sync-debug.log` not merchant-scoped. | S | 2026-03-08 |
-| MT-5 | GMC feed TSV file default filename not merchant-scoped (`gmc-feed.tsv`). | S | 2026-03-08 |
+| MT-4 | ~~GMC debug files overwrite across merchants~~ **FIXED** — `gmc-product-sync-debug.log` no longer exists in any source file. Debug logging removed. | S | 2026-03-08 |
+| MT-5 | ~~GMC feed TSV file default filename not merchant-scoped~~ **FIXED** — `feed-service.js:saveTsvFile` already scopes filename per merchant (`gmc-feed-merchant-${merchantId}.tsv`). | S | 2026-03-08 |
 | MT-6 | Sync interval configuration is global, not per-merchant. | S | 2026-03-08 |
 | MT-7 | `DAILY_COUNT_TARGET` cycle count target from env var is global, not per-merchant. | S | 2026-03-08 |
 | MT-8 | Shared log files across all merchants — `app-*.log` and `error-*.log` not segregated. | S | 2026-03-08 |
@@ -221,6 +220,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | BACKLOG-12 | Driver share link validation failure. | S | 2026-01-01 |
 | BACKLOG-43 | Min/Max stock per item per location — investigate Square thresholds first. | S | 2026-02-01 |
 | BACKLOG-66 | Customer email bounce tracking for loyalty notifications. | S | 2026-03-15 |
+| BACKLOG-61 | GMC v1beta → v1 migration — Google Merchant API v1beta discontinued Feb 28 2026. Product upserts failing with 409 ABORTED. Backup script running. Services still use v1beta endpoints. | M | 2026-03-09 |
 
 ### Code TODOs in Source
 
@@ -259,11 +259,11 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | Tier | Count |
 |------|-------|
-| Active Bugs (P0) | 4 |
+| Active Bugs (P0) | 3 |
 | Critical | 5 |
 | High | 4 |
 | Medium | ~39 |
-| Low | ~26 |
+| Low | ~27 |
 | Nice to Have | 16 |
 | **Total** | **~75** |
 
