@@ -12,7 +12,8 @@
  *   5. image_orphan         — ITEM/VARIATION referencing non-existent or deleted IMAGE
  *   6. modifier_orphan      — ITEM referencing non-existent or deleted MODIFIER_LIST
  *   7. pricing_rule_orphan  — PRICING_RULE referencing non-existent objects
- *   8. missing_tax (warn)   — ITEM with no tax_ids
+ *
+ * Removed: missing_tax — redundant with catalog audit "No Tax IDs" card.
  *
  * Exports:
  *   runFullHealthCheck(merchantId)  → { checked, newIssues, resolved, existingOpen, durationMs }
@@ -352,30 +353,6 @@ function checkPricingRuleOrphans(pricingRules, items, deletedIds) {
     return issues;
 }
 
-/**
- * CHECK 8: missing_tax (severity=warn)
- * ITEM where tax_ids is null or empty — will under-charge customers
- */
-function checkMissingTax(items) {
-    const issues = [];
-
-    for (const [itemId, item] of items) {
-        const taxIds = item.item_data?.tax_ids || [];
-        if (taxIds.length === 0) {
-            issues.push({
-                check_type: 'missing_tax',
-                object_id: itemId,
-                object_type: 'ITEM',
-                parent_id: null,
-                severity: 'warn',
-                notes: 'No tax IDs assigned'
-            });
-        }
-    }
-
-    return issues;
-}
-
 // ============================================================================
 // Main orchestrator + DB persistence
 // ============================================================================
@@ -402,7 +379,7 @@ async function runFullHealthCheck(merchantId) {
     // Fetch deleted object IDs for orphan checks
     const deletedIds = await fetchDeletedObjectIds(accessToken);
 
-    // Run all 8 checks
+    // Run all 7 structural checks (missing_tax removed — covered by catalog audit)
     const allIssues = [
         ...checkLocationMismatches(catalog.items),
         ...checkOrphanedVariations(catalog.variations, catalog.items),
@@ -410,8 +387,7 @@ async function runFullHealthCheck(merchantId) {
         ...checkCategoryOrphans(catalog.items, catalog.categories, deletedIds),
         ...checkImageOrphans(catalog.items, catalog.variations, catalog.images, deletedIds),
         ...checkModifierOrphans(catalog.items, catalog.modifiers, deletedIds),
-        ...checkPricingRuleOrphans(catalog.pricingRules, catalog.items, deletedIds),
-        ...checkMissingTax(catalog.items)
+        ...checkPricingRuleOrphans(catalog.pricingRules, catalog.items, deletedIds)
     ];
 
     // Load existing open issues from DB
@@ -481,6 +457,14 @@ async function runFullHealthCheck(merchantId) {
             });
         }
     }
+
+    // Clean up legacy missing_tax rows — resolve any still open
+    await db.query(
+        `UPDATE catalog_location_health
+         SET resolved_at = NOW(), status = 'valid'
+         WHERE merchant_id = $1 AND check_type = 'missing_tax' AND status = 'mismatch' AND resolved_at IS NULL`,
+        [merchantId]
+    );
 
     const existingOpen = currentIssueKeys.size - newIssues.length;
     const durationMs = Date.now() - startTime;

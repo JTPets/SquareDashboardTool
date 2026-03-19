@@ -562,14 +562,12 @@ var CHECK_TYPE_LABELS = {
   category_orphan: 'Category Orphan',
   image_orphan: 'Image Orphan',
   modifier_orphan: 'Modifier Orphan',
-  pricing_rule_orphan: 'Pricing Rule Orphan',
-  missing_tax: 'Missing Tax'
+  pricing_rule_orphan: 'Pricing Rule Orphan'
 };
 
 // Health check types that have equivalent audit filters — clicking these
 // filters the main audit item table instead of showing the health detail table.
 var HEALTH_TO_AUDIT_MAP = {
-  missing_tax: 'no_tax_ids',
   location_mismatch: 'location_mismatch'
 };
 
@@ -657,7 +655,7 @@ function renderHealthCardsInGrid(grid) {
   // Per-type cards
   Object.keys(CHECK_TYPE_LABELS).forEach(function(checkType) {
     var count = healthByType[checkType] || 0;
-    var cardClass = count === 0 ? 'good' : (checkType === 'missing_tax' ? 'warning' : 'critical');
+    var cardClass = count === 0 ? 'good' : 'critical';
     var hasAuditEquiv = !!HEALTH_TO_AUDIT_MAP[checkType];
 
     var card = document.createElement('div');

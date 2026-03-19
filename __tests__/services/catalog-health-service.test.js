@@ -1,7 +1,7 @@
 /**
  * Tests for services/catalog/catalog-health-service.js
  *
- * Covers all 8 check types:
+ * Covers all 7 structural check types:
  *   1. location_mismatch
  *   2. orphaned_variation
  *   3. deleted_parent
@@ -9,9 +9,9 @@
  *   5. image_orphan
  *   6. modifier_orphan
  *   7. pricing_rule_orphan
- *   8. missing_tax (severity=warn)
  *
- * Also covers: merchant guard, resolution, idempotency, getHealthHistory, getOpenIssues
+ * missing_tax removed — redundant with catalog audit "No Tax IDs" card.
+ * Also covers: merchant guard, resolution, idempotency, legacy cleanup, getHealthHistory, getOpenIssues
  */
 
 let db;
@@ -492,87 +492,23 @@ describe('CHECK 7: pricing_rule_orphan', () => {
 });
 
 // ============================================================================
-// CHECK 8: missing_tax
-// ============================================================================
-describe('CHECK 8: missing_tax', () => {
-    test('detects item with no tax_ids (severity=warn)', async () => {
-        const item = buildItem('ITEM_NOTAX', {
-            item_data: {
-                tax_ids: [],
-                categories: [], image_ids: [], variations: [], modifier_list_info: []
-            }
-        });
-
-        setupSquareMocks([item]);
-        db.query.mockResolvedValueOnce({ rows: [] });
-        db.query.mockResolvedValue({ rows: [] });
-
-        const result = await runFullHealthCheck(3);
-        expect(result.newIssues).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    check_type: 'missing_tax',
-                    object_id: 'ITEM_NOTAX',
-                    severity: 'warn'
-                })
-            ])
-        );
-    });
-
-    test('detects item with null tax_ids', async () => {
-        const item = buildItem('ITEM_NULLTAX', {
-            item_data: {
-                categories: [], image_ids: [], variations: [], modifier_list_info: []
-                // tax_ids intentionally missing
-            }
-        });
-
-        setupSquareMocks([item]);
-        db.query.mockResolvedValueOnce({ rows: [] });
-        db.query.mockResolvedValue({ rows: [] });
-
-        const result = await runFullHealthCheck(3);
-        expect(result.newIssues).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({ check_type: 'missing_tax', severity: 'warn' })
-            ])
-        );
-    });
-
-    test('no issue when tax_ids present', async () => {
-        const item = buildItem('ITEM_1', {
-            item_data: {
-                tax_ids: ['TAX_1'],
-                categories: [], image_ids: [], variations: [], modifier_list_info: []
-            }
-        });
-
-        setupSquareMocks([item]);
-        db.query.mockResolvedValueOnce({ rows: [] });
-
-        const result = await runFullHealthCheck(3);
-        const taxIssues = result.newIssues.filter(i => i.check_type === 'missing_tax');
-        expect(taxIssues).toHaveLength(0);
-    });
-});
-
-// ============================================================================
 // Resolution + idempotency
 // ============================================================================
 describe('resolution and idempotency', () => {
     test('does not insert duplicate when open issue exists', async () => {
         const item = buildItem('ITEM_1', {
             item_data: {
-                tax_ids: [],
-                categories: [], image_ids: [], variations: [], modifier_list_info: []
+                categories: [{ id: 'CAT_MISSING' }],
+                image_ids: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
             }
         });
 
-        setupSquareMocks([item]);
+        setupSquareMocks([item]); // No category objects → category_orphan detected
         // Existing open issue for same check_type:object_id
         db.query.mockResolvedValueOnce({
-            rows: [{ id: 42, check_type: 'missing_tax', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+            rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
         });
+        db.query.mockResolvedValue({ rows: [] }); // legacy cleanup
 
         const result = await runFullHealthCheck(3);
         expect(result.newIssues).toHaveLength(0);
@@ -580,30 +516,46 @@ describe('resolution and idempotency', () => {
     });
 
     test('resolves previously open issue that is now clean', async () => {
+        const cat = { id: 'CAT_1', type: 'CATEGORY' };
         const item = buildItem('ITEM_1', {
             item_data: {
-                tax_ids: ['TAX_1'],
-                categories: [], image_ids: [], variations: [], modifier_list_info: []
+                categories: [{ id: 'CAT_1' }],
+                image_ids: [], variations: [], modifier_list_info: [], tax_ids: ['TAX_1']
             }
         });
 
-        setupSquareMocks([item]);
-        // Previously open missing_tax issue
+        setupSquareMocks([item, cat]); // Category exists → no category_orphan
+        // Previously open category_orphan issue
         db.query.mockResolvedValueOnce({
-            rows: [{ id: 42, check_type: 'missing_tax', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
+            rows: [{ id: 42, check_type: 'category_orphan', variation_id: 'ITEM_1', item_id: 'ITEM_1' }]
         });
-        db.query.mockResolvedValue({ rows: [] }); // UPDATE resolved_at
+        db.query.mockResolvedValue({ rows: [] }); // UPDATE resolved_at + legacy cleanup
 
         const result = await runFullHealthCheck(3);
         expect(result.resolved).toEqual(
             expect.arrayContaining([
-                expect.objectContaining({ check_type: 'missing_tax', object_id: 'ITEM_1' })
+                expect.objectContaining({ check_type: 'category_orphan', object_id: 'ITEM_1' })
             ])
         );
-        // Verify UPDATE was called
+        // Verify UPDATE was called for resolution
         expect(db.query).toHaveBeenCalledWith(
             expect.stringContaining('resolved_at = NOW()'),
             [42]
+        );
+    });
+
+    test('resolves legacy missing_tax rows on health check run', async () => {
+        const item = buildItem('ITEM_1');
+
+        setupSquareMocks([item]);
+        db.query.mockResolvedValueOnce({ rows: [] }); // open issues
+        db.query.mockResolvedValue({ rows: [] }); // legacy cleanup
+
+        await runFullHealthCheck(3);
+        // Verify the legacy cleanup query was called
+        expect(db.query).toHaveBeenCalledWith(
+            expect.stringContaining("check_type = 'missing_tax'"),
+            [3]
         );
     });
 });
@@ -653,7 +605,7 @@ describe('getHealthHistory', () => {
     test('returns all rows for merchant', async () => {
         db.query.mockResolvedValueOnce({
             rows: [
-                { id: 1, check_type: 'missing_tax', status: 'mismatch' },
+                { id: 1, check_type: 'category_orphan', status: 'mismatch' },
                 { id: 2, check_type: 'location_mismatch', status: 'valid' }
             ]
         });
