@@ -33,7 +33,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| BUG-2 | Bulk-created items from vendor catalog missing tax assignments — `services/vendor/catalog-create-service.js` does not include `tax_ids` in `BatchUpsertCatalogObjects`. Items created via "Create in Square" from vendor catalog are not taxable until manually fixed in Square Dashboard. Square Dashboard auto-applies default taxes on manual creation but API does not. Priority: HIGH. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
+| BUG-2 | ~~Bulk-created items missing tax assignments~~ **FIXED 2026-03-19** — Added `fetchMerchantTaxIds()` to query Square Catalog API for active TAX objects once per bulk operation. `tax_ids` now included in `item_data` for all `BatchUpsertCatalogObjects` calls. Graceful fallback if no taxes configured or API fails. | `services/vendor/catalog-create-service.js` | S | 2026-03-18 |
 | BUG-3 | ~~Health cards used inline `onclick` violating `script-src-attr 'none'` CSP policy~~ **FIXED 2026-03-19** — Replaced inline `onclick` in `renderHealthSummary` and `card.onclick` in `renderAuditCards` with `data-action`/`data-action-param` event delegation. | `public/js/catalog-audit.js` | S | 2026-03-18 |
 | BUG-4 | ~~Catalog Health Monitor section disconnected from Audit Summary~~ **FIXED 2026-03-19** — Health cards now render in the same audit grid with blue left border separator. "Run Health Check Now" button and detail table remain in their own section below. | `public/js/catalog-audit.js`, `public/catalog-audit.html` | M | 2026-03-18 |
 
