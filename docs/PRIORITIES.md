@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Work Items](./WORK-ITEMS.md) | [Roadmap](./ROADMAP.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md)
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-03-19
 
 ---
 
@@ -22,7 +22,6 @@
 
 | ID | Description | Source | Effort |
 |----|-------------|--------|--------|
-| CRIT-1 (audit) | Unauthenticated subscription endpoints write to `users`/`subscribers` — rate limit needed | AUDIT-2026-03-10 | S |
 | CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface | AUDIT-2026-03-10 | L |
 
 ### Reliability
