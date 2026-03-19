@@ -457,10 +457,10 @@ describe('matchToOurCatalog', () => {
         expect(result.allMatches).toHaveLength(1);
     });
 
-    it('falls back to vendor item number match', async () => {
+    it('falls back to vendor code match via variation_vendors', async () => {
         // UPC query returns empty
         db.query.mockResolvedValueOnce({ rows: [] });
-        // Vendor item number match
+        // Vendor code match via variation_vendors JOIN
         db.query.mockResolvedValueOnce({
             rows: [{
                 id: 'VAR_2',
@@ -477,7 +477,7 @@ describe('matchToOurCatalog', () => {
         );
 
         expect(result.variation_id).toBe('VAR_2');
-        expect(result.method).toBe('vendor_item_number');
+        expect(result.method).toBe('vendor_code');
     });
 
     it('returns multiple matches across methods', async () => {
@@ -488,7 +488,7 @@ describe('matchToOurCatalog', () => {
                 { id: 'VAR_2', sku: 'SKU002', variation_name: 'Small', item_name: 'Food', price_money: 1500 }
             ]
         });
-        // Vendor SKU match (excludes already matched)
+        // Vendor code match via variation_vendors (excludes already matched)
         db.query.mockResolvedValueOnce({
             rows: [
                 { id: 'VAR_3', sku: 'VIN001', variation_name: 'Medium', item_name: 'Food', price_money: 2000 }
@@ -516,6 +516,115 @@ describe('matchToOurCatalog', () => {
         expect(result.variation_id).toBeNull();
         expect(result.method).toBeNull();
         expect(result.allMatches).toHaveLength(0);
+    });
+
+    it('vendor code match via variation_vendors finds correct variation', async () => {
+        // No UPC on item — UPC block skipped
+        // Vendor code match via variation_vendors JOIN
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 'VAR_10',
+                sku: 'SKU-VC',
+                variation_name: 'Regular',
+                item_name: 'Bird Seed',
+                price_money: 3200
+            }]
+        });
+
+        const result = await catalogService.matchToOurCatalog(
+            { vendor_item_number: 'VENDOR-CODE-001' },
+            MERCHANT_ID
+        );
+
+        expect(result.variation_id).toBe('VAR_10');
+        expect(result.method).toBe('vendor_code');
+        expect(result.allMatches).toHaveLength(1);
+    });
+
+    it('vendor code match is scoped to same vendor when vendorId provided', async () => {
+        // No UPC — UPC block skipped
+        // Vendor code query returns empty (cross-vendor code filtered out by vendor_id)
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // SKU fallback also empty
+        // (uses default mock)
+
+        await catalogService.matchToOurCatalog(
+            { vendor_item_number: 'SHARED-CODE' },
+            MERCHANT_ID,
+            'VENDOR_A'
+        );
+
+        // Vendor code query (first call) params must include VENDOR_A as 4th param
+        const vendorCodeQueryParams = db.query.mock.calls[0][1];
+        expect(vendorCodeQueryParams).toHaveLength(4);
+        expect(vendorCodeQueryParams[3]).toBe('VENDOR_A');
+    });
+
+    it('does not filter by vendor_id in vendor code query when vendorId not provided', async () => {
+        // No UPC — UPC block skipped
+        // Vendor code query returns a match (no vendor_id restriction)
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'VAR_20', sku: 'S', variation_name: 'V', item_name: 'I', price_money: 100 }]
+        });
+
+        const result = await catalogService.matchToOurCatalog(
+            { vendor_item_number: 'SHARED-CODE' },
+            MERCHANT_ID
+            // no vendorId
+        );
+
+        expect(result.variation_id).toBe('VAR_20');
+        // Vendor code query params should have exactly 3 (no vendor_id filter)
+        const vendorCodeQueryParams = db.query.mock.calls[0][1];
+        expect(vendorCodeQueryParams).toHaveLength(3);
+    });
+
+    it('SKU fallback still works when no vendor code match found', async () => {
+        // No UPC — UPC block skipped
+        // Vendor code match: empty
+        db.query.mockResolvedValueOnce({ rows: [] });
+        // SKU fallback: match found
+        db.query.mockResolvedValueOnce({
+            rows: [{
+                id: 'VAR_30',
+                sku: 'SKU-FB',
+                variation_name: 'Default',
+                item_name: 'Fish Food',
+                price_money: 1800
+            }]
+        });
+
+        const result = await catalogService.matchToOurCatalog(
+            { vendor_item_number: 'SKU-FB' },
+            MERCHANT_ID
+        );
+
+        expect(result.variation_id).toBe('VAR_30');
+        expect(result.method).toBe('vendor_item_number');
+    });
+
+    it('UPC match still takes priority over vendor code match', async () => {
+        // UPC match found first
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'VAR_UPC', sku: 'SKU-U', variation_name: 'UPC-matched', item_name: 'Dog Chews', price_money: 999 }]
+        });
+        // Vendor code also finds a different match
+        db.query.mockResolvedValueOnce({
+            rows: [{ id: 'VAR_VC', sku: 'SKU-V', variation_name: 'VC-matched', item_name: 'Dog Chews', price_money: 999 }]
+        });
+
+        const result = await catalogService.matchToOurCatalog(
+            { upc: '012345678901', vendor_item_number: 'VENDOR-001' },
+            MERCHANT_ID
+        );
+
+        // UPC match is primary (first in allMatches)
+        expect(result.variation_id).toBe('VAR_UPC');
+        expect(result.method).toBe('upc');
+        // Both matches are present
+        expect(result.allMatches).toHaveLength(2);
+        expect(result.allMatches[0].method).toBe('upc');
+        expect(result.allMatches[1].method).toBe('vendor_code');
     });
 });
 

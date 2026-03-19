@@ -173,6 +173,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | CQ-4 | ~~`updateDiscountAppliesTo` dead function~~ **FIXED 2026-03-17** — Removed function and export (0 callers). | `services/expiry/discount-service.js` | S | 2026-03-10 |
 | BACKLOG-72 | ~~3 dead customer lookup wrappers~~ **FIXED 2026-03-17** — Removed `lookupCustomerFromLoyalty`, `lookupCustomerFromFulfillmentRecipient`, `lookupCustomerFromOrderRewards` (0 callers). | `customer-admin-service.js`, `loyalty-admin/index.js` | S | 2026-03-15 |
 | Dead | ~~`'EXPIRED'` unreachable in `includes()`~~ **FIXED 2026-03-17** — Removed from array. | `services/expiry/discount-service.js` | S | 2026-03-15 |
+| BACKLOG-89 | Remove `supplier_item_number` from `variations` table — column has 0 populated rows across all merchants. Vendor codes are stored in `variation_vendors.vendor_code`. Two remaining references: (1) `services/reports/loyalty-reports.js` lines 181, 540 use `COALESCE` fallback — update to use only `variation_vendors.vendor_code`. (2) `services/catalog/variation-service.js` line 26 field allowlist — remove from permitted fields. After references removed, drop column via migration. | `loyalty-reports.js`, `variation-service.js`, new migration | S | 2026-03-19 |
 
 ### Logging
 
