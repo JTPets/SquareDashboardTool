@@ -8,6 +8,16 @@
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
+### Purge Log — 2026-03-20 Validation (BUG-5, BUG-6, timestamp/type fixes)
+
+**BUG-5 FIXED** — Fresh install detection removed from `scripts/migrate.js`. The incorrect "tables exist + no schema_migrations = fresh install → skip all migrations" branch was eliminated. New logic: create `schema_migrations` if absent, then run all pending migrations. A fresh install runs `001_fix_remaining_timestamps.sql`; production re-runs nothing (already applied).
+
+**BUG-6 FIXED** — DB pool hang after migration runner exit. All early-exit paths in `scripts/migrate.js` now call `db.close()` before `process.exit()`, matching the pattern used by `validate-schema.js`.
+
+**validate-schema.js** — `typeCompatible` updated: `time` and `time without time zone` treated as equivalent types (same pattern as the TIMESTAMP/TIMESTAMPTZ fix).
+
+**migration 001** — `database/migrations/001_fix_remaining_timestamps.sql`: `delivery_route_tokens` CREATE TABLE + TIMESTAMP→TIMESTAMPTZ conversions for 10 columns across 5 tables.
+
 ### Purge Log — 2026-03-20 Validation (T-5)
 
 **T-5 FIXED** — Migration runner + schema integrity + install verification:

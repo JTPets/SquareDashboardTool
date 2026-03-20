@@ -136,4 +136,10 @@ describe('typeCompatible', () => {
         expect(typeCompatible('text[]', 'array')).toBe(true);
         expect(typeCompatible('varchar[]', 'array')).toBe(true);
     });
+
+    test('time and time without time zone are equivalent', () => {
+        expect(typeCompatible('time', 'time without time zone')).toBe(true);
+        expect(typeCompatible('time without time zone', 'time')).toBe(true);
+        expect(typeCompatible('time with time zone', 'timetz')).toBe(true);
+    });
 });
