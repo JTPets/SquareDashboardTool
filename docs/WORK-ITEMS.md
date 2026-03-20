@@ -3,10 +3,18 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-20
-**Total Open Items**: ~44
+**Total Open Items**: ~41
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-20 Validation (BACKLOG-89, DB-5, Google tokens)
+
+**BACKLOG-89 FIXED** — Removed dead `supplier_item_number` column from `variations` table. Two SQL COALESCE fallbacks in `loyalty-reports.js` updated to use `vv.vendor_code` directly. Field removed from `variation-service.js` allowlist, `schema.sql`, and `schema-manager.js`. Migration `002_drop_supplier_item_number.sql` drops the column.
+
+**DB-5 NOT DEAD** — `subscription_plans.square_plan_id` is actively used in `routes/subscriptions.js` (4 refs) and `utils/square-subscriptions.js` (7 refs). Column is live. Marked as investigated, no action needed.
+
+**Google tokens FIXED** — `utils/google-auth.js:loadTokens()` now force-rotates plaintext tokens to encrypted on read (fire-and-forget UPDATE) instead of waiting for next refresh cycle. Eliminates plaintext persistence window.
 
 ### Purge Log — 2026-03-20 Validation (O-4, Velocity, totalSynced, Velocity refund, OAuth /connect, Vendor log, 3 LOW bugs)
 
@@ -193,7 +201,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| BACKLOG-89 | Remove `supplier_item_number` from `variations` table — column has 0 populated rows across all merchants. Vendor codes are stored in `variation_vendors.vendor_code`. Two remaining references: (1) `services/reports/loyalty-reports.js` lines 181, 540 use `COALESCE` fallback — update to use only `variation_vendors.vendor_code`. (2) `services/catalog/variation-service.js` line 26 field allowlist — remove from permitted fields. After references removed, drop column via migration. | `loyalty-reports.js`, `variation-service.js`, new migration | S | 2026-03-19 |
+| ~~BACKLOG-89~~ | ~~FIXED 2026-03-20~~ — `supplier_item_number` removed from schema, reports, allowlist. Migration `002_drop_supplier_item_number.sql` drops column. | `loyalty-reports.js`, `variation-service.js`, migration | S | 2026-03-19 |
 
 ### Code Quality
 
@@ -201,7 +209,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|---------|--------|------------|
 | ~~Velocity~~ | ~~FIXED 2026-03-20~~ — `return_amounts` replaced with correct `total_money` field. | `square-velocity.js` | S | 2026-03-15 |
 | Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
-| Google | Legacy plaintext Google OAuth tokens persist until refresh — migration guard in place, new tokens encrypted. JTPets only. | `utils/google-auth.js:275` | S | 2026-03-15 |
+| ~~Google~~ | ~~FIXED 2026-03-20~~ — `loadTokens()` now force-rotates plaintext tokens to encrypted on read (fire-and-forget). | `utils/google-auth.js` | S | 2026-03-15 |
 
 ### Architecture
 

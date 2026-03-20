@@ -111,6 +111,7 @@ describe('Google OAuth Token Encryption (SEC-6)', () => {
         });
 
         test('handles legacy plaintext tokens (backward compatibility)', async () => {
+            // loadTokens SELECT + fire-and-forget UPDATE for rotation
             db.query.mockResolvedValueOnce({
                 rows: [{
                     access_token: 'ya29.legacy-plaintext-token',
@@ -120,9 +121,53 @@ describe('Google OAuth Token Encryption (SEC-6)', () => {
                     scope: 'content',
                 }],
             });
+            db.query.mockResolvedValueOnce({ rows: [] }); // rotation UPDATE
 
             const result = await googleAuth.isAuthenticated(42);
             expect(result).toBe(true);
+        });
+
+        test('force-rotates plaintext tokens to encrypted on read', async () => {
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    access_token: 'ya29.plaintext-access',
+                    refresh_token: '1//plaintext-refresh',
+                    token_type: 'Bearer',
+                    expiry_date: '1709510400000',
+                    scope: 'content',
+                }],
+            });
+            db.query.mockResolvedValueOnce({ rows: [] }); // rotation UPDATE
+
+            await googleAuth.isAuthenticated(42);
+
+            // Should have fired an UPDATE to re-encrypt
+            const updateCall = db.query.mock.calls[1];
+            expect(updateCall[0]).toContain('UPDATE google_oauth_tokens');
+            // Params: [merchantId, encryptedAccess, encryptedRefresh]
+            expect(updateCall[1][0]).toBe(42);
+            expect(isEncryptedToken(updateCall[1][1])).toBe(true);
+            expect(isEncryptedToken(updateCall[1][2])).toBe(true);
+        });
+
+        test('does not fire rotation UPDATE for already-encrypted tokens', async () => {
+            const encryptedAccess = encryptToken('ya29.already-encrypted');
+            const encryptedRefresh = encryptToken('1//already-encrypted');
+
+            db.query.mockResolvedValueOnce({
+                rows: [{
+                    access_token: encryptedAccess,
+                    refresh_token: encryptedRefresh,
+                    token_type: 'Bearer',
+                    expiry_date: '1709510400000',
+                    scope: 'content',
+                }],
+            });
+
+            await googleAuth.isAuthenticated(42);
+
+            // Only 1 query (SELECT), no UPDATE
+            expect(db.query).toHaveBeenCalledTimes(1);
         });
 
         test('returns false for non-existent merchant', async () => {

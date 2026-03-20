@@ -275,12 +275,39 @@ async function loadTokens(merchantId) {
     // Decrypt tokens (SEC-6) — handle both encrypted and legacy plaintext tokens
     let accessToken = row.access_token;
     let refreshToken = row.refresh_token;
+    let needsRotation = false;
 
     if (accessToken && isEncryptedToken(accessToken)) {
         accessToken = decryptToken(accessToken);
+    } else if (accessToken) {
+        // LOGIC CHANGE: force-rotate plaintext tokens to encrypted on read
+        // instead of waiting for next refresh cycle. Eliminates plaintext window.
+        needsRotation = true;
     }
+
     if (refreshToken && isEncryptedToken(refreshToken)) {
         refreshToken = decryptToken(refreshToken);
+    } else if (refreshToken) {
+        needsRotation = true;
+    }
+
+    // Fire-and-forget re-encryption of plaintext tokens
+    if (needsRotation) {
+        const encryptedAccess = accessToken ? encryptToken(accessToken) : null;
+        const encryptedRefresh = refreshToken ? encryptToken(refreshToken) : null;
+        db.query(
+            `UPDATE google_oauth_tokens
+             SET access_token = COALESCE($2, access_token),
+                 refresh_token = COALESCE($3, refresh_token),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE merchant_id = $1`,
+            [merchantId, encryptedAccess, encryptedRefresh]
+        ).catch(err => {
+            logger.warn('Failed to force-rotate plaintext Google tokens', {
+                merchantId, error: err.message
+            });
+        });
+        logger.info('Force-rotated plaintext Google OAuth tokens to encrypted', { merchantId });
     }
 
     return {

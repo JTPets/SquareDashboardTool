@@ -302,7 +302,7 @@ CREATE TABLE variations (
     discontinued BOOLEAN DEFAULT FALSE,
     discontinue_date DATE,
     replacement_variation_id TEXT,
-    supplier_item_number TEXT,
+    -- LOGIC CHANGE: supplier_item_number removed (BACKLOG-89) — vendor codes stored in variation_vendors.vendor_code
     last_cost_cents INTEGER,
     last_cost_date DATE,
     notes TEXT,
