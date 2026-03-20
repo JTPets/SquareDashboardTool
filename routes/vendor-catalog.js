@@ -39,6 +39,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/vendor-catalog');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/vendors
@@ -58,7 +59,7 @@ router.get('/vendors', requireAuth, requireMerchant, validators.getVendors, asyn
     query += ' ORDER BY name';
 
     const result = await db.query(query, params);
-    res.json({
+    sendSuccess(res, {
         count: result.rows.length,
         vendors: result.rows
     });
@@ -71,7 +72,7 @@ router.get('/vendors', requireAuth, requireMerchant, validators.getVendors, asyn
 router.get('/vendor-dashboard', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const result = await vendorDashboard.getVendorDashboard(merchantId);
-    res.json({ vendors: result.vendors, global_oos_count: result.global_oos_count });
+    sendSuccess(res, { vendors: result.vendors, global_oos_count: result.global_oos_count });
 }));
 
 /**
@@ -85,13 +86,10 @@ router.patch('/vendors/:id/settings', requireAuth, requireMerchant, validators.u
     const updated = await vendorDashboard.updateVendorSettings(vendorId, merchantId, req.body);
 
     if (!updated) {
-        return res.status(404).json({
-            success: false,
-            error: 'Vendor not found or does not belong to this merchant'
-        });
+        return sendError(res, 'Vendor not found or does not belong to this merchant', 404);
     }
 
-    res.json({ success: true, vendor: updated });
+    sendSuccess(res, { vendor: updated });
 }));
 
 /**
@@ -104,10 +102,7 @@ router.post('/vendor-catalog/import', requireAuth, requireMerchant, validators.i
     const merchantId = req.merchantContext.id;
 
     if (!data) {
-        return res.status(400).json({
-            error: 'Missing file data',
-            message: 'Please provide file data in the request body'
-        });
+        return sendError(res, 'Missing file data', 400);
     }
 
     // Determine file type from fileName if not explicitly provided
@@ -138,8 +133,7 @@ router.post('/vendor-catalog/import', requireAuth, requireMerchant, validators.i
     });
 
     if (result.success) {
-        res.json({
-            success: true,
+        sendSuccess(res, {
             message: `Imported ${result.stats.imported} items from vendor catalog`,
             batchId: result.batchId,
             stats: result.stats,
@@ -148,12 +142,7 @@ router.post('/vendor-catalog/import', requireAuth, requireMerchant, validators.i
             duration: result.duration
         });
     } else {
-        res.status(400).json({
-            success: false,
-            error: result.error,
-            batchId: result.batchId,
-            validationErrors: result.validationErrors
-        });
+        sendError(res, result.error, 400);
     }
 }));
 
@@ -165,10 +154,7 @@ router.post('/vendor-catalog/preview', requireAuth, requireMerchant, validators.
     const { data, fileType, fileName } = req.body;
 
     if (!data) {
-        return res.status(400).json({
-            error: 'Missing file data',
-            message: 'Please provide file data in the request body'
-        });
+        return sendError(res, 'Missing file data', 400);
     }
 
     // Determine file type
@@ -204,8 +190,7 @@ router.post('/vendor-catalog/preview', requireAuth, requireMerchant, validators.
         sampleValues[c.originalHeader] = c.sampleValues;
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         totalRows: preview.totalRows,
         columns,
         autoMappings,
@@ -227,17 +212,11 @@ router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, valid
     const merchantId = req.merchantContext.id;
 
     if (!data) {
-        return res.status(400).json({
-            error: 'Missing file data',
-            message: 'Please provide file data in the request body'
-        });
+        return sendError(res, 'Missing file data', 400);
     }
 
     if (!vendorId) {
-        return res.status(400).json({
-            error: 'Missing vendor',
-            message: 'Please select a vendor for this import'
-        });
+        return sendError(res, 'Missing vendor', 400);
     }
 
     // Determine file type
@@ -270,8 +249,7 @@ router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, valid
     });
 
     if (result.success) {
-        res.json({
-            success: true,
+        sendSuccess(res, {
             message: `Imported ${result.stats.imported} items from vendor catalog`,
             batchId: result.batchId,
             stats: result.stats,
@@ -282,13 +260,7 @@ router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, valid
             vendorName: result.vendorName
         });
     } else {
-        res.status(400).json({
-            success: false,
-            error: result.error,
-            batchId: result.batchId,
-            validationErrors: result.validationErrors,
-            fieldMap: result.fieldMap
-        });
+        sendError(res, result.error, 400);
     }
 }));
 
@@ -297,7 +269,7 @@ router.post('/vendor-catalog/import-mapped', requireAuth, requireMerchant, valid
  * Get supported field types for column mapping
  */
 router.get('/vendor-catalog/field-types', requireAuth, (req, res) => {
-    res.json({ fieldTypes: vendorCatalog.FIELD_TYPES });
+    sendSuccess(res, { fieldTypes: vendorCatalog.FIELD_TYPES });
 });
 
 /**
@@ -319,7 +291,7 @@ router.get('/vendor-catalog', requireAuth, requireMerchant, validators.searchCat
         merchantId
     });
 
-    res.json({
+    sendSuccess(res, {
         count: items.length,
         items
     });
@@ -334,7 +306,7 @@ router.get('/vendor-catalog/lookup/:upc', requireAuth, requireMerchant, validato
     const merchantId = req.merchantContext.id;
 
     if (!upc) {
-        return res.status(400).json({ error: 'UPC is required' });
+        return sendError(res, 'UPC is required', 400);
     }
 
     const items = await vendorCatalog.lookupByUPC(upc, merchantId);
@@ -355,7 +327,7 @@ router.get('/vendor-catalog/lookup/:upc', requireAuth, requireMerchant, validato
         LIMIT 1
     `, [upc, merchantId]);
 
-    res.json({
+    sendSuccess(res, {
         upc,
         vendorItems: items,
         ourCatalogItem: ourItem.rows[0] || null
@@ -374,7 +346,7 @@ router.get('/vendor-catalog/batches', requireAuth, requireMerchant, validators.g
         includeArchived: include_archived === 'true',
         merchantId
     });
-    res.json({
+    sendSuccess(res, {
         count: batches.length,
         batches
     });
@@ -389,12 +361,11 @@ router.post('/vendor-catalog/batches/:batchId/archive', requireAuth, requireMerc
     const merchantId = req.merchantContext.id;
 
     if (!batchId) {
-        return res.status(400).json({ error: 'Batch ID is required' });
+        return sendError(res, 'Batch ID is required', 400);
     }
 
     const archivedCount = await vendorCatalog.archiveImportBatch(batchId, merchantId);
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: `Archived ${archivedCount} items from batch ${batchId}`,
         archivedCount
     });
@@ -409,12 +380,11 @@ router.post('/vendor-catalog/batches/:batchId/unarchive', requireAuth, requireMe
     const merchantId = req.merchantContext.id;
 
     if (!batchId) {
-        return res.status(400).json({ error: 'Batch ID is required' });
+        return sendError(res, 'Batch ID is required', 400);
     }
 
     const unarchivedCount = await vendorCatalog.unarchiveImportBatch(batchId, merchantId);
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: `Unarchived ${unarchivedCount} items from batch ${batchId}`,
         unarchivedCount
     });
@@ -429,12 +399,11 @@ router.delete('/vendor-catalog/batches/:batchId', requireAuth, requireMerchant, 
     const merchantId = req.merchantContext.id;
 
     if (!batchId) {
-        return res.status(400).json({ error: 'Batch ID is required' });
+        return sendError(res, 'Batch ID is required', 400);
     }
 
     const deletedCount = await vendorCatalog.deleteImportBatch(batchId, merchantId);
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: `Permanently deleted ${deletedCount} items from batch ${batchId}`,
         deletedCount
     });
@@ -450,16 +419,16 @@ router.get('/vendor-catalog/batches/:batchId/report', requireAuth, requireMercha
     const merchantId = req.merchantContext.id;
 
     if (!batchId) {
-        return res.status(400).json({ success: false, error: 'Batch ID is required' });
+        return sendError(res, 'Batch ID is required', 400);
     }
 
     const report = await vendorCatalog.regeneratePriceReport(batchId, merchantId);
 
     if (!report.success) {
-        return res.status(404).json(report);
+        return sendError(res, report.error || 'Report generation failed', 404);
     }
 
-    res.json(report);
+    sendSuccess(res, report);
 }));
 
 /**
@@ -469,7 +438,7 @@ router.get('/vendor-catalog/batches/:batchId/report', requireAuth, requireMercha
 router.get('/vendor-catalog/stats', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const stats = await vendorCatalog.getStats(merchantId);
-    res.json(stats);
+    sendSuccess(res, stats);
 }));
 
 /**
@@ -482,25 +451,16 @@ router.post('/vendor-catalog/push-price-changes', requireAuth, requireMerchant, 
     const merchantId = req.merchantContext.id;
 
     if (!priceChanges || !Array.isArray(priceChanges) || priceChanges.length === 0) {
-        return res.status(400).json({
-            success: false,
-            error: 'priceChanges array is required and must not be empty'
-        });
+        return sendError(res, 'priceChanges array is required and must not be empty', 400);
     }
 
     // Validate each price change
     for (const change of priceChanges) {
         if (!change.variationId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Each price change must have a variationId'
-            });
+            return sendError(res, 'Each price change must have a variationId', 400);
         }
         if (typeof change.newPriceCents !== 'number' || change.newPriceCents < 0) {
-            return res.status(400).json({
-                success: false,
-                error: `Invalid newPriceCents for variation ${change.variationId}`
-            });
+            return sendError(res, `Invalid newPriceCents for variation ${change.variationId}`, 400);
         }
     }
 
@@ -513,18 +473,14 @@ router.post('/vendor-catalog/push-price-changes', requireAuth, requireMerchant, 
     );
 
     if (verifyResult.rows.length !== variationIds.length) {
-        return res.status(403).json({
-            success: false,
-            error: 'One or more variations do not belong to this merchant'
-        });
+        return sendError(res, 'One or more variations do not belong to this merchant', 403);
     }
 
     logger.info('Pushing price changes to Square', { count: priceChanges.length, merchantId });
 
     const result = await squareApi.batchUpdateVariationPrices(priceChanges, merchantId);
 
-    res.json({
-        success: result.success,
+    sendSuccess(res, {
         updated: result.updated,
         failed: result.failed,
         errors: result.errors,
@@ -547,7 +503,7 @@ router.post('/vendor-catalog/create-items', requireAuth, requireMerchant, valida
     const { bulkCreateSquareItems } = require('../services/vendor/catalog-create-service');
     const result = await bulkCreateSquareItems(vendorCatalogIds, merchantId);
 
-    res.json({
+    sendSuccess(res, {
         created: result.created,
         failed: result.failed,
         errors: result.errors

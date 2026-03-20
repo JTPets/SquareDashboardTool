@@ -25,6 +25,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/sync');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess } = require('../utils/response-helper');
 const { reconcileBundleComponents } = require('../services/webhook-handlers/catalog-handler');
 const { getActiveLocationCount } = require('../services/catalog/location-service');
 
@@ -425,7 +426,7 @@ router.post('/sync', requireAuth, requireMerchant, validators.sync, asyncHandler
         gmcFeedResult = { error: gmcError.message };
     }
 
-    res.json({
+    sendSuccess(res, {
         status: summary.success ? 'success' : 'partial',
         summary: {
             locations: summary.locations,
@@ -460,7 +461,7 @@ router.post('/sync-sales', requireAuth, requireMerchant, validators.syncSales, a
     // Use optimized function that fetches orders once for all periods
     const results = await squareApi.syncSalesVelocityAllPeriods(merchantId);
 
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         periods: [91, 182, 365],
         variations_updated: results,
@@ -477,7 +478,7 @@ router.post('/sync-smart', requireAuth, requireMerchant, validators.syncSmart, a
     const merchantId = req.merchantContext.id;
     logger.info('Smart sync requested', { merchantId });
     const result = await runSmartSync({ merchantId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -504,7 +505,7 @@ router.get('/sync-history', requireAuth, requireMerchant, validators.syncHistory
         LIMIT $2
     `, [merchantId, limit]);
 
-    res.json({
+    sendSuccess(res, {
         count: result.rows.length,
         history: result.rows
     });
@@ -515,7 +516,7 @@ router.get('/sync-history', requireAuth, requireMerchant, validators.syncHistory
  * Get configured sync intervals (read-only, from env vars)
  */
 router.get('/sync-intervals', requireAuth, validators.syncIntervals, asyncHandler(async (req, res) => {
-    res.json({
+    sendSuccess(res, {
         intervals: {
             catalog: parseInt(process.env.SYNC_CATALOG_INTERVAL_HOURS || '3'),
             locations: parseInt(process.env.SYNC_LOCATIONS_INTERVAL_HOURS || '3'),
@@ -576,7 +577,7 @@ router.get('/sync-status', requireAuth, requireMerchant, validators.syncStatus, 
         }
     }
 
-    res.json(status);
+    sendSuccess(res, status);
 }));
 
 module.exports = router;

@@ -19,6 +19,7 @@ const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
 const { getCustomerOfferProgress, searchCustomers } = require('../../services/loyalty-admin');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/customer/:customerId
@@ -31,13 +32,13 @@ router.get('/customer/:customerId', requireAuth, requireMerchant, validators.get
     const customerDetails = await loyaltyService.getCustomerDetails(customerId, merchantId);
 
     if (!customerDetails) {
-        return res.status(404).json({ error: 'Customer not found' });
+        return sendError(res, 'Customer not found', 404);
     }
 
     // Also get their loyalty status
     const loyaltyStatus = await loyaltyService.getCustomerLoyaltyStatus(customerId, merchantId);
 
-    res.json({
+    sendSuccess(res, {
         customer: customerDetails,
         loyalty: loyaltyStatus
     });
@@ -61,7 +62,7 @@ router.get('/customer/:customerId/profile', requireAuth, requireMerchant, valida
         merchantId
     });
 
-    res.json({
+    sendSuccess(res, {
         customer: customerDetails,
         offers: profile.offers
     });
@@ -81,7 +82,7 @@ router.get('/customer/:customerId/history', requireAuth, requireMerchant, valida
         { limit: parseInt(limit) || 50, offerId }
     );
 
-    res.json(history);
+    sendSuccess(res, history);
 }));
 
 /**
@@ -91,7 +92,7 @@ router.get('/customer/:customerId/history', requireAuth, requireMerchant, valida
 router.get('/customer/:customerId/rewards', requireAuth, requireMerchant, validators.getCustomer, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const rewards = await loyaltyService.getCustomerEarnedRewards(req.params.customerId, merchantId);
-    res.json({ rewards });
+    sendSuccess(res, { rewards });
 }));
 
 /**
@@ -116,7 +117,7 @@ router.get('/customer/:customerId/audit-history', requireAuth, requireMerchant, 
             startMonthsAgo,
             endMonthsAgo
         });
-        res.json(result);
+        sendSuccess(res, result);
     } else {
         // Backward compat: convert days to periodDays
         const days = parseInt(req.query.days) || 91;
@@ -125,7 +126,7 @@ router.get('/customer/:customerId/audit-history', requireAuth, requireMerchant, 
             merchantId,
             periodDays: days
         });
-        res.json(result);
+        sendSuccess(res, result);
     }
 }));
 
@@ -144,10 +145,7 @@ router.post('/customer/:customerId/add-orders', requireAuth, requireMerchant, re
         orderIds
     });
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -160,7 +158,7 @@ router.get('/customers/search', requireAuth, requireMerchant, validators.searchC
     const query = req.query.q?.trim();
 
     const result = await searchCustomers(query, merchantId);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

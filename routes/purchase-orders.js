@@ -35,6 +35,7 @@ const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM }
 const validators = require('../middleware/validators/purchase-orders');
 const { clearExpiryDiscountForReorder, applyDiscounts } = require('../services/expiry/discount-service');
 const { getLocationById } = require('../services/catalog/location-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * POST /api/purchase-orders
@@ -47,9 +48,7 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
         // Filter out any items with zero or negative quantity
         const validItems = items.filter(item => item.quantity_ordered > 0);
         if (validItems.length === 0) {
-            return res.status(400).json({
-                error: 'No items with valid quantities. All items have zero or negative quantity.'
-            });
+            return sendError(res, 'No items with valid quantities. All items have zero or negative quantity.', 400);
         }
 
         // Security: Pre-validate vendor_id belongs to this merchant
@@ -58,13 +57,13 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             [vendor_id, merchantId]
         );
         if (vendorCheck.rows.length === 0) {
-            return res.status(403).json({ error: 'Invalid vendor or vendor does not belong to this merchant' });
+            return sendError(res, 'Invalid vendor or vendor does not belong to this merchant', 403);
         }
 
         // LOGIC CHANGE: using shared location-service (BACKLOG-25)
         const location = await getLocationById(merchantId, location_id);
         if (!location) {
-            return res.status(403).json({ error: 'Invalid location or location does not belong to this merchant' });
+            return sendError(res, 'Invalid location or location does not belong to this merchant', 403);
         }
 
         // Generate PO number: PO-YYYYMMDD-XXX
@@ -198,13 +197,12 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
         }
     }
 
-    res.status(201).json({
-        success: true,
+    sendSuccess(res, {
         data: {
             purchase_order: po,
             expiry_discounts_cleared: clearedExpiryItems
         }
-    });
+    }, 201);
 }));
 
 /**
@@ -241,7 +239,7 @@ router.get('/', requireAuth, requireMerchant, validators.listPurchaseOrders, asy
         query += ' GROUP BY po.id, v.name, l.name ORDER BY po.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({
+    sendSuccess(res, {
         count: result.rows.length,
         purchase_orders: result.rows
     });
@@ -269,7 +267,7 @@ router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, as
         `, [id, merchantId]);
 
         if (poResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         const po = poResult.rows[0];
@@ -293,7 +291,7 @@ router.get('/:id', requireAuth, requireMerchant, validators.getPurchaseOrder, as
 
     po.items = itemsResult.rows;
 
-    res.json(po);
+    sendSuccess(res, po);
 }));
 
 /**
@@ -312,13 +310,11 @@ router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrde
         );
 
         if (statusCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         if (statusCheck.rows[0].status !== 'DRAFT') {
-            return res.status(400).json({
-                error: 'Only draft purchase orders can be updated'
-            });
+            return sendError(res, 'Only draft purchase orders can be updated', 400);
         }
 
         await db.transaction(async (client) => {
@@ -381,7 +377,7 @@ router.patch('/:id', requireAuth, requireMerchant, validators.updatePurchaseOrde
 
     // Return updated PO
     const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         purchase_order: result.rows[0]
     });
@@ -409,12 +405,10 @@ router.post('/:id/submit', requireAuth, requireMerchant, validators.submitPurcha
         `, [id, merchantId]);
 
         if (result.rows.length === 0) {
-            return res.status(400).json({
-                error: 'Purchase order not found or not in DRAFT status'
-            });
+            return sendError(res, 'Purchase order not found or not in DRAFT status', 400);
         }
 
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         purchase_order: result.rows[0]
     });
@@ -435,7 +429,7 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
             [id, merchantId]
         );
         if (poCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         await db.transaction(async (client) => {
@@ -517,7 +511,7 @@ router.post('/:id/receive', requireAuth, requireMerchant, validators.receivePurc
 
     // Return updated PO
     const result = await db.query('SELECT * FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         purchase_order: result.rows[0]
     });
@@ -538,22 +532,19 @@ router.delete('/:id', requireAuth, requireMerchant, validators.deletePurchaseOrd
         );
 
         if (poCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         const po = poCheck.rows[0];
 
         if (po.status !== 'DRAFT') {
-            return res.status(400).json({
-                error: 'Only draft purchase orders can be deleted',
-                message: `Cannot delete ${po.status} purchase order. Only DRAFT orders can be deleted.`
-            });
+            return sendError(res, `Only draft purchase orders can be deleted. Cannot delete ${po.status} purchase order.`, 400);
         }
 
         // Delete PO (items will be cascade deleted)
         await db.query('DELETE FROM purchase_orders WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
 
-    res.json({
+    sendSuccess(res, {
         status: 'success',
         message: `Purchase order ${po.po_number} deleted successfully`
     });
@@ -582,7 +573,7 @@ router.get('/:po_number/export-csv', requireAuth, requireMerchant, validators.ex
         `, [po_number, merchantId]);
 
         if (poResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         const po = poResult.rows[0];
@@ -716,7 +707,7 @@ router.get('/:po_number/export-xlsx', requireAuth, requireMerchant, validators.e
         `, [po_number, merchantId]);
 
         if (poResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Purchase order not found' });
+            return sendError(res, 'Purchase order not found', 404);
         }
 
         const po = poResult.rows[0];

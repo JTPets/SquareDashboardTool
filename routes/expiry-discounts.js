@@ -35,6 +35,7 @@ const { requireAuth, requireWriteAccess } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/expiry-discounts');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/expiry-discounts/status
@@ -43,7 +44,7 @@ const asyncHandler = require('../middleware/async-handler');
 router.get('/expiry-discounts/status', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const summary = await expiryDiscount.getDiscountStatusSummary(merchantId);
-    res.json(summary);
+    sendSuccess(res, summary);
 }));
 
 /**
@@ -62,7 +63,7 @@ router.get('/expiry-discounts/tiers', requireAuth, requireMerchant, asyncHandler
         WHERE merchant_id = $1
         ORDER BY priority DESC
     `, [merchantId]);
-    res.json({ tiers: result.rows });
+    sendSuccess(res, { tiers: result.rows });
 }));
 
 /**
@@ -92,7 +93,7 @@ router.patch('/expiry-discounts/tiers/:id', requireAuth, requireMerchant, valida
     }
 
     if (setClauses.length === 0) {
-        return res.status(400).json({ error: 'No valid fields to update' });
+        return sendError(res, 'No valid fields to update', 400);
     }
 
     setClauses.push('updated_at = NOW()');
@@ -105,11 +106,11 @@ router.patch('/expiry-discounts/tiers/:id', requireAuth, requireMerchant, valida
     `, params);
 
     if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Tier not found' });
+        return sendError(res, 'Tier not found', 404);
     }
 
     logger.info('Updated expiry discount tier', { id, updates });
-    res.json({ tier: result.rows[0] });
+    sendSuccess(res, { tier: result.rows[0] });
 }));
 
 /**
@@ -217,7 +218,7 @@ router.get('/expiry-discounts/variations', requireAuth, requireMerchant, validat
         item_images: undefined
     }));
 
-    res.json({
+    sendSuccess(res, {
         variations,
         total: parseInt(countResult.rows[0]?.total || 0),
         limit: parseInt(limit),
@@ -241,10 +242,7 @@ router.post('/expiry-discounts/evaluate', requireAuth, requireMerchant, validato
         merchantId
     });
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -259,10 +257,7 @@ router.post('/expiry-discounts/apply', requireAuth, requireMerchant, validators.
 
     const result = await expiryDiscount.applyDiscounts({ dryRun: dry_run, merchantId });
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -305,7 +300,7 @@ router.post('/expiry-discounts/run', requireAuth, requireMerchant, validators.ru
         }
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -318,10 +313,7 @@ router.post('/expiry-discounts/init-square', requireAuth, requireMerchant, async
 
     const result = await expiryDiscount.initializeSquareDiscounts(merchantId);
 
-    res.json({
-        success: result.errors.length === 0,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -337,7 +329,7 @@ router.get('/expiry-discounts/audit-log', requireAuth, requireMerchant, validato
         limit: parseInt(limit)
     });
 
-    res.json({ logs });
+    sendSuccess(res, { logs });
 }));
 
 /**
@@ -361,7 +353,7 @@ router.get('/expiry-discounts/settings', requireAuth, requireMerchant, asyncHand
         };
     }
 
-    res.json({ settings });
+    sendSuccess(res, { settings });
 }));
 
 /**
@@ -378,7 +370,7 @@ router.patch('/expiry-discounts/settings', requireAuth, requireMerchant, validat
 
     logger.info('Updated expiry discount settings', { updates, merchantId });
 
-    res.json({ success: true, message: 'Settings updated' });
+    sendSuccess(res, { message: 'Settings updated' });
 }));
 
 /**
@@ -392,7 +384,7 @@ router.get('/expiry-discounts/validate', requireAuth, requireMerchant, asyncHand
         merchantId,
         fix: false
     });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -413,7 +405,7 @@ router.post('/expiry-discounts/validate-and-fix', requireAuth, requireMerchant, 
         fixed: result.fixed.length
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -423,7 +415,7 @@ router.post('/expiry-discounts/validate-and-fix', requireAuth, requireMerchant, 
 router.get('/expiry-discounts/flagged', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext.id;
     const flagged = await expiryDiscount.getFlaggedVariations(merchantId);
-    res.json({ flagged });
+    sendSuccess(res, { flagged });
 }));
 
 /**
@@ -435,13 +427,13 @@ router.post('/expiry-discounts/flagged/resolve', requireAuth, requireMerchant, r
     const { variation_id, action, note } = req.body;
 
     if (!variation_id) {
-        return res.status(400).json({ success: false, error: 'variation_id is required' });
+        return sendError(res, 'variation_id is required', 400);
     }
     if (!action || !['apply_new', 'keep_current'].includes(action)) {
-        return res.status(400).json({ success: false, error: 'action must be "apply_new" or "keep_current"' });
+        return sendError(res, 'action must be "apply_new" or "keep_current"', 400);
     }
     if (!note || note.trim().length === 0) {
-        return res.status(400).json({ success: false, error: 'note is required' });
+        return sendError(res, 'note is required', 400);
     }
 
     const result = await expiryDiscount.resolveFlaggedVariation({
@@ -452,11 +444,11 @@ router.post('/expiry-discounts/flagged/resolve', requireAuth, requireMerchant, r
     });
 
     if (!result.success) {
-        return res.status(400).json(result);
+        return sendError(res, result.error || 'Failed to resolve flagged variation', 400);
     }
 
     logger.info('Resolved flagged variation', { merchantId, variation_id, action, note });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

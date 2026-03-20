@@ -19,6 +19,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/labels');
 const asyncHandler = require('../middleware/async-handler');
 const zplGenerator = require('../services/label/zpl-generator');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * POST /api/labels/generate
@@ -33,8 +34,7 @@ router.post('/labels/generate', requireAuth, requireMerchant, validators.generat
         copies: copies || 1
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         zpl: result.zpl,
         labelCount: result.labelCount,
         totalLabels: result.totalLabels,
@@ -56,8 +56,7 @@ router.post('/labels/generate-with-prices', requireAuth, requireMerchant, valida
         copies: copies || 1
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         zpl: result.zpl,
         labelCount: result.labelCount,
         totalLabels: result.totalLabels,
@@ -74,7 +73,7 @@ router.get('/labels/templates', requireAuth, requireMerchant, validators.getTemp
     const merchantId = req.merchantContext.id;
     const templates = await zplGenerator.getTemplates(merchantId);
 
-    res.json({
+    sendSuccess(res, {
         count: templates.length,
         templates
     });
@@ -91,16 +90,12 @@ router.put('/labels/templates/:id/default', requireAuth, requireMerchant, valida
     const updated = await zplGenerator.setDefaultTemplate(merchantId, templateId);
 
     if (!updated) {
-        return res.status(404).json({
-            success: false,
-            error: 'Template not found'
-        });
+        return sendError(res, 'Template not found', 404);
     }
 
     logger.info('Default label template updated', { merchantId, templateId });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         message: `Template "${updated.name}" set as default`
     });
 }));

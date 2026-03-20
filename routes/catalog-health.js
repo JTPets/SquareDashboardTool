@@ -17,6 +17,7 @@ const logger = require('../utils/logger');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/catalog-health');
+const { sendSuccess } = require('../utils/response-helper');
 const {
     runFullHealthCheck,
     getHealthHistory,
@@ -35,8 +36,7 @@ router.get('/', requireAuth, requireAdmin, validators.getHealth, asyncHandler(as
         getOpenIssues(DEBUG_MERCHANT_ID)
     ]);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         history,
         openIssues
     });
@@ -53,10 +53,7 @@ router.post('/check', requireAuth, requireAdmin, validators.runCheck, asyncHandl
 
     const result = await runFullHealthCheck(DEBUG_MERCHANT_ID);
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

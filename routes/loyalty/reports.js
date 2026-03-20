@@ -20,13 +20,14 @@ const { requireAuth } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/reports
  * List available report endpoints
  */
 router.get('/reports', requireAuth, requireMerchant, asyncHandler(async (req, res) => {
-    res.json({
+    sendSuccess(res, {
         message: 'Loyalty Reports API',
         endpoints: {
             'GET /reports/brand-redemptions': 'Comprehensive brand redemption report - proof-of-purchase for brands (query: startDate, endDate, offerId, brandName, format=json|html|csv)',
@@ -57,7 +58,7 @@ router.get('/reports/vendor-receipt/:rewardId', requireAuth, requireMerchant, va
     }
 
     // Return data for client-side PDF generation or other processing
-    res.json({
+    sendSuccess(res, {
         html: receipt.html,
         data: receipt.data,
         filename: receipt.filename
@@ -111,8 +112,7 @@ router.get('/reports/brand-redemptions', requireAuth, requireMerchant, validator
         includeFullOrders: true
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         report
     });
 }));
@@ -202,10 +202,10 @@ router.get('/reports/redemption/:rewardId', requireAuth, requireMerchant, valida
     const details = await loyaltyReports.getRedemptionDetails(req.params.rewardId, merchantId);
 
     if (!details) {
-        return res.status(404).json({ error: 'Redemption not found' });
+        return sendError(res, 'Redemption not found', 404);
     }
 
-    res.json({ redemption: details });
+    sendSuccess(res, { redemption: details });
 }));
 
 module.exports = router;

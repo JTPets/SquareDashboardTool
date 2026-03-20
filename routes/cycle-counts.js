@@ -33,6 +33,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cycle-counts');
 const { getFirstActiveLocation } = require('../services/catalog/location-service');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/cycle-counts/pending
@@ -122,7 +123,7 @@ router.get('/cycle-counts/pending', requireAuth, requireMerchant, asyncHandler(a
 
         const validItems = itemsWithImages.filter(item => item.id);
 
-    res.json({
+    sendSuccess(res, {
         count: validItems.length,
         target: dailyTarget,
         priority_count: priorityItems.rows.length,
@@ -141,13 +142,13 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
     const merchantId = req.merchantContext.id;
 
         if (!id || id === 'null' || id === 'undefined') {
-            return res.status(400).json({ error: 'Invalid item ID. Please refresh the page and try again.' });
+            return sendError(res, 'Invalid item ID. Please refresh the page and try again.', 400);
         }
 
         // Verify variation belongs to this merchant
         const varCheck = await db.query('SELECT id FROM variations WHERE id = $1 AND merchant_id = $2', [id, merchantId]);
         if (varCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Variation not found' });
+            return sendError(res, 'Variation not found', 404);
         }
 
         // Calculate variance
@@ -197,7 +198,7 @@ router.post('/cycle-counts/:id/complete', requireAuth, requireMerchant, validato
             });
         }
 
-    res.json({ success: true, data: { catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount } });
+    sendSuccess(res, { data: { catalog_object_id: id, is_complete: isFullyComplete, pending_count: pendingCount } });
 }));
 
 /**
@@ -210,11 +211,11 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
     const merchantId = req.merchantContext.id;
 
         if (!id || id === 'null' || id === 'undefined') {
-            return res.status(400).json({ error: 'Invalid item ID.' });
+            return sendError(res, 'Invalid item ID.', 400);
         }
 
         if (actual_quantity === null || actual_quantity === undefined || isNaN(parseInt(actual_quantity))) {
-            return res.status(400).json({ error: 'Actual quantity is required for Square sync.' });
+            return sendError(res, 'Actual quantity is required for Square sync.', 400);
         }
 
         const actualQty = parseInt(actual_quantity);
@@ -226,13 +227,13 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
              WHERE v.id = $1 AND v.merchant_id = $2`, [id, merchantId]);
 
         if (variationResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Variation not found' });
+            return sendError(res, 'Variation not found', 404);
         }
 
         const variation = variationResult.rows[0];
 
         if (!variation.track_inventory) {
-            return res.status(400).json({ error: 'Inventory tracking is not enabled for this item.' });
+            return sendError(res, 'Inventory tracking is not enabled for this item.', 400);
         }
 
         // Determine location
@@ -241,7 +242,7 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
             // LOGIC CHANGE: using shared location-service (BACKLOG-25)
             const firstLocation = await getFirstActiveLocation(merchantId);
             if (!firstLocation) {
-                return res.status(400).json({ error: 'No active locations found.' });
+                return sendError(res, 'No active locations found.', 400);
             }
             targetLocationId = firstLocation.id;
         }
@@ -258,11 +259,7 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
         const squareQuantity = await squareApi.getSquareInventoryCount(id, targetLocationId, merchantId);
 
         if (squareQuantity !== dbQuantity) {
-            return res.status(409).json({
-                error: 'Inventory has changed in Square since last sync. Please sync inventory first.',
-                details: { square_quantity: squareQuantity, database_quantity: dbQuantity, last_synced: dbUpdatedAt },
-                action_required: 'sync_inventory'
-            });
+            return sendError(res, 'Inventory has changed in Square since last sync. Please sync inventory first.', 409);
         }
 
         // Update Square first (external API call)
@@ -279,8 +276,7 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
             await client.query(`UPDATE count_history SET notes = COALESCE(notes, '') || ' [Synced to Square at ' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS') || ']' WHERE catalog_object_id = $1 AND merchant_id = $2`, [id, merchantId]);
         });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         data: {
             catalog_object_id: id, sku: variation.sku, item_name: variation.item_name,
             location_id: targetLocationId, previous_quantity: squareQuantity, new_quantity: actualQty, variance: actualQty - squareQuantity
@@ -297,7 +293,7 @@ router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.s
     const merchantId = req.merchantContext.id;
 
         if (!skus || !Array.isArray(skus) || skus.length === 0) {
-            return res.status(400).json({ error: 'SKUs array is required' });
+            return sendError(res, 'SKUs array is required', 400);
         }
 
         const variations = await db.query(
@@ -305,7 +301,7 @@ router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.s
             [skus, merchantId]);
 
         if (variations.rows.length === 0) {
-            return res.status(404).json({ error: 'No valid SKUs found' });
+            return sendError(res, 'No valid SKUs found', 404);
         }
 
         const insertPromises = variations.rows.map(row =>
@@ -318,7 +314,7 @@ router.post('/cycle-counts/send-now', requireAuth, requireMerchant, validators.s
 
         await Promise.all(insertPromises);
 
-    res.json({ success: true, items_added: variations.rows.length, skus: variations.rows.map(r => r.sku) });
+    sendSuccess(res, { items_added: variations.rows.length, skus: variations.rows.map(r => r.sku) });
 }));
 
 /**
@@ -347,7 +343,7 @@ router.get('/cycle-counts/stats', requireAuth, requireMerchant, validators.getSt
         const itemsCounted = parseInt(overall.rows[0].total_items_counted);
         const coveragePercent = totalVariations > 0 ? ((itemsCounted / totalVariations) * 100).toFixed(2) : 0;
 
-    res.json({
+    sendSuccess(res, {
         sessions: sessions.rows,
         overall: { ...overall.rows[0], total_variations: totalVariations, coverage_percent: coveragePercent }
     });
@@ -396,7 +392,7 @@ router.get('/cycle-counts/history', requireAuth, requireMerchant, validators.get
         const totalVarianceValue = result.rows.reduce((sum, r) => sum + Math.abs(r.variance_value || 0), 0);
         const accuracyRate = totalCounts > 0 ? ((accurateCounts / totalCounts) * 100).toFixed(2) : 0;
 
-        res.json({
+        sendSuccess(res, {
             summary: {
                 total_counts: totalCounts, accurate_counts: accurateCounts, inaccurate_counts: inaccurateCounts,
                 accuracy_rate: parseFloat(accuracyRate), total_variance_units: totalVariance, total_variance_value: totalVarianceValue
@@ -414,10 +410,10 @@ router.post('/cycle-counts/email-report', requireAuth, requireMerchant, validato
     const result = await sendCycleCountReport(merchantId);
 
     if (!result.sent) {
-        return res.status(400).json({ error: result.reason || 'Email reporting is disabled' });
+        return sendError(res, result.reason || 'Email reporting is disabled', 400);
     }
 
-    res.json({ success: true, message: 'Report sent successfully', ...result });
+    sendSuccess(res, { message: 'Report sent successfully', ...result });
 }));
 
 /**
@@ -429,7 +425,7 @@ router.post('/cycle-counts/generate-batch', requireAuth, requireMerchant, valida
     logger.info('Manual batch generation requested', { merchantId });
     const result = await generateDailyBatch(merchantId);
 
-    res.json({ success: true, message: 'Batch generated successfully', ...result });
+    sendSuccess(res, { message: 'Batch generated successfully', ...result });
 }));
 
 /**
@@ -466,8 +462,7 @@ router.post('/cycle-counts/reset', requireAuth, requireMerchant, validators.rese
         return parseInt(countResult.rows[0].count);
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         data: {
             message: preserve_history ? 'Added new items to count history' : 'Count history reset complete',
             total_items: totalItems

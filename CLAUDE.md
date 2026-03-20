@@ -36,17 +36,22 @@ const result = await db.query(
 
 ### Response Format
 ```javascript
-// Success (direct format - most endpoints)
-res.json({ count: 5, items: [...] });
+const { sendSuccess, sendError, sendPaginated } = require('../utils/response-helper');
 
-// Success (wrapped format - some endpoints)
-res.json({ success: true, data: { ... } });
+// Success — flat-merges data with { success: true }
+sendSuccess(res, { count: 5, items: [...] });
+// → { success: true, count: 5, items: [...] }
 
 // Error
-res.status(4xx).json({ success: false, error: 'message', code: 'ERROR_CODE' });
+sendError(res, 'message', 400, 'ERROR_CODE');
+// → { success: false, error: 'message', code: 'ERROR_CODE' }
+
+// Paginated
+sendPaginated(res, { items: [...], total: 100, limit: 20, offset: 0 });
+// → { success: true, items: [...], total: 100, limit: 20, offset: 0 }
 ```
 
-> **Warning**: Response formats are inconsistent. Always check the actual route before writing frontend code.
+> All routes use `utils/response-helper.js`. Do not use raw `res.json()` for new endpoints.
 
 ### Git Rules
 - Always start work with: `git checkout main && git pull origin main`

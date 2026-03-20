@@ -28,6 +28,7 @@ const squareWebhooks = require('../utils/square-webhooks');
 const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 const validators = require('../middleware/validators/webhooks');
 
 /**
@@ -38,8 +39,7 @@ router.get('/webhooks/subscriptions', requireAuth, requireMerchant, asyncHandler
     const merchantId = req.merchantContext.id;
     const subscriptions = await squareWebhooks.listWebhookSubscriptions(merchantId);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscriptions,
         count: subscriptions.length
     });
@@ -53,10 +53,7 @@ router.get('/webhooks/subscriptions/audit', requireAuth, requireMerchant, asyncH
     const merchantId = req.merchantContext.id;
     const audit = await squareWebhooks.auditWebhookConfiguration(merchantId);
 
-    res.json({
-        success: true,
-        ...audit
-    });
+    sendSuccess(res, audit);
 }));
 
 /**
@@ -64,8 +61,7 @@ router.get('/webhooks/subscriptions/audit', requireAuth, requireMerchant, asyncH
  * Get all available webhook event types and their categories
  */
 router.get('/webhooks/event-types', requireAuth, asyncHandler(async (req, res) => {
-    res.json({
-        success: true,
+    sendSuccess(res, {
         eventTypes: squareWebhooks.WEBHOOK_EVENT_TYPES,
         all: squareWebhooks.getAllEventTypes(),
         recommended: squareWebhooks.getRecommendedEventTypes()
@@ -97,8 +93,7 @@ router.post('/webhooks/register', requireAuth, requireMerchant, validators.regis
         notificationUrl
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscription,
         message: 'Webhook subscription created successfully. Copy the signature key from Square Developer Dashboard.',
         nextSteps: [
@@ -128,8 +123,7 @@ router.post('/webhooks/ensure', requireAuth, requireMerchant, validators.ensure,
         updateIfExists
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscription,
         message: subscription.created_at ?
             'Webhook subscription already exists' :
@@ -159,9 +153,7 @@ router.put('/webhooks/subscriptions/:subscriptionId', requireAuth, requireMercha
     if (name) updates.name = name;
 
     if (Object.keys(updates).length === 0) {
-        return res.status(400).json({
-            error: 'No updates provided'
-        });
+        return sendError(res, 'No updates provided', 400);
     }
 
     const subscription = await squareWebhooks.updateWebhookSubscription(
@@ -176,10 +168,7 @@ router.put('/webhooks/subscriptions/:subscriptionId', requireAuth, requireMercha
         updates: Object.keys(updates)
     });
 
-    res.json({
-        success: true,
-        subscription
-    });
+    sendSuccess(res, { subscription });
 }));
 
 /**
@@ -197,10 +186,7 @@ router.delete('/webhooks/subscriptions/:subscriptionId', requireAuth, requireMer
         subscriptionId
     });
 
-    res.json({
-        success: true,
-        message: 'Webhook subscription deleted successfully'
-    });
+    sendSuccess(res, { message: 'Webhook subscription deleted successfully' });
 }));
 
 /**
@@ -213,8 +199,7 @@ router.post('/webhooks/subscriptions/:subscriptionId/test', requireAuth, require
 
     const result = await squareWebhooks.testWebhookSubscription(merchantId, subscriptionId);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         result,
         message: 'Test webhook sent. Check your server logs for the received event.'
     });

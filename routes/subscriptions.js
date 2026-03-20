@@ -51,13 +51,14 @@ const subscriptionRateLimit = configureSubscriptionRateLimit();
 const subscriptionBridge = require('../services/subscription-bridge');
 // LOGIC CHANGE: extracted promo code validation to shared service (BACKLOG-74)
 const { validatePromoCode } = require('../services/promo-validation');
+const { sendSuccess, sendError } = require('../utils/response-helper');
 
 /**
  * GET /api/square/payment-config
  * Get Square application ID for Web Payments SDK
  */
 router.get('/square/payment-config', (req, res) => {
-    res.json({
+    sendSuccess(res, {
         applicationId: process.env.SQUARE_APPLICATION_ID || null,
         locationId: process.env.SQUARE_LOCATION_ID || null,
         environment: process.env.SQUARE_ENVIRONMENT || 'sandbox'
@@ -72,11 +73,10 @@ router.get('/square/payment-config', (req, res) => {
 router.get('/subscriptions/plans', asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
     if (!merchantId) {
-        return res.status(400).json({ success: false, error: 'Merchant context required', code: 'NO_MERCHANT' });
+        return sendError(res, 'Merchant context required', 400, 'NO_MERCHANT');
     }
     const plans = await subscriptionHandler.getPlans(merchantId);
-    res.json({
-        success: true,
+    sendSuccess(res, {
         plans,
         trialDays: subscriptionHandler.TRIAL_DAYS
     });
@@ -93,17 +93,17 @@ router.post('/subscriptions/promo/validate', promoRateLimit, validators.validate
     const { code, plan, priceCents } = req.body;
     const merchantId = req.merchantContext?.id || req.session?.activeMerchantId;
     if (!merchantId) {
-        return res.status(400).json({ valid: false, error: 'Merchant context required' });
+        return sendError(res, 'Merchant context required', 400);
     }
 
     const result = await validatePromoCode({ code, merchantId, plan, priceCents });
 
     if (!result.valid) {
-        return res.json({ valid: false, error: result.error });
+        return sendSuccess(res, { valid: false, error: result.error });
     }
 
     const promo = result.promo;
-    res.json({
+    sendSuccess(res, {
         valid: true,
         code: promo.code,
         description: promo.description,
@@ -131,35 +131,33 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
     // LOGIC CHANGE: merchant_id required for tenant isolation (CRIT-2 audit)
     const merchantId = req.session?.activeMerchantId || req.merchantContext?.id;
     if (!merchantId) {
-        return res.status(400).json({ success: false, error: 'Merchant context required', code: 'NO_MERCHANT' });
+        return sendError(res, 'Merchant context required', 400, 'NO_MERCHANT');
     }
 
     // Verify Square configuration
     const locationId = process.env.SQUARE_LOCATION_ID;
     if (!locationId) {
         logger.error('SQUARE_LOCATION_ID not configured');
-        return res.status(500).json({ error: 'Payment system not configured. Please contact support.' });
+        return sendError(res, 'Payment system not configured. Please contact support.', 500);
     }
 
     // Check if subscriber already exists
     const existing = await subscriptionHandler.getSubscriberByEmail(email);
     if (existing) {
-        return res.status(400).json({ error: 'An account with this email already exists' });
+        return sendError(res, 'An account with this email already exists', 400);
     }
 
     // Get plan pricing and Square plan variation ID (scoped to merchant)
     const plans = await subscriptionHandler.getPlans(merchantId);
     const selectedPlan = plans.find(p => p.plan_key === plan);
     if (!selectedPlan) {
-        return res.status(400).json({ error: 'Invalid plan selected' });
+        return sendError(res, 'Invalid plan selected', 400);
     }
 
     // Verify Square subscription plan exists
     if (!selectedPlan.square_plan_id) {
         logger.error('Square plan not configured', { plan: plan });
-        return res.status(500).json({
-            error: 'Subscription plan not configured. Please contact support.'
-        });
+        return sendError(res, 'Subscription plan not configured. Please contact support.', 500);
     }
 
     // LOGIC CHANGE: uses shared validatePromoCode service (BACKLOG-74)
@@ -208,11 +206,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
     if (!customerResponse.customer) {
         const errorDetail = customerResponse.errors?.[0]?.detail || 'Unknown error';
         logger.error('Square customer creation failed', { error: errorDetail, email });
-        return res.status(400).json({
-            success: false,
-            error: 'Account creation failed. Please try again.',
-            code: 'CUSTOMER_CREATION_FAILED'
-        });
+        return sendError(res, 'Account creation failed. Please try again.', 400, 'CUSTOMER_CREATION_FAILED');
     }
 
     squareCustomerId = customerResponse.customer.id;
@@ -232,11 +226,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
     if (!cardResponse.card) {
         const errorDetail = cardResponse.errors?.[0]?.detail || 'Unknown error';
         logger.error('Square card creation failed', { error: errorDetail, customerId: squareCustomerId });
-        return res.status(400).json({
-            success: false,
-            error: 'Failed to save payment method. Please check your card details.',
-            code: 'CARD_CREATION_FAILED'
-        });
+        return sendError(res, 'Failed to save payment method. Please check your card details.', 400, 'CARD_CREATION_FAILED');
     }
 
     cardId = cardResponse.card.id;
@@ -321,11 +311,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
                 subscriberId: subscriber?.id,
                 amount: finalPriceCents
             });
-            return res.status(400).json({
-                success: false,
-                error: 'Payment failed. Please check your card details and try again.',
-                code: 'PAYMENT_FAILED'
-            });
+            return sendError(res, 'Payment failed. Please check your card details and try again.', 400, 'PAYMENT_FAILED');
         }
 
     } else if (finalPriceCents === 0) {
@@ -373,11 +359,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
                 subscriberId: subscriber?.id,
                 customerId: squareCustomerId
             });
-            return res.status(400).json({
-                success: false,
-                error: 'Subscription creation failed. Please try again.',
-                code: 'SUBSCRIPTION_FAILED'
-            });
+            return sendError(res, 'Subscription creation failed. Please try again.', 400, 'SUBSCRIPTION_FAILED');
         }
     }
 
@@ -493,8 +475,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
         paymentStatus: paymentResult?.status || 'no_payment'
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscriber: {
             id: subscriber.id,
             email: subscriber.email,
@@ -519,7 +500,7 @@ router.post('/subscriptions/create', subscriptionRateLimit, validators.createSub
 router.get('/subscriptions/status', subscriptionRateLimit, validators.checkStatus, asyncHandler(async (req, res) => {
     const { email } = req.query;
     const status = await subscriptionHandler.checkSubscriptionStatus(email);
-    res.json({ active: status.isValid, planName: status.planName || null });
+    sendSuccess(res, { active: status.isValid, planName: status.planName || null });
 }));
 
 /**
@@ -529,11 +510,7 @@ router.get('/subscriptions/status', subscriptionRateLimit, validators.checkStatu
  */
 router.get('/subscriptions/merchant-status', requireAuth, asyncHandler(async (req, res) => {
     if (!req.merchantContext) {
-        return res.status(403).json({
-            success: false,
-            error: 'No merchant connected',
-            code: 'NO_MERCHANT'
-        });
+        return sendError(res, 'No merchant connected', 403, 'NO_MERCHANT');
     }
 
     const mc = req.merchantContext;
@@ -549,8 +526,7 @@ router.get('/subscriptions/merchant-status', requireAuth, asyncHandler(async (re
         trialDaysRemaining = Math.max(0, Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)));
     }
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscription: {
             status: mc.subscriptionStatus,
             isValid: mc.isSubscriptionValid,
@@ -581,7 +557,7 @@ router.post('/subscriptions/cancel', requireAuth, validators.cancelSubscription,
 
     const subscriber = await subscriptionHandler.getSubscriberByEmail(email);
     if (!subscriber) {
-        return res.status(404).json({ error: 'Subscriber not found' });
+        return sendError(res, 'Subscriber not found', 404);
     }
 
     // Cancel in Square first (if subscription exists)
@@ -620,8 +596,7 @@ router.post('/subscriptions/cancel', requireAuth, validators.cancelSubscription,
         }
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         subscriber: updated
     });
 }));
@@ -635,14 +610,14 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
 
     const subscriber = await subscriptionHandler.getSubscriberByEmail(email);
     if (!subscriber) {
-        return res.status(404).json({ error: 'Subscriber not found' });
+        return sendError(res, 'Subscriber not found', 404);
     }
 
     const payments = await subscriptionHandler.getPaymentHistory(subscriber.id, subscriber.merchant_id);
     const lastPayment = payments.find(p => p.status === 'completed' && !p.refunded_at);
 
     if (!lastPayment) {
-        return res.status(400).json({ error: 'No refundable payment found' });
+        return sendError(res, 'No refundable payment found', 400);
     }
 
     let squareRefund = null;
@@ -669,11 +644,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
                 subscriberId: subscriber.id,
                 paymentId: lastPayment.id
             });
-            return res.status(500).json({
-                success: false,
-                error: 'Refund processing failed. Please try again or contact support.',
-                code: 'REFUND_FAILED'
-            });
+            return sendError(res, 'Refund processing failed. Please try again or contact support.', 500, 'REFUND_FAILED');
         }
     }
 
@@ -687,8 +658,7 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
         eventData: { payment_id: lastPayment.id, amount: lastPayment.amount_cents, reason }
     });
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         refund: squareRefund,
         message: 'Refund processed successfully'
     });
@@ -701,14 +671,13 @@ router.post('/subscriptions/refund', requireAdmin, validators.processRefund, asy
 router.get('/subscriptions/admin/list', requireAdmin, validators.listSubscribers, asyncHandler(async (req, res) => {
     const merchantId = req.merchantContext?.id;
     if (!merchantId) {
-        return res.status(403).json({ success: false, error: 'No merchant connected', code: 'NO_MERCHANT' });
+        return sendError(res, 'No merchant connected', 403, 'NO_MERCHANT');
     }
     const { status } = req.query;
     const subscribers = await subscriptionHandler.getAllSubscribers({ merchantId, status });
     const stats = await subscriptionHandler.getSubscriptionStats(merchantId);
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         count: subscribers.length,
         subscribers,
         stats
@@ -723,8 +692,7 @@ router.get('/subscriptions/admin/plans', requireAdmin, asyncHandler(async (req, 
     const squareSubscriptions = require('../utils/square-subscriptions');
     const plans = await squareSubscriptions.listPlans();
 
-    res.json({
-        success: true,
+    sendSuccess(res, {
         plans,
         squareConfigured: !!process.env.SQUARE_LOCATION_ID
     });
@@ -741,24 +709,15 @@ router.post('/subscriptions/admin/setup-plans', requireAuth, requireAdmin, async
 
     if (!superAdminEmails.includes(userEmail)) {
         logger.warn('Unauthorized attempt to setup subscription plans', { email: userEmail });
-        return res.status(403).json({
-            error: 'Super admin access required',
-            message: 'Only super admins can setup subscription plans in Square.'
-        });
+        return sendError(res, 'Super admin access required', 403);
     }
 
     if (!process.env.SQUARE_LOCATION_ID) {
-        return res.status(400).json({
-            error: 'SQUARE_LOCATION_ID not configured',
-            message: 'Please configure SQUARE_LOCATION_ID in your environment before setting up plans.'
-        });
+        return sendError(res, 'SQUARE_LOCATION_ID not configured', 400);
     }
 
     if (!process.env.SQUARE_ACCESS_TOKEN) {
-        return res.status(400).json({
-            error: 'SQUARE_ACCESS_TOKEN not configured',
-            message: 'Please configure SQUARE_ACCESS_TOKEN in your environment before setting up plans.'
-        });
+        return sendError(res, 'SQUARE_ACCESS_TOKEN not configured', 400);
     }
 
     const squareSubscriptions = require('../utils/square-subscriptions');
@@ -770,10 +729,7 @@ router.post('/subscriptions/admin/setup-plans', requireAuth, requireAdmin, async
         adminEmail: userEmail
     });
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -787,10 +743,7 @@ router.get('/webhooks/events', requireAuth, requireAdmin, validators.listWebhook
 
     if (!superAdminEmails.includes(userEmail)) {
         logger.warn('Unauthorized access attempt to webhook events', { email: userEmail });
-        return res.status(403).json({
-            error: 'Super admin access required',
-            message: 'This endpoint requires super-admin privileges. Contact system administrator.'
-        });
+        return sendError(res, 'Super admin access required', 403);
     }
 
     const { limit = 50, status, event_type } = req.query;
@@ -830,7 +783,7 @@ router.get('/webhooks/events', requireAuth, requireAdmin, validators.listWebhook
         WHERE received_at > NOW() - INTERVAL '24 hours'
     `);
 
-    res.json({
+    sendSuccess(res, {
         events: result.rows,
         stats: stats.rows[0]
     });

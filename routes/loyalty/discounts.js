@@ -13,6 +13,7 @@ const loyaltyService = require('../../services/loyalty-admin');
 const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
+const { sendSuccess } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/discounts/validate
@@ -25,7 +26,7 @@ router.get('/discounts/validate', requireAuth, requireMerchant, asyncHandler(asy
         fixIssues: false
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -47,7 +48,7 @@ router.post('/discounts/validate-and-fix', requireAuth, requireMerchant, require
         fixed: result.fixed.length
     });
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 module.exports = router;

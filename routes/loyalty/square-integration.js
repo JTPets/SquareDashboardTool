@@ -17,6 +17,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * GET /api/loyalty/square-program
@@ -28,7 +29,7 @@ router.get('/square-program', requireAuth, requireMerchant, asyncHandler(async (
     const program = await loyaltyService.getSquareLoyaltyProgram(merchantId);
 
     if (!program) {
-        return res.json({
+        return sendSuccess(res, {
             hasProgram: false,
             message: 'No Square Loyalty program found. Set up Square Loyalty in your Square Dashboard first.',
             setupUrl: 'https://squareup.com/dashboard/loyalty'
@@ -43,7 +44,7 @@ router.get('/square-program', requireAuth, requireMerchant, asyncHandler(async (
         definition: tier.definition
     }));
 
-    res.json({
+    sendSuccess(res, {
         hasProgram: true,
         programId: program.id,
         programName: program.terminology?.one || 'Loyalty',
@@ -67,7 +68,7 @@ router.put('/offers/:id/square-tier', requireAuth, requireMerchant, requireWrite
     });
 
     if (!offer) {
-        return res.status(404).json({ error: 'Offer not found' });
+        return sendError(res, 'Offer not found', 404);
     }
 
     logger.info('Linked offer to Square Loyalty tier', {
@@ -76,7 +77,7 @@ router.put('/offers/:id/square-tier', requireAuth, requireMerchant, requireWrite
         squareRewardTierId
     });
 
-    res.json({ success: true, offer });
+    sendSuccess(res, { offer });
 }));
 
 /**
@@ -91,14 +92,14 @@ router.post('/rewards/:id/create-square-reward', requireAuth, requireMerchant, r
     const result = await loyaltyService.createSquareReward({ merchantId, rewardId, force });
 
     if (!result.found) {
-        return res.status(404).json({ error: result.error });
+        return sendError(res, result.error, 404);
     }
 
     if (!result.eligible) {
-        return res.status(400).json({ error: result.error });
+        return sendError(res, result.error, 400);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -110,7 +111,7 @@ router.post('/rewards/sync-to-pos', requireAuth, requireMerchant, requireWriteAc
     const force = req.query.force === 'true' || req.body.force === true;
 
     const result = await loyaltyService.syncRewardsToPOS({ merchantId, force });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -121,7 +122,7 @@ router.get('/rewards/pending-sync', requireAuth, requireMerchant, asyncHandler(a
     const merchantId = req.merchantContext.id;
 
     const counts = await loyaltyService.getPendingSyncCounts(merchantId);
-    res.json(counts);
+    sendSuccess(res, counts);
 }));
 
 module.exports = router;

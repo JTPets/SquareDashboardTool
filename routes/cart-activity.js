@@ -22,6 +22,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cart-activity');
+const { sendSuccess } = require('../utils/response-helper');
 
 /**
  * GET /api/cart-activity
@@ -56,7 +57,7 @@ router.get('/',
             offset: parseInt(offset, 10) || 0
         });
 
-        res.json({
+        sendSuccess(res, {
             carts: result.carts,
             total: result.total,
             limit: parseInt(limit, 10) || 50,
@@ -82,7 +83,7 @@ router.get('/stats',
 
         const stats = await cartActivityService.getStats(merchantId, days);
 
-        res.json(stats);
+        sendSuccess(res, stats);
     })
 );
 

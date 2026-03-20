@@ -18,6 +18,7 @@ const { requireAuth, requireWriteAccess } = require('../../middleware/auth');
 const { requireMerchant } = require('../../middleware/merchant');
 const asyncHandler = require('../../middleware/async-handler');
 const validators = require('../../middleware/validators/loyalty');
+const { sendSuccess, sendError } = require('../../utils/response-helper');
 
 /**
  * POST /api/loyalty/process-order/:orderId
@@ -29,7 +30,7 @@ router.post('/process-order/:orderId', requireAuth, requireMerchant, requireWrit
     const squareOrderId = req.params.orderId;
 
     const result = await loyaltyService.processOrderManually({ merchantId, squareOrderId });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -42,7 +43,7 @@ router.post('/backfill', requireAuth, requireMerchant, requireWriteAccess, valid
     const { days = 7 } = req.body;
 
     const result = await loyaltyService.runBackfill({ merchantId, days });
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -62,10 +63,7 @@ router.post('/catchup', requireAuth, requireMerchant, requireWriteAccess, valida
         maxCustomers
     });
 
-    res.json({
-        success: true,
-        ...result
-    });
+    sendSuccess(res, result);
 }));
 
 /**
@@ -77,7 +75,7 @@ router.post('/refresh-customers', requireAuth, requireMerchant, requireWriteAcce
     const merchantId = req.merchantContext.id;
 
     const result = await loyaltyService.refreshCustomersWithMissingData(merchantId);
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -96,7 +94,7 @@ router.post('/manual-entry', requireAuth, requireMerchant, requireWriteAccess, v
         return res.status(400).json(result);
     }
 
-    res.json(result);
+    sendSuccess(res, result);
 }));
 
 /**
@@ -118,7 +116,7 @@ router.post('/process-expired', requireAuth, requireMerchant, requireWriteAccess
         earnedRewardsRevoked: earnedResult.processedCount
     });
 
-    res.json({
+    sendSuccess(res, {
         windowEntries: windowResult,
         expiredEarnedRewards: earnedResult
     });

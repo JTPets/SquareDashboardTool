@@ -1,23 +1,28 @@
 /**
  * Response Helper Utilities
- * Standardizes API response format across routes
+ * Standardizes API response format across routes (BACKLOG-3)
  *
  * Standard format:
- * - Success: { success: true, data: { ... } }
+ * - Success: { success: true, ...data }  (flat merge for objects)
  * - Error: { success: false, error: 'message', code: 'ERROR_CODE' }
+ *
+ * // LOGIC CHANGE: sendSuccess uses flat merge (not data wrapping) to preserve
+ * // existing response shapes while adding success: true consistently.
  */
 
 /**
- * Send a success response
+ * Send a success response. Object data is flat-merged with { success: true };
+ * non-object data (arrays, primitives) is wrapped in { success: true, data }.
  * @param {Object} res - Express response object
- * @param {Object} data - Response data
+ * @param {Object|Array|*} data - Response data
  * @param {number} [statusCode=200] - HTTP status code
  */
 function sendSuccess(res, data, statusCode = 200) {
-    res.status(statusCode).json({
-        success: true,
-        data
-    });
+    if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+        res.status(statusCode).json({ success: true, ...data });
+    } else {
+        res.status(statusCode).json({ success: true, data });
+    }
 }
 
 /**
@@ -39,6 +44,16 @@ function sendError(res, message, statusCode = 400, code = null) {
 }
 
 /**
+ * Send a paginated success response
+ * @param {Object} res - Express response object
+ * @param {Object} data - Response data object (items + metadata)
+ * @param {number} [statusCode=200] - HTTP status code
+ */
+function sendPaginated(res, data, statusCode = 200) {
+    res.status(statusCode).json({ success: true, ...data });
+}
+
+/**
  * Error codes for common scenarios
  */
 const ErrorCodes = {
@@ -54,5 +69,6 @@ const ErrorCodes = {
 module.exports = {
     sendSuccess,
     sendError,
+    sendPaginated,
     ErrorCodes
 };

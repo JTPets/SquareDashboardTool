@@ -4,9 +4,22 @@
  *
  * BACKLOG-23: Extracted from 14+ files with inline toLocaleString() calls.
  * BACKLOG-27: Standardizes all formatting to 'en-CA' locale.
+ *
+ * OSS locale: Reads window.MERCHANT_LOCALE and window.MERCHANT_CURRENCY
+ * for multi-tenant / franchise support. Falls back to 'en-CA' / 'CAD'.
  */
 
 /* eslint-disable no-unused-vars */
+
+// LOGIC CHANGE: Read locale/currency from merchant globals with fallback (OSS locale)
+function _getLocale() {
+  return (typeof window !== 'undefined' && window.MERCHANT_LOCALE) || 'en-CA';
+}
+
+function _getCurrencySymbol() {
+  // For now, always use '$'. Future: derive from window.MERCHANT_CURRENCY via Intl.
+  return '$';
+}
 
 /**
  * Format cents as currency string (e.g. 1500 → "$15.00").
@@ -15,7 +28,8 @@
  */
 function formatCurrency(cents) {
   if (!cents && cents !== 0) return '--';
-  return '$' + (cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var locale = _getLocale();
+  return _getCurrencySymbol() + (cents / 100).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**
@@ -26,7 +40,8 @@ function formatCurrency(cents) {
  */
 function formatDollars(dollars, decimals) {
   var d = typeof decimals === 'number' ? decimals : 2;
-  return '$' + Number(dollars || 0).toLocaleString('en-CA', { minimumFractionDigits: d, maximumFractionDigits: d });
+  var locale = _getLocale();
+  return _getCurrencySymbol() + Number(dollars || 0).toLocaleString(locale, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
 /**
@@ -35,5 +50,6 @@ function formatDollars(dollars, decimals) {
  * @returns {string} Formatted number string
  */
 function formatNumber(num) {
-  return Number(num || 0).toLocaleString('en-CA');
+  var locale = _getLocale();
+  return Number(num || 0).toLocaleString(locale);
 }
