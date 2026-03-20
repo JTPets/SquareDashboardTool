@@ -23,6 +23,7 @@ const { requireAuth } = require('../middleware/auth');
 const { getUserMerchants, switchActiveMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/merchants');
+const { hasLocations } = require('../services/catalog/location-service');
 
 /**
  * GET /api/merchants
@@ -95,11 +96,8 @@ router.get('/config', requireAuth, validators.config, asyncHandler(async (req, r
     let squareConnected = false;
     try {
             if (req.merchantContext?.id) {
-                const result = await db.query(
-                    'SELECT id FROM locations WHERE merchant_id = $1 LIMIT 1',
-                    [req.merchantContext.id]
-                );
-                squareConnected = result.rows.length > 0;
+                // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+                squareConnected = await hasLocations(req.merchantContext.id);
             }
         } catch (e) {
             logger.warn('Square connection check failed', { error: e.message, merchantId: req.merchantContext?.id });

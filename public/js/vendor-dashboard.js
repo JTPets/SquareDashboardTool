@@ -404,12 +404,7 @@
     }
   }
 
-  // ==================== HELPERS ====================
-
-  function formatCurrency(cents) {
-    if (cents == null) return '$0.00';
-    return '$' + (cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
+  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
 
   // ==================== EVENT DELEGATION REGISTRATION ====================
 

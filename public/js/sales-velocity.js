@@ -44,10 +44,11 @@ function calculateStats(data) {
   const fastMovers = data.filter(item => parseFloat(item.daily_avg_quantity || 0) >= 1).length;
   const slowMovers = data.filter(item => parseFloat(item.daily_avg_quantity || 0) < 0.1).length;
 
-  document.getElementById('totalProducts').textContent = totalProducts.toLocaleString();
+  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+  document.getElementById('totalProducts').textContent = formatNumber(totalProducts);
   document.getElementById('avgDailySales').textContent = avgDailySales;
-  document.getElementById('fastMovers').textContent = fastMovers.toLocaleString();
-  document.getElementById('slowMovers').textContent = slowMovers.toLocaleString();
+  document.getElementById('fastMovers').textContent = formatNumber(fastMovers);
+  document.getElementById('slowMovers').textContent = formatNumber(slowMovers);
 }
 
 async function loadData() {

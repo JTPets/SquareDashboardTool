@@ -299,10 +299,10 @@ See [docs/WORK-ITEMS.md](docs/WORK-ITEMS.md) for the complete consolidated work 
 | Low | BACKLOG-9 | In-memory global state — PM2 restart recovery |
 | Low | BACKLOG-12 | Driver share link validation failure |
 | Low | BACKLOG-17 | Customer lookup helpers duplicated (DEDUP L-4) |
-| Low | BACKLOG-23 | Currency formatting — no shared helper (DEDUP G-3) |
-| Low | BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5) |
-| Low | BACKLOG-26 | Date string formatting repeated 12 times (DEDUP G-7) |
-| Low | BACKLOG-27 | Inconsistent toLocaleString() — 60 uses (DEDUP G-8) |
+| ~~Low~~ | ~~BACKLOG-23~~ | ~~Currency formatting — no shared helper (DEDUP G-3)~~ **FIXED** |
+| ~~Low~~ | ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5)~~ **FIXED** |
+| ~~Low~~ | ~~BACKLOG-26~~ | ~~Date string formatting repeated 12 times (DEDUP G-7)~~ **FIXED** |
+| ~~Low~~ | ~~BACKLOG-27~~ | ~~Inconsistent toLocaleString() — 60 uses (DEDUP G-8)~~ **FIXED** |
 | Low | BACKLOG-29 | Existing tenants missing `invoice.payment_made` webhook |
 | Low | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder |
 | Low | BACKLOG-40 | exceljs deprecated transitive deps — evaluate lighter library |

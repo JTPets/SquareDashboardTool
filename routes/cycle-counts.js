@@ -32,6 +32,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireMerchant } = require('../middleware/merchant');
 const asyncHandler = require('../middleware/async-handler');
 const validators = require('../middleware/validators/cycle-counts');
+const { getFirstActiveLocation } = require('../services/catalog/location-service');
 
 /**
  * GET /api/cycle-counts/pending
@@ -236,11 +237,12 @@ router.post('/cycle-counts/:id/sync-to-square', requireAuth, requireMerchant, va
         // Determine location
         let targetLocationId = location_id;
         if (!targetLocationId) {
-            const locationResult = await db.query('SELECT id FROM locations WHERE active = TRUE AND merchant_id = $1 ORDER BY name LIMIT 1', [merchantId]);
-            if (locationResult.rows.length === 0) {
+            // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+            const firstLocation = await getFirstActiveLocation(merchantId);
+            if (!firstLocation) {
                 return res.status(400).json({ error: 'No active locations found.' });
             }
-            targetLocationId = locationResult.rows[0].id;
+            targetLocationId = firstLocation.id;
         }
 
         // Get DB inventory

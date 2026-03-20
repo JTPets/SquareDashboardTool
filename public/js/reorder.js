@@ -685,8 +685,8 @@ function renderTable() {
     if (item.does_not_expire) {
       expiryHtml = '<span class="expiry-none">Never</span>';
     } else if (item.expiration_date) {
-      const expiryDate = new Date(item.expiration_date);
-      const formattedDate = expiryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+      const formattedDate = formatDate(item.expiration_date);
       const expiryBadgeTier = getExpiryTierFromDays(daysLeft);
       if (expiryBadgeTier === 'EXPIRED' || expiryBadgeTier === 'AUTO50') {
         expiryHtml = `<span class="expiry-badge critical" title="${daysLeft} days until expiry">${formattedDate}</span>`;

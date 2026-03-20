@@ -111,12 +111,13 @@
       const noGtin = allProducts.filter(p => !p.gtin).length;
       const noBrand = allProducts.filter(p => !p.brand).length;
 
-      document.getElementById('stat-total').textContent = total.toLocaleString();
-      document.getElementById('stat-in-stock').textContent = inStock.toLocaleString();
-      document.getElementById('stat-out-stock').textContent = outStock.toLocaleString();
-      document.getElementById('stat-no-image').textContent = noImage.toLocaleString();
-      document.getElementById('stat-no-gtin').textContent = noGtin.toLocaleString();
-      document.getElementById('stat-no-brand').textContent = noBrand.toLocaleString();
+      // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+      document.getElementById('stat-total').textContent = formatNumber(total);
+      document.getElementById('stat-in-stock').textContent = formatNumber(inStock);
+      document.getElementById('stat-out-stock').textContent = formatNumber(outStock);
+      document.getElementById('stat-no-image').textContent = formatNumber(noImage);
+      document.getElementById('stat-no-gtin').textContent = formatNumber(noGtin);
+      document.getElementById('stat-no-brand').textContent = formatNumber(noBrand);
 
       // Update badge counts
       document.querySelectorAll('.badge').forEach(badge => {
@@ -1271,7 +1272,8 @@
           const productStatus = data.status.product_catalog;
           const productEl = document.getElementById('last-product-sync-inline');
           if (productEl && productStatus) {
-            const time = new Date(productStatus.started_at).toLocaleString();
+            // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+            const time = formatDateTime(productStatus.started_at);
             const statusIcon = productStatus.status === 'success' ? '✓' :
                               productStatus.status === 'partial' ? '⚠' :
                               productStatus.status === 'in_progress' ? '⏳' : '✗';
@@ -1296,7 +1298,7 @@
           const inventoryStatus = data.status.local_inventory_all;
           const invEl = document.getElementById('last-inventory-sync-inline');
           if (invEl && inventoryStatus) {
-            const time = new Date(inventoryStatus.started_at).toLocaleString();
+            const time = formatDateTime(inventoryStatus.started_at);
             const statusIcon = inventoryStatus.status === 'success' ? '✓' :
                               inventoryStatus.status === 'partial' ? '⚠' :
                               inventoryStatus.status === 'in_progress' ? '⏳' : '✗';
@@ -1380,9 +1382,9 @@
         // Update stats
         const inStock = localInventoryData.filter(i => i.quantity > 0).length;
         const outStock = localInventoryData.length - inStock;
-        document.getElementById('li-stat-total').textContent = localInventoryData.length.toLocaleString();
-        document.getElementById('li-stat-in-stock').textContent = inStock.toLocaleString();
-        document.getElementById('li-stat-out-stock').textContent = outStock.toLocaleString();
+        document.getElementById('li-stat-total').textContent = formatNumber(localInventoryData.length);
+        document.getElementById('li-stat-in-stock').textContent = formatNumber(inStock);
+        document.getElementById('li-stat-out-stock').textContent = formatNumber(outStock);
         document.getElementById('li-stat-store-code').textContent = data.location?.store_code || '--';
         document.getElementById('local-inventory-stats').style.display = 'block';
 

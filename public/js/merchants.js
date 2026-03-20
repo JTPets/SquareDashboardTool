@@ -241,7 +241,8 @@ function formatRelativeDate(dateString) {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
 
-  return date.toLocaleDateString();
+  // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+  return formatDate(dateString);
 }
 
 // Expose functions to global scope for event delegation

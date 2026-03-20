@@ -126,7 +126,8 @@ function renderItems() {
          <div class="no-image" style="display:none;">&#128230;</div>`
       : `<div class="no-image">&#128230;</div>`;
 
-    const price = item.price_money ? `${item.currency || 'CAD'} $${(item.price_money / 100).toFixed(2)}` : 'N/A';
+    // LOGIC CHANGE: using shared formatCurrency (BACKLOG-23)
+    const price = item.price_money ? `${item.currency || 'CAD'} ${formatCurrency(item.price_money)}` : 'N/A';
 
     return `
       <div class="item-card ${item.is_priority ? 'priority' : ''}" id="item-${escapeHtml(item.id)}">

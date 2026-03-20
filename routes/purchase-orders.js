@@ -34,6 +34,7 @@ const asyncHandler = require('../middleware/async-handler');
 const { escapeCSVField, formatDateForSquare, formatMoney, formatGTIN, UTF8_BOM } = require('../utils/csv-helpers');
 const validators = require('../middleware/validators/purchase-orders');
 const { clearExpiryDiscountForReorder, applyDiscounts } = require('../services/expiry/discount-service');
+const { getLocationById } = require('../services/catalog/location-service');
 
 /**
  * POST /api/purchase-orders
@@ -60,12 +61,9 @@ router.post('/', requireAuth, requireMerchant, validators.createPurchaseOrder, a
             return res.status(403).json({ error: 'Invalid vendor or vendor does not belong to this merchant' });
         }
 
-        // Security: Pre-validate location_id belongs to this merchant
-        const locationCheck = await db.query(
-            'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
-            [location_id, merchantId]
-        );
-        if (locationCheck.rows.length === 0) {
+        // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+        const location = await getLocationById(merchantId, location_id);
+        if (!location) {
             return res.status(403).json({ error: 'Invalid location or location does not belong to this merchant' });
         }
 

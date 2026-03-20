@@ -1477,7 +1477,7 @@ async function loadRedemptions() {
 
       return `
       <tr>
-        <td>${new Date(r.redeemed_at).toLocaleString()}</td>
+        <td>${formatDateTime(r.redeemed_at)}</td>
         <td style="font-size: 13px;">${escapeHtml(phoneDisplay)}</td>
         <td>${escapeHtml(r.offer_name)}<br><small style="color: #6b7280;">${escapeHtml(r.brand_name)} - ${escapeHtml(r.size_group)}</small></td>
         <td>${r.redeemed_item_name ? escapeHtml(r.redeemed_item_name) : '-'}</td>
@@ -1764,7 +1764,8 @@ async function loadSeniorsMembers() {
       const name = [m.given_name, m.family_name].filter(Boolean).join(' ') || m.square_customer_id.substring(0, 10) + '...';
       const phone = m.phone_number || '--';
       const age = m.age_at_last_check || '--';
-      const date = m.added_to_group_at ? new Date(m.added_to_group_at).toLocaleDateString('en-US') : '--';
+      // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+      const date = m.added_to_group_at ? formatDate(m.added_to_group_at) : '--';
       return `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${age}</td><td>${date}</td></tr>`;
     });
 

@@ -165,7 +165,8 @@ async function loadMerchantStatus() {
                 }
                 if (merchantStatus.billing.nextBillingDate) {
                     document.getElementById('next-billing').textContent =
-                        new Date(merchantStatus.billing.nextBillingDate).toLocaleDateString();
+                        // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+                        formatDate(merchantStatus.billing.nextBillingDate);
                 }
             }
         } else {

@@ -30,13 +30,7 @@
     const filterStart = document.getElementById('filter-start');
     const filterEnd = document.getElementById('filter-end');
 
-    /**
-     * Format currency (cents to dollars)
-     */
-    function formatCurrency(cents) {
-      if (!cents && cents !== 0) return '--';
-      return '$' + (cents / 100).toFixed(2);
-    }
+    // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
 
     /**
      * Calculate age and return formatted string with class

@@ -115,13 +115,14 @@ function renderTable() {
 
     // Format date (use deleted_at or archived_at)
     const inactiveDate = item.deleted_at || item.archived_at;
+    // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
     const formattedDate = inactiveDate
-      ? new Date(inactiveDate).toLocaleDateString()
+      ? formatDate(inactiveDate)
       : 'Unknown';
 
-    // Format price
+    // LOGIC CHANGE: using shared formatCurrency (BACKLOG-23)
     const price = item.price_money
-      ? `${escapeHtml(item.currency || 'CAD')} $${escapeHtml((item.price_money / 100).toFixed(2))}`
+      ? `${escapeHtml(item.currency || 'CAD')} ${formatCurrency(item.price_money)}`
       : '-';
 
     return `

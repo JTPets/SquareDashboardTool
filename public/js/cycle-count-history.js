@@ -105,21 +105,22 @@ function filterHistory() {
 }
 
 function updateStats(summary) {
-  document.getElementById('stat-total').textContent = summary.total_counts.toLocaleString();
-  document.getElementById('stat-accurate').textContent = summary.accurate_counts.toLocaleString();
-  document.getElementById('stat-inaccurate').textContent = summary.inaccurate_counts.toLocaleString();
+  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+  document.getElementById('stat-total').textContent = formatNumber(summary.total_counts);
+  document.getElementById('stat-accurate').textContent = formatNumber(summary.accurate_counts);
+  document.getElementById('stat-inaccurate').textContent = formatNumber(summary.inaccurate_counts);
   document.getElementById('stat-accuracy-rate').textContent = summary.accuracy_rate.toFixed(1) + '%';
-  document.getElementById('stat-variance-units').textContent = summary.total_variance_units.toLocaleString();
-  document.getElementById('stat-variance-value').textContent = '$' + summary.total_variance_value.toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('stat-variance-units').textContent = formatNumber(summary.total_variance_units);
+  document.getElementById('stat-variance-value').textContent = formatDollars(summary.total_variance_value);
 }
 
 function renderTable(items) {
   const tbody = document.getElementById('history-body');
 
   tbody.innerHTML = items.map(item => {
-    const countDate = new Date(item.last_counted_date);
-    const dateStr = countDate.toLocaleDateString('en-CA');
-    const timeStr = countDate.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' });
+    // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+    const dateStr = formatDate(item.last_counted_date);
+    const timeStr = new Date(item.last_counted_date).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' });
 
     const variance = item.variance || 0;
     const varianceClass = variance > 0 ? 'variance-positive' : (variance < 0 ? 'variance-negative' : 'variance-zero');

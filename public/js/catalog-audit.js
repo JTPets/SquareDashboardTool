@@ -116,7 +116,8 @@ function renderAuditCards() {
 
     card.innerHTML =
       '<div class="card-header"><span class="card-title">' + audit.label + '</span></div>' +
-      '<div class="card-value">' + escapeHtml(count.toLocaleString()) + '</div>' +
+      // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+      '<div class="card-value">' + escapeHtml(formatNumber(count)) + '</div>' +
       '<div class="card-percent">' + escapeHtml(String(percent)) + '% of catalog</div>' +
       (audit.note ? '<div class="card-note">' + audit.note + '</div>' : '');
 
@@ -162,10 +163,10 @@ function calculateStats() {
                        (auditStats.stock_tracking_off || 0) +
                        (auditStats.inventory_alerts_off || 0);
 
-  document.getElementById('totalProducts').textContent = total.toLocaleString();
-  document.getElementById('itemsWithIssues').textContent = withIssues.toLocaleString();
+  document.getElementById('totalProducts').textContent = formatNumber(total);
+  document.getElementById('itemsWithIssues').textContent = formatNumber(withIssues);
   document.getElementById('completionRate').textContent = completionRate + '%';
-  document.getElementById('criticalIssues').textContent = criticalCount.toLocaleString();
+  document.getElementById('criticalIssues').textContent = formatNumber(criticalCount);
 }
 
 // ============================================================================
@@ -764,7 +765,8 @@ function renderHealthTable(issues) {
     var severityBadge = issue.severity === 'warn'
       ? '<span class="issue-badge warning">warn</span>'
       : '<span class="issue-badge critical">error</span>';
-    var detected = issue.detected_at ? new Date(issue.detected_at).toLocaleString() : '-';
+    // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+    var detected = formatDateTime(issue.detected_at);
 
     return '<tr>' +
       '<td style="padding:10px; border-bottom:1px solid #e5e7eb;">' + escapeHtml(CHECK_TYPE_LABELS[ct] || ct) + '</td>' +
