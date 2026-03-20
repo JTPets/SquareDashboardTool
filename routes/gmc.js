@@ -40,6 +40,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const { configureSensitiveOperationRateLimit } = require('../middleware/security');
 const validators = require('../middleware/validators/gmc');
 const asyncHandler = require('../middleware/async-handler');
+const { getLocationById } = require('../services/catalog/location-service');
 
 // Rate limiter for sensitive operations (token regeneration)
 const sensitiveOperationRateLimit = configureSensitiveOperationRateLimit();
@@ -751,13 +752,9 @@ router.put('/location-settings/:locationId', requireAuth, requireMerchant, requi
     const { google_store_code, enabled } = req.body;
     const merchantId = req.merchantContext.id;
 
-    // Verify location belongs to this merchant
-    const locationCheck = await db.query(
-        'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
-        [locationId, merchantId]
-    );
-
-    if (locationCheck.rows.length === 0) {
+    // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+    const location = await getLocationById(merchantId, locationId);
+    if (!location) {
         return res.status(404).json({ error: 'Location not found' });
     }
 
@@ -810,13 +807,9 @@ router.get('/local-inventory-feed', requireAuth, requireMerchant, validators.get
     const { location_id } = req.query;
     const merchantId = req.merchantContext.id;
 
-    // Verify location belongs to this merchant
-    const locationCheck = await db.query(
-        'SELECT id FROM locations WHERE id = $1 AND merchant_id = $2',
-        [location_id, merchantId]
-    );
-
-    if (locationCheck.rows.length === 0) {
+    // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+    const locationRow = await getLocationById(merchantId, location_id);
+    if (!locationRow) {
         return res.status(404).json({ error: 'Location not found' });
     }
 

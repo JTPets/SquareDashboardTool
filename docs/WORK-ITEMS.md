@@ -8,6 +8,16 @@
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
+### Purge Log — 2026-03-20 Shared Utility Extraction (BACKLOG-23, 25, 26, 27)
+
+**BACKLOG-23 FIXED** — Created `public/js/utils/format-currency.js` with `formatCurrency(cents)`, `formatDollars(dollars, decimals)`, and `formatNumber(num)`. Replaced inline currency/number formatting across 14 JS files. All standardized to 'en-CA' locale.
+
+**BACKLOG-25 FIXED** — Created `services/catalog/location-service.js` with `hasLocations`, `getLocationById`, `getActiveLocationIds`, `getActiveLocationCount`, `getFirstActiveLocation`. Replaced inline location queries in 5 route files (merchants, purchase-orders, gmc, sync, cycle-counts).
+
+**BACKLOG-26 FIXED** — Extended `public/js/utils/date-format.js` with `formatDateTime()` for timestamp formatting. Replaced inline date formatting in 13 JS files.
+
+**BACKLOG-27 FIXED** — Standardized all `toLocaleString()`/`toLocaleDateString()` calls to 'en-CA' locale via shared utilities. Eliminated 60+ inconsistent inline calls.
+
 ### Purge Log — 2026-03-20 Validation (BACKLOG-89, DB-5, Google tokens)
 
 **BACKLOG-89 FIXED** — Removed dead `supplier_item_number` column from `variations` table. Two SQL COALESCE fallbacks in `loyalty-reports.js` updated to use `vv.vendor_code` directly. Field removed from `variation-service.js` allowlist, `schema.sql`, and `schema-manager.js`. Migration `002_drop_supplier_item_number.sql` drops the column.
@@ -252,10 +262,10 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 |----|-------------|--------|------------|
 | BACKLOG-3 | Response format standardization. | M | 2026-01-01 |
 | BACKLOG-17 | Customer lookup helpers duplicated (DEDUP L-4). | M | 2026-02-17 |
-| BACKLOG-23 | Currency formatting — no shared helper (DEDUP G-3). | S | 2026-02-17 |
-| BACKLOG-25 | Location lookup queries repeated across 6 routes (DEDUP G-5). | S | 2026-02-17 |
-| BACKLOG-26 | Date string formatting pattern repeated 12 times (DEDUP G-7). | S | 2026-02-17 |
-| BACKLOG-27 | Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8). | S | 2026-02-17 |
+| ~~BACKLOG-23~~ | ~~Currency formatting — no shared helper (DEDUP G-3).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
+| ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
+| ~~BACKLOG-26~~ | ~~Date string formatting pattern repeated 12 times (DEDUP G-7).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
+| ~~BACKLOG-27~~ | ~~Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder delete/recreate. | S | 2026-02-24 |
 | BACKLOG-40 | exceljs pulls deprecated transitive deps — evaluate lighter library. | S | 2026-03-01 |
 | BACKLOG-9 | In-memory global state — PM2 restart recovery. | S | 2026-01-26 |

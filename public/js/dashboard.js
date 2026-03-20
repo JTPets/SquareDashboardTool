@@ -234,19 +234,20 @@ async function loadStats() {
       : 0;
 
     // Update all stats
-    updateStat('stat-variations', uniqueVariations.toLocaleString());
-    updateStat('stat-total-units', Math.floor(totalUnits).toLocaleString());
-    updateStat('stat-value-retail', '$' + totalValueRetail.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
-    updateStat('stat-value-cog', '$' + totalValueCOG.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0}));
-    updateStat('stat-out-of-stock', outOfStock.toLocaleString());
+    // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+    updateStat('stat-variations', formatNumber(uniqueVariations));
+    updateStat('stat-total-units', formatNumber(Math.floor(totalUnits)));
+    updateStat('stat-value-retail', formatDollars(totalValueRetail, 0));
+    updateStat('stat-value-cog', formatDollars(totalValueCOG, 0));
+    updateStat('stat-out-of-stock', formatNumber(outOfStock));
 
-    updateStat('stat-expiry-data', `${withExpiryData.toLocaleString()} (${expiryPercent}%)`);
-    updateStat('stat-expiring-soon', expiringSoon.toLocaleString());
+    updateStat('stat-expiry-data', `${formatNumber(withExpiryData)} (${expiryPercent}%)`);
+    updateStat('stat-expiring-soon', formatNumber(expiringSoon));
 
-    updateStat('stat-alerts', alertCount.toLocaleString());
+    updateStat('stat-alerts', formatNumber(alertCount));
 
-    updateStat('stat-cycle-pending', pendingCount.toLocaleString());
-    updateStat('stat-cycle-target', targetCount.toLocaleString());
+    updateStat('stat-cycle-pending', formatNumber(pendingCount));
+    updateStat('stat-cycle-target', formatNumber(targetCount));
     updateStat('stat-cycle-complete', `${completionRate}%`);
 
     console.log('Dashboard stats updated successfully');

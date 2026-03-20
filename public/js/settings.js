@@ -268,6 +268,7 @@ async function loadUsersList() {
       return;
     }
 
+    // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
     let html = '<div style="display: grid; gap: 10px;">';
     for (const user of data.users) {
       const isActive = user.is_active;
@@ -282,7 +283,7 @@ async function loadUsersList() {
             <div style="font-size: 13px; color: #6b7280;">
               ${escapeHtml(user.name || 'No name')} &bull; ${escapeHtml(user.role)} &bull; ${escapeHtml(statusText)}
             </div>
-            ${user.last_login ? `<div style="font-size: 12px; color: #9ca3af;">Last login: ${new Date(user.last_login).toLocaleString()}</div>` : ''}
+${user.last_login ? `<div style="font-size: 12px; color: #9ca3af;">Last login: ${formatDateTime(user.last_login)}</div>` : ''}
           </div>
           <div style="display: flex; gap: 8px;">
             ${isLocked ? `<button class="btn-icon" data-action="unlockUser" data-action-param="${user.id}" title="Unlock">🔓</button>` : ''}

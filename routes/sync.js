@@ -26,6 +26,7 @@ const { requireMerchant } = require('../middleware/merchant');
 const validators = require('../middleware/validators/sync');
 const asyncHandler = require('../middleware/async-handler');
 const { reconcileBundleComponents } = require('../services/webhook-handlers/catalog-handler');
+const { getActiveLocationCount } = require('../services/catalog/location-service');
 
 // ==================== SYNC HELPER FUNCTIONS ====================
 
@@ -165,8 +166,8 @@ async function runSmartSync({ merchantId } = {}) {
     // CRITICAL: Check and sync locations FIRST
     // Always sync if there are 0 active locations, regardless of interval
     // Locations are required for inventory and sales velocity syncs
-    const locationCountResult = await db.query('SELECT COUNT(*) FROM locations WHERE active = TRUE AND merchant_id = $1', [merchantId]);
-    const locationCount = parseInt(locationCountResult.rows[0].count);
+    // LOGIC CHANGE: using shared location-service (BACKLOG-25)
+    const locationCount = await getActiveLocationCount(merchantId);
     const locationsCheck = await isSyncNeeded('locations', intervals.locations, merchantId);
 
     if (locationCount === 0 || locationsCheck.needed) {

@@ -499,9 +499,10 @@
         const response = await fetch('/api/vendor-catalog/stats');
         const stats = await response.json();
 
-        document.getElementById('stat-total').textContent = stats.total_items?.toLocaleString() || '0';
-        document.getElementById('stat-vendors').textContent = stats.vendor_count?.toLocaleString() || '0';
-        document.getElementById('stat-matched').textContent = stats.matched_items?.toLocaleString() || '0';
+        // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+        document.getElementById('stat-total').textContent = formatNumber(stats.total_items || 0);
+        document.getElementById('stat-vendors').textContent = formatNumber(stats.vendor_count || 0);
+        document.getElementById('stat-matched').textContent = formatNumber(stats.matched_items || 0);
         document.getElementById('stat-margin').textContent = stats.avg_margin ? stats.avg_margin.toFixed(1) + '%' : '-';
       } catch (error) {
         console.error('Failed to load stats:', error);
@@ -773,6 +774,7 @@
           return;
         }
 
+        // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
         container.innerHTML = data.batches.map(batch => {
           const isArchived = batch.is_archived;
           const cardStyle = isArchived ? 'opacity: 0.6; background: #f3f4f6;' : '';
@@ -787,7 +789,7 @@
                 </h4>
                 <p style="font-size: 13px;">
                   Batch: <code style="font-size: 11px;">${escapeHtml(batch.import_batch_id)}</code><br>
-                  Imported: ${escapeHtml(new Date(batch.imported_at).toLocaleString())}
+                  Imported: ${escapeHtml(formatDateTime(batch.imported_at))}
                 </p>
               </div>
               <div class="batch-stats">
@@ -936,7 +938,7 @@
             ${data.importName ? ` - <em>${escapeHtml(data.importName)}</em>` : ''}
             <br>
             <span style="font-size: 12px; color: #6b7280;">
-              Originally imported: ${new Date(data.importedAt).toLocaleString()}
+              Originally imported: ${formatDateTime(data.importedAt)}
               | ${data.totalItems} items (${data.matchedItems} matched)
             </span>
           </div>
@@ -1138,7 +1140,7 @@
     <h1>Price Update Report</h1>
     <p><strong>Vendor:</strong> ${escapeHtml(report.vendorName)}</p>
     ${report.importName ? `<p><strong>Catalog:</strong> ${escapeHtml(report.importName)}</p>` : ''}
-    <p><strong>Generated:</strong> ${new Date(report.importedAt).toLocaleString()}</p>
+    <p><strong>Generated:</strong> ${formatDateTime(report.importedAt)}</p>
     <div class="summary">
       <div class="summary-stat">
         <div class="value">${report.summary.total}</div>

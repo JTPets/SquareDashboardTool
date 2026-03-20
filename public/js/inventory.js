@@ -100,11 +100,12 @@ function calculateStats(data) {
   }, 0);
   const outOfStock = data.filter(item => parseFloat(item.quantity || 0) === 0).length;
 
-  document.getElementById('totalRecords').textContent = totalRecords.toLocaleString();
-  document.getElementById('uniqueProducts').textContent = uniqueProducts.toLocaleString();
-  document.getElementById('totalUnits').textContent = Math.floor(totalUnits).toLocaleString();
-  document.getElementById('totalValue').textContent = '$' + totalValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  document.getElementById('outOfStock').textContent = outOfStock.toLocaleString();
+  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+  document.getElementById('totalRecords').textContent = formatNumber(totalRecords);
+  document.getElementById('uniqueProducts').textContent = formatNumber(uniqueProducts);
+  document.getElementById('totalUnits').textContent = formatNumber(Math.floor(totalUnits));
+  document.getElementById('totalValue').textContent = formatDollars(totalValue);
+  document.getElementById('outOfStock').textContent = formatNumber(outOfStock);
 }
 
 function filterData() {

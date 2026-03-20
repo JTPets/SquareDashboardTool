@@ -123,8 +123,8 @@ async function loadStatus() {
 
     // Update last run
     if (statusData.lastRunAt) {
-      const lastRun = new Date(statusData.lastRunAt);
-      document.getElementById('last-run').textContent = lastRun.toLocaleString();
+      // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+      document.getElementById('last-run').textContent = formatDateTime(statusData.lastRunAt);
     }
 
     // Update status bar
@@ -168,7 +168,7 @@ async function loadItems() {
     tbody.innerHTML = data.variations.map(item => {
       const daysClass = getDaysClass(item.days_until_expiry);
       const expiryDate = item.expiration_date
-        ? new Date(item.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        ? formatDate(item.expiration_date)
         : '-';
       const originalPrice = item.original_price_cents ? '$' + (item.original_price_cents / 100).toFixed(2) : '-';
       const discountedPrice = item.discounted_price_cents ? '$' + (item.discounted_price_cents / 100).toFixed(2) : '-';
@@ -302,7 +302,7 @@ async function loadFlagged() {
 
     tbody.innerHTML = data.flagged.map(item => {
       const overrideDate = item.manual_override_at
-        ? new Date(item.manual_override_at).toLocaleString()
+        ? formatDateTime(item.manual_override_at)
         : '-';
 
       return `
@@ -406,7 +406,7 @@ async function loadAuditLog() {
     }
 
     tbody.innerHTML = data.logs.map(log => {
-      const timestamp = new Date(log.created_at).toLocaleString();
+      const timestamp = formatDateTime(log.created_at);
       return `
         <tr>
           <td style="font-size: 12px; color: #6b7280;">${escapeHtml(timestamp)}</td>

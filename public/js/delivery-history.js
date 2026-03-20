@@ -154,13 +154,8 @@ function renderOrders() {
  * @returns {string} HTML string for the order card
  */
 function renderOrderCard(order) {
-  const date = order.updated_at ? new Date(order.updated_at).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  }) : 'Unknown date';
+  // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+  const date = order.updated_at ? formatDateTime(order.updated_at) : 'Unknown date';
 
   const hasPod = !!order.pod_id;
   const podTime = order.pod_captured_at ? new Date(order.pod_captured_at).toLocaleTimeString('en-US', {

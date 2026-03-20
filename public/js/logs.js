@@ -17,10 +17,11 @@ async function loadStats() {
     const response = await fetch('/api/logs/stats');
     const data = await response.json();
 
-    document.getElementById('stat-total').textContent = (data.total || 0).toLocaleString();
-    document.getElementById('stat-errors').textContent = (data.errors || 0).toLocaleString();
-    document.getElementById('stat-warnings').textContent = (data.warnings || 0).toLocaleString();
-    document.getElementById('stat-info').textContent = (data.info || 0).toLocaleString();
+    // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+    document.getElementById('stat-total').textContent = formatNumber(data.total || 0);
+    document.getElementById('stat-errors').textContent = formatNumber(data.errors || 0);
+    document.getElementById('stat-warnings').textContent = formatNumber(data.warnings || 0);
+    document.getElementById('stat-info').textContent = formatNumber(data.info || 0);
   } catch (error) {
     console.error('Failed to load stats:', error);
   }

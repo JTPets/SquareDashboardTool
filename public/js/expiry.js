@@ -121,12 +121,13 @@ function updateStats() {
     return sum + (qty * price / 100);
   }, 0);
 
-  document.getElementById('stat-total').textContent = total.toLocaleString();
-  document.getElementById('stat-with-data').textContent = `${withData.toLocaleString()} (${withDataPercent}%)`;
-  document.getElementById('stat-never-expires').textContent = neverExpires.toLocaleString();
-  document.getElementById('stat-has-expiry').textContent = hasExpiry.toLocaleString();
-  document.getElementById('stat-expiring').textContent = expiring.toLocaleString();
-  document.getElementById('stat-value').textContent = '$' + totalValue.toLocaleString('en-CA', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+  // LOGIC CHANGE: using shared formatCurrency/formatNumber (BACKLOG-23)
+  document.getElementById('stat-total').textContent = formatNumber(total);
+  document.getElementById('stat-with-data').textContent = `${formatNumber(withData)} (${withDataPercent}%)`;
+  document.getElementById('stat-never-expires').textContent = formatNumber(neverExpires);
+  document.getElementById('stat-has-expiry').textContent = formatNumber(hasExpiry);
+  document.getElementById('stat-expiring').textContent = formatNumber(expiring);
+  document.getElementById('stat-value').textContent = formatDollars(totalValue, 0);
 }
 
 /**

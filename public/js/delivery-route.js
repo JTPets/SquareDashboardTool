@@ -629,7 +629,8 @@ function showExistingShareToken(shareUrl, expiresAt) {
   document.getElementById('hasShareToken').style.display = 'block';
   document.getElementById('revokeBtn').style.display = 'block';
   document.getElementById('shareUrlInput').value = shareUrl;
-  document.getElementById('shareExpiry').textContent = new Date(expiresAt).toLocaleString();
+  // LOGIC CHANGE: using shared formatDate/formatDateTime (BACKLOG-26)
+  document.getElementById('shareExpiry').textContent = formatDateTime(expiresAt);
 }
 
 async function generateShareLink() {
