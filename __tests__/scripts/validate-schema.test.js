@@ -125,4 +125,15 @@ describe('typeCompatible', () => {
         expect(typeCompatible('jsonb', 'json')).toBe(true);
         expect(typeCompatible('jsonb', 'jsonb')).toBe(true);
     });
+
+    test('varchar(N) is compatible with varchar (size specifier stripped)', () => {
+        expect(typeCompatible('varchar(64)', 'varchar')).toBe(true);
+        expect(typeCompatible('varchar(255)', 'character varying')).toBe(true);
+        expect(typeCompatible('varchar(20)', 'text')).toBe(true);
+    });
+
+    test('text[] is compatible with array (PostgreSQL reports as ARRAY)', () => {
+        expect(typeCompatible('text[]', 'array')).toBe(true);
+        expect(typeCompatible('varchar[]', 'array')).toBe(true);
+    });
 });
