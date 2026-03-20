@@ -3,10 +3,22 @@
 > **Navigation**: [Back to CLAUDE.md](../CLAUDE.md) | [Priorities](./PRIORITIES.md) | [Technical Debt](./TECHNICAL_DEBT.md) | [Architecture](./ARCHITECTURE.md) | [Roadmap](./ROADMAP.md)
 
 **Last Validated**: 2026-03-20
-**Total Open Items**: ~51
+**Total Open Items**: ~44
 
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
+
+### Purge Log — 2026-03-20 Validation (CRIT-3, BACKLOG-69/70/71/74)
+
+**CRIT-3 (audit) RESOLVED** — All innerHTML interpolations wrapped with escapeHtml() across 17 files (Phases 1-3B). Zero unescaped variable interpolations remain.
+
+**BACKLOG-69 FIXED** — Extracted `recreateDiscountIfInvalid()` shared function, 3 call sites consolidated in discount-validation-service.js.
+
+**BACKLOG-70 FIXED** — `syncRewardDiscountPrices` price cap now syncs both directions (increase and decrease).
+
+**BACKLOG-71 FIXED** — `_analyzeOrders` renamed to `analyzeOrders()`, exported as public function with independent tests.
+
+**BACKLOG-74 FIXED** — Promo code validation extracted to `services/promo-validation.js`, both routes use shared function.
 
 ### Purge Log — 2026-03-20 Validation (BUG-5, BUG-6, timestamp/type fixes)
 
@@ -76,16 +88,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 ---
 
-## Critical Priority
-
-### Security
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~CRIT-3 (audit)~~ | ~~288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping.~~ **RESOLVED 2026-03-20**: All innerHTML interpolations wrapped with escapeHtml() across 17 files (Phases 1-3B complete). Zero unescaped variable interpolations remain. | `public/js/` (34 files) | L | 2026-03-10 |
-
----
-
 ## High Priority
 
 ### Business
@@ -100,15 +102,6 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 ---
 
 ## Medium Priority
-
-### Loyalty System
-
-| ID | Description | File(s) | Effort | Discovered |
-|----|-------------|---------|--------|------------|
-| ~~BACKLOG-69~~ | ~~Extract duplicate discount fix pattern — same recreate-discount logic repeated 3 times in validation checks.~~ **FIXED 2026-03-20**: Extracted `recreateDiscountIfInvalid()` shared function, 3 call sites consolidated. | `discount-validation-service.js` | S | 2026-03-15 |
-| ~~BACKLOG-71~~ | ~~Extract `_analyzeOrders` from `order-history-audit-service.js` for independent testing.~~ **FIXED 2026-03-20**: Renamed to `analyzeOrders()`, exported as public function with independent tests. | `order-history-audit-service.js` | S | 2026-03-15 |
-| ~~BACKLOG-70~~ | ~~`syncRewardDiscountPrices` only updates upward — price cap stays inflated if catalog price drops.~~ **FIXED 2026-03-20**: Price cap now syncs both directions (increase and decrease). | `discount-validation-service.js` | S | 2026-03-15 |
-| ~~BACKLOG-74~~ | ~~Extract promo code validation — duplicated between `POST /promo/validate` (~line 92) and `POST /create` (~line 208) in `routes/subscriptions.js`. Extract to `validatePromoCode(code, merchantId, plan, priceCents)` service function.~~ **FIXED 2026-03-20**: Extracted to `services/promo-validation.js`, both routes use shared function. | `routes/subscriptions.js`, `services/promo-validation.js` | S | 2026-03-17 |
 
 ### Features
 
@@ -253,11 +246,11 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | Tier | Count |
 |------|-------|
-| Critical | 1 |
+| Critical | 0 |
 | High | 4 |
-| Medium | ~30 |
-| Low | ~20 |
+| Medium | ~25 |
+| Low | ~17 |
 | Nice to Have | 16 |
-| **Total** | **~49** |
+| **Total** | **~44** |
 
-**Validation delta**: ~95 → ~65 → ~49 items. **72 items purged** across two validations (2026-03-15: 46 items, 2026-03-17/19: 26 items).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 items. **77 items purged** across three validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items).
