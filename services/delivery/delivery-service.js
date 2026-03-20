@@ -1171,9 +1171,13 @@ function _decryptOrsKey(settings) {
         try {
             return decryptToken(settings.ors_api_key_encrypted);
         } catch (err) {
-            logger.error('Failed to decrypt ORS API key', {
+            // LOGIC CHANGE: Log decryption error with downstream impact context.
+            // Previously the error was logged but callers had no idea why geocoding
+            // silently failed (null key → geocodeAddress returns null → no coordinates).
+            logger.error('Failed to decrypt ORS API key — geocoding will be unavailable', {
                 merchantId: settings.merchant_id,
-                error: err.message
+                error: err.message,
+                impact: 'geocoding_disabled'
             });
             return null;
         }
@@ -1911,7 +1915,9 @@ async function backfillUnknownCustomers(merchantId) {
     `, [merchantId]);
 
     if (ordersToFix.rows.length === 0) {
-        return { updated: 0, failed: 0, message: 'No orders with Unknown Customer found' };
+        // LOGIC CHANGE: Include `total` field to match the shape returned on the
+        // non-empty path. Previously callers expecting `total` would get undefined.
+        return { updated: 0, failed: 0, total: 0, message: 'No orders with Unknown Customer found' };
     }
 
     logger.info('Starting customer backfill for delivery orders', {

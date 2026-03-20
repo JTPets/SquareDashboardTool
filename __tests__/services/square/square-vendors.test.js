@@ -106,7 +106,7 @@ describe('syncVendors', () => {
         );
     });
 
-    test('on unique name constraint violation calls reconcileVendorId internally', async () => {
+    test('on unique name constraint violation calls reconcileVendorId and logs at WARN', async () => {
         const vendor = makeVendor('V_NEW', 'Duplicate Name');
         makeSquareRequest.mockResolvedValue({ vendors: [vendor], cursor: null });
 
@@ -122,6 +122,11 @@ describe('syncVendors', () => {
 
         expect(count).toBe(1);
         expect(db.transaction).toHaveBeenCalled();
+        // LOGIC CHANGE: Constraint race now logs at WARN, not ERROR
+        expect(logger.warn).toHaveBeenCalledWith(
+            'Vendor unique name constraint hit — reconciling ID change',
+            expect.objectContaining({ merchantId, vendorId: 'V_NEW', vendorName: 'Duplicate Name' })
+        );
     });
 
     test('throws on non-constraint errors', async () => {

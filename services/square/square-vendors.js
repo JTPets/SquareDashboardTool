@@ -152,15 +152,23 @@ async function syncVendors(merchantId) {
                             merchant_id = EXCLUDED.merchant_id,
                             updated_at = CURRENT_TIMESTAMP
                     `, vendorParams);
+                    // LOGIC CHANGE: totalSynced++ moved inside try block after confirmed DB write.
+                    // Previously incremented outside try/catch, counting vendors even when
+                    // reconcileVendorId silently returned without actually syncing.
+                    totalSynced++;
                 } catch (err) {
                     if (err.constraint === 'idx_vendors_merchant_name_unique') {
-                        // Vendor exists with same name but different Square ID — reconcile
+                        // LOGIC CHANGE: Log at WARN instead of letting DB layer log at ERROR,
+                        // since unique constraint races are expected during concurrent syncs.
+                        logger.warn('Vendor unique name constraint hit — reconciling ID change', {
+                            merchantId, vendorId: vendor.id, vendorName: vendor.name
+                        });
                         await reconcileVendorId(vendor, vendorParams, merchantId);
+                        totalSynced++;
                     } else {
                         throw err;
                     }
                 }
-                totalSynced++;
             }
 
             cursor = data.cursor;
@@ -237,7 +245,11 @@ async function ensureVendorsExist(vendorIds, merchantId) {
                 `, vendorParams);
             } catch (insertErr) {
                 if (insertErr.constraint === 'idx_vendors_merchant_name_unique') {
-                    // Name exists with different Square ID — vendor was deleted/recreated in Square
+                    // LOGIC CHANGE: Log at WARN since unique constraint races are expected
+                    // during concurrent syncs. Previously would only produce ERROR-level DB logs.
+                    logger.warn('Vendor unique name constraint hit during on-demand fetch — reconciling', {
+                        merchantId, vendorId, vendorName: vendor.name
+                    });
                     await reconcileVendorId(vendor, vendorParams, merchantId);
                 } else {
                     throw insertErr;

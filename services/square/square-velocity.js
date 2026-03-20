@@ -137,8 +137,9 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                         if (salesData.has(key)) {
                             const data = salesData.get(key);
                             data.total_quantity -= parseFloat(returnItem.quantity) || 0;
-                            data.total_revenue -= parseInt(returnItem.return_amounts?.total_money?.amount
-                                || returnItem.total_money?.amount) || 0;
+                            // LOGIC CHANGE: return_amounts is a property of the parent OrderReturn,
+                            // not of individual return_line_items. Use total_money directly.
+                            data.total_revenue -= parseInt(returnItem.total_money?.amount) || 0;
                         }
                     }
                 }
@@ -471,8 +472,9 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                         if (!variationId || !locationId) continue;
 
                         const refundQty = parseFloat(returnItem.quantity) || 0;
-                        const refundRevenue = parseInt(returnItem.return_amounts?.total_money?.amount
-                            || returnItem.total_money?.amount) || 0;
+                        // LOGIC CHANGE: return_amounts is a property of the parent OrderReturn,
+                        // not of individual return_line_items. Use total_money directly.
+                        const refundRevenue = parseInt(returnItem.total_money?.amount) || 0;
 
                         for (const days of PERIODS) {
                             if (orderClosedAt >= periodBoundaries[days]) {
@@ -843,6 +845,45 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
                     error: dbError.message
                 });
                 skipped++;
+            }
+        }
+    }
+
+    // LOGIC CHANGE: Subtract refunded quantities so incremental velocity stays accurate
+    // between daily full syncs. Previously, refunds were only handled by the full sync.
+    const returns = order.returns || [];
+    for (const ret of returns) {
+        for (const returnItem of (ret.return_line_items || [])) {
+            const variationId = returnItem.catalog_object_id;
+            if (!variationId || !existingIds.has(variationId)) continue;
+
+            const refundQty = parseFloat(returnItem.quantity) || 0;
+            const refundRevenue = parseInt(returnItem.total_money?.amount) || 0;
+
+            if (refundQty <= 0) continue;
+
+            for (const periodDays of applicablePeriods) {
+                try {
+                    await db.query(`
+                        UPDATE sales_velocity
+                        SET total_quantity_sold = GREATEST(0, total_quantity_sold - $4::decimal),
+                            total_revenue_cents = GREATEST(0, total_revenue_cents - $5::integer),
+                            daily_avg_quantity = GREATEST(0, total_quantity_sold - $4::decimal) / $3::decimal,
+                            daily_avg_revenue_cents = GREATEST(0, total_revenue_cents - $5::integer)::decimal / $3::decimal,
+                            weekly_avg_quantity = GREATEST(0, total_quantity_sold - $4::decimal) / ($3::decimal / 7),
+                            monthly_avg_quantity = GREATEST(0, total_quantity_sold - $4::decimal) / ($3::decimal / 30),
+                            updated_at = NOW()
+                        WHERE variation_id = $1 AND location_id = $2
+                          AND period_days = $3 AND merchant_id = $6
+                    `, [variationId, locationId, periodDays, refundQty, refundRevenue, merchantId]);
+                    updated++;
+                } catch (dbError) {
+                    logger.warn('Failed to subtract refund from velocity', {
+                        variationId, periodDays, orderId: order.id,
+                        error: dbError.message
+                    });
+                    skipped++;
+                }
             }
         }
     }

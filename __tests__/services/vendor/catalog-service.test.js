@@ -947,6 +947,25 @@ describe('regeneratePriceReport', () => {
         expect(result.error).toContain('not found');
     });
 
+    it('returns error when db.query returns undefined (null guard)', async () => {
+        // LOGIC CHANGE: regeneratePriceReport now guards against db.query returning undefined
+        db.query.mockResolvedValueOnce(undefined);
+
+        const result = await catalogService.regeneratePriceReport('BATCH_1', MERCHANT_ID);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not found');
+    });
+
+    it('returns error when db.query returns null rows', async () => {
+        db.query.mockResolvedValueOnce({ rows: null });
+
+        const result = await catalogService.regeneratePriceReport('BATCH_1', MERCHANT_ID);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not found');
+    });
+
     it('generates price comparison report', async () => {
         db.query.mockResolvedValueOnce({
             rows: [

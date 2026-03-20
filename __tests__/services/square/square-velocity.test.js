@@ -342,7 +342,9 @@ describe('syncSalesVelocity', () => {
         expect(result).toBe(1);
     });
 
-    test('handles refund with return_amounts.total_money', async () => {
+    test('handles refund with total_money on return line item', async () => {
+        // LOGIC CHANGE: return_amounts is a property of the parent OrderReturn,
+        // not of individual return_line_items. Code now uses returnItem.total_money directly.
         mockLocations();
 
         const order = makeOrder({
@@ -355,7 +357,7 @@ describe('syncSalesVelocity', () => {
                     {
                         catalog_object_id: 'VAR-1',
                         quantity: '2',
-                        return_amounts: { total_money: { amount: 1000 } },
+                        total_money: { amount: 1000 },
                         source_line_item_uid: 'uid-1'
                     }
                 ]
@@ -939,5 +941,71 @@ describe('updateSalesVelocityFromOrder', () => {
 
         const result2 = await updateSalesVelocityFromOrder(order, merchantId);
         expect(result2.updated).toBeGreaterThan(0);
+    });
+
+    test('subtracts refunded quantities from incremental velocity', async () => {
+        // LOGIC CHANGE: updateSalesVelocityFromOrder now subtracts refunds.
+        // Previously only the full sync handled returns.
+        mockVariationsExist();
+
+        const order = makeOrder({
+            id: 'O-REFUND-INC',
+            line_items: [
+                { catalog_object_id: 'VAR-1', quantity: '5', total_money: { amount: 2500 } }
+            ],
+            returns: [{
+                return_line_items: [
+                    {
+                        catalog_object_id: 'VAR-1',
+                        quantity: '2',
+                        total_money: { amount: 1000 }
+                    }
+                ]
+            }]
+        });
+
+        const result = await updateSalesVelocityFromOrder(order, merchantId);
+
+        // 3 periods for the line item + 3 for the refund = 6 updates
+        expect(result.updated).toBe(6);
+
+        // Verify refund UPDATE queries were issued (uses GREATEST(0, ...) pattern)
+        const refundCalls = db.query.mock.calls.filter(([sql]) =>
+            sql.includes('UPDATE sales_velocity') &&
+            sql.includes('GREATEST(0,')
+        );
+        expect(refundCalls.length).toBe(3); // one per period
+    });
+
+    test('skips refund items not in catalog', async () => {
+        mockVariationsExist(); // Only VAR-1 exists
+
+        const order = makeOrder({
+            id: 'O-REFUND-SKIP',
+            line_items: [
+                { catalog_object_id: 'VAR-1', quantity: '3', total_money: { amount: 1500 } }
+            ],
+            returns: [{
+                return_line_items: [
+                    {
+                        catalog_object_id: 'VAR-GONE',
+                        quantity: '1',
+                        total_money: { amount: 500 }
+                    }
+                ]
+            }]
+        });
+
+        const result = await updateSalesVelocityFromOrder(order, merchantId);
+
+        // Only line item updates (3 periods), refund for VAR-GONE skipped
+        expect(result.updated).toBe(3);
+
+        // No GREATEST(0,...) refund queries should be issued
+        const refundCalls = db.query.mock.calls.filter(([sql]) =>
+            sql.includes('UPDATE sales_velocity') &&
+            sql.includes('GREATEST(0,')
+        );
+        expect(refundCalls.length).toBe(0);
     });
 });

@@ -134,6 +134,20 @@ describe('Square OAuth Routes', () => {
             expect(res.status).toBe(302);
             expect(res.headers.location).toContain('test-app-id');
         });
+
+        test('redirects to dashboard with error on DB failure instead of JSON', async () => {
+            // LOGIC CHANGE: /connect now catches errors and redirects to dashboard
+            // instead of letting asyncHandler send JSON to the browser.
+            const app = buildApp();
+            db.query.mockRejectedValueOnce(new Error('DB connection lost'));
+
+            const res = await request(app).get('/api/square/oauth/connect');
+
+            expect(res.status).toBe(302);
+            expect(res.headers.location).toContain('/dashboard.html');
+            expect(res.headers.location).toContain('error=');
+            expect(res.headers.location).toContain('DB%20connection%20lost');
+        });
     });
 
     describe('GET /callback', () => {

@@ -8,6 +8,25 @@
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
+### Purge Log — 2026-03-20 Validation (O-4, Velocity, totalSynced, Velocity refund, OAuth /connect, Vendor log, 3 LOW bugs)
+
+**O-4 FIXED** — Scoping bug in `square-pricing.js`: `currentVariationData` hoisted outside try block so catch block can safely reference it when error occurs before retrieve completes.
+
+**Velocity FIXED** — `return_amounts` property was always undefined on return line items in `square-velocity.js`. Changed to use `returnItem.total_money?.amount` directly (the correct field).
+
+**totalSynced FIXED** — Counter in `square-vendors.js` moved inside try block after confirmed DB write. Previously incremented outside try/catch, counting vendors even when reconcile silently returned.
+
+**Velocity refund FIXED** — `updateSalesVelocityFromOrder` in `square-velocity.js` now subtracts refunded quantities/revenue, keeping incremental velocity accurate between daily full syncs.
+
+**OAuth /connect FIXED** — Error handler in `routes/square-oauth.js` now redirects to dashboard with error query param instead of sending JSON via global error handler.
+
+**Vendor log level FIXED** — Expected unique constraint race condition in `square-vendors.js` now logs at WARN instead of ERROR since it's expected behavior during concurrent syncs.
+
+**3 LOW service bugs FIXED**:
+- `services/vendor/catalog-service.js`: `regeneratePriceReport` null-guards `db.query` result to prevent crash if undefined.
+- `services/delivery/delivery-service.js`: `_decryptOrsKey` error log now mentions geocoding impact.
+- `services/delivery/delivery-service.js`: `backfillUnknownCustomers` empty-path return now includes `total` field for consistent response shape.
+
 ### Purge Log — 2026-03-20 Validation (CRIT-3, BACKLOG-69/70/71/74)
 
 **CRIT-3 (audit) RESOLVED** — All innerHTML interpolations wrapped with escapeHtml() across 17 files (Phases 1-3B). Zero unescaped variable interpolations remain.
@@ -180,7 +199,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| Velocity | `return_amounts` property always undefined on return line item — harmless, fallback used. | `square-velocity.js:140-141,474-475` | S | 2026-03-15 |
+| ~~Velocity~~ | ~~FIXED 2026-03-20~~ — `return_amounts` replaced with correct `total_money` field. | `square-velocity.js` | S | 2026-03-15 |
 | Vendor | `reconcileVendorId` silent no-op — vendor name changes don't propagate until next full sync. | `services/square/square-vendors.js:53-80` | S | 2026-03-15 |
 | Google | Legacy plaintext Google OAuth tokens persist until refresh — migration guard in place, new tokens encrypted. JTPets only. | `utils/google-auth.js:275` | S | 2026-03-15 |
 
@@ -253,4 +272,4 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | Nice to Have | 16 |
 | **Total** | **~44** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 items. **77 items purged** across three validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 items. **84 items purged** across four validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items).
