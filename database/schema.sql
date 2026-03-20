@@ -502,6 +502,11 @@ CREATE INDEX IF NOT EXISTS idx_sales_velocity_merchant_location ON sales_velocit
 CREATE INDEX IF NOT EXISTS idx_vendors_merchant_name ON vendors(merchant_id, name);
 CREATE INDEX IF NOT EXISTS idx_categories_merchant_name ON categories(merchant_id, name);
 
+-- Reorder query composite indexes (PERF-6, migration 003)
+CREATE INDEX IF NOT EXISTS idx_variation_vendors_var_merchant ON variation_vendors(variation_id, merchant_id);
+CREATE INDEX IF NOT EXISTS idx_sales_velocity_var_merchant_period ON sales_velocity(variation_id, merchant_id, period_days);
+CREATE INDEX IF NOT EXISTS idx_poi_var_merchant ON purchase_order_items(variation_id, merchant_id);
+
 -- Comments for documentation
 COMMENT ON TABLE sync_history IS 'Tracks sync operations for smart sync optimization';
 COMMENT ON TABLE locations IS 'Store locations synchronized from Square';

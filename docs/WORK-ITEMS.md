@@ -214,7 +214,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| PERF-6 | Reorder suggestions query: 11-table JOIN with 4 correlated subqueries. Moved from `routes/analytics.js` to `services/catalog/reorder-service.js:135+` but still complex. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
+| ~~PERF-6~~ | ~~FIXED 2026-03-20~~ — Replaced 3 sales_velocity JOINs with 1 LATERAL (conditional aggregation), replaced 3 correlated primary-vendor subqueries with 1 LATERAL JOIN. Net: 8 JOINs + 2 LATERAL + 1 subquery (was 11 JOINs + 4 subqueries). Added 3 composite indexes. Query duration now logged. | `services/catalog/reorder-service.js` | M | 2026-02-28 |
 | ~~PERF-7~~ | ~~FIXED 2026-03-20~~ — N+1 bundle component inserts replaced with single multi-row VALUES INSERT in `_batchInsertComponents()`. Fixed during A-2 service extraction. | `services/bundle-service.js` | S | 2026-02-28 |
 | ~~P-5~~ | ~~FIXED 2026-03-20~~ — Added `listenerCount` guard to `utils/google-auth.js:getAuthenticatedClient()` to match merchant-service pattern. Added error handling in listener. | `utils/google-auth.js`, `services/gmc/merchant-service.js` | S | 2026-02-25 |
 | ~~P-8~~ | ~~FIXED 2026-03-20~~ — Documented why follow-up syncs must be sequential (pending flag depends on main sync completion). Pattern is already non-blocking via fire-and-forget. | `services/sync-queue.js:232-242` | S | 2026-02-25 |

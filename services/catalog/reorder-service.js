@@ -61,11 +61,14 @@ async function getReorderSuggestions({ merchantId, businessName, query }) {
 
     // Run main reorder query
     const { rows, params: queryParams } = buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, location_id });
+    const queryStart = Date.now();
     const result = await db.query(rows, queryParams);
+    const queryDurationMs = Date.now() - queryStart;
 
     logger.info('Reorder query results', {
         merchantId,
         rowCount: result.rows.length,
+        queryDurationMs,
         params: queryParams.slice(0, 3)
     });
 
@@ -136,6 +139,9 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
     const reorderThreshold = supplyDaysNum + safetyDays;
     const params = [reorderThreshold, merchantId];
 
+    // PERF-6: Optimized from 11 JOINs + 4 correlated subqueries to 8 JOINs + 2 LATERAL + 1 subquery.
+    // - 3 sales_velocity JOINs (sv91/sv182/sv365) → 1 LATERAL with conditional aggregation
+    // - 3 primary-vendor correlated subqueries → 1 LATERAL JOIN
     let query = `
             SELECT
                 v.id as variation_id,
@@ -150,11 +156,11 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 COALESCE(ic.quantity, 0) as current_stock,
                 COALESCE(ic_committed.quantity, 0) as committed_quantity,
                 COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0) as available_quantity,
-                sv91.daily_avg_quantity,
-                sv91.weekly_avg_quantity,
-                sv91.weekly_avg_quantity as weekly_avg_91d,
-                sv182.weekly_avg_quantity as weekly_avg_182d,
-                sv365.weekly_avg_quantity as weekly_avg_365d,
+                sv.daily_avg_quantity,
+                sv.weekly_avg_91d as weekly_avg_quantity,
+                sv.weekly_avg_91d,
+                sv.weekly_avg_182d,
+                sv.weekly_avg_365d,
                 -- Expiration data
                 vexp.expiration_date,
                 vexp.does_not_expire,
@@ -168,29 +174,11 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 vv.vendor_code,
                 vv.vendor_id as current_vendor_id,
                 vv.unit_cost_money as unit_cost_cents,
-                -- Get primary vendor (lowest cost, then earliest created)
-                (SELECT vv2.vendor_id
-                 FROM variation_vendors vv2
-                 WHERE vv2.variation_id = v.id AND vv2.merchant_id = $2
-                 ORDER BY vv2.unit_cost_money ASC, vv2.created_at ASC
-                 LIMIT 1
-                ) as primary_vendor_id,
-                -- Get primary vendor name for comparison
-                (SELECT ve2.name
-                 FROM variation_vendors vv3
-                 JOIN vendors ve2 ON vv3.vendor_id = ve2.id AND ve2.merchant_id = $2
-                 WHERE vv3.variation_id = v.id AND vv3.merchant_id = $2
-                 ORDER BY vv3.unit_cost_money ASC, vv3.created_at ASC
-                 LIMIT 1
-                ) as primary_vendor_name,
-                -- Get primary vendor cost for comparison
-                (SELECT vv4.unit_cost_money
-                 FROM variation_vendors vv4
-                 WHERE vv4.variation_id = v.id AND vv4.merchant_id = $2
-                 ORDER BY vv4.unit_cost_money ASC, vv4.created_at ASC
-                 LIMIT 1
-                ) as primary_vendor_cost,
-                -- Get pending quantity from unreceived purchase orders
+                -- Primary vendor (cheapest cost, then earliest) from LATERAL join
+                pv.vendor_id as primary_vendor_id,
+                pv.vendor_name as primary_vendor_name,
+                pv.unit_cost_money as primary_vendor_cost,
+                -- Pending quantity from unreceived purchase orders (single correlated subquery)
                 COALESCE((
                     SELECT SUM(poi.quantity_ordered - COALESCE(poi.received_quantity, 0))
                     FROM purchase_order_items poi
@@ -210,14 +198,14 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 ve.default_supply_days,
                 -- Calculate days until stockout based on AVAILABLE quantity (not total on-hand)
                 CASE
-                    WHEN sv91.daily_avg_quantity > 0 AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
-                    THEN ROUND((COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity, 1)
+                    WHEN sv.daily_avg_quantity > 0 AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) > 0
+                    THEN ROUND((COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv.daily_avg_quantity, 1)
                     WHEN (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) <= 0
                     THEN 0
                     ELSE 999
                 END as days_until_stockout,
                 -- Base suggested quantity (supply_days worth of inventory)
-                ROUND(COALESCE(sv91.daily_avg_quantity, 0) * $1, 2) as base_suggested_qty,
+                ROUND(COALESCE(sv.daily_avg_quantity, 0) * $1, 2) as base_suggested_qty,
                 -- Whether currently at or below minimum stock based on AVAILABLE quantity
                 CASE
                     WHEN COALESCE(vls.stock_alert_min, v.stock_alert_min) IS NOT NULL
@@ -227,24 +215,47 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                 END as below_minimum,
                 EXTRACT(DAY FROM NOW() - v.created_at)::INTEGER as variation_age_days
             FROM variations v
+            -- Item details: name, category, is_deleted filter
             JOIN items i ON v.item_id = i.id AND i.merchant_id = $2
+            -- Current vendor assignment: vendor_code, unit_cost for this variation
             LEFT JOIN variation_vendors vv ON v.id = vv.variation_id AND vv.merchant_id = $2
+            -- Vendor details: name, lead_time_days, default_supply_days
             LEFT JOIN vendors ve ON vv.vendor_id = ve.id AND ve.merchant_id = $2
+            -- On-hand inventory at each location (IN_STOCK state only)
             LEFT JOIN inventory_counts ic ON v.id = ic.catalog_object_id AND ic.merchant_id = $2
                 AND ic.state = 'IN_STOCK'
-            LEFT JOIN sales_velocity sv91 ON v.id = sv91.variation_id AND sv91.period_days = 91 AND sv91.merchant_id = $2
-                AND (sv91.location_id = ic.location_id OR (sv91.location_id IS NULL AND ic.location_id IS NULL))
-            LEFT JOIN sales_velocity sv182 ON v.id = sv182.variation_id AND sv182.period_days = 182 AND sv182.merchant_id = $2
-                AND (sv182.location_id = ic.location_id OR (sv182.location_id IS NULL AND ic.location_id IS NULL))
-            LEFT JOIN sales_velocity sv365 ON v.id = sv365.variation_id AND sv365.period_days = 365 AND sv365.merchant_id = $2
-                AND (sv365.location_id = ic.location_id OR (sv365.location_id IS NULL AND ic.location_id IS NULL))
+            -- Sales velocity: 91d/182d/365d periods in one LATERAL (replaces 3 separate JOINs)
+            LEFT JOIN LATERAL (
+                SELECT
+                    MAX(CASE WHEN period_days = 91 THEN daily_avg_quantity END) as daily_avg_quantity,
+                    MAX(CASE WHEN period_days = 91 THEN weekly_avg_quantity END) as weekly_avg_91d,
+                    MAX(CASE WHEN period_days = 182 THEN weekly_avg_quantity END) as weekly_avg_182d,
+                    MAX(CASE WHEN period_days = 365 THEN weekly_avg_quantity END) as weekly_avg_365d
+                FROM sales_velocity
+                WHERE variation_id = v.id AND merchant_id = $2
+                    AND period_days IN (91, 182, 365)
+                    AND (location_id = ic.location_id OR (location_id IS NULL AND ic.location_id IS NULL))
+            ) sv ON TRUE
+            -- Committed (reserved) inventory at same location as on-hand
             LEFT JOIN inventory_counts ic_committed ON v.id = ic_committed.catalog_object_id AND ic_committed.merchant_id = $2
                 AND ic_committed.state = 'RESERVED_FOR_SALE'
                 AND ic_committed.location_id = ic.location_id
+            -- Location name for display
             LEFT JOIN locations l ON ic.location_id = l.id AND l.merchant_id = $2
+            -- Per-location stock settings: overrides variation-level stock_alert_min/max
             LEFT JOIN variation_location_settings vls ON v.id = vls.variation_id AND vls.merchant_id = $2
                 AND ic.location_id = vls.location_id
+            -- Expiration tracking: date and does_not_expire flag for display
             LEFT JOIN variation_expiration vexp ON v.id = vexp.variation_id AND vexp.merchant_id = $2
+            -- Primary vendor: cheapest by cost, then earliest created (replaces 3 correlated subqueries)
+            LEFT JOIN LATERAL (
+                SELECT vv2.vendor_id, vv2.unit_cost_money, ve2.name as vendor_name
+                FROM variation_vendors vv2
+                LEFT JOIN vendors ve2 ON vv2.vendor_id = ve2.id AND ve2.merchant_id = $2
+                WHERE vv2.variation_id = v.id AND vv2.merchant_id = $2
+                ORDER BY vv2.unit_cost_money ASC, vv2.created_at ASC
+                LIMIT 1
+            ) pv ON TRUE
             WHERE v.merchant_id = $2
               AND v.discontinued = FALSE
               AND COALESCE(v.is_deleted, FALSE) = FALSE
@@ -262,10 +273,10 @@ function buildMainQuery({ supplyDaysNum, safetyDays, merchantId, vendor_id, loca
                   OR
 
                   -- APPLY SUPPLY_DAYS + SAFETY_DAYS + LEAD_TIME: Items with available stock that will run out within threshold period
-                  -- Only applies to items with active sales velocity (sv91.daily_avg_quantity > 0)
+                  -- Only applies to items with active sales velocity (daily_avg_quantity > 0)
                   -- $1 is (supply_days + safety_days); per-vendor lead_time_days added dynamically
-                  (sv91.daily_avg_quantity > 0
-                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv91.daily_avg_quantity < $1 + COALESCE(ve.lead_time_days, 0))
+                  (sv.daily_avg_quantity > 0
+                      AND (COALESCE(ic.quantity, 0) - COALESCE(ic_committed.quantity, 0)) / sv.daily_avg_quantity < $1 + COALESCE(ve.lead_time_days, 0))
               )
         `;
 

@@ -614,3 +614,87 @@ describe('is_primary_vendor — equal price vendors', () => {
         expect(result[0].is_primary_vendor).toBe(false);
     });
 });
+
+// ============================================================================
+// PERF-6: Query optimization tests
+// ============================================================================
+
+describe('buildMainQuery — PERF-6 LATERAL JOIN optimization', () => {
+    it('should use LATERAL JOIN for sales velocity instead of 3 separate JOINs', () => {
+        const { rows } = buildMainQuery({
+            supplyDaysNum: 45, safetyDays: 7, merchantId: 1, vendor_id: null, location_id: null
+        });
+        // Should contain the LATERAL subquery for sales velocity
+        expect(rows).toContain('LEFT JOIN LATERAL');
+        expect(rows).toContain('period_days IN (91, 182, 365)');
+        // Should NOT contain separate sv91/sv182/sv365 aliases
+        expect(rows).not.toContain('sv91.');
+        expect(rows).not.toContain('sv182.');
+        expect(rows).not.toContain('sv365.');
+    });
+
+    it('should use LATERAL JOIN for primary vendor instead of 3 correlated subqueries', () => {
+        const { rows } = buildMainQuery({
+            supplyDaysNum: 45, safetyDays: 7, merchantId: 1, vendor_id: null, location_id: null
+        });
+        // Should contain the primary vendor LATERAL
+        expect(rows).toContain('pv.vendor_id as primary_vendor_id');
+        expect(rows).toContain('pv.vendor_name as primary_vendor_name');
+        expect(rows).toContain('pv.unit_cost_money as primary_vendor_cost');
+        // Should NOT contain the old correlated subquery pattern (vv2, vv3, vv4)
+        expect(rows).not.toMatch(/\(SELECT vv2\.vendor_id/);
+        expect(rows).not.toMatch(/\(SELECT ve2\.name/);
+        expect(rows).not.toMatch(/\(SELECT vv4\.unit_cost_money/);
+    });
+
+    it('should still include the pending PO correlated subquery', () => {
+        const { rows } = buildMainQuery({
+            supplyDaysNum: 45, safetyDays: 7, merchantId: 1, vendor_id: null, location_id: null
+        });
+        expect(rows).toContain('purchase_order_items poi');
+        expect(rows).toContain('pending_po_quantity');
+    });
+
+    it('should reference sv alias for velocity in WHERE clause', () => {
+        const { rows } = buildMainQuery({
+            supplyDaysNum: 45, safetyDays: 7, merchantId: 1, vendor_id: null, location_id: null
+        });
+        expect(rows).toContain('sv.daily_avg_quantity > 0');
+    });
+
+    it('should select weekly_avg columns from sv LATERAL', () => {
+        const { rows } = buildMainQuery({
+            supplyDaysNum: 45, safetyDays: 7, merchantId: 1, vendor_id: null, location_id: null
+        });
+        expect(rows).toContain('sv.weekly_avg_91d');
+        expect(rows).toContain('sv.weekly_avg_182d');
+        expect(rows).toContain('sv.weekly_avg_365d');
+    });
+});
+
+describe('getReorderSuggestions — query duration logging', () => {
+    const logger = require('../../../utils/logger');
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        getMerchantSettings.mockResolvedValue(DEFAULT_SETTINGS);
+        calculateReorderQuantity.mockReturnValue(10);
+    });
+
+    it('should log queryDurationMs in reorder query results', async () => {
+        db.query.mockResolvedValueOnce({ rows: [] }); // main query
+        db.query.mockResolvedValueOnce({ rows: [] }); // bundle query
+
+        await getReorderSuggestions({
+            merchantId: 1, businessName: 'Test', query: {}
+        });
+
+        const logCall = logger.info.mock.calls.find(
+            call => call[0] === 'Reorder query results'
+        );
+        expect(logCall).toBeDefined();
+        expect(logCall[1]).toHaveProperty('queryDurationMs');
+        expect(typeof logCall[1].queryDurationMs).toBe('number');
+        expect(logCall[1].queryDurationMs).toBeGreaterThanOrEqual(0);
+    });
+});

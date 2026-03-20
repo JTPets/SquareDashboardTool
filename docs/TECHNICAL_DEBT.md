@@ -111,7 +111,7 @@ Known issues that are logged but not yet scheduled. These are not blocking any f
 
 | ID | File | Description |
 |----|------|-------------|
-| PERF-6 | `services/catalog/reorder-service.js:135+` | Reorder suggestions: 11-table JOIN, 4 correlated subqueries |
+| ~~PERF-6~~ | ~~`services/catalog/reorder-service.js:135+`~~ | ~~Reorder suggestions: 11-table JOIN, 4 correlated subqueries~~ **FIXED 2026-03-20** — 3 sv JOINs → 1 LATERAL, 3 vendor subqueries → 1 LATERAL, 3 composite indexes added |
 | ~~PERF-7~~ | ~~`routes/bundles.js:340-359`~~ | ~~N+1 bundle component inserts~~ **FIXED 2026-03-20** — `_batchInsertComponents()` in `services/bundle-service.js` uses single multi-row VALUES INSERT |
 | P-5 | `services/gmc/merchant-service.js:65-80` | Google OAuth token listener duplicated on every call — leaks listeners |
 | P-8 | `services/sync-queue.js:232-242` | Follow-up syncs block sequentially |
