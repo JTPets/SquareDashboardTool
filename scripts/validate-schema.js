@@ -225,8 +225,18 @@ async function main() {
 }
 
 function typeCompatible(schemaType, dbType) {
+    // Strip varchar(N) size specifiers — varchar(64) is compatible with varchar
+    const stripSize = t => t.replace(/\(\d+\)$/, '').trim();
+    const normSchema = stripSize(schemaType);
+    const normDb = stripSize(dbType);
+
+    // text[] / varchar[] in schema appears as ARRAY in information_schema
+    if (normSchema.endsWith('[]') && normDb === 'array') return true;
+    if (normDb.endsWith('[]') && normSchema === 'array') return true;
+
     const compatMap = {
         'integer': ['integer', 'bigint', 'smallint', 'serial', 'bigserial'],
+        'varchar': ['varchar', 'text', 'character varying', 'char', 'name'],
         'text': ['text', 'varchar', 'character varying', 'char', 'name'],
         'boolean': ['boolean'],
         'timestamp with time zone': ['timestamp with time zone', 'timestamptz'],
@@ -236,8 +246,8 @@ function typeCompatible(schemaType, dbType) {
         'uuid': ['uuid'],
     };
     for (const [base, variants] of Object.entries(compatMap)) {
-        if ((schemaType.startsWith(base) || variants.includes(schemaType)) &&
-            (dbType.startsWith(base) || variants.includes(dbType))) {
+        if ((normSchema.startsWith(base) || variants.includes(normSchema)) &&
+            (normDb.startsWith(base) || variants.includes(normDb))) {
             return true;
         }
     }
