@@ -203,7 +203,8 @@ async function getCustomerOrderHistoryForAudit({
     } while (cursor);
 
     // Analyze each order
-    const analyzedOrders = _analyzeOrders(orders, variationToOffer, trackedOrderIds, trackedOrderSources, orderRedemptionsMap);
+    // LOGIC CHANGE: renamed from _analyzeOrders for public export (BACKLOG-71)
+    const analyzedOrders = analyzeOrders(orders, variationToOffer, trackedOrderIds, trackedOrderSources, orderRedemptionsMap);
 
     // Summary stats
     const summary = {
@@ -233,11 +234,18 @@ async function getCustomerOrderHistoryForAudit({
     return response;
 }
 
+// LOGIC CHANGE: exported analyzeOrders for independent testing (BACKLOG-71)
 /**
  * Analyze orders for qualifying items, free items, and redemption cross-references.
- * @private
+ *
+ * @param {Array<Object>} orders - Square order objects
+ * @param {Map<string, Object>} variationToOffer - Maps variation ID to offer info
+ * @param {Set<string>} trackedOrderIds - Already-tracked Square order IDs
+ * @param {Map<string, string>} trackedOrderSources - Order ID to customer_source mapping
+ * @param {Map<string, Array>} orderRedemptionsMap - Order ID to redemption records
+ * @returns {Array<Object>} Analyzed orders with qualifying/non-qualifying items
  */
-function _analyzeOrders(orders, variationToOffer, trackedOrderIds, trackedOrderSources, orderRedemptionsMap) {
+function analyzeOrders(orders, variationToOffer, trackedOrderIds, trackedOrderSources, orderRedemptionsMap) {
     const analyzedOrders = [];
 
     for (const order of orders) {
@@ -421,5 +429,6 @@ async function addOrdersToLoyaltyTracking({ squareCustomerId, merchantId, orderI
 
 module.exports = {
     getCustomerOrderHistoryForAudit,
-    addOrdersToLoyaltyTracking
+    addOrdersToLoyaltyTracking,
+    analyzeOrders
 };

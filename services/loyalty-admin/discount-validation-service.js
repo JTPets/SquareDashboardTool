@@ -24,6 +24,49 @@ function getCreateDiscount() {
     return _createSquareCustomerGroupDiscount;
 }
 
+// LOGIC CHANGE: extracted duplicate recreate-discount pattern (BACKLOG-69)
+/**
+ * Clear invalid Square IDs from a reward and recreate the discount.
+ * Shared by DISCOUNT_NOT_FOUND and DISCOUNT_DELETED fix paths.
+ *
+ * @param {Object} params
+ * @param {number} params.merchantId - Internal merchant ID
+ * @param {Object} params.reward - Reward row with id, square_customer_id, offer_id
+ * @param {boolean} [params.clearIds=true] - Whether to NULL existing Square IDs first
+ * @returns {Promise<{success: boolean, fixAction?: string}>}
+ */
+async function recreateDiscountIfInvalid({ merchantId, reward, clearIds = true }) {
+    if (clearIds) {
+        await db.query(`
+            UPDATE loyalty_rewards SET
+                square_group_id = NULL,
+                square_discount_id = NULL,
+                square_product_set_id = NULL,
+                square_pricing_rule_id = NULL,
+                updated_at = NOW()
+            WHERE id = $1 AND merchant_id = $2
+        `, [reward.id, merchantId]);
+    }
+
+    const createResult = await getCreateDiscount()({
+        merchantId,
+        squareCustomerId: reward.square_customer_id,
+        internalRewardId: reward.id,
+        offerId: reward.offer_id
+    });
+
+    if (createResult.success) {
+        logger.info('Recreated discount for reward', {
+            merchantId,
+            rewardId: reward.id,
+            clearedIds: clearIds
+        });
+        return { success: true };
+    }
+
+    return { success: false, error: createResult.error };
+}
+
 /**
  * Validate earned rewards and their Square discount objects
  * Checks that discounts exist in Square and match database state
@@ -168,18 +211,21 @@ async function syncRewardDiscountPrices({ merchantId }) {
             continue;
         }
 
-        if (storedCap >= currentPrice) {
+        // LOGIC CHANGE: price cap now syncs both directions (BACKLOG-70)
+        if (storedCap === currentPrice) {
             results.upToDate++;
             continue;
         }
 
-        // Current catalog price exceeds the discount cap — update Square
-        logger.info('Reward discount cap below current price, updating', {
+        // Price mismatch — update Square discount cap to match current catalog price
+        const direction = currentPrice > storedCap ? 'increase' : 'decrease';
+        logger.info('Reward discount cap mismatched, updating', {
             merchantId,
             rewardId: reward.reward_id,
             offerName: reward.offer_name,
             storedCap,
             currentPrice,
+            direction,
             delta: currentPrice - storedCap
         });
 
@@ -196,7 +242,8 @@ async function syncRewardDiscountPrices({ merchantId }) {
                 rewardId: reward.reward_id,
                 offerName: reward.offer_name,
                 oldCap: storedCap,
-                newCap: currentPrice
+                newCap: currentPrice,
+                direction
             });
         } else {
             results.failed++;
@@ -236,23 +283,16 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
         result.details = { message: 'No Square discount objects created for this reward' };
 
         if (fixIssues) {
-            // Try to create the discount objects
-            const createResult = await getCreateDiscount()({
-                merchantId,
-                squareCustomerId: reward.square_customer_id,
-                internalRewardId: reward.id,
-                offerId: reward.offer_id
+            // LOGIC CHANGE: uses shared recreateDiscountIfInvalid (BACKLOG-69)
+            const recreateResult = await recreateDiscountIfInvalid({
+                merchantId, reward, clearIds: false
             });
 
-            if (createResult.success) {
+            if (recreateResult.success) {
                 result.fixed = true;
                 result.fixAction = 'CREATED_DISCOUNT';
-                logger.info('Created missing discount for reward', {
-                    merchantId,
-                    rewardId: reward.id
-                });
             } else {
-                result.details.fixError = createResult.error;
+                result.details.fixError = recreateResult.error;
             }
         }
 
@@ -295,29 +335,14 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                 };
 
                 if (fixIssues) {
-                    // Clear invalid IDs and recreate
-                    await db.query(`
-                        UPDATE loyalty_rewards SET
-                            square_group_id = NULL,
-                            square_discount_id = NULL,
-                            square_product_set_id = NULL,
-                            square_pricing_rule_id = NULL,
-                            updated_at = NOW()
-                        WHERE id = $1 AND merchant_id = $2
-                    `, [reward.id, merchantId]);
+                    // LOGIC CHANGE: uses shared recreateDiscountIfInvalid (BACKLOG-69)
+                    const recreateResult = await recreateDiscountIfInvalid({ merchantId, reward });
 
-                    const createResult = await getCreateDiscount()({
-                        merchantId,
-                        squareCustomerId: reward.square_customer_id,
-                        internalRewardId: reward.id,
-                        offerId: reward.offer_id
-                    });
-
-                    if (createResult.success) {
+                    if (recreateResult.success) {
                         result.fixed = true;
                         result.fixAction = 'RECREATED_DISCOUNT';
                     } else {
-                        result.details.fixError = createResult.error;
+                        result.details.fixError = recreateResult.error;
                     }
                 }
 
@@ -348,29 +373,14 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
                 };
 
                 if (fixIssues) {
-                    // Clear invalid IDs and recreate
-                    await db.query(`
-                        UPDATE loyalty_rewards SET
-                            square_group_id = NULL,
-                            square_discount_id = NULL,
-                            square_product_set_id = NULL,
-                            square_pricing_rule_id = NULL,
-                            updated_at = NOW()
-                        WHERE id = $1 AND merchant_id = $2
-                    `, [reward.id, merchantId]);
+                    // LOGIC CHANGE: uses shared recreateDiscountIfInvalid (BACKLOG-69)
+                    const recreateResult = await recreateDiscountIfInvalid({ merchantId, reward });
 
-                    const createResult = await getCreateDiscount()({
-                        merchantId,
-                        squareCustomerId: reward.square_customer_id,
-                        internalRewardId: reward.id,
-                        offerId: reward.offer_id
-                    });
-
-                    if (createResult.success) {
+                    if (recreateResult.success) {
                         result.fixed = true;
                         result.fixAction = 'RECREATED_DELETED_DISCOUNT';
                     } else {
-                        result.details.fixError = createResult.error;
+                        result.details.fixError = recreateResult.error;
                     }
                 }
 
@@ -457,5 +467,6 @@ async function validateSingleRewardDiscount({ merchantId, reward, accessToken, f
 module.exports = {
     validateEarnedRewardsDiscounts,
     validateSingleRewardDiscount,
-    syncRewardDiscountPrices
+    syncRewardDiscountPrices,
+    recreateDiscountIfInvalid
 };
