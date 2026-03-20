@@ -137,9 +137,9 @@ async function syncSalesVelocity(periodDays = 91, merchantId) {
                         if (salesData.has(key)) {
                             const data = salesData.get(key);
                             data.total_quantity -= parseFloat(returnItem.quantity) || 0;
-                            // LOGIC CHANGE: return_amounts is a property of the parent OrderReturn,
-                            // not of individual return_line_items. Use total_money directly.
-                            data.total_revenue -= parseInt(returnItem.total_money?.amount) || 0;
+                            // LOGIC CHANGE: full sync now subtracts refunds from velocity totals (BACKLOG-35)
+                            // Check total_money first (direct property), fall back to return_amounts.total_money
+                            data.total_revenue -= parseInt(returnItem.total_money?.amount ?? returnItem.return_amounts?.total_money?.amount) || 0;
                         }
                     }
                 }
@@ -472,9 +472,9 @@ async function syncSalesVelocityAllPeriods(merchantId, maxPeriod = 365, options 
                         if (!variationId || !locationId) continue;
 
                         const refundQty = parseFloat(returnItem.quantity) || 0;
-                        // LOGIC CHANGE: return_amounts is a property of the parent OrderReturn,
-                        // not of individual return_line_items. Use total_money directly.
-                        const refundRevenue = parseInt(returnItem.total_money?.amount) || 0;
+                        // LOGIC CHANGE: full sync now subtracts refunds from velocity totals (BACKLOG-35)
+                        // Check total_money first (direct property), fall back to return_amounts.total_money
+                        const refundRevenue = parseInt(returnItem.total_money?.amount ?? returnItem.return_amounts?.total_money?.amount) || 0;
 
                         for (const days of PERIODS) {
                             if (orderClosedAt >= periodBoundaries[days]) {
@@ -858,7 +858,8 @@ async function updateSalesVelocityFromOrder(order, merchantId) {
             if (!variationId || !existingIds.has(variationId)) continue;
 
             const refundQty = parseFloat(returnItem.quantity) || 0;
-            const refundRevenue = parseInt(returnItem.total_money?.amount) || 0;
+            // LOGIC CHANGE: Check total_money first, fall back to return_amounts.total_money (BACKLOG-35)
+            const refundRevenue = parseInt(returnItem.total_money?.amount ?? returnItem.return_amounts?.total_money?.amount) || 0;
 
             if (refundQty <= 0) continue;
 
