@@ -1664,7 +1664,7 @@ function updateOrderQty(input) {
   const lineTotalEl = document.getElementById(`line-total-${variationId}`);
   if (lineTotalEl) {
     const lineTotal = (actualUnits * item.unit_cost_cents / 100).toFixed(2);
-    lineTotalEl.innerHTML = `<strong>$${lineTotal}</strong>`;
+    lineTotalEl.innerHTML = `<strong>$${escapeHtml(lineTotal)}</strong>`;
   }
 
   // Update footer totals
@@ -1991,7 +1991,7 @@ function toggleReorderSection() {
   const body = document.getElementById('reorder-section-body');
   const toggle = document.getElementById('reorder-section-toggle');
   body.style.display = reorderSectionExpanded ? '' : 'none';
-  toggle.innerHTML = reorderSectionExpanded ? '&#9660;' : '&#9654;';
+  toggle.innerHTML = escapeHtml(reorderSectionExpanded ? '\u25BC' : '\u25B6');
 }
 
 function updateReorderSectionTitle() {
@@ -2029,7 +2029,7 @@ function renderOtherItemsSection() {
 
   const toggle = document.getElementById('other-items-toggle');
   const body = document.getElementById('other-items-body');
-  toggle.innerHTML = otherItemsExpanded ? '&#9660;' : '&#9654;';
+  toggle.innerHTML = escapeHtml(otherItemsExpanded ? '\u25BC' : '\u25B6');
   body.style.display = otherItemsExpanded ? '' : 'none';
 
   const tbody = document.getElementById('other-items-tbody');
@@ -2221,7 +2221,7 @@ function updateManualOrderQty(input) {
   const lineTotalEl = document.getElementById('line-total-' + variationId);
   if (lineTotalEl) {
     const lineTotal = (actualUnits * (item.unit_cost_cents || 0) / 100).toFixed(2);
-    lineTotalEl.innerHTML = '<strong>$' + lineTotal + '</strong>';
+    lineTotalEl.innerHTML = '<strong>$' + escapeHtml(lineTotal) + '</strong>';
   }
 
   updateFooter();

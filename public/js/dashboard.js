@@ -294,7 +294,7 @@ async function updateSyncStatus() {
       if (status[type]) {
         const last = formatTimestamp(status[type].last_sync);
         const next = formatNextSync(status[type].next_sync_due);
-        parts.push(`${type}: ${last} (next in ${next})`);
+        parts.push(`${escapeHtml(type)}: ${escapeHtml(last)} (next in ${escapeHtml(next)})`);
       }
     });
 

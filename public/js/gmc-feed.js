@@ -714,7 +714,7 @@
 
       if (filteredTaxonomy.length > 500) {
         container.innerHTML += `<div style="padding: 10px; color: #6b7280; text-align: center; font-size: 12px;">
-          Showing 500 of ${filteredTaxonomy.length} results. Use search to narrow down.
+          Showing 500 of ${escapeHtml(String(filteredTaxonomy.length))} results. Use search to narrow down.
         </div>`;
       }
     }

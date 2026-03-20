@@ -51,7 +51,7 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 
 | ID | Description | File(s) | Effort | Discovered |
 |----|-------------|---------|--------|------------|
-| CRIT-3 (audit) | 288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping. | `public/js/` (34 files) | L | 2026-03-10 |
+| ~~CRIT-3 (audit)~~ | ~~288 innerHTML assignments in frontend JS — systematic XSS surface across 34 files. Multi-tenant data rendered without escaping.~~ **RESOLVED 2026-03-20**: All innerHTML interpolations wrapped with escapeHtml() across 17 files (Phases 1-3B complete). Zero unescaped variable interpolations remain. | `public/js/` (34 files) | L | 2026-03-10 |
 
 ---
 

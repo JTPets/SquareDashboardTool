@@ -1317,7 +1317,7 @@
           resultEl.style.border = '1px solid #10b981';
           resultEl.innerHTML = `
             <strong style="color: #059669;">Success!</strong>
-            <span style="color: #065f46;"> ${result.updated} price(s) updated in Square.</span>
+            <span style="color: #065f46;"> ${escapeHtml(String(result.updated))} price(s) updated in Square.</span>
           `;
 
           // Uncheck the successfully updated items and disable them
@@ -1342,7 +1342,7 @@
           if (result.updated > 0) {
             errorHtml = `
               <strong style="color: #d97706;">Partial Success:</strong>
-              <span style="color: #92400e;"> ${result.updated} updated, ${result.failed} failed.</span>
+              <span style="color: #92400e;"> ${escapeHtml(String(result.updated))} updated, ${escapeHtml(String(result.failed))} failed.</span>
             `;
           }
 
@@ -1352,7 +1352,7 @@
               errorHtml += `<li>${escapeHtml(err.variationId || `Batch ${err.batch}`)}: ${escapeHtml(err.error)}</li>`;
             });
             if (result.errors.length > 5) {
-              errorHtml += `<li>...and ${result.errors.length - 5} more errors</li>`;
+              errorHtml += `<li>...and ${escapeHtml(String(result.errors.length - 5))} more errors</li>`;
             }
             errorHtml += '</ul>';
           }

@@ -51,7 +51,7 @@ async function loadConfig() {
       <div class="config-item">
         <span class="config-label">SQUARE_LOCATION_ID</span>
         <span class="config-value ${locationConfigured ? 'set' : 'missing'}">
-          ${locationConfigured ? 'Configured' : 'Not configured'}
+          ${escapeHtml(locationConfigured ? 'Configured' : 'Not configured')}
         </span>
       </div>
       <div class="config-item">
@@ -61,7 +61,7 @@ async function loadConfig() {
       <div class="config-item">
         <span class="config-label">Subscription Billing</span>
         <span class="config-value ${locationConfigured ? 'set' : 'missing'}">
-          ${locationConfigured ? 'Ready' : 'Setup required'}
+          ${escapeHtml(locationConfigured ? 'Ready' : 'Setup required')}
         </span>
       </div>
     `;
@@ -95,31 +95,31 @@ async function loadStats() {
     container.innerHTML = `
       <div class="stats-grid">
         <div class="stat-card highlight">
-          <div class="stat-value">${stats.total_subscribers || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.total_subscribers || 0))}</div>
           <div class="stat-label">Total Subscribers</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.active_count || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.active_count || 0))}</div>
           <div class="stat-label">Active</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.trial_count || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.trial_count || 0))}</div>
           <div class="stat-label">Trial</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.canceled_count || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.canceled_count || 0))}</div>
           <div class="stat-label">Canceled</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.monthly_count || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.monthly_count || 0))}</div>
           <div class="stat-label">Monthly Plans</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">${stats.annual_count || 0}</div>
+          <div class="stat-value">${escapeHtml(String(stats.annual_count || 0))}</div>
           <div class="stat-label">Annual Plans</div>
         </div>
         <div class="stat-card highlight">
-          <div class="stat-value">$${((stats.monthly_revenue_cents || 0) / 100).toFixed(2)}</div>
+          <div class="stat-value">$${escapeHtml(((stats.monthly_revenue_cents || 0) / 100).toFixed(2))}</div>
           <div class="stat-label">Est. Monthly Revenue</div>
         </div>
       </div>

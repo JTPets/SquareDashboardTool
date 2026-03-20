@@ -133,7 +133,7 @@ async function loadStatus() {
 
     if (statusData.totalNeedingPull > 0) {
       statusBar.className = 'status-bar error';
-      statusMessage.innerHTML = `<strong>${statusData.totalNeedingPull} item(s) need to be pulled from shelves!</strong>`;
+      statusMessage.innerHTML = `<strong>${escapeHtml(String(statusData.totalNeedingPull))} item(s) need to be pulled from shelves!</strong>`;
     } else if (statusData.totalWithDiscounts > 0) {
       statusBar.className = 'status-bar warning';
       statusMessage.textContent = `${statusData.totalWithDiscounts} items currently have expiry discounts applied.`;

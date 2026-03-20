@@ -201,7 +201,7 @@ function showCountModal(element, event, itemId) {
   const committed = Number(item.committed_quantity) || 0;
   const available = Number(item.available_quantity) || 0;
   if (committed > 0) {
-    committedInfo.innerHTML = `<span style="color: #92400e;">&#9888; ${available} available + ${committed} committed (in invoices/orders)</span>
+    committedInfo.innerHTML = `<span style="color: #92400e;">&#9888; ${escapeHtml(String(available))} available + ${escapeHtml(String(committed))} committed (in invoices/orders)</span>
       <br><span style="color: #dc2626; font-weight: 500;">Confirm with management before adjusting committed inventory</span>`;
   } else {
     committedInfo.textContent = '';
