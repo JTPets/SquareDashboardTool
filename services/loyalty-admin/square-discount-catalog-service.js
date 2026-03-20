@@ -14,6 +14,8 @@ const { fetchWithTimeout, getSquareAccessToken, generateIdempotencyKey, SQUARE_A
 const { deleteCatalogObjects } = require('../../utils/square-catalog-cleanup');
 
 // In-memory cache: merchantId -> currency code (persists for process lifetime)
+// BACKLOG-9: Acceptable loss on PM2 restart — read-through cache rebuilds on first call per
+// merchant. Currency rarely changes, so one extra Square API call after restart is negligible.
 const merchantCurrencyCache = new Map();
 
 /**

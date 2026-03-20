@@ -8,6 +8,16 @@
 
 Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, CLAUDE.md backlog, code audits, and code TODOs. Organized by priority tier.
 
+### Purge Log — 2026-03-20 Cleanup Batch (BACKLOG-9, BACKLOG-34, BACKLOG-40, EXPIRY-REORDER-AUDIT)
+
+**BACKLOG-9 DOCUMENTED** — Audited all module-level in-memory state across services/, utils/, and jobs/. Findings: (1) `sync-queue.js` already persists to DB with startup recovery. (2) `platform-settings.js` cache, `square-inventory.js` invoices scope cache, `square-discount-catalog-service.js` currency cache are all read-through caches that self-heal on first miss after restart. (3) `committed-inventory-reconciliation-job.js` consecutiveZeroDeletions is monitoring-only. All acceptable losses documented with `// BACKLOG-9:` comments in each file.
+
+**BACKLOG-34 DOCUMENTED** — Added "Square Variation ID Reuse on POS Reorder" section to docs/ARCHITECTURE.md under Square API Integration. Documents the behavior (Square deletes/recreates variations with new IDs on POS reorder), impact on historical data, current mitigations (soft-delete, item-level aggregation), and future roadmap.
+
+**BACKLOG-40 INVESTIGATED** — exceljs v4.4.0 is used in exactly 2 files: `services/vendor/catalog-service.js` (XLSX reading for vendor catalog import) and `routes/purchase-orders.js` (XLSX export for POs). Features used are minimal (basic workbook/worksheet/cell read/write, bold font, number formats). No npm audit vulnerabilities found. CSV parsing is 100% custom (no external library). Lighter alternatives exist (node-xlsx, xlsx/SheetJS) but exceljs is working and has no active security issues. **Recommendation**: No swap needed today. Re-evaluate if deprecated transitive deps become security risks. Effort estimate unchanged (S).
+
+**EXPIRY-REORDER-AUDIT FIXED** — Added lightweight hook in PO receiving flow (`routes/purchase-orders.js`) that flags `needs_manual_review = TRUE` on `variation_discount_status` for received items with active AUTO25/AUTO50 expiry discount tiers. Non-blocking (catch + warn on failure). Pattern matches BACKLOG-58 inventory webhook handler. 3 tests added.
+
 ### Purge Log — 2026-03-20 Shared Utility Extraction (BACKLOG-23, 25, 26, 27)
 
 **BACKLOG-23 FIXED** — Created `public/js/utils/format-currency.js` with `formatCurrency(cents)`, `formatDollars(dollars, decimals)`, and `formatNumber(num)`. Replaced inline currency/number formatting across 14 JS files. All standardized to 'en-CA' locale.
@@ -266,16 +276,16 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | ~~BACKLOG-25~~ | ~~Location lookup queries repeated across 6 routes (DEDUP G-5).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | ~~BACKLOG-26~~ | ~~Date string formatting pattern repeated 12 times (DEDUP G-7).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
 | ~~BACKLOG-27~~ | ~~Inconsistent toLocaleString() — 60 uses, mixed locales (DEDUP G-8).~~ **FIXED 2026-03-20** | S | 2026-02-17 |
-| BACKLOG-34 | Doc: Square reuses variation IDs on POS reorder delete/recreate. | S | 2026-02-24 |
-| BACKLOG-40 | exceljs pulls deprecated transitive deps — evaluate lighter library. | S | 2026-03-01 |
-| BACKLOG-9 | In-memory global state — PM2 restart recovery. | S | 2026-01-26 |
+| ~~BACKLOG-34~~ | ~~Doc: Square reuses variation IDs on POS reorder delete/recreate.~~ **DOCUMENTED 2026-03-20** — Added to ARCHITECTURE.md. | S | 2026-02-24 |
+| ~~BACKLOG-40~~ | ~~exceljs pulls deprecated transitive deps — evaluate lighter library.~~ **INVESTIGATED 2026-03-20** — No swap needed; no active vulnerabilities. Re-evaluate if transitive deps become security risks. | S | 2026-03-01 |
+| ~~BACKLOG-9~~ | ~~In-memory global state — PM2 restart recovery.~~ **DOCUMENTED 2026-03-20** — All in-memory state audited; all are self-healing caches or already DB-persisted. Comments added. | S | 2026-01-26 |
 | BACKLOG-46 | QuickBooks daily sync. | L | 2026-02-01 |
 | BACKLOG-47 | Multi-channel inventory sync — Shopify, WooCommerce, BigCommerce. | XL | 2026-02-01 |
 | BACKLOG-48 | Clover POS integration. | XL | 2026-02-01 |
 | BACKLOG-49 | Stripe payment integration. | L | 2026-02-01 |
 | ~~BACKLOG-57~~ | ~~FIXED 2026-03-20~~ — `applyDiscounts()` now skips DB update and DISCOUNT_APPLIED audit log when variation is already at correct tier and price. | S | 2026-03-15 |
 | ~~BACKLOG-58~~ | ~~FIXED 2026-03-20~~ — Inventory webhook handler now flags AUTO25/AUTO50 items for manual review (`needs_manual_review=TRUE`) when inventory changes. Next cron run re-evaluates. | S | 2026-03-15 |
-| EXPIRY-REORDER-AUDIT | Clearance items receiving new PO/restock should be flagged for re-audit. No trigger exists. | S | 2026-03-15 |
+| ~~EXPIRY-REORDER-AUDIT~~ | ~~Clearance items receiving new PO/restock should be flagged for re-audit. No trigger exists.~~ **FIXED 2026-03-20** — PO receive route flags AUTO25/AUTO50 items for manual review. | S | 2026-03-15 |
 
 ---
 
@@ -290,4 +300,4 @@ Single source of truth for all open work. Items sourced from TECHNICAL_DEBT.md, 
 | Nice to Have | 16 |
 | **Total** | **~44** |
 
-**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 items. **84 items purged** across four validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items).
+**Validation delta**: ~95 → ~65 → ~49 → ~44 → ~37 → ~34 items. **87 items purged** across five validations (2026-03-15: 46 items, 2026-03-17/19: 26 items, 2026-03-20: 5 items, 2026-03-20b: 7 items, 2026-03-20c: 3 items).

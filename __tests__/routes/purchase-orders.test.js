@@ -396,6 +396,8 @@ describe('Purchase Orders Routes', () => {
                 return fn(client);
             });
 
+            // EXPIRY-REORDER-AUDIT: expiry flag query
+            db.query.mockResolvedValueOnce({ rowCount: 0 });
             // final SELECT to return updated PO
             db.query.mockResolvedValueOnce({ rows: [{ ...samplePO, status: 'RECEIVED' }] });
 
@@ -403,6 +405,61 @@ describe('Purchase Orders Routes', () => {
                 .post('/api/purchase-orders/1/receive')
                 .send({ items: [{ id: 1, received_quantity: 10 }, { id: 2, received_quantity: 5 }] });
 
+            expect(res.status).toBe(200);
+        });
+
+        test('flags expiry-discounted items for re-audit on receive (EXPIRY-REORDER-AUDIT)', async () => {
+            // poCheck query
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
+            db.transaction.mockImplementation(async (fn) => {
+                const client = { query: jest.fn() };
+                client.query.mockResolvedValueOnce({ rows: [] }); // update item 1
+                client.query.mockResolvedValueOnce({ rows: [{ total: '1', received: '1' }] }); // check
+                client.query.mockResolvedValueOnce({ rows: [] }); // update status
+                return fn(client);
+            });
+
+            // EXPIRY-REORDER-AUDIT: expiry flag query — 1 item flagged
+            db.query.mockResolvedValueOnce({ rowCount: 1 });
+            // final SELECT
+            db.query.mockResolvedValueOnce({ rows: [{ ...samplePO, status: 'RECEIVED' }] });
+
+            const res = await request(app)
+                .post('/api/purchase-orders/1/receive')
+                .send({ items: [{ id: 1, received_quantity: 10 }] });
+
+            expect(res.status).toBe(200);
+            // Verify the expiry flag UPDATE was called (3rd db.query call: poCheck, flag, final SELECT)
+            const flagCall = db.query.mock.calls.find(call =>
+                typeof call[0] === 'string' && call[0].includes('needs_manual_review')
+            );
+            expect(flagCall).toBeDefined();
+            expect(flagCall[1]).toEqual([[1], '1', 10]); // receivedItemIds, PO id, merchantId
+        });
+
+        test('receive succeeds even if expiry flag query fails (EXPIRY-REORDER-AUDIT)', async () => {
+            // poCheck query
+            db.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+
+            db.transaction.mockImplementation(async (fn) => {
+                const client = { query: jest.fn() };
+                client.query.mockResolvedValueOnce({ rows: [] });
+                client.query.mockResolvedValueOnce({ rows: [{ total: '1', received: '1' }] });
+                client.query.mockResolvedValueOnce({ rows: [] });
+                return fn(client);
+            });
+
+            // EXPIRY-REORDER-AUDIT: expiry flag query fails
+            db.query.mockRejectedValueOnce(new Error('DB connection lost'));
+            // final SELECT still succeeds
+            db.query.mockResolvedValueOnce({ rows: [{ ...samplePO, status: 'RECEIVED' }] });
+
+            const res = await request(app)
+                .post('/api/purchase-orders/1/receive')
+                .send({ items: [{ id: 1, received_quantity: 10 }] });
+
+            // Should still return 200 — expiry flag is non-blocking
             expect(res.status).toBe(200);
         });
 
