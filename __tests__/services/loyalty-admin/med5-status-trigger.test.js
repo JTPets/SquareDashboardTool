@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 describe('MED-5: loyalty_rewards status transition trigger', () => {
-    const migrationPath = path.join(__dirname, '../../../database/migrations/071_loyalty_rewards_status_trigger.sql');
+    const migrationPath = path.join(__dirname, '../../../database/migrations/archive/071_loyalty_rewards_status_trigger.sql');
 
     test('migration file exists', () => {
         expect(fs.existsSync(migrationPath)).toBe(true);

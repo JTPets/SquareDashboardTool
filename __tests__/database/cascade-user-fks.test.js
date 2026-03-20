@@ -60,7 +60,7 @@ describe('DB-6: ON DELETE CASCADE on user_id foreign keys', () => {
 
     test('migration 072 exists and covers all 7 tables', () => {
         const migrationPath = path.join(
-            __dirname, '..', '..', 'database', 'migrations',
+            __dirname, '..', '..', 'database', 'migrations', 'archive',
             '072_add_cascade_user_fks.sql'
         );
         const migration = fs.readFileSync(migrationPath, 'utf8');

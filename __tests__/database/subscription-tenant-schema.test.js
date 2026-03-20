@@ -16,7 +16,7 @@ describe('CRIT-2/CRIT-4: Subscription table tenant isolation schema', () => {
             path.join(__dirname, '..', '..', 'database', 'schema.sql'), 'utf8'
         );
         migrationContent = fs.readFileSync(
-            path.join(__dirname, '..', '..', 'database', 'migrations',
+            path.join(__dirname, '..', '..', 'database', 'migrations', 'archive',
                 '074_add_merchant_id_to_subscription_tables.sql'), 'utf8'
         );
         schemaManagerContent = fs.readFileSync(

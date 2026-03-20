@@ -30,7 +30,12 @@ log "Installing dependencies..."
 npm ci --production
 log "Dependencies installed."
 
-# 3. Run tests
+# 3. Run database migrations
+log "Running database migrations..."
+node scripts/migrate.js
+log "Migrations complete."
+
+# 4. Run tests
 log "Running tests..."
 if npx jest --ci --forceExit; then
     log "Tests passed."
@@ -39,7 +44,7 @@ else
     exit 1
 fi
 
-# 4. Restart PM2
+# 5. Restart PM2
 log "Restarting PM2 process '${APP_NAME}'..."
 pm2 restart "$APP_NAME"
 log "PM2 restart complete."
