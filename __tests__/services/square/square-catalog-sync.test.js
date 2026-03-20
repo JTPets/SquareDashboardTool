@@ -15,7 +15,8 @@ jest.mock('../../../services/square/square-client', () => ({
 }));
 
 jest.mock('../../../services/square/square-vendors', () => ({
-    ensureVendorsExist: jest.fn().mockResolvedValue()
+    ensureVendorsExist: jest.fn().mockResolvedValue(),
+    syncVariationVendors: jest.fn().mockResolvedValue(0)
 }));
 
 jest.mock('../../../config/constants', () => ({
@@ -24,7 +25,7 @@ jest.mock('../../../config/constants', () => ({
 }));
 
 const { getMerchantToken, makeSquareRequest, sleep } = require('../../../services/square/square-client');
-const { ensureVendorsExist } = require('../../../services/square/square-vendors');
+const { ensureVendorsExist, syncVariationVendors } = require('../../../services/square/square-vendors');
 const { syncCatalog, deltaSyncCatalog, syncVariation } = require('../../../services/square/square-catalog-sync');
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
@@ -857,130 +858,34 @@ describe('syncVariation', () => {
         expect(params[10]).toBe(10);
     });
 
-    it('syncs vendor information (DELETE + INSERT in transaction) when valid vendor_info present', async () => {
+    it('delegates vendor sync to syncVariationVendors with correct args', async () => {
+        const vendorInfo = [
+            { vendor_id: 'VENDOR_A', vendor_code: 'VC-001', unit_cost_money: { amount: 2500, currency: 'CAD' } },
+            { vendor_id: 'VENDOR_B', vendor_code: 'VC-002', unit_cost_money: { amount: 3000, currency: 'USD' } }
+        ];
         const variation = {
             ...baseVariation,
             item_variation_data: {
                 ...baseVariation.item_variation_data,
-                vendor_information: [
-                    {
-                        vendor_id: 'VENDOR_A',
-                        vendor_code: 'VC-001',
-                        unit_cost_money: { amount: 2500, currency: 'CAD' }
-                    },
-                    {
-                        vendor_id: 'VENDOR_B',
-                        vendor_code: 'VC-002',
-                        unit_cost_money: { amount: 3000, currency: 'USD' }
-                    }
-                ]
+                vendor_information: vendorInfo
             }
         };
+
+        syncVariationVendors.mockResolvedValue(2);
 
         const vendorCount = await syncVariation(variation, MERCHANT_ID);
 
         expect(vendorCount).toBe(2);
-        expect(ensureVendorsExist).toHaveBeenCalledWith(
-            ['VENDOR_A', 'VENDOR_B'],
-            MERCHANT_ID
-        );
-        expect(db.transaction).toHaveBeenCalled();
+        expect(syncVariationVendors).toHaveBeenCalledWith('VAR_001', vendorInfo, MERCHANT_ID);
     });
 
-    it('skips vendor entries without vendor_id (cost-only entries)', async () => {
-        const variation = {
-            ...baseVariation,
-            item_variation_data: {
-                ...baseVariation.item_variation_data,
-                vendor_information: [
-                    {
-                        vendor_id: 'VENDOR_A',
-                        vendor_code: 'VC-001',
-                        unit_cost_money: { amount: 2500, currency: 'CAD' }
-                    },
-                    {
-                        // No vendor_id — cost-only entry
-                        unit_cost_money: { amount: 1000, currency: 'CAD' }
-                    }
-                ]
-            }
-        };
-
-        const vendorCount = await syncVariation(variation, MERCHANT_ID);
-
-        // Only one vendor had a vendor_id
-        expect(vendorCount).toBe(1);
-        expect(logger.debug).toHaveBeenCalledWith(
-            'Vendor info without vendor_id (cost-only entry)',
-            expect.objectContaining({ variation_id: 'VAR_001' })
-        );
-    });
-
-    it('does not delete vendor links when vendor_information is absent', async () => {
-        // No vendor_information field at all
-        db.query.mockImplementation((sql) => {
-            if (sql.includes('SELECT COUNT(*) as cnt FROM variation_vendors')) {
-                return { rows: [{ cnt: '2' }] };
-            }
-            return { rows: [], rowCount: 0 };
-        });
+    it('delegates vendor sync with undefined vendor_information', async () => {
+        syncVariationVendors.mockResolvedValue(0);
 
         const vendorCount = await syncVariation(baseVariation, MERCHANT_ID);
 
         expect(vendorCount).toBe(0);
-        expect(db.transaction).not.toHaveBeenCalled();
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Vendor information absent — preserving existing vendor links',
-            expect.objectContaining({
-                variationId: 'VAR_001',
-                existingLinksPreserved: true
-            })
-        );
-    });
-
-    it('does not delete vendor links when vendor_information is empty array', async () => {
-        const variation = {
-            ...baseVariation,
-            item_variation_data: {
-                ...baseVariation.item_variation_data,
-                vendor_information: []
-            }
-        };
-
-        db.query.mockImplementation((sql) => {
-            if (sql.includes('SELECT COUNT(*) as cnt FROM variation_vendors')) {
-                return { rows: [{ cnt: '1' }] };
-            }
-            return { rows: [], rowCount: 0 };
-        });
-
-        const vendorCount = await syncVariation(variation, MERCHANT_ID);
-
-        expect(vendorCount).toBe(0);
-        expect(db.transaction).not.toHaveBeenCalled();
-    });
-
-    it('does not delete vendor links when vendor_information has no real vendor_id', async () => {
-        const variation = {
-            ...baseVariation,
-            item_variation_data: {
-                ...baseVariation.item_variation_data,
-                vendor_information: [
-                    { unit_cost_money: { amount: 1000, currency: 'CAD' } }
-                ]
-            }
-        };
-
-        db.query.mockImplementation((sql) => {
-            if (sql.includes('SELECT COUNT(*) as cnt FROM variation_vendors')) {
-                return { rows: [{ cnt: '1' }] };
-            }
-            return { rows: [], rowCount: 0 };
-        });
-
-        await syncVariation(variation, MERCHANT_ID);
-
-        expect(db.transaction).not.toHaveBeenCalled();
+        expect(syncVariationVendors).toHaveBeenCalledWith('VAR_001', undefined, MERCHANT_ID);
     });
 
     it('syncs custom attribute: case_pack_quantity', async () => {
@@ -1062,7 +967,9 @@ describe('syncVariation', () => {
         expect(expiryCall[1][2]).toBe(true); // does_not_expire
     });
 
-    it('returns vendor count', async () => {
+    it('returns vendor count from syncVariationVendors', async () => {
+        syncVariationVendors.mockResolvedValue(3);
+
         const variation = {
             ...baseVariation,
             item_variation_data: {
@@ -1102,44 +1009,20 @@ describe('syncVariation', () => {
         expect(locationCalls[1][1]).toContain('LOC_B');
     });
 
-    it('handles vendor insert failure gracefully (logs warning, continues)', async () => {
+    it('delegates vendor sync even when vendor_information is empty array', async () => {
         const variation = {
             ...baseVariation,
             item_variation_data: {
                 ...baseVariation.item_variation_data,
-                vendor_information: [
-                    { vendor_id: 'VENDOR_GOOD', vendor_code: 'G1' },
-                    { vendor_id: 'VENDOR_BAD', vendor_code: 'B1' }
-                ]
+                vendor_information: []
             }
         };
 
-        // Make the transaction's client.query fail on second vendor INSERT
-        let vendorInsertCount = 0;
-        db.transaction.mockImplementation(async (fn) => {
-            const mockClient = {
-                query: jest.fn().mockImplementation((sql) => {
-                    if (sql.includes('INSERT INTO variation_vendors')) {
-                        vendorInsertCount++;
-                        if (vendorInsertCount === 2) {
-                            throw new Error('FK violation');
-                        }
-                    }
-                    return { rows: [], rowCount: 0 };
-                }),
-                release: jest.fn()
-            };
-            return fn(mockClient);
-        });
+        syncVariationVendors.mockResolvedValue(0);
 
-        const vendorCount = await syncVariation(variation, MERCHANT_ID);
+        await syncVariation(variation, MERCHANT_ID);
 
-        // First vendor succeeded, second failed
-        expect(vendorCount).toBe(1);
-        expect(logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Skipping variation_vendor'),
-            expect.objectContaining({ vendor_id: 'VENDOR_BAD' })
-        );
+        expect(syncVariationVendors).toHaveBeenCalledWith('VAR_001', [], MERCHANT_ID);
     });
 
     it('stores custom_attribute_values as JSON in variations table', async () => {

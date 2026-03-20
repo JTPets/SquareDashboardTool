@@ -137,11 +137,11 @@ describe('Falsy-zero bug fixes', () => {
         });
     });
 
-    describe('square-catalog-sync.js — unit_cost_money.amount ?? null', () => {
+    describe('square-vendors.js — unit_cost_money.amount ?? null', () => {
         test('uses ?? null for unit_cost_money.amount, not || null', () => {
             const fs = require('fs');
             const source = fs.readFileSync(
-                require.resolve('../../services/square/square-catalog-sync'),
+                require.resolve('../../services/square/square-vendors'),
                 'utf8'
             );
 
