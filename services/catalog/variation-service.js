@@ -23,7 +23,8 @@ const ALLOWED_EXTENDED_FIELDS = [
     'case_pack_quantity', 'stock_alert_min', 'stock_alert_max',
     'preferred_stock_level', 'shelf_location', 'bin_location',
     'reorder_multiple', 'discontinued', 'discontinue_date',
-    'replacement_variation_id', 'supplier_item_number',
+    'replacement_variation_id',
+    // LOGIC CHANGE: removed supplier_item_number (BACKLOG-89) — column dropped, vendor codes in variation_vendors
     'last_cost_cents', 'last_cost_date', 'notes'
 ];
 

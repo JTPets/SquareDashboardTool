@@ -363,6 +363,18 @@ describe('variation-service', () => {
             expect(updateParams).not.toContain('DROP TABLE');
         });
 
+        it('rejects supplier_item_number (BACKLOG-89 — dead column removed)', async () => {
+            db.query.mockResolvedValueOnce({ rows: [{ id: 'VAR1' }] });
+
+            const result = await updateExtendedFields('VAR1', merchantId, {
+                supplier_item_number: 'ACME-123'
+            });
+
+            // supplier_item_number is no longer in the allowlist, so no valid fields
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('No valid fields');
+        });
+
         it('throws when merchantId is missing', async () => {
             await expect(updateExtendedFields('VAR1', null, {})).rejects.toThrow('merchantId is required');
         });

@@ -178,7 +178,8 @@ async function getRedemptionDetails(rewardId, merchantId) {
             qv.variation_name,
             qv.sku,
             v.last_cost_cents as wholesale_cost_cents,
-            COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number,
+            -- LOGIC CHANGE: removed supplier_item_number fallback (BACKLOG-89) — column has 0 rows populated
+            vv.vendor_code as vendor_item_number,
             vv.unit_cost_money as vendor_unit_cost
         FROM loyalty_purchase_events pe
         LEFT JOIN loyalty_qualifying_variations qv
@@ -537,7 +538,8 @@ async function generateVendorReceipt(rewardId, merchantId) {
                 if (freeItemVariationId) {
                     const vendorResult = await db.query(`
                         SELECT
-                            COALESCE(vv.vendor_code, v.supplier_item_number) as vendor_item_number,
+                            -- LOGIC CHANGE: removed supplier_item_number fallback (BACKLOG-89) — column has 0 rows populated
+                            vv.vendor_code as vendor_item_number,
                             v.last_cost_cents as wholesale_cost_cents,
                             vv.unit_cost_money as vendor_unit_cost
                         FROM variations v
