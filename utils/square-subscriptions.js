@@ -15,7 +15,7 @@
 
 const logger = require('./logger');
 const db = require('./database');
-const { makeSquareRequest, generateIdempotencyKey } = require('./square-api');
+const { makeSquareRequest, generateIdempotencyKey } = require('../services/square/square-client');
 
 /**
  * Get the application's Square access token for subscription management
