@@ -2,6 +2,11 @@
  * Database Schema Manager
  * Ensures database schema is up to date on server startup.
  * Extracted from utils/database.js — see CLAUDE.md Approved Violations.
+ *
+ * APPROVED VIOLATION: File exceeds 300-line limit (target ~3000 lines).
+ * Reason: Single ensureSchema() function is the authoritative source for full schema
+ * on fresh installs. Splitting would break the guaranteed creation order.
+ * Ref: CLAUDE.md Approved Violations table, 2026-03-20.
  */
 const crypto = require('crypto');
 const { query } = require('./database');
@@ -78,15 +83,18 @@ async function ensureSchema() {
                 subscription_plan_id INTEGER,
                 trial_ends_at TIMESTAMPTZ,
                 subscription_ends_at TIMESTAMPTZ,
-                timezone TEXT DEFAULT 'America/New_York',
-                currency TEXT DEFAULT 'USD',
+                timezone TEXT DEFAULT 'America/Toronto',
+                currency TEXT DEFAULT 'CAD',
+                locale TEXT DEFAULT 'en-CA',
                 settings JSONB DEFAULT '{}',
                 is_active BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 last_sync_at TIMESTAMPTZ,
+                custom_attributes_initialized_at TIMESTAMPTZ DEFAULT NULL,
+                admin_email TEXT,
                 CONSTRAINT valid_subscription_status CHECK (
-                    subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended')
+                    subscription_status IN ('trial', 'active', 'cancelled', 'expired', 'suspended', 'platform_owner')
                 )
             )
         `);
@@ -948,8 +956,8 @@ async function ensureSchema() {
             CREATE TABLE IF NOT EXISTS oauth_states (
                 id SERIAL PRIMARY KEY,
                 state TEXT UNIQUE NOT NULL,
-                user_id INTEGER REFERENCES users(id),
-                merchant_id INTEGER REFERENCES merchants(id),
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                merchant_id INTEGER NOT NULL REFERENCES merchants(id),
                 redirect_uri TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 expires_at TIMESTAMPTZ NOT NULL,
@@ -958,6 +966,7 @@ async function ensureSchema() {
         `);
         await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state)');
         await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)');
+        await query('CREATE INDEX IF NOT EXISTS idx_oauth_states_merchant ON oauth_states(merchant_id)');
         logger.info('Created oauth_states table');
         appliedCount++;
     }
