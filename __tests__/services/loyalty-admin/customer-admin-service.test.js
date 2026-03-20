@@ -29,12 +29,16 @@ jest.mock('../../../utils/loyalty-logger', () => ({
     loyaltyLogger: { squareApi: jest.fn(), debug: jest.fn() }
 }));
 
-const mockFetchWithTimeout = jest.fn();
-const mockGetSquareAccessToken = jest.fn();
-
 jest.mock('../../../services/loyalty-admin/shared-utils', () => ({
-    fetchWithTimeout: mockFetchWithTimeout,
-    getSquareAccessToken: mockGetSquareAccessToken
+    getSquareAccessToken: jest.fn()
+}));
+
+// LOGIC CHANGE (BACKLOG-17): Mock customer-details-service since customer-admin-service
+// now delegates the Square API call to it instead of using raw fetchWithTimeout.
+const mockFetchCustomerFromSquare = jest.fn();
+jest.mock('../../../services/loyalty-admin/customer-details-service', () => ({
+    getCustomerDetails: mockFetchCustomerFromSquare,
+    cacheCustomerDetails: jest.fn()
 }));
 
 const mockCacheCustomerDetails = jest.fn().mockResolvedValue();
@@ -90,32 +94,14 @@ describe('getCustomerDetails', () => {
         const result = await getCustomerDetails('CUST_1', 1);
 
         expect(result).toBe(cached);
-        expect(mockFetchWithTimeout).not.toHaveBeenCalled();
+        expect(mockFetchCustomerFromSquare).not.toHaveBeenCalled();
     });
 
-    it('should fetch from Square API when not cached', async () => {
+    // LOGIC CHANGE (BACKLOG-17): Tests updated to mock customer-details-service
+    // instead of raw fetchWithTimeout, since customer-admin-service now delegates.
+    it('should fetch from Square via customer-details-service when not cached', async () => {
         mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                customer: {
-                    id: 'CUST_1',
-                    given_name: 'John',
-                    family_name: 'Doe',
-                    email_address: 'john@example.com',
-                    phone_number: '+15551234567',
-                    company_name: null,
-                    birthday: '1990-01-15',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2025-06-01T00:00:00Z'
-                }
-            })
-        });
-
-        const result = await getCustomerDetails('CUST_1', 1);
-
-        expect(result).toEqual({
+        const customerData = {
             id: 'CUST_1',
             givenName: 'John',
             familyName: 'Doe',
@@ -126,112 +112,33 @@ describe('getCustomerDetails', () => {
             birthday: '1990-01-15',
             createdAt: '2025-01-01T00:00:00Z',
             updatedAt: '2025-06-01T00:00:00Z'
-        });
-        expect(mockCacheCustomerDetails).toHaveBeenCalledWith(result, 1);
+        };
+        mockFetchCustomerFromSquare.mockResolvedValueOnce(customerData);
+
+        const result = await getCustomerDetails('CUST_1', 1);
+
+        expect(result).toEqual(customerData);
+        expect(mockFetchCustomerFromSquare).toHaveBeenCalledWith('CUST_1', 1);
+        expect(mockCacheCustomerDetails).toHaveBeenCalledWith(customerData, 1);
     });
 
-    it('should use company_name as displayName when given/family names are missing', async () => {
+    it('should return null when customer-details-service returns null', async () => {
         mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                customer: {
-                    id: 'CUST_2',
-                    given_name: null,
-                    family_name: null,
-                    company_name: 'ACME Corp',
-                    created_at: '2025-01-01T00:00:00Z',
-                    updated_at: '2025-01-01T00:00:00Z'
-                }
-            })
-        });
-
-        const result = await getCustomerDetails('CUST_2', 1);
-
-        expect(result.displayName).toBe('ACME Corp');
-        expect(result.givenName).toBeNull();
-        expect(result.familyName).toBeNull();
-    });
-
-    it('should use given_name only when family_name is missing', async () => {
-        mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                customer: {
-                    id: 'CUST_3', given_name: 'Jane', family_name: null,
-                    created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z'
-                }
-            })
-        });
-
-        const result = await getCustomerDetails('CUST_3', 1);
-        expect(result.displayName).toBe('Jane');
-    });
-
-    it('should return null when no access token available', async () => {
-        mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce(null);
+        mockFetchCustomerFromSquare.mockResolvedValueOnce(null);
 
         const result = await getCustomerDetails('CUST_1', 1);
 
         expect(result).toBeNull();
-        expect(mockFetchWithTimeout).not.toHaveBeenCalled();
-    });
-
-    it('should return null when Square API returns non-OK status', async () => {
-        mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: false, status: 404
-        });
-
-        const result = await getCustomerDetails('CUST_1', 1);
-
-        expect(result).toBeNull();
-    });
-
-    it('should return null when response has no customer object', async () => {
-        mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({})
-        });
-
-        const result = await getCustomerDetails('CUST_1', 1);
-
-        expect(result).toBeNull();
+        expect(mockCacheCustomerDetails).not.toHaveBeenCalled();
     });
 
     it('should return null and log error when fetch throws', async () => {
         mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockRejectedValueOnce(new Error('Network error'));
+        mockFetchCustomerFromSquare.mockRejectedValueOnce(new Error('Network error'));
 
         const result = await getCustomerDetails('CUST_1', 1);
 
         expect(result).toBeNull();
-    });
-
-    it('should set displayName to null when all name fields are empty', async () => {
-        mockGetCachedCustomer.mockResolvedValueOnce(null);
-        mockGetSquareAccessToken.mockResolvedValueOnce('test-token');
-        mockFetchWithTimeout.mockResolvedValueOnce({
-            ok: true, status: 200,
-            json: async () => ({
-                customer: {
-                    id: 'CUST_ANON', given_name: null, family_name: null,
-                    company_name: null,
-                    created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z'
-                }
-            })
-        });
-
-        const result = await getCustomerDetails('CUST_ANON', 1);
-        expect(result.displayName).toBeNull();
     });
 });
 

@@ -129,6 +129,55 @@ describe('syncVendors', () => {
         );
     });
 
+    // LOGIC CHANGE: reconcileVendorId now returns boolean; callers check it
+    test('does not count vendor as synced when reconcileVendorId returns false (no match by normalized name)', async () => {
+        const vendor = makeVendor('V_NEW', 'Unique Name');
+        makeSquareRequest.mockResolvedValue({ vendors: [vendor], cursor: null });
+
+        const constraintError = new Error('unique constraint');
+        constraintError.constraint = 'idx_vendors_merchant_name_unique';
+        db.query.mockRejectedValueOnce(constraintError);
+
+        // reconcileVendorId finds no existing vendor by normalized name → returns false
+        const mockClient = { query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }) };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const count = await syncVendors(merchantId);
+
+        expect(count).toBe(0); // Not counted because reconciliation failed
+        expect(logger.warn).toHaveBeenCalledWith(
+            'reconcileVendorId: no vendor found by normalized name — cannot reconcile',
+            expect.objectContaining({ merchantId, vendorId: 'V_NEW' })
+        );
+    });
+
+    test('reconcileVendorId updates name when same ID found with different casing', async () => {
+        const vendor = makeVendor('V_SAME', 'Acme Corp');
+        makeSquareRequest.mockResolvedValue({ vendors: [vendor], cursor: null });
+
+        const constraintError = new Error('unique constraint');
+        constraintError.constraint = 'idx_vendors_merchant_name_unique';
+        db.query.mockRejectedValueOnce(constraintError);
+
+        // reconcileVendorId finds existing vendor with same ID but different name casing
+        const mockClient = {
+            query: jest.fn()
+                .mockResolvedValueOnce({ rows: [{ id: 'V_SAME', name: 'acme corp' }] }) // SELECT existing
+                .mockResolvedValue({ rows: [], rowCount: 0 }) // UPDATE name
+        };
+        db.transaction.mockImplementation(async (fn) => fn(mockClient));
+
+        const count = await syncVendors(merchantId);
+
+        expect(count).toBe(1); // Counted because reconciliation succeeded
+        // Verify name update was issued
+        const updateCall = mockClient.query.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].includes('UPDATE vendors SET name')
+        );
+        expect(updateCall).toBeDefined();
+        expect(updateCall[1]).toEqual(['Acme Corp', 'V_SAME', merchantId]);
+    });
+
     test('throws on non-constraint errors', async () => {
         makeSquareRequest.mockResolvedValue({
             vendors: [makeVendor('V1', 'Test')],
